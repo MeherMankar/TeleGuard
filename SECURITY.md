@@ -16,7 +16,7 @@ We take security seriously. If you discover a security vulnerability, please fol
 
 Instead, please:
 
-1. **Email**: Send details to `security@example.com`
+1. **Contact**: Send details to `t.me/ContactXYZrobot`
 2. **Subject**: Include "SECURITY" in the subject line
 3. **Details**: Provide a clear description of the vulnerability
 4. **Impact**: Explain the potential impact and attack scenarios
@@ -112,7 +112,7 @@ Security updates will be:
 ## Contact
 
 For security-related questions or concerns:
-- **Email**: security@example.com
+- **Contact**: t.me/ContactXYZrobot
 - **Response Time**: 48 hours maximum
 
 ---
