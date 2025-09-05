@@ -14,7 +14,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/your-username/telegram-account-manager.git
+   git clone https://github.com/MeherMankar/TeleGuard.git
    cd telegram-account-manager
    ```
 3. Create a virtual environment:
