@@ -28,7 +28,7 @@ from telethon import functions, Button
 from telethon_2fa_helpers import Secure2FAManager, SecureInputManager
 from session_backup import SessionBackupManager  # TODO: REVIEW - session backup integration
 from session_scheduler import SessionScheduler  # TODO: REVIEW - session backup integration
-from channel_promotion import ChannelPromotion
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +53,7 @@ class AccountManager:
         # TODO: REVIEW - session backup integration (optional)
         self.session_backup = None
         self.session_scheduler = None
-        self.channel_promotion = ChannelPromotion(self.bot)
+
         
         # Only initialize session backup if enabled
         if os.environ.get('SESSION_BACKUP_ENABLED', 'false').lower() == 'true':
@@ -293,8 +293,7 @@ class AccountManager:
             
             # Send welcome message for new users
             if is_new_user:
-                await self.channel_promotion.send_welcome_with_channel(user_id)
-                return
+                await event.reply("Welcome to TeleGuard! 🤖\n\nYour professional Telegram account manager with OTP destroyer protection.")
             
             # Send main menu
             await self.menu_system.send_main_menu(user_id)
@@ -1152,10 +1151,7 @@ Last Updated: {session_doc['last_updated']}
             )
             await event.reply(support_text)
 
-        @self.bot.on(events.NewMessage(pattern=r'/channel'))
-        async def channel_handler(event):
-            user_id = event.sender_id
-            await self.channel_promotion.send_channel_promotion(user_id)
+
 
         @self.bot.on(events.NewMessage(pattern=r'/help'))
         async def help_handler(event):
