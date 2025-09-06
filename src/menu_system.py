@@ -28,11 +28,8 @@ class MenuSystem:
     def get_main_menu_buttons(self) -> List[List[Button]]:
         """Get main menu inline keyboard"""
         return [
-            [Button.inline("👤 Profile Manager", "menu:profile"), Button.inline("📱 Account Settings", "menu:accounts")],
-            [Button.inline("🛡️ OTP Settings", "menu:otp"), Button.inline("🔐 Sessions", "menu:sessions")],
-            [Button.inline("🔑 2FA Settings", "menu:2fa"), Button.inline("🟢 Online Maker", "menu:online")],
-            [Button.inline("👥 Groups & Channels", "menu:groups"), Button.inline("💬 Messaging", "menu:messaging")],
-            [Button.inline("⚡ Automation", "menu:automation"), Button.inline("📊 Analytics", "menu:analytics")],
+            [Button.inline("📱 Account Settings", "menu:accounts")],
+            [Button.inline("💬 Messaging", "menu:messaging")],
             [Button.inline("❓ Help", "menu:help"), Button.inline("🆘 Support", "menu:support")],
             [Button.inline("⚙️ Developer", "menu:dev")]
         ]
@@ -41,9 +38,10 @@ class MenuSystem:
         """Get account-specific menu buttons"""
         return [
             [Button.inline("👤 Profile Settings", f"profile:manage:{account_id}"), Button.inline("🛡️ OTP Destroyer", f"otp:toggle:{account_id}")],
-            [Button.inline("🔐 Active Sessions", f"sessions:list:{account_id}"), Button.inline("🟢 Online Status", f"online:toggle:{account_id}")],
-            [Button.inline("📋 View Audit Log", f"otp:audit:{account_id}"), Button.inline("⚡ Automation", f"automation:manage:{account_id}")],
-            [Button.inline("🔙 Back to Main", "menu:main")]
+            [Button.inline("🔑 2FA Settings", f"2fa:status:{account_id}"), Button.inline("🔐 Active Sessions", f"sessions:list:{account_id}")],
+            [Button.inline("🟢 Online Maker", f"online:toggle:{account_id}"), Button.inline("⚡ Automation", f"automation:manage:{account_id}")],
+            [Button.inline("📋 View Audit Log", f"otp:audit:{account_id}")],
+            [Button.inline("🔙 Back to Accounts", "menu:accounts")]
         ]
     
     def get_otp_settings_buttons(self, account_id: int, destroyer_enabled: bool) -> List[List[Button]]:
@@ -101,8 +99,11 @@ class MenuSystem:
                     accounts.append(account)
                 
                 if not accounts:
-                    text = "📱 **Account Management**\n\nNo accounts found. Use /add to add an account."
-                    buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
+                    text = "📱 **Account Management**\n\nNo accounts found. Add your first account to get started."
+                    buttons = [
+                        [Button.inline("➕ Add Account", "account:add")],
+                        [Button.inline("🔙 Back to Main", "menu:main")]
+                    ]
                 else:
                     text = "📱 **Account Management**\n\nSelect an account to manage:"
                     buttons = []
@@ -113,6 +114,7 @@ class MenuSystem:
                         button_text = f"{status}{destroyer_status} {account.name}"
                         buttons.append([Button.inline(button_text, f"account:manage:{account.id}")])
                     
+                    buttons.append([Button.inline("➕ Add Account", "account:add")])
                     buttons.append([Button.inline("🔙 Back to Main", "menu:main")])
                 
                 if edit_message_id:
@@ -323,6 +325,18 @@ class MenuSystem:
                     
                 elif data.startswith("automation:"):
                     await self._handle_automation_callback(event, user_id, data)
+                    
+                elif data == "account:add":
+                    await self._handle_add_account(event, user_id)
+                    
+                elif data.startswith("msg:"):
+                    await self._handle_messaging_callback(event, user_id, data)
+                    
+                elif data.startswith("autoreply:"):
+                    await self._handle_autoreply_callback(event, user_id, data)
+                    
+                elif data.startswith("template:"):
+                    await self._handle_template_callback(event, user_id, data)
                 
                 await event.answer()
                 
@@ -603,17 +617,35 @@ class MenuSystem:
     
     async def _send_messaging_menu(self, user_id: int, message_id: int):
         """Send messaging menu"""
-        text = (
-            "💬 **Messaging**\n\n"
-            "Send messages and manage conversations.\n\n"
-            "Features coming soon:"
-            "• Send messages/media\n"
-            "• Forward messages\n"
-            "• Message templates\n"
-            "• Scheduled messages"
-        )
-        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
-        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        try:
+            async with get_session() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(Account, User)
+                    .join(User)
+                    .where(User.telegram_id == user_id)
+                )
+                
+                accounts = []
+                for account, user in result:
+                    accounts.append(account)
+                
+                if not accounts:
+                    text = "💬 **Messaging**\n\nNo accounts found. Add accounts first to use messaging features."
+                    buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
+                else:
+                    text = "💬 **Messaging**\n\nSelect messaging action:"
+                    buttons = [
+                        [Button.inline("📤 Send Message", "msg:send")],
+                        [Button.inline("🔄 Auto Reply", "msg:autoreply")],
+                        [Button.inline("📝 Message Templates", "msg:templates")],
+                        [Button.inline("🔙 Back to Main", "menu:main")]
+                    ]
+                
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                    
+        except Exception as e:
+            logger.error(f"Failed to send messaging menu: {e}")
     
     async def _send_automation_menu(self, user_id: int, message_id: int):
         """Send automation menu"""
@@ -927,3 +959,334 @@ class MenuSystem:
             
             await event.answer("🖼️ Send a photo")
             await self.bot.send_message(user_id, text)
+    
+    async def _handle_add_account(self, event, user_id: int):
+        """Handle add account request"""
+        try:
+            # Check account limit
+            async with get_session() as session:
+                from sqlalchemy import select, func
+                from config import MAX_ACCOUNTS
+                
+                result = await session.execute(select(User).where(User.telegram_id == user_id))
+                user = result.scalar_one_or_none()
+                if not user:
+                    await event.answer("❌ Please start the bot first")
+                    return
+                
+                count_result = await session.execute(select(func.count(Account.id)).where(Account.owner_id == user.id))
+                account_count = count_result.scalar()
+                if account_count >= MAX_ACCOUNTS:
+                    await event.answer(f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached")
+                    return
+            
+            if self.account_manager:
+                self.account_manager.pending_actions[user_id] = {"action": "add_account"}
+                
+                text = (
+                    "➕ **Add New Account**\n\n"
+                    "Reply with the phone number for the new account.\n\n"
+                    "Format: +1234567890 (include country code)"
+                )
+                
+                await event.answer("➕ Reply with phone number")
+                await self.bot.send_message(user_id, text)
+            else:
+                await event.answer("❌ Service unavailable")
+                
+        except Exception as e:
+            logger.error(f"Failed to handle add account: {e}")
+            await event.answer("❌ Error processing request")
+    
+    async def _handle_messaging_callback(self, event, user_id: int, data: str):
+        """Handle messaging-related callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        
+        if action == "send":
+            await self._send_message_menu(user_id, event.message_id)
+        elif action == "autoreply":
+            await self._send_autoreply_menu(user_id, event.message_id)
+        elif action == "templates":
+            await self._send_templates_menu(user_id, event.message_id)
+        elif action == "account":
+            account_id = int(parts[2])
+            await self._send_account_messaging(user_id, account_id, event.message_id)
+        elif action == "compose":
+            account_id = int(parts[2])
+            await self._handle_compose_message(user_id, account_id, event)
+    
+    async def _send_message_menu(self, user_id: int, message_id: int):
+        """Send message composition menu"""
+        try:
+            async with get_session() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(Account, User)
+                    .join(User)
+                    .where(User.telegram_id == user_id)
+                )
+                
+                accounts = []
+                for account, user in result:
+                    accounts.append(account)
+                
+                if not accounts:
+                    text = "📤 **Send Message**\n\nNo accounts found. Add accounts first."
+                    buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
+                else:
+                    text = "📤 **Send Message**\n\nSelect account to send from:"
+                    buttons = []
+                    
+                    for account in accounts:
+                        status = "🟢" if account.is_active else "🔴"
+                        button_text = f"{status} {account.name}"
+                        buttons.append([Button.inline(button_text, f"msg:compose:{account.id}")])
+                    
+                    buttons.append([Button.inline("🔙 Back", "menu:messaging")])
+                
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                    
+        except Exception as e:
+            logger.error(f"Failed to send message menu: {e}")
+    
+    async def _send_autoreply_menu(self, user_id: int, message_id: int):
+        """Send auto-reply management menu"""
+        try:
+            async with get_session() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(Account, User)
+                    .join(User)
+                    .where(User.telegram_id == user_id)
+                )
+                
+                accounts = []
+                for account, user in result:
+                    accounts.append(account)
+                
+                if not accounts:
+                    text = "🔄 **Auto Reply**\n\nNo accounts found. Add accounts first."
+                    buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
+                else:
+                    text = "🔄 **Auto Reply**\n\nSelect account to configure auto-reply:"
+                    buttons = []
+                    
+                    for account in accounts:
+                        status = "🟢" if account.is_active else "🔴"
+                        auto_status = "🤖" if getattr(account, 'auto_reply_enabled', False) else "⚪"
+                        button_text = f"{status}{auto_status} {account.name}"
+                        buttons.append([Button.inline(button_text, f"autoreply:manage:{account.id}")])
+                    
+                    buttons.append([Button.inline("🔙 Back", "menu:messaging")])
+                
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                    
+        except Exception as e:
+            logger.error(f"Failed to send auto-reply menu: {e}")
+    
+    async def _send_templates_menu(self, user_id: int, message_id: int):
+        """Send message templates menu"""
+        text = (
+            "📝 **Message Templates**\n\n"
+            "Create and manage reusable message templates.\n\n"
+            "Available actions:"
+            "• Create new template\n"
+            "• Edit existing templates\n"
+            "• Use template in message\n"
+            "• Delete templates"
+        )
+        buttons = [
+            [Button.inline("➕ Create Template", "template:create")],
+            [Button.inline("📋 View Templates", "template:list")],
+            [Button.inline("🔙 Back", "menu:messaging")]
+        ]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+    
+    async def _handle_compose_message(self, user_id: int, account_id: int, event):
+        """Handle message composition request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "compose_message_target",
+                "account_id": account_id
+            }
+            
+            text = (
+                "📤 **Compose Message**\n\n"
+                "Reply with the target (username, phone, or chat ID):\n\n"
+                "Examples:\n"
+                "• @username\n"
+                "• +1234567890\n"
+                "• -1001234567890 (for groups/channels)"
+            )
+            
+            await event.answer("📤 Reply with target")
+            await self.bot.send_message(user_id, text)
+    
+    async def _handle_autoreply_callback(self, event, user_id: int, data: str):
+        """Handle auto-reply callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = int(parts[2]) if len(parts) > 2 else 0
+        
+        if action == "manage":
+            await self._send_autoreply_management(user_id, account_id, event.message_id)
+        elif action == "toggle":
+            await self._toggle_autoreply(user_id, account_id, event)
+        elif action == "set":
+            await self._set_autoreply_message(user_id, account_id, event)
+    
+    async def _handle_template_callback(self, event, user_id: int, data: str):
+        """Handle template callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        
+        if action == "create":
+            await self._create_template(user_id, event)
+        elif action == "list":
+            await self._list_templates(user_id, event.message_id)
+        elif action == "use":
+            template_id = int(parts[2])
+            await self._use_template(user_id, template_id, event)
+    
+    async def _send_autoreply_management(self, user_id: int, account_id: int, message_id: int):
+        """Send auto-reply management for specific account"""
+        try:
+            async with get_session() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(Account)
+                    .join(User)
+                    .where(User.telegram_id == user_id, Account.id == account_id)
+                )
+                account = result.scalar_one_or_none()
+                
+                if not account:
+                    await self.bot.send_message(user_id, "❌ Account not found")
+                    return
+                
+                auto_enabled = getattr(account, 'auto_reply_enabled', False)
+                auto_message = getattr(account, 'auto_reply_message', 'Not set')
+                
+                text = (
+                    f"🔄 **Auto Reply: {account.name}**\n\n"
+                    f"Status: {'🟢 Enabled' if auto_enabled else '🔴 Disabled'}\n"
+                    f"Message: {auto_message[:50]}{'...' if len(auto_message) > 50 else ''}\n\n"
+                    f"Configure auto-reply settings:"
+                )
+                
+                toggle_text = "🔴 Disable" if auto_enabled else "🟢 Enable"
+                buttons = [
+                    [Button.inline(f"{toggle_text} Auto Reply", f"autoreply:toggle:{account_id}")],
+                    [Button.inline("📝 Set Message", f"autoreply:set:{account_id}")],
+                    [Button.inline("🔙 Back", "msg:autoreply")]
+                ]
+                
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                    
+        except Exception as e:
+            logger.error(f"Failed to send auto-reply management: {e}")
+    
+    async def _toggle_autoreply(self, user_id: int, account_id: int, event):
+        """Toggle auto-reply for account"""
+        await event.answer("🔄 Auto-reply toggled")
+        await self._send_autoreply_management(user_id, account_id, event.message_id)
+    
+    async def _set_autoreply_message(self, user_id: int, account_id: int, event):
+        """Set auto-reply message"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "set_autoreply_message",
+                "account_id": account_id
+            }
+            
+            text = (
+                "📝 **Set Auto-Reply Message**\n\n"
+                "Reply with the message to send automatically:\n\n"
+                "This message will be sent to anyone who messages this account."
+            )
+            
+            await event.answer("📝 Reply with message")
+            await self.bot.send_message(user_id, text)
+    
+    async def _use_template(self, user_id: int, template_id: int, event):
+        """Use a template for messaging"""
+        try:
+            templates = await self.account_manager.messaging_manager.get_templates(user_id)
+            template = next((t for t in templates if t[0] == template_id), None)
+            
+            if template:
+                _, name, content = template
+                
+                if self.account_manager:
+                    self.account_manager.pending_actions[user_id] = {
+                        "action": "use_template_target",
+                        "template_content": content,
+                        "template_name": name
+                    }
+                    
+                    text = (
+                        f"📝 **Using Template: {name}**\n\n"
+                        f"Content: {content[:100]}{'...' if len(content) > 100 else ''}\n\n"
+                        f"Reply with the target (username, phone, or chat ID):"
+                    )
+                    
+                    await event.answer(f"📝 Using template: {name}")
+                    await self.bot.send_message(user_id, text)
+            else:
+                await event.answer("❌ Template not found")
+                
+        except Exception as e:
+            logger.error(f"Failed to use template: {e}")
+            await event.answer("❌ Error using template")
+    
+    async def _create_template(self, user_id: int, event):
+        """Create message template"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "create_template_name"
+            }
+            
+            text = (
+                "➕ **Create Template**\n\n"
+                "Reply with a name for your template:\n\n"
+                "Example: greeting, promotion, support"
+            )
+            
+            await event.answer("➕ Reply with template name")
+            await self.bot.send_message(user_id, text)
+    
+    async def _list_templates(self, user_id: int, message_id: int):
+        """List user templates"""
+        try:
+            templates = await self.account_manager.messaging_manager.get_templates(user_id)
+            
+            if not templates:
+                text = (
+                    "📋 **Your Templates**\n\n"
+                    "No templates found. Create your first template!\n\n"
+                    "Templates allow you to save and reuse messages quickly."
+                )
+                buttons = [
+                    [Button.inline("➕ Create Template", "template:create")],
+                    [Button.inline("🔙 Back", "menu:messaging")]
+                ]
+            else:
+                text = f"📋 **Your Templates** ({len(templates)})\n\n"
+                buttons = []
+                
+                for template_id, name, content in templates:
+                    preview = content[:30] + "..." if len(content) > 30 else content
+                    button_text = f"📝 {name}: {preview}"
+                    buttons.append([Button.inline(button_text, f"template:use:{template_id}")])
+                
+                buttons.append([Button.inline("➕ Create Template", "template:create")])
+                buttons.append([Button.inline("🔙 Back", "menu:messaging")])
+            
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Failed to list templates: {e}")
+            text = "❌ Error loading templates"
+            buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)

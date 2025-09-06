@@ -28,6 +28,7 @@ from telethon import functions, Button
 from telethon_2fa_helpers import Secure2FAManager, SecureInputManager
 from session_backup import SessionBackupManager  # TODO: REVIEW - session backup integration
 from session_scheduler import SessionScheduler  # TODO: REVIEW - session backup integration
+from messaging_manager import MessagingManager
 
 
 logging.basicConfig(
@@ -50,6 +51,7 @@ class AccountManager:
         self.automation_engine = AutomationEngine(self.user_clients, self.fullclient_manager)  # TODO: REVIEW - New engine
         self.secure_2fa = Secure2FAManager()
         self.secure_input = SecureInputManager()
+        self.messaging_manager = MessagingManager(self.user_clients)
         # TODO: REVIEW - session backup integration (optional)
         self.session_backup = None
         self.session_scheduler = None
@@ -982,6 +984,112 @@ class AccountManager:
                             await event.reply(f"❌ Failed to update bio: {e}")
                     else:
                         await event.reply("❌ Account not found")
+                        
+                elif action == "compose_message_target":
+                    account_id = self.pending_actions[user_id].get("account_id")
+                    target = message.strip()
+                    
+                    self.pending_actions[user_id] = {
+                        "action": "compose_message_text",
+                        "account_id": account_id,
+                        "target": target
+                    }
+                    
+                    await event.reply(f"📝 Target set: {target}\n\nNow reply with your message:")
+                    return
+                    
+                elif action == "compose_message_text":
+                    account_id = self.pending_actions[user_id].get("account_id")
+                    target = self.pending_actions[user_id].get("target")
+                    message_text = message
+                    
+                    from sqlalchemy import select
+                    result = await session.execute(select(Account).where(Account.owner_id == user.id, Account.id == account_id))
+                    account = result.scalar_one_or_none()
+                    
+                    if account:
+                        success = await self.messaging_manager.send_message(user_id, account.name, target, message_text)
+                        if success:
+                            await event.reply(f"✅ Message sent to {target} from {account.name}")
+                        else:
+                            await event.reply("❌ Failed to send message")
+                    else:
+                        await event.reply("❌ Account not found")
+                        
+                elif action == "set_autoreply_message":
+                    account_id = self.pending_actions[user_id].get("account_id")
+                    auto_message = message
+                    
+                    from sqlalchemy import select
+                    result = await session.execute(select(Account).where(Account.owner_id == user.id, Account.id == account_id))
+                    account = result.scalar_one_or_none()
+                    
+                    if account:
+                        success = await self.messaging_manager.setup_auto_reply(user_id, account.name, auto_message)
+                        if success:
+                            await event.reply(f"✅ Auto-reply enabled for {account.name}")
+                        else:
+                            await event.reply("❌ Failed to setup auto-reply")
+                    else:
+                        await event.reply("❌ Account not found")
+                    
+                elif action == "create_template_name":
+                    template_name = message.strip()
+                    
+                    self.pending_actions[user_id] = {
+                        "action": "create_template_content",
+                        "template_name": template_name
+                    }
+                    
+                    await event.reply(f"📝 Template name: {template_name}\n\nNow reply with the template content:")
+                    return
+                    
+                elif action == "create_template_content":
+                    template_name = self.pending_actions[user_id].get("template_name")
+                    template_content = message
+                    
+                    success = await self.messaging_manager.create_template(user_id, template_name, template_content)
+                    if success:
+                        await event.reply(f"✅ Template '{template_name}' created successfully!")
+                    else:
+                        await event.reply("❌ Failed to create template")
+                        
+                elif action == "use_template_target":
+                    template_content = self.pending_actions[user_id].get("template_content")
+                    template_name = self.pending_actions[user_id].get("template_name")
+                    target = message.strip()
+                    
+                    self.pending_actions[user_id] = {
+                        "action": "use_template_send",
+                        "template_content": template_content,
+                        "template_name": template_name,
+                        "target": target
+                    }
+                    
+                    await event.reply(f"🎯 Target: {target}\n📝 Template: {template_name}\n\nSelect account to send from or reply 'send' to use first account:")
+                    return
+                    
+                elif action == "use_template_send":
+                    template_content = self.pending_actions[user_id].get("template_content")
+                    target = self.pending_actions[user_id].get("target")
+                    
+                    from sqlalchemy import select
+                    result = await session.execute(
+                        select(Account)
+                        .join(User)
+                        .where(User.telegram_id == user_id, Account.is_active == True)
+                        .limit(1)
+                    )
+                    account = result.scalar_one_or_none()
+                    
+                    if account:
+                        success = await self.messaging_manager.send_message(user_id, account.name, target, template_content)
+                        if success:
+                            await event.reply(f"✅ Template message sent to {target} from {account.name}")
+                        else:
+                            await event.reply("❌ Failed to send template message")
+                    else:
+                        await event.reply("❌ No active accounts found")
             
             self.pending_actions.pop(user_id, None)
 
@@ -1152,6 +1260,38 @@ Last Updated: {session_doc['last_updated']}
             await event.reply(support_text)
 
 
+
+        @self.bot.on(events.NewMessage(pattern=r'/msg (.+)'))
+        async def quick_message_handler(event):
+            user_id = event.sender_id
+            message_parts = event.pattern_match.group(1).strip().split(' ', 1)
+            
+            if len(message_parts) < 2:
+                await event.reply("Usage: /msg <target> <message>\nExample: /msg @username Hello there!")
+                return
+                
+            target, message_text = message_parts[0], message_parts[1]
+            
+            # Get first active account
+            async with get_session() as session:
+                from sqlalchemy import select
+                result = await session.execute(
+                    select(Account)
+                    .join(User)
+                    .where(User.telegram_id == user_id, Account.is_active == True)
+                    .limit(1)
+                )
+                account = result.scalar_one_or_none()
+                
+                if not account:
+                    await event.reply("❌ No active accounts found")
+                    return
+                    
+                success = await self.messaging_manager.send_message(user_id, account.name, target, message_text)
+                if success:
+                    await event.reply(f"✅ Message sent to {target} from {account.name}")
+                else:
+                    await event.reply("❌ Failed to send message")
 
         @self.bot.on(events.NewMessage(pattern=r'/help'))
         async def help_handler(event):
