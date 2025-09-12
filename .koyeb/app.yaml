@@ -1,0 +1,25 @@
+name: teleguard
+services:
+  - name: teleguard-bot
+    type: web
+    git:
+      branch: main
+      build_command: pip install -r config/requirements.txt
+      run_command: python main.py
+    instance_type: nano
+    regions:
+      - fra
+    ports:
+      - port: 8080
+        protocol: http
+    env:
+      - key: API_ID
+        scope: project
+      - key: API_HASH
+        scope: project
+      - key: BOT_TOKEN
+        scope: project
+      - key: ADMIN_IDS
+        scope: project
+      - key: DATABASE_URL
+        value: "sqlite+aiosqlite:///bot_data.db"

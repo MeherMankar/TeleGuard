@@ -1,0 +1,140 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.cache
+nosetests.xml
+
+# Linting and formatting
+.mypy_cache/
+.flake8
+.bandit
+
+# Documentation
+docs/_build/
+site/
+
+# Logs and databases
+*.log
+*.db
+*.sqlite
+*.sqlite3
+logs/
+data/
+backups/
+
+# Session files
+*.session
+*.session-journal
+
+# Configuration
+config/.env
+config/secret.key
+
+# Development files
+examples/
+tests/
+scripts/
+monitoring/
+nginx/
+reports/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Documentation source
+docs/
+*.md
+!README.md
+
+# License and legal
+LICENSE
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CHANGELOG.md
+
+# Development tools
+Makefile
+.pre-commit-config.yaml
+setup.cfg
+pyproject.toml
+pytest.ini
+tox.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# Runtime files
+*.pid
+*.sock

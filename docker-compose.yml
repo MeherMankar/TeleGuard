@@ -1,0 +1,285 @@
+version: '3.8'
+
+services:
+  # Main TeleGuard application
+  teleguard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VERSION: ${TELEGUARD_VERSION:-2.0.0}
+        VCS_REF: ${GIT_COMMIT:-$(git rev-parse --short HEAD)}
+    image: teleguard:${TELEGUARD_VERSION:-2.0.0}
+    container_name: teleguard-app
+    restart: unless-stopped
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - TELEGUARD_ENV=production
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/teleguard.db
+
+    env_file:
+      - config/.env
+
+    volumes:
+      - teleguard_data:/app/data
+      - teleguard_logs:/app/logs
+      - teleguard_backups:/app/backups
+      - ./config/.env:/app/config/.env:ro
+
+    networks:
+      - teleguard-network
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; from teleguard.utils.health_check import health_checker; status = asyncio.run(health_checker.get_health_status()); exit(0 if status.get('status') == 'healthy' else 1)"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+    labels:
+      - "com.teleguard.service=main"
+      - "com.teleguard.version=${TELEGUARD_VERSION:-2.0.0}"
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+  # MongoDB for session backup and analytics
+  mongodb:
+    image: mongo:6.0
+    container_name: teleguard-mongodb
+    restart: unless-stopped
+
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-teleguard}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme123}
+      MONGO_INITDB_DATABASE: teleguard
+
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - teleguard_backups:/backup
+
+    networks:
+      - teleguard-network
+
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    command: --auth --bind_ip_all --quiet
+
+    labels:
+      - "com.teleguard.service=database"
+
+    security_opt:
+      - no-new-privileges:true
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: teleguard-redis
+    restart: unless-stopped
+
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD:-changeme123}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+
+    volumes:
+      - redis_data:/data
+
+    networks:
+      - teleguard-network
+
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    labels:
+      - "com.teleguard.service=cache"
+
+    security_opt:
+      - no-new-privileges:true
+
+  # Nginx reverse proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: teleguard-nginx
+    restart: unless-stopped
+
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+
+    networks:
+      - teleguard-network
+
+    depends_on:
+      - teleguard
+
+    labels:
+      - "com.teleguard.service=proxy"
+
+    profiles:
+      - web
+
+    security_opt:
+      - no-new-privileges:true
+
+  # Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: teleguard-prometheus
+    restart: unless-stopped
+
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    networks:
+      - teleguard-network
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+    labels:
+      - "com.teleguard.service=monitoring"
+
+    profiles:
+      - monitoring
+
+    security_opt:
+      - no-new-privileges:true
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: teleguard-grafana
+    restart: unless-stopped
+
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+
+    networks:
+      - teleguard-network
+
+    depends_on:
+      - prometheus
+
+    labels:
+      - "com.teleguard.service=visualization"
+
+    profiles:
+      - monitoring
+
+    security_opt:
+      - no-new-privileges:true
+
+# Named volumes for data persistence
+volumes:
+  teleguard_data:
+    driver: local
+    labels:
+      - "com.teleguard.volume=data"
+
+  teleguard_logs:
+    driver: local
+    labels:
+      - "com.teleguard.volume=logs"
+
+  teleguard_backups:
+    driver: local
+    labels:
+      - "com.teleguard.volume=backups"
+
+  mongodb_data:
+    driver: local
+    labels:
+      - "com.teleguard.volume=mongodb"
+
+  mongodb_config:
+    driver: local
+    labels:
+      - "com.teleguard.volume=mongodb-config"
+
+  redis_data:
+    driver: local
+    labels:
+      - "com.teleguard.volume=redis"
+
+  nginx_logs:
+    driver: local
+    labels:
+      - "com.teleguard.volume=nginx-logs"
+
+  prometheus_data:
+    driver: local
+    labels:
+      - "com.teleguard.volume=prometheus"
+
+  grafana_data:
+    driver: local
+    labels:
+      - "com.teleguard.volume=grafana"
+
+# Custom network for service communication
+networks:
+  teleguard-network:
+    driver: bridge
+    labels:
+      - "com.teleguard.network=main"
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

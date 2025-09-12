@@ -1,0 +1,100 @@
+version: '3.8'
+
+# Development override for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  teleguard:
+    build:
+      target: builder  # Use builder stage for development
+
+    environment:
+      - TELEGUARD_ENV=development
+      - LOG_LEVEL=DEBUG
+      - PYTHONDONTWRITEBYTECODE=0  # Allow bytecode for faster development
+
+    volumes:
+      # Mount source code for live reloading
+      - .:/app:cached
+      - teleguard_dev_data:/app/data
+      - /app/teleguard/__pycache__  # Exclude pycache
+
+    ports:
+      - "8080:8080"  # Expose web interface for development
+
+    command: ["python", "-u", "main.py"]  # Unbuffered output for development
+
+    # Override healthcheck for faster development
+    healthcheck:
+      interval: 60s
+      timeout: 30s
+      retries: 2
+      start_period: 30s
+
+  mongodb:
+    ports:
+      - "27017:27017"  # Expose MongoDB for development tools
+
+    environment:
+      MONGO_INITDB_ROOT_PASSWORD: dev123  # Simple password for development
+
+    volumes:
+      - mongodb_dev_data:/data/db
+
+  redis:
+    ports:
+      - "6379:6379"  # Expose Redis for development tools
+
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass dev123
+      --maxmemory 128mb
+      --save ""  # Disable persistence for development
+
+    volumes:
+      - redis_dev_data:/data
+
+  # Development tools
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: teleguard-redis-ui
+    restart: unless-stopped
+
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:dev123
+
+    ports:
+      - "8081:8081"
+
+    networks:
+      - teleguard-network
+
+    depends_on:
+      - redis
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: teleguard-mongo-ui
+    restart: unless-stopped
+
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: teleguard
+      ME_CONFIG_MONGODB_ADMINPASSWORD: dev123
+      ME_CONFIG_MONGODB_URL: mongodb://teleguard:dev123@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+
+    ports:
+      - "8082:8081"
+
+    networks:
+      - teleguard-network
+
+    depends_on:
+      - mongodb
+
+volumes:
+  teleguard_dev_data:
+  mongodb_dev_data:
+  redis_dev_data:

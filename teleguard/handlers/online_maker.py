@@ -1,0 +1,104 @@
+"""Online maker handler to keep accounts online with breaks"""
+
+import asyncio
+import logging
+import random
+from ..core.mongo_database import mongodb
+
+logger = logging.getLogger(__name__)
+
+
+class OnlineMaker:
+    """Keeps accounts online with periodic breaks"""
+    
+    def __init__(self, bot_manager):
+        self.bot_manager = bot_manager
+        self.user_clients = bot_manager.user_clients
+        self.running_tasks = {}
+        
+    async def start_online_maker(self, user_id: int, account_name: str):
+        """Start online maker for an account"""
+        task_key = f"{user_id}:{account_name}"
+        
+        if task_key in self.running_tasks:
+            return
+            
+        task = asyncio.create_task(self._online_loop(user_id, account_name))
+        self.running_tasks[task_key] = task
+        logger.info(f"Online maker started for {account_name}")
+        
+    async def stop_online_maker(self, user_id: int, account_name: str):
+        """Stop online maker for an account"""
+        task_key = f"{user_id}:{account_name}"
+        
+        if task_key in self.running_tasks:
+            self.running_tasks[task_key].cancel()
+            del self.running_tasks[task_key]
+            logger.info(f"Online maker stopped for {account_name}")
+            
+    async def _online_loop(self, user_id: int, account_name: str):
+        """Main online maker loop"""
+        try:
+            while True:
+                # Check if online maker is still enabled
+                account = await mongodb.db.accounts.find_one({
+                    "user_id": user_id,
+                    "name": account_name
+                })
+                
+                if not account or not account.get("online_maker_enabled", False):
+                    break
+                    
+                # Get client
+                client = self.user_clients.get(user_id, {}).get(account_name)
+                if not client or not client.is_connected():
+                    break
+                    
+                try:
+                    # Send typing action to stay online
+                    from telethon import functions, types
+                    await client(functions.messages.SetTypingRequest(
+                        peer='me',
+                        action=types.SendMessageTypingAction()
+                    ))
+                    logger.debug(f"Online ping sent for {account_name}")
+                except Exception as e:
+                    logger.error(f"Online ping failed for {account_name}: {e}")
+                    
+                # Random interval between 2-5 minutes for online pings
+                interval = random.randint(120, 300)
+                await asyncio.sleep(interval)
+                
+                # Random break every 15-25 pings (30-120 minutes)
+                if random.randint(1, 20) == 1:
+                    break_time = random.randint(300, 1800)  # 5-30 minutes break
+                    logger.info(f"Online maker taking {break_time}s break for {account_name}")
+                    await asyncio.sleep(break_time)
+                    
+        except asyncio.CancelledError:
+            logger.info(f"Online maker cancelled for {account_name}")
+        except Exception as e:
+            logger.error(f"Online maker error for {account_name}: {e}")
+        finally:
+            # Clean up task
+            task_key = f"{user_id}:{account_name}"
+            self.running_tasks.pop(task_key, None)
+            
+    async def setup_existing_online_makers(self):
+        """Set up online makers for accounts that have it enabled"""
+        try:
+            accounts = await mongodb.db.accounts.find({
+                "online_maker_enabled": True
+            }).to_list(length=None)
+            
+            for account in accounts:
+                await self.start_online_maker(account["user_id"], account["name"])
+                
+        except Exception as e:
+            logger.error(f"Failed to setup existing online makers: {e}")
+            
+    async def cleanup(self):
+        """Stop all online maker tasks"""
+        for task in self.running_tasks.values():
+            task.cancel()
+        self.running_tasks.clear()

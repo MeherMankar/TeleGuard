@@ -1,0 +1,57 @@
+# Core Telegram API
+telethon==1.28.5
+
+# Cryptography and Security
+cryptography>=43.0.1
+argon2-cffi==23.1.0
+argon2-cffi-bindings>=21.2.0
+python-gnupg==0.5.2
+
+# Database
+motor>=3.3.0
+pymongo>=4.6.3
+
+# Web Framework (optional)
+aiohttp>=3.9.0
+aiofiles>=23.1.0
+
+# Configuration and Environment
+python-dotenv==1.0.0
+pydantic>=2.0.0
+
+# Task Scheduling and Background Jobs
+APScheduler==3.10.4
+
+# System Monitoring
+psutil==5.9.5
+
+# GitHub Database Integration
+requests>=2.31.0
+
+# Development and Testing
+pytest==7.4.0
+pytest-asyncio==0.21.1
+pytest-cov>=4.1.0
+responses>=0.23.0
+
+# Code Quality
+black==23.3.0
+flake8==6.0.0
+isort==5.12.0
+mypy>=1.4.0
+bandit>=1.7.5
+
+# Pre-commit hooks
+pre-commit==3.3.3
+
+# Production WSGI server (optional)
+gunicorn>=21.2.0
+
+# Monitoring and Logging
+structlog>=23.1.0
+prometheus-client>=0.17.0
+
+# Additional utilities
+click>=8.1.0
+rich>=13.4.0
+typer>=0.9.0
