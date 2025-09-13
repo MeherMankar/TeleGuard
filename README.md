@@ -89,6 +89,7 @@ FERNET_KEY=your_base64_fernet_key
 | 🔑 **2FA Management** | Set, change, remove two-factor authentication | ✅ Active |
 | 🎭 **Activity Simulator** | Human-like activity to avoid detection | ✅ Active |
 | 💬 **Messaging System** | Send messages, auto-reply, templates | ✅ Active |
+| 📨 **DM Reply Manager** | Centralized DM management from admin group | ✅ Active |
 | 📢 **Channel Manager** | Join, leave, create, manage channels | ✅ Active |
 | ☁️ **Cloud Ready** | Deploy on Heroku, Koyeb, Docker | ✅ Active |
 
@@ -114,6 +115,7 @@ FERNET_KEY=your_base64_fernet_key
 - **Online Maker**: Keep accounts online automatically
 - **Scheduled Tasks**: Automated actions and workflows
 - **Auto-Reply**: Automated message responses
+- **DM Reply Management**: Centralized inbox for all managed accounts
 - **Bulk Operations**: Mass account management
 
 ## 📱 Usage
@@ -136,6 +138,7 @@ FERNET_KEY=your_base64_fernet_key
 - **📱 Account Settings**: Add, remove, manage accounts
 - **🛡️ OTP Manager**: Configure OTP destroyer protection
 - **💬 Messaging**: Send messages, auto-reply, templates
+- **📨 DM Reply**: Centralized DM management from admin group
 - **📢 Channels**: Join, leave, create, manage channels
 - **🎭 Activity Simulator**: Human-like activity simulation
 - **🔐 Sessions**: View and terminate active sessions
@@ -293,6 +296,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - **[⚡ Quick Start](https://github.com/MeherMankar/TeleGuard/wiki/Quick-Start)** - 5-minute setup guide
 - **[🛡️ OTP Destroyer](https://github.com/MeherMankar/TeleGuard/wiki/OTP-Destroyer-Protection)** - Security feature guide
 - **[📱 Account Management](https://github.com/MeherMankar/TeleGuard/wiki/Account-Management)** - Account management guide
+- **[📨 DM Reply Feature](docs/DM_REPLY_FEATURE.md)** - Centralized DM management guide
 - **[🔧 Configuration](https://github.com/MeherMankar/TeleGuard/wiki/Configuration)** - Complete configuration reference
 - **[🆘 Troubleshooting](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting)** - Problem solving guide
 

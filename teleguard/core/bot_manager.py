@@ -75,6 +75,16 @@ class BotManager:
         from ..handlers.online_maker import OnlineMaker
         
         self.online_maker = OnlineMaker(self)
+        
+        # Initialize DM reply handler
+        from ..handlers.dm_reply_handler import DMReplyHandler
+        
+        self.dm_reply_handler = DMReplyHandler(self)
+        
+        # Initialize DM reply commands
+        from ..handlers.dm_reply_commands import DMReplyCommands
+        
+        self.dm_reply_commands = DMReplyCommands(self.bot, self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -319,6 +329,22 @@ class BotManager:
             logger.warning(
                 f"Online maker setup error (continuing): {online_error}"
             )
+            
+        try:
+            self.dm_reply_handler.setup_dm_handlers()
+            logger.info("📨 DM reply handlers registered")
+        except Exception as dm_error:
+            logger.warning(
+                f"DM reply handler setup error (continuing): {dm_error}"
+            )
+            
+        try:
+            self.dm_reply_commands.register_handlers()
+            logger.info("📨 DM reply commands registered")
+        except Exception as dm_cmd_error:
+            logger.warning(
+                f"DM reply commands setup error (continuing): {dm_cmd_error}"
+            )
 
         if self.session_scheduler:
             try:
@@ -378,6 +404,9 @@ class BotManager:
             
             # Set up auto-reply handler for this client
             await self.auto_reply_handler.setup_new_client_handler(user_id, account_name, client)
+            
+            # Set up DM reply handler for this client
+            await self.dm_reply_handler.setup_new_client_handler(user_id, account_name, client)
 
             # Check if OTP destroyer is enabled and log status
             if await self._is_otp_protection_enabled(user_id, account_name):

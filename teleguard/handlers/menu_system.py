@@ -33,7 +33,8 @@ class MenuSystem:
         keyboard = [
             [Button.text("📱 Account Settings")],
             [Button.text("🛡️ OTP Manager")],
-            [Button.text("💬 Messaging"), Button.text("📢 Channels")],
+            [Button.text("💬 Messaging"), Button.text("📨 DM Reply")],
+            [Button.text("📢 Channels")],
             [Button.text("❓ Help"), Button.text("🆘 Support")],
         ]
 
@@ -396,6 +397,8 @@ class MenuSystem:
                     "OTP Manager",
                     "💬 Messaging",
                     "Messaging",
+                    "📨 DM Reply",
+                    "DM Reply",
                     "📢 Channels",
                     "Channels",
                     "❓ Help",
@@ -418,6 +421,8 @@ class MenuSystem:
                     await self._handle_otp_manager(event)
                 elif text in ["💬 Messaging", "Messaging"]:
                     await self._handle_messaging(event)
+                elif text in ["📨 DM Reply", "DM Reply"]:
+                    await self._handle_dm_reply(event)
                 elif text in ["📢 Channels", "Channels"]:
                     await self._handle_channels(event)
                 elif text in ["❓ Help", "Help"]:
@@ -719,6 +724,9 @@ class MenuSystem:
                 elif data.startswith("menu:"):
                     await self._handle_menu_callback(event, user_id, data)
 
+                elif data.startswith("dm_reply:"):
+                    await self._handle_dm_reply_callback(event, user_id, data)
+                
                 elif data.startswith("remove:"):
                     parts = data.split(":")
                     if len(parts) >= 3 and parts[1] == "confirm":
@@ -1199,6 +1207,46 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle developer menu: {e}")
             await event.reply("❌ Error loading developer tools")
+    
+    async def _handle_dm_reply(self, event):
+        """Handle DM Reply menu"""
+        user_id = event.sender_id
+        try:
+            # Get current DM reply status
+            admin_group_id = await self.account_manager.dm_reply_handler.get_admin_group(user_id)
+            
+            if admin_group_id:
+                status_text = f"✅ **Enabled** - Group ID: `{admin_group_id}`"
+                buttons = [
+                    [Button.inline("🔄 Change Group", "dm_reply:change")],
+                    [Button.inline("❌ Disable", "dm_reply:disable")],
+                    [Button.inline("📊 Status", "dm_reply:status")],
+                ]
+            else:
+                status_text = "❌ **Disabled**"
+                buttons = [
+                    [Button.inline("✅ Enable", "dm_reply:enable")],
+                    [Button.inline("❓ How to Setup", "dm_reply:help")],
+                ]
+            
+            text = (
+                f"📨 **DM Reply Manager**\n\n"
+                f"Forward DMs from managed accounts to your admin group.\n\n"
+                f"**Status:** {status_text}\n\n"
+                f"**Features:**\n"
+                f"• Real-time DM forwarding\n"
+                f"• One-click reply system\n"
+                f"• Account identification\n"
+                f"• Secure group-based management"
+            )
+            
+            buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
+            
+            await self.bot.send_message(user_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Failed to handle DM reply menu: {e}")
+            await event.reply("❌ Error loading DM reply menu")
 
     async def _handle_otp_callback(self, event, user_id: int, data: str):
         """Handle OTP-related callbacks"""
@@ -3266,5 +3314,107 @@ class MenuSystem:
                     },
                 )()
             )
+        elif action == "dm_reply":
+            await self._handle_dm_reply(
+                type(
+                    "Event",
+                    (),
+                    {
+                        "sender_id": user_id,
+                        "reply": lambda x, buttons=None: self.bot.edit_message(
+                            user_id, event.message_id, x, buttons=buttons
+                        ),
+                    },
+                )()
+            )
         else:
             await event.answer("❌ Unknown menu action")
+    
+    async def _handle_dm_reply_callback(self, event, user_id: int, data: str):
+        """Handle DM Reply related callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        
+        if action == "enable":
+            self.account_manager.pending_actions[user_id] = {
+                "action": "set_dm_group_id"
+            }
+            text = (
+                "📨 **Enable DM Reply**\n\n"
+                "Send me your group ID where you want to receive DM notifications.\n\n"
+                "**How to get group ID:**\n"
+                "1. Add @userinfobot to your group\n"
+                "2. Send any message\n"
+                "3. Copy the group ID (negative number)\n"
+                "4. Remove @userinfobot from group\n\n"
+                "Reply with the group ID:"
+            )
+            await self.bot.edit_message(user_id, event.message_id, text)
+            
+        elif action == "change":
+            self.account_manager.pending_actions[user_id] = {
+                "action": "set_dm_group_id"
+            }
+            text = (
+                "🔄 **Change DM Reply Group**\n\n"
+                "Send me the new group ID:\n\n"
+                "Reply with the group ID:"
+            )
+            await self.bot.edit_message(user_id, event.message_id, text)
+            
+        elif action == "disable":
+            success, message = await self.account_manager.dm_reply_handler.set_admin_group(user_id, None)
+            if success:
+                text = (
+                    "📨 **DM Reply Disabled**\n\n"
+                    "❌ DM forwarding has been disabled.\n\n"
+                    "Use the menu to enable it again."
+                )
+            else:
+                text = f"❌ **Error**\n\n{message}"
+            
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            
+        elif action == "status":
+            admin_group_id = await self.account_manager.dm_reply_handler.get_admin_group(user_id)
+            if admin_group_id:
+                text = (
+                    "📊 **DM Reply Status**\n\n"
+                    f"✅ **Enabled**\n"
+                    f"📍 Group ID: `{admin_group_id}`\n\n"
+                    f"All DMs to your managed accounts will be forwarded to this group."
+                )
+            else:
+                text = (
+                    "📊 **DM Reply Status**\n\n"
+                    f"❌ **Disabled**\n\n"
+                    f"DM forwarding is not configured."
+                )
+            
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            
+        elif action == "help":
+            text = (
+                "❓ **DM Reply Setup Guide**\n\n"
+                "**Step 1: Create Group**\n"
+                "Create a private Telegram group for DM management\n\n"
+                "**Step 2: Add Bot**\n"
+                "Add your TeleGuard bot to the group\n\n"
+                "**Step 3: Get Group ID**\n"
+                "1. Add @userinfobot to your group\n"
+                "2. Send any message\n"
+                "3. Copy the group ID (negative number like -1001234567890)\n"
+                "4. Remove @userinfobot\n\n"
+                "**Step 4: Configure**\n"
+                "Use 'Enable' button and paste the group ID\n\n"
+                "**Step 5: Test**\n"
+                "Send a DM to any managed account and check your group!"
+            )
+            
+            buttons = [
+                [Button.inline("✅ Enable Now", "dm_reply:enable")],
+                [Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]
+            ]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)

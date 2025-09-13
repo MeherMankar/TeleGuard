@@ -120,6 +120,8 @@ class MessageHandlers:
             await self._handle_otp_actions(event, user, action, message)
         elif action.startswith("channel_"):
             await self._handle_channel_actions(event, user, action, message)
+        elif action == "set_dm_group_id":
+            await self._handle_dm_group_actions(event, user, action, message)
         else:
             await self._handle_misc_actions(event, user, action, message)
 
@@ -521,6 +523,14 @@ class MessageHandlers:
                 await self.bot.send_message(user_id, "❌ Account ID not found")
 
         self.pending_actions.pop(user_id, None)
+    
+    async def _handle_dm_group_actions(self, event, user, action, message):
+        """Handle DM group configuration actions"""
+        user_id = event.sender_id
+        
+        if action == "set_dm_group_id":
+            await self.bot_manager.dm_reply_commands.handle_dm_group_input(event, user_id, message)
+            self.pending_actions.pop(user_id, None)
 
     async def _handle_channel_actions(self, event, user, action, message):
         """Handle channel management actions"""
