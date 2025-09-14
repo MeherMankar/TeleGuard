@@ -365,6 +365,8 @@ class BotManager:
             
         try:
             self.auto_reply_handler.setup_auto_reply_handlers()
+            self.auto_reply_handler.setup_auto_reply_menu()
+            self.auto_reply_handler.setup_text_handler()
             logger.info("🤖 Auto-reply handlers registered")
         except Exception as auto_reply_error:
             logger.warning(
