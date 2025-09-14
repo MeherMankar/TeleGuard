@@ -31,11 +31,10 @@ class MenuSystem:
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
         """Get persistent reply keyboard menu"""
         keyboard = [
-            [Button.text("📱 Account Settings")],
-            [Button.text("🛡️ OTP Manager")],
+            [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📨 DM Reply")],
-            [Button.text("📢 Channels")],
-            [Button.text("❓ Help"), Button.text("🆘 Support")],
+            [Button.text("📢 Channels"), Button.text("❓ Help")],
+            [Button.text("🆘 Support")],
         ]
 
         # Add Developer button only for admins
@@ -64,6 +63,9 @@ class MenuSystem:
             ],
             [
                 Button.inline("🎭 Activity Sim", f"simulate:status:{account_id}"),
+                Button.inline("📊 Sim Stats", f"simulate:stats:{account_id}"),
+            ],
+            [
                 Button.inline("📋 Audit Log", f"audit:refresh:{account_id}:24"),
             ],
             [Button.inline("🔙 Back to Accounts", "menu:accounts")],
@@ -635,6 +637,8 @@ class MenuSystem:
                             user_id, event.message_id, text, buttons=buttons
                         )
                         await event.answer("⚙️ Messaging settings")
+                    elif action == "bulk":
+                        await self._send_bulk_sender_menu(user_id, event.message_id)
                     else:
                         await self._handle_messaging_callback(event, user_id, data)
 
@@ -643,9 +647,36 @@ class MenuSystem:
 
                 elif data.startswith("template:"):
                     await self._handle_template_callback(event, user_id, data)
+                
+                elif data.startswith("bulk:"):
+                    await self._handle_bulk_callback(event, user_id, data)
+                
+                elif data.startswith("bulk_list_account:"):
+                    account_id = data.split(":")[1]
+                    if self.account_manager:
+                        self.account_manager.pending_actions[user_id] = {
+                            "action": "bulk_list_targets",
+                            "account_id": account_id
+                        }
+                    text = "📋 **Step 2:** Reply with targets (comma-separated):\n\n@user1,@user2,+1234567890"
+                    await self.bot.edit_message(user_id, event.message_id, text)
+                    await event.answer("📋 Reply with targets")
+                
+                elif data.startswith("bulk_contacts_account:"):
+                    account_id = data.split(":")[1]
+                    if self.account_manager:
+                        self.account_manager.pending_actions[user_id] = {
+                            "action": "bulk_contacts_message",
+                            "account_id": account_id
+                        }
+                    text = "👥 **Step 2:** Reply with your message:"
+                    await self.bot.edit_message(user_id, event.message_id, text)
+                    await event.answer("👥 Reply with message")
 
                 elif data.startswith("simulate:"):
                     await self._handle_simulate_callback(event, user_id, data)
+                
+
 
                 elif data.startswith("audit:"):
                     await self._handle_audit_callback(event, user_id, data)
@@ -998,6 +1029,7 @@ class MenuSystem:
                     "💬 **Messaging Center**\n\n"
                     "Choose a messaging action:\n\n"
                     "📤 Send messages to users/groups\n"
+                    "📨 Bulk messaging to multiple users\n"
                     "🤖 Set up auto-reply rules\n"
                     "📝 Create message templates\n"
                     "📊 View message statistics"
@@ -1005,17 +1037,22 @@ class MenuSystem:
                 buttons = [
                     [
                         Button.inline("📤 Send Message", "msg:send"),
+                        Button.inline("📨 Bulk Sender", "msg:bulk"),
+                    ],
+                    [
                         Button.inline("🤖 Auto Reply", "msg:autoreply"),
-                    ],
-                    [
                         Button.inline("📝 Templates", "msg:templates"),
-                        Button.inline("📊 Statistics", "msg:stats"),
                     ],
                     [
-                        Button.inline("📋 Message History", "msg:history"),
+                        Button.inline("📊 Statistics", "msg:stats"),
+                        Button.inline("📋 History", "msg:history"),
+                    ],
+                    [
                         Button.inline("⚙️ Settings", "msg:settings"),
                     ],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
                 ]
 
             await self.bot.send_message(user_id, text, buttons=buttons)
@@ -1199,9 +1236,15 @@ class MenuSystem:
                     ],
                     [
                         Button.inline("🔧 Maintenance", "dev:maintenance"),
-                        Button.inline("🔄 Restart Services", "dev:restart"),
+                        Button.inline("🔄 Restart", "dev:restart"),
                     ],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                    [
+                        Button.inline("🚀 Startup Config", "dev:startup"),
+                        Button.inline("📚 Commands", "dev:commands"),
+                    ],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
                 ]
 
                 await self.bot.send_message(user_id, text, buttons=buttons)
@@ -2504,6 +2547,25 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to use template: {e}")
             await event.answer("❌ Error using template")
+    
+    async def _handle_bulk_callback(self, event, user_id: int, data: str):
+        """Handle bulk sender callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        
+        if action == "send_list":
+            await self._start_bulk_list_flow(user_id, event)
+        elif action == "send_contacts":
+            await self._start_bulk_contacts_flow(user_id, event)
+        elif action == "send_all":
+            await self._start_bulk_all_flow(user_id, event)
+        elif action == "jobs":
+            await self._show_bulk_jobs(user_id, event.message_id)
+        elif action == "help":
+            await self._show_bulk_help(user_id, event.message_id)
+        elif action == "stop" and len(parts) > 2:
+            job_id = parts[2]
+            await self._stop_bulk_job(user_id, job_id, event)
 
     async def _create_template(self, user_id: int, event):
         """Create message template"""
@@ -2547,6 +2609,251 @@ class MenuSystem:
             text = "❌ Error loading templates"
             buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+    
+    async def _send_bulk_sender_menu(self, user_id: int, message_id: int):
+        """Send bulk sender management menu"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = "📨 **Bulk Message Sender**\n\nNo accounts found. Add accounts first to use bulk messaging."
+                buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            else:
+                active_jobs = 0
+                if hasattr(self.account_manager, 'bulk_sender'):
+                    user_jobs = [job for job in self.account_manager.bulk_sender.active_jobs.values() if job['user_id'] == user_id]
+                    active_jobs = len(user_jobs)
+                
+                text = (
+                    "📨 **Bulk Message Sender**\n\n"
+                    "Send messages to multiple users at once.\n\n"
+                    f"📊 **Status:**\n"
+                    f"• Available accounts: {len(accounts)}\n"
+                    f"• Active jobs: {active_jobs}\n\n"
+                    "**Choose bulk sending method:**"
+                )
+                
+                buttons = [
+                    [Button.inline("📋 Send to List", "bulk:send_list")],
+                    [Button.inline("👥 Send to Contacts", "bulk:send_contacts")],
+                    [Button.inline("🌐 Send from All Accounts", "bulk:send_all")],
+                ]
+                
+                if active_jobs > 0:
+                    buttons.append([Button.inline("📊 View Active Jobs", "bulk:jobs")])
+                
+                buttons.extend([
+                    [Button.inline("❓ Help & Commands", "bulk:help")],
+                    [Button.inline("🔙 Back to Messaging", "menu:messaging")]
+                ])
+
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Failed to send bulk sender menu: {e}")
+
+    async def _handle_bulk_callback(self, event, user_id: int, data: str):
+        """Handle bulk sender callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        
+        if action == "send_list":
+            await self._start_bulk_list_flow(user_id, event)
+        elif action == "send_contacts":
+            await self._start_bulk_contacts_flow(user_id, event)
+        elif action == "send_all":
+            await self._start_bulk_all_flow(user_id, event)
+        elif action == "jobs":
+            await self._show_bulk_jobs(user_id, event.message_id)
+        elif action == "help":
+            await self._show_bulk_help(user_id, event.message_id)
+
+    async def _start_bulk_list_flow(self, user_id: int, event):
+        """Start bulk send to list flow"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                await event.answer("❌ No accounts found")
+                return
+            
+            text = (
+                "📋 **Bulk Send to List**\n\n"
+                "Step 1: Select account to send from:\n\n"
+            )
+            
+            buttons = []
+            for account in accounts:
+                status = "🟢" if account.get("is_active", False) else "🔴"
+                button_text = f"{status} {account['name']}"
+                buttons.append([Button.inline(button_text, f"bulk_list_account:{account['_id']}")])
+            
+            buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            await event.answer("📋 Select account")
+        except Exception as e:
+            logger.error(f"Failed to start bulk list flow: {e}")
+
+    async def _start_bulk_contacts_flow(self, user_id: int, event):
+        """Start bulk send to contacts flow"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                await event.answer("❌ No accounts found")
+                return
+            
+            text = (
+                "👥 **Bulk Send to Contacts**\n\n"
+                "Step 1: Select account to send from:\n\n"
+                "This will send to ALL contacts of the selected account."
+            )
+            
+            buttons = []
+            for account in accounts:
+                status = "🟢" if account.get("is_active", False) else "🔴"
+                button_text = f"{status} {account['name']}"
+                buttons.append([Button.inline(button_text, f"bulk_contacts_account:{account['_id']}")])
+            
+            buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            await event.answer("👥 Select account")
+        except Exception as e:
+            logger.error(f"Failed to start bulk contacts flow: {e}")
+
+    async def _start_bulk_all_flow(self, user_id: int, event):
+        """Start bulk send from all accounts flow"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                await event.answer("❌ No accounts found")
+                return
+            
+            if self.account_manager:
+                self.account_manager.pending_actions[user_id] = {
+                    "action": "bulk_all_targets"
+                }
+            
+            text = (
+                f"🌐 **Bulk Send from All Accounts**\n\n"
+                f"This will send from ALL {len(accounts)} accounts.\n\n"
+                "Step 1: Reply with target usernames/IDs (comma-separated):\n\n"
+                "**Examples:**\n"
+                "• @username1,@username2,@username3\n"
+                "• +1234567890,@username,123456789\n\n"
+                "Reply with the targets:"
+            )
+            
+            await self.bot.edit_message(user_id, event.message_id, text)
+            await event.answer("🌐 Reply with targets")
+        except Exception as e:
+            logger.error(f"Failed to start bulk all flow: {e}")
+
+    async def _show_bulk_jobs(self, user_id: int, message_id: int):
+        """Show active bulk jobs"""
+        try:
+            if not hasattr(self.account_manager, 'bulk_sender'):
+                text = "❌ Bulk sender not available"
+                buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
+            else:
+                user_jobs = [job for job in self.account_manager.bulk_sender.active_jobs.values() if job['user_id'] == user_id]
+                
+                if not user_jobs:
+                    text = "📊 **Active Bulk Jobs**\n\n💭 No active jobs found."
+                    buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
+                else:
+                    text = f"📊 **Active Bulk Jobs** ({len(user_jobs)})\n\n"
+                    
+                    buttons = []
+                    for job in user_jobs:
+                        progress = f"{job['sent']}/{job['total']}"
+                        status_emoji = "🟢" if job['status'] == 'running' else "🔴"
+                        account_info = f" [{job['account_name']}]" if job.get('multi_account') else ""
+                        
+                        text += f"{status_emoji} **Job {job['id'][:8]}**{account_info}\n"
+                        text += f"   Progress: {progress} ({job['status']})\n"
+                        if job['failed'] > 0:
+                            text += f"   Failed: {job['failed']}\n"
+                        text += "\n"
+                        
+                        if job['status'] == 'running':
+                            buttons.append([Button.inline(f"⏹️ Stop {job['id'][:8]}", f"bulk:stop:{job['id']}")])
+                    
+                    buttons.append([Button.inline("🔄 Refresh", "bulk:jobs")])
+                    buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
+            
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Failed to show bulk jobs: {e}")
+
+    async def _show_bulk_help(self, user_id: int, message_id: int):
+        """Show bulk sender help and commands"""
+        text = (
+            "❓ **Bulk Sender Help**\n\n"
+            "**Available Commands:**\n"
+            "• `/bulk_send` - Show bulk sender help\n"
+            "• `/bulk_send_list account_name` - Send to specific users\n"
+            "• `/bulk_send_contacts account_name` - Send to all contacts\n"
+            "• `/bulk_send_all` - Send from ALL accounts\n"
+            "• `/bulk_jobs` - View active jobs\n"
+            "• `/bulk_stop <job_id>` - Stop a job\n\n"
+            "**Format for list sending:**\n"
+            "`/bulk_send_list account_name\n"
+            "username1,username2,user_id3\n"
+            "Your message here`\n\n"
+            "**Button Format:**\n"
+            "Add buttons using: `[Button Text](url)` or `[Button Text](callback_data)`\n"
+            "Example: `Check this out [Visit Site](https://example.com) [More Info](info_callback)`\n\n"
+            "**Tips:**\n"
+            "• Use the menu buttons for easier setup\n"
+            "• Commands provide more advanced options\n"
+            "• Jobs run in background with progress updates"
+        )
+        
+        buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        """Send bulk sender management menu"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
+                length=None
+            )
+
+            if not accounts:
+                text = "📨 **Bulk Message Sender**\n\nNo accounts found. Add accounts first to use bulk messaging."
+                buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            else:
+                # Check for active bulk jobs
+                active_jobs = 0
+                if hasattr(self.account_manager, 'bulk_sender'):
+                    user_jobs = [job for job in self.account_manager.bulk_sender.active_jobs.values() if job['user_id'] == user_id]
+                    active_jobs = len(user_jobs)
+                
+                text = (
+                    "📨 **Bulk Message Sender**\n\n"
+                    "Send messages to multiple users at once.\n\n"
+                    f"📊 **Status:**\n"
+                    f"• Available accounts: {len(accounts)}\n"
+                    f"• Active jobs: {active_jobs}\n\n"
+                    "**Choose bulk sending method:**"
+                )
+                
+                buttons = [
+                    [Button.inline("📋 Send to List", "bulk:send_list")],
+                    [Button.inline("👥 Send to Contacts", "bulk:send_contacts")],
+                    [Button.inline("🌐 Send from All Accounts", "bulk:send_all")],
+                ]
+                
+                if active_jobs > 0:
+                    buttons.append([Button.inline("📊 View Active Jobs", "bulk:jobs")])
+                
+                buttons.extend([
+                    [Button.inline("❓ Help & Commands", "bulk:help")],
+                    [Button.inline("🔙 Back to Messaging", "menu:messaging")]
+                ])
+
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+        except Exception as e:
+            logger.error(f"Failed to send bulk sender menu: {e}")
+            text = "❌ Error loading bulk sender"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _handle_simulate_callback(self, event, user_id: int, data: str):
         """Handle Activity Simulator callbacks"""
@@ -2560,6 +2867,8 @@ class MenuSystem:
             await self._show_simulation_status(user_id, account_id, event.message_id)
         elif action == "log":
             await self._show_activity_log(user_id, account_id, event.message_id)
+        elif action == "stats":
+            await self._show_simulation_stats(user_id, account_id, event.message_id)
 
     async def _toggle_simulation(self, user_id: int, account_id: str, event):
         """Toggle Activity Simulator for account"""
@@ -2660,6 +2969,64 @@ class MenuSystem:
         from ..handlers.activity_log_handler import show_activity_log
 
         await show_activity_log(self.bot, user_id, account_id, message_id)
+    
+
+    
+    async def _show_simulation_stats(self, user_id: int, account_id: str, message_id: int):
+        """Show simulation statistics for account"""
+        try:
+            from bson import ObjectId
+            
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+            
+            if account:
+                # Get stats from activity simulator if available
+                stats_text = "Loading statistics..."
+                if hasattr(self.account_manager, 'activity_simulator'):
+                    task_key = f"{user_id}_{account_id}"
+                    if task_key in self.account_manager.activity_simulator.simulation_tasks:
+                        stats = self.account_manager.activity_simulator.stats.get(task_key, {})
+                        total_actions = stats.get('total_actions', 0)
+                        last_session = stats.get('last_session', 'Never')
+                        avg_actions = stats.get('avg_actions_per_session', 0)
+                        
+                        stats_text = (
+                            f"**Statistics:**\n"
+                            f"• Total Actions: {total_actions}\n"
+                            f"• Last Session: {last_session}\n"
+                            f"• Avg Actions/Session: {avg_actions:.1f}\n"
+                            f"• Status: {'Active' if account.get('simulation_enabled') else 'Inactive'}"
+                        )
+                    else:
+                        stats_text = "No active simulation session found."
+                
+                text = (
+                    f"📊 **Simulation Stats: {account['name']}**\n\n"
+                    f"{stats_text}\n\n"
+                    f"**Activity Types:**\n"
+                    f"• Channel/Group browsing\n"
+                    f"• Emoji reactions\n"
+                    f"• Poll voting\n"
+                    f"• Profile viewing\n"
+                    f"• Occasional joins/leaves"
+                )
+                
+                buttons = [
+                    [Button.inline("🔄 Refresh", f"simulate:stats:{account_id}")],
+                    [Button.inline("🔙 Back", f"account:manage:{account_id}")]
+                ]
+                
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, "❌ Account not found")
+                
+        except Exception as e:
+            logger.error(f"Show simulation stats error: {e}")
+            text = "❌ Error loading simulation statistics"
+            buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _handle_audit_callback(self, event, user_id: int, data: str):
         """Handle audit-related callbacks"""
@@ -3206,6 +3573,38 @@ class MenuSystem:
                 "• Session managers\n\n"
                 "⚠️ **Warning:** Restarting services may cause temporary interruptions.\n\n"
                 "**Recommendation:** Only restart if experiencing issues."
+            )
+        elif action == "startup":
+            text = (
+                "🚀 **Startup Configuration**\n\n"
+                "Configure what happens when the bot starts:\n\n"
+                "**Available Commands:**\n"
+                "• `/startup_config` - Configure startup settings\n"
+                "• `/startup_enable` - Enable startup notifications\n"
+                "• `/startup_disable` - Disable startup notifications\n"
+                "• `/startup_status` - View current settings\n\n"
+                "**Features:**\n"
+                "• Startup notifications to admins\n"
+                "• Auto-enable features on startup\n"
+                "• Status summaries\n"
+                "• Health check reports"
+            )
+        elif action == "commands":
+            text = (
+                "📚 **All Available Commands**\n\n"
+                "**Help System:**\n"
+                "• `/help` - Show help pages\n"
+                "• `/help_page <number>` - Show specific help page\n\n"
+                "**Bulk Messaging:**\n"
+                "• `/bulk_send` - Bulk messaging help\n"
+                "• `/bulk_jobs` - View active jobs\n\n"
+                "**Activity Simulation:**\n"
+                "• `/sim_status` - View simulation status\n"
+                "• `/sim_stats` - View simulation statistics\n\n"
+
+                "**Startup Commands:**\n"
+                "• `/startup_config` - Configure startup settings\n\n"
+                "Use these commands for advanced control."
             )
         else:
             text = "❌ Unknown developer action"

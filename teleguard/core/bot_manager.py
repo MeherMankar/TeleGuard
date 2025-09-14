@@ -97,11 +97,6 @@ class BotManager:
         
         self.bulk_sender = BulkSender(self)
         
-        # Initialize offline commands
-        from ..handlers.offline_commands import OfflineCommands
-        
-        self.offline_commands = OfflineCommands(self.bot, self)
-        
         # Initialize simulation commands
         from ..handlers.simulation_commands import SimulationCommands
         
@@ -121,6 +116,11 @@ class BotManager:
         from ..handlers.help_commands import HelpCommands
         
         self.help_commands = HelpCommands(self.bot, self)
+
+        # Initialize spam appeal handler
+        from ..handlers.spam_appeal_handler import SpamAppealHandler
+
+        self.spam_appeal_handler = SpamAppealHandler(self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -406,14 +406,6 @@ class BotManager:
             )
             
         try:
-            self.offline_commands.register_handlers()
-            logger.info("🚫 Offline commands registered")
-        except Exception as offline_error:
-            logger.warning(
-                f"Offline commands setup error (continuing): {offline_error}"
-            )
-            
-        try:
             self.simulation_commands.register_handlers()
             logger.info("🎭 Simulation commands registered")
         except Exception as sim_error:
@@ -435,6 +427,14 @@ class BotManager:
         except Exception as help_error:
             logger.warning(
                 f"Help commands setup error (continuing): {help_error}"
+            )
+            
+        try:
+            self.spam_appeal_handler.register_handlers()
+            logger.info("🛡️ Spam appeal handler registered")
+        except Exception as appeal_error:
+            logger.warning(
+                f"Spam appeal handler setup error (continuing): {appeal_error}"
             )
             
         # Execute startup commands after all components are ready

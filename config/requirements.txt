@@ -54,3 +54,8 @@ prometheus-client>=0.17.0
 click>=8.1.0
 rich>=13.4.0
 typer>=0.9.0
+
+# Web Automation for Captcha Bypass
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+beautifulsoup4>=4.12.0

@@ -399,7 +399,6 @@ class UnifiedMessagingSystem:
                 logger.info(f"✅ Reply sent via topic from {managed_account_id} to {target_user_id}")
             else:
                 logger.error(f"No managed client found for account ID {managed_account_id}")
-            
         except Exception as e:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
     
@@ -427,19 +426,82 @@ class UnifiedMessagingSystem:
     
     # Messaging functionality
     async def send_message(self, user_id: int, account_name: str, target: str, message: str) -> bool:
-        """Send message from specific account"""
+        """Send message from specific account with proper target handling"""
         try:
             client = self.user_clients.get(user_id, {}).get(account_name)
             if not client:
+                logger.error(f"Client not found for {account_name}")
                 return False
 
-            await client.send_message(target, message)
+            # Handle different target formats
+            resolved_target = await self._resolve_target(client, target)
+            if resolved_target is None:
+                logger.error(f"Could not resolve target: {target}")
+                return False
+
+            await client.send_message(resolved_target, message)
             logger.info(f"Message sent from {account_name} to {target}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+            logger.error(f"Failed to send message from {account_name} to {target}: {e}")
             return False
+    
+    async def _resolve_target(self, client, target: str):
+        """Resolve target to proper entity"""
+        try:
+            # If it's a numeric string, treat as user ID
+            if target.isdigit():
+                user_id = int(target)
+                logger.info(f"Resolving numeric target as user ID: {user_id}")
+                
+                # Try multiple approaches for user ID resolution
+                try:
+                    # First try to get entity normally
+                    entity = await client.get_entity(user_id)
+                    logger.info(f"Successfully resolved user ID {user_id} via get_entity")
+                    return entity
+                except Exception as e1:
+                    logger.warning(f"get_entity failed for {user_id}: {e1}")
+                    
+                    # Try using InputPeerUser with access_hash=0
+                    try:
+                        from telethon.tl.types import InputPeerUser
+                        input_peer = InputPeerUser(user_id=user_id, access_hash=0)
+                        logger.info(f"Using InputPeerUser with access_hash=0 for {user_id}")
+                        return input_peer
+                    except Exception as e2:
+                        logger.error(f"InputPeerUser also failed for {user_id}: {e2}")
+                        return None
+            
+            # If it starts with @, it's a username
+            if target.startswith('@'):
+                username = target[1:]  # Remove @
+                logger.info(f"Resolving username: {username}")
+                return username
+            
+            # If it starts with +, it's a phone number
+            if target.startswith('+'):
+                logger.info(f"Resolving phone number: {target}")
+                return target
+            
+            # If it starts with -, it's likely a group/channel ID
+            if target.startswith('-'):
+                chat_id = int(target)
+                logger.info(f"Resolving chat ID: {chat_id}")
+                return chat_id
+            
+            # Try to resolve as entity directly
+            logger.info(f"Attempting to resolve as entity: {target}")
+            entity = await client.get_entity(target)
+            return entity
+            
+        except ValueError as e:
+            logger.error(f"Invalid target format: {target} - {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to resolve target {target}: {e}")
+            return None
     
     async def setup_auto_reply(self, user_id: int, account_name: str, reply_message: str) -> bool:
         """Setup auto-reply for an account"""
