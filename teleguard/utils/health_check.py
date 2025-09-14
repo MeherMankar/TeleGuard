@@ -36,6 +36,13 @@ class HealthChecker:
         """Check configuration files"""
         try:
             import os
+            from dotenv import load_dotenv
+            
+            # Load .env file if it exists
+            config_dir = Path("config")
+            env_file = config_dir / ".env"
+            if env_file.exists():
+                load_dotenv(env_file)
 
             # Check for essential environment variables
             required_vars = ["API_ID", "API_HASH", "BOT_TOKEN"]
@@ -46,10 +53,6 @@ class HealthChecker:
                     "healthy": False,
                     "error": f"Missing environment variables: {missing_vars}",
                 }
-
-            # Check if config files exist (optional for cloud deployments)
-            config_dir = Path("config")
-            env_file = config_dir / ".env"
 
             config_status = {
                 "config_dir_exists": config_dir.exists(),

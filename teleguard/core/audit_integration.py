@@ -22,35 +22,9 @@ class AuditIntegration:
     async def setup_audit_integration(self):
         """Setup audit integration with existing components"""
         try:
-            # Replace activity simulator with enhanced version if not already done
-            if hasattr(self.bot_manager, "activity_simulator"):
-                # Ensure the enhanced simulator is being used
-                from ..workers.activity_simulator import ActivitySimulator
-
-                if not isinstance(
-                    self.bot_manager.activity_simulator, ActivitySimulator
-                ):
-                    logger.info(
-                        "🔄 Upgrading to enhanced activity simulator with audit logging"
-                    )
-                    await self.bot_manager.activity_simulator.stop()
-                    self.bot_manager.activity_simulator = ActivitySimulator(
-                        self.bot_manager
-                    )
-                    await self.bot_manager.activity_simulator.start()
-
-            # Setup simulation handlers with audit support
-            if hasattr(self.bot_manager, "menu_system"):
-                from ..handlers.simulation_handlers import SimulationHandlers
-
-                simulation_handlers = SimulationHandlers(self.bot_manager)
-                simulation_handlers.register_handlers()
-                logger.info("✅ Simulation handlers with audit support registered")
-
             # Schedule periodic cleanup
             asyncio.create_task(self._periodic_cleanup())
-
-            logger.info("🔍 Comprehensive audit system integrated successfully")
+            logger.info("Comprehensive audit system integrated successfully")
 
         except Exception as e:
             logger.error(f"Failed to setup audit integration: {e}")

@@ -102,3 +102,36 @@ class OnlineMaker:
         for task in self.running_tasks.values():
             task.cancel()
         self.running_tasks.clear()
+    
+    async def force_offline(self, user_id: int, account_name: str) -> bool:
+        """Force set account offline"""
+        try:
+            from telethon.tl.functions.account import UpdateStatusRequest
+            
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if client and client.is_connected():
+                await client(UpdateStatusRequest(offline=True))
+                logger.info(f"Forced {account_name} offline")
+                return True
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to force offline {account_name}: {e}")
+            return False
+    
+    async def force_offline_all(self, user_id: int) -> int:
+        """Force all user accounts offline"""
+        count = 0
+        try:
+            user_clients = self.user_clients.get(user_id, {})
+            
+            for account_name in user_clients.keys():
+                if await self.force_offline(user_id, account_name):
+                    count += 1
+                    
+            logger.info(f"Forced {count} accounts offline for user {user_id}")
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to force offline all accounts: {e}")
+            return count

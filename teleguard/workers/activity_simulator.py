@@ -30,15 +30,17 @@ class ActivitySimulator:
         self.audit = ComprehensiveAudit()
         self._lock = asyncio.Lock()
 
-        # Activity weights (higher = more likely)
+        # Enhanced activity weights with new behaviors
         self.activity_weights = {
-            "view_random_entity": 35,
-            "react_to_random_post": 25,
-            "browse_profiles": 20,
-            "vote_in_random_poll": 10,
-            "join_or_leave_public_channel": 5,
-            "send_message": 3,  # New: Send messages occasionally
-            "post_comment": 2,  # New: Post comments rarely
+            "view_random_entity": 30,
+            "react_to_random_post": 20,
+            "browse_profiles": 15,
+            "scroll_and_read": 12,  # New: Realistic scrolling
+            "vote_in_random_poll": 8,
+            "typing_simulation": 6,  # New: Show typing indicators
+            "join_or_leave_public_channel": 4,
+            "send_message": 3,
+            "post_comment": 2,
         }
 
     async def start(self):
@@ -147,8 +149,8 @@ class ActivitySimulator:
         """Main simulation loop for an account"""
         while self.running:
             try:
-                # Random sleep between sessions (2-6 hours for genuine behavior)
-                sleep_time = random.uniform(7200, 21600)
+                # More realistic sleep patterns (30 minutes to 4 hours)
+                sleep_time = random.uniform(1800, 14400)
                 await asyncio.sleep(sleep_time)
 
                 if not self.running:
@@ -171,7 +173,11 @@ class ActivitySimulator:
             if not client or not client.is_connected():
                 return
 
-            num_actions = random.randint(2, 5)
+            # More varied activity bursts
+            num_actions = random.choices(
+                [1, 2, 3, 4, 5, 6, 7],
+                weights=[5, 15, 25, 25, 15, 10, 5]
+            )[0]
 
             # Log session start
             await self.audit.log_sim_session(account_id, user_id, "start", num_actions)
@@ -193,9 +199,9 @@ class ActivitySimulator:
                         client, activity, account_id, user_id, account_name
                     )
 
-                    # Random delay between actions (30-180 seconds for natural behavior)
+                    # More realistic delays between actions (10-120 seconds)
                     if i < num_actions - 1:
-                        delay = random.uniform(30, 180)
+                        delay = random.uniform(10, 120)
                         await asyncio.sleep(delay)
 
                 except Exception as e:
@@ -241,6 +247,14 @@ class ActivitySimulator:
                 )
             elif activity == "post_comment":
                 await self._post_comment_with_audit(
+                    client, account_id, user_id, account_name
+                )
+            elif activity == "scroll_and_read":
+                await self._scroll_and_read_with_audit(
+                    client, account_id, user_id, account_name
+                )
+            elif activity == "typing_simulation":
+                await self._typing_simulation_with_audit(
                     client, account_id, user_id, account_name
                 )
 
@@ -536,6 +550,124 @@ class ActivitySimulator:
 
         except Exception as e:
             logger.error(f"Post comment error for {account_name}: {e}")
+    
+    async def _scroll_and_read_with_audit(
+        self, client, account_id: int, user_id: int, account_name: str
+    ):
+        """Simulate realistic scrolling and reading behavior"""
+        try:
+            dialogs = await client.get_dialogs(limit=30)
+            entities = [d for d in dialogs if d.is_channel or d.is_group]
+            if not entities:
+                return
+
+            entity = random.choice(entities)
+            
+            # Simulate scrolling through messages
+            total_messages = random.randint(20, 50)
+            messages = await client.get_messages(entity, limit=total_messages)
+            
+            # Simulate reading with realistic pauses
+            read_count = 0
+            for i, message in enumerate(messages):
+                if message.text:
+                    # Reading time based on message length
+                    read_time = min(len(message.text) * 0.05, 8)  # Max 8 seconds per message
+                    read_time = max(read_time, 1)  # Min 1 second
+                    
+                    await asyncio.sleep(read_time)
+                    read_count += 1
+                    
+                    # Random pause every few messages (like real scrolling)
+                    if i % random.randint(3, 7) == 0:
+                        pause_time = random.uniform(2, 5)
+                        await asyncio.sleep(pause_time)
+            
+            # Log scrolling activity
+            await self.audit.log_sim_entity_viewed(
+                account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
+            )
+            
+            logger.debug(f"📜 {account_name} scrolled through {read_count} messages in {entity.name}")
+            
+        except Exception as e:
+            logger.error(f"Scroll and read error for {account_name}: {e}")
+    
+    async def _typing_simulation_with_audit(
+        self, client, account_id: int, user_id: int, account_name: str
+    ):
+        """Simulate typing indicators without sending messages"""
+        try:
+            dialogs = await client.get_dialogs(limit=20)
+            entities = [d for d in dialogs if d.is_group and not d.is_channel]
+            if not entities:
+                return
+
+            entity = random.choice(entities)
+            
+            # Show typing indicator
+            await client(
+                functions.messages.SetTypingRequest(
+                    peer=entity,
+                    action=types.SendMessageTypingAction()
+                )
+            )
+            
+            # Simulate thinking/typing time
+            typing_time = random.uniform(3, 12)
+            await asyncio.sleep(typing_time)
+            
+            # Cancel typing (by sending empty typing action)
+            await client(
+                functions.messages.SetTypingRequest(
+                    peer=entity,
+                    action=types.SendMessageCancelAction()
+                )
+            )
+            
+            # Log typing simulation
+            await self.audit.log_sim_entity_viewed(
+                account_id, user_id, f"Typing in {entity.name}", 1, typing_time
+            )
+            
+            logger.debug(f"⌨️ {account_name} showed typing indicator in {entity.name}")
+            
+        except Exception as e:
+            logger.error(f"Typing simulation error for {account_name}: {e}")
+    
+    async def get_simulation_stats(self, user_id: int) -> Dict[str, Any]:
+        """Get simulation statistics for user"""
+        try:
+            # Get user accounts with simulation enabled
+            accounts = await mongodb.db.accounts.find({
+                "user_id": user_id,
+                "simulation_enabled": True
+            }).to_list(length=None)
+            
+            stats = {
+                "total_accounts": len(accounts),
+                "active_simulations": 0,
+                "accounts": []
+            }
+            
+            for account in accounts:
+                task_key = f"{user_id}_{account['_id']}"
+                is_active = task_key in self.simulation_tasks
+                
+                if is_active:
+                    stats["active_simulations"] += 1
+                
+                stats["accounts"].append({
+                    "name": account["name"],
+                    "active": is_active,
+                    "enabled": account.get("simulation_enabled", False)
+                })
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get simulation stats: {e}")
+            return {"error": str(e)}
 
     def _get_client(self, user_id: int, account_name: str):
         """Get Telethon client for account"""

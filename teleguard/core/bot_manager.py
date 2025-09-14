@@ -91,6 +91,36 @@ class BotManager:
         from ..handlers.chat_import_handler import ChatImportHandler
         
         self.chat_import_handler = ChatImportHandler(self)
+        
+        # Initialize bulk sender
+        from ..handlers.bulk_sender import BulkSender
+        
+        self.bulk_sender = BulkSender(self)
+        
+        # Initialize offline commands
+        from ..handlers.offline_commands import OfflineCommands
+        
+        self.offline_commands = OfflineCommands(self.bot, self)
+        
+        # Initialize simulation commands
+        from ..handlers.simulation_commands import SimulationCommands
+        
+        self.simulation_commands = SimulationCommands(self.bot, self)
+        
+        # Initialize startup commands
+        from ..handlers.startup_commands import StartupCommands
+        
+        self.startup_commands = StartupCommands(self)
+        
+        # Initialize startup config commands
+        from ..handlers.startup_config_commands import StartupConfigCommands
+        
+        self.startup_config_commands = StartupConfigCommands(self.bot, self)
+        
+        # Initialize help commands
+        from ..handlers.help_commands import HelpCommands
+        
+        self.help_commands = HelpCommands(self.bot, self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -121,6 +151,9 @@ class BotManager:
             logger.info(
                 "TeleGuard Bot started successfully with OTP Destroyer protection"
             )
+            
+            # Small delay to ensure all components are ready before startup commands
+            await asyncio.sleep(2)
         except Exception as e:
             logger.error(f"💥 Critical bot startup failed: {e}")
             raise
@@ -362,6 +395,55 @@ class BotManager:
         except Exception as import_error:
             logger.warning(
                 f"Chat import handler setup error (continuing): {import_error}"
+            )
+            
+        try:
+            self.bulk_sender.register_handlers()
+            logger.info("📤 Bulk sender registered")
+        except Exception as bulk_error:
+            logger.warning(
+                f"Bulk sender setup error (continuing): {bulk_error}"
+            )
+            
+        try:
+            self.offline_commands.register_handlers()
+            logger.info("🚫 Offline commands registered")
+        except Exception as offline_error:
+            logger.warning(
+                f"Offline commands setup error (continuing): {offline_error}"
+            )
+            
+        try:
+            self.simulation_commands.register_handlers()
+            logger.info("🎭 Simulation commands registered")
+        except Exception as sim_error:
+            logger.warning(
+                f"Simulation commands setup error (continuing): {sim_error}"
+            )
+            
+        try:
+            self.startup_config_commands.register_handlers()
+            logger.info("⚙️ Startup config commands registered")
+        except Exception as config_error:
+            logger.warning(
+                f"Startup config commands setup error (continuing): {config_error}"
+            )
+            
+        try:
+            self.help_commands.register_handlers()
+            logger.info("📚 Help commands registered")
+        except Exception as help_error:
+            logger.warning(
+                f"Help commands setup error (continuing): {help_error}"
+            )
+            
+        # Execute startup commands after all components are ready
+        try:
+            asyncio.create_task(self.startup_commands.execute_startup_commands())
+            logger.info("🚀 Startup commands scheduled")
+        except Exception as startup_error:
+            logger.warning(
+                f"Startup commands setup error (continuing): {startup_error}"
             )
 
         if self.session_scheduler:
