@@ -1112,10 +1112,14 @@ class MenuSystem:
                 Button.inline("📞 Contact Support", "help:contact"),
                 Button.inline("🆘 Emergency Help", "help:emergency"),
             ],
+            [
+                Button.inline("📚 Chat Import", "menu:import"),
+            ],
         ]
 
         # Add developer mode toggle for admins
-        if user and user_id in [123456789]:  # Replace with actual admin IDs
+        from ..core.config import ADMIN_IDS
+        if user and user_id in ADMIN_IDS:
             dev_mode = user.get("developer_mode", False)
             dev_text = "🔴 Disable Dev Mode" if dev_mode else "⚙️ Enable Dev Mode"
             buttons.append([Button.inline(dev_text, "help:toggle_dev")])
@@ -1212,8 +1216,8 @@ class MenuSystem:
         """Handle DM Reply menu"""
         user_id = event.sender_id
         try:
-            # Get current DM reply status
-            admin_group_id = await self.account_manager.dm_reply_handler.get_admin_group(user_id)
+            # Get current DM reply status from unified messaging
+            admin_group_id = await self.account_manager.unified_messaging._get_user_admin_group(user_id)
             
             if admin_group_id:
                 status_text = f"✅ **Enabled** - Group ID: `{admin_group_id}`"
@@ -1230,14 +1234,15 @@ class MenuSystem:
                 ]
             
             text = (
-                f"📨 **DM Reply Manager**\n\n"
-                f"Forward DMs from managed accounts to your admin group.\n\n"
+                f"📨 **Unified Messaging & DM Reply**\n\n"
+                f"**Auto-Topic Creation:** All private messages automatically create topics in your forum group.\n\n"
                 f"**Status:** {status_text}\n\n"
                 f"**Features:**\n"
-                f"• Real-time DM forwarding\n"
-                f"• One-click reply system\n"
-                f"• Account identification\n"
-                f"• Secure group-based management"
+                f"• Automatic topic creation for ALL DMs\n"
+                f"• Each conversation gets its own persistent thread\n"
+                f"• Simply reply in topics - no buttons needed\n"
+                f"• Auto-reply and messaging integrated\n"
+                f"• Clean organized interface"
             )
             
             buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
@@ -3262,6 +3267,25 @@ class MenuSystem:
                     },
                 )()
             )
+        elif action == "import":
+            text = (
+                "📚 **Chat Import Commands**\n\n"
+                "**Available Commands:**\n"
+                "• `/import_chats` - Import all existing private conversations\n"
+                "• `/import_help` - Show detailed import help\n\n"
+                "**What Import Does:**\n"
+                "• Scans all managed accounts for private chats\n"
+                "• Creates topics for existing conversations\n"
+                "• Imports last 5 messages for context\n"
+                "• Avoids creating duplicate topics\n\n"
+                "**Requirements:**\n"
+                "• Admin group must be configured\n"
+                "• Group must have Topics enabled\n"
+                "• Bot needs admin permissions\n\n"
+                "⚠️ **Note:** This is a one-time setup. New conversations auto-create topics."
+            )
+            buttons = [[Button.inline("🔙 Back to Help", "menu:help")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         elif action == "accounts":
             await self._handle_account_settings(
                 type(
@@ -3341,9 +3365,12 @@ class MenuSystem:
             }
             text = (
                 "📨 **Enable DM Reply**\n\n"
-                "Send me your group ID where you want to receive DM notifications.\n\n"
+                "Send me your **Forum Group** ID where you want to receive DM notifications.\n\n"
+                "**Requirements:**\n"
+                "• Group must have Topics enabled\n"
+                "• Bot must be admin with topic management permissions\n\n"
                 "**How to get group ID:**\n"
-                "1. Add @userinfobot to your group\n"
+                "1. Add @userinfobot to your forum group\n"
                 "2. Send any message\n"
                 "3. Copy the group ID (negative number)\n"
                 "4. Remove @userinfobot from group\n\n"
@@ -3363,31 +3390,32 @@ class MenuSystem:
             await self.bot.edit_message(user_id, event.message_id, text)
             
         elif action == "disable":
-            success, message = await self.account_manager.dm_reply_handler.set_admin_group(user_id, None)
-            if success:
-                text = (
-                    "📨 **DM Reply Disabled**\n\n"
-                    "❌ DM forwarding has been disabled.\n\n"
-                    "Use the menu to enable it again."
-                )
-            else:
-                text = f"❌ **Error**\n\n{message}"
+            # Disable DM reply by removing admin group from user
+            await mongodb.db.users.update_one(
+                {"telegram_id": user_id},
+                {"$unset": {"dm_reply_group_id": ""}}
+            )
+            text = (
+                "📨 **DM Reply Disabled**\n\n"
+                "❌ DM forwarding has been disabled.\n\n"
+                "Use the menu to enable it again."
+            )
             
             buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             
         elif action == "status":
-            admin_group_id = await self.account_manager.dm_reply_handler.get_admin_group(user_id)
+            admin_group_id = await self.account_manager.unified_messaging._get_user_admin_group(user_id)
             if admin_group_id:
                 text = (
-                    "📊 **DM Reply Status**\n\n"
+                    "📊 **Unified Messaging Status**\n\n"
                     f"✅ **Enabled**\n"
                     f"📍 Group ID: `{admin_group_id}`\n\n"
-                    f"All DMs to your managed accounts will be forwarded to this group."
+                    f"All DMs to your managed accounts automatically create topics in this group."
                 )
             else:
                 text = (
-                    "📊 **DM Reply Status**\n\n"
+                    "📊 **Unified Messaging Status**\n\n"
                     f"❌ **Disabled**\n\n"
                     f"DM forwarding is not configured."
                 )
@@ -3397,20 +3425,22 @@ class MenuSystem:
             
         elif action == "help":
             text = (
-                "❓ **DM Reply Setup Guide**\n\n"
-                "**Step 1: Create Group**\n"
-                "Create a private Telegram group for DM management\n\n"
-                "**Step 2: Add Bot**\n"
-                "Add your TeleGuard bot to the group\n\n"
+                "❓ **Unified Messaging Setup Guide**\n\n"
+                "**Step 1: Create Forum Group**\n"
+                "Create a private Telegram group and enable Topics\n\n"
+                "**Step 2: Add Bot as Admin**\n"
+                "Add TeleGuard bot with topic management permissions\n\n"
                 "**Step 3: Get Group ID**\n"
-                "1. Add @userinfobot to your group\n"
+                "1. Add @userinfobot to your forum group\n"
                 "2. Send any message\n"
                 "3. Copy the group ID (negative number like -1001234567890)\n"
                 "4. Remove @userinfobot\n\n"
                 "**Step 4: Configure**\n"
                 "Use 'Enable' button and paste the group ID\n\n"
-                "**Step 5: Test**\n"
-                "Send a DM to any managed account and check your group!"
+                "**Step 5: Automatic Operation**\n"
+                "ALL private messages to managed accounts automatically create topics!\n\n"
+                "**Step 6: Reply**\n"
+                "Simply type in any topic to reply - fully automated!"
             )
             
             buttons = [

@@ -46,7 +46,8 @@ class BotManager:
         )
         self.secure_2fa = Secure2FAManager()
         self.secure_input = SecureInputManager()
-        self.messaging_manager = MessagingManager(self.user_clients)
+        # Messaging manager is now part of unified messaging
+        self.messaging_manager = None
 
         # Initialize Activity Simulator with comprehensive audit
         from ..workers.activity_simulator import ActivitySimulator
@@ -76,15 +77,20 @@ class BotManager:
         
         self.online_maker = OnlineMaker(self)
         
-        # Initialize DM reply handler
-        from ..handlers.dm_reply_handler import DMReplyHandler
+        # Initialize unified messaging system (replaces separate DM and messaging handlers)
+        from ..handlers.unified_messaging import UnifiedMessagingSystem
         
-        self.dm_reply_handler = DMReplyHandler(self)
+        self.unified_messaging = UnifiedMessagingSystem(self)
         
         # Initialize DM reply commands
         from ..handlers.dm_reply_commands import DMReplyCommands
         
         self.dm_reply_commands = DMReplyCommands(self.bot, self)
+        
+        # Initialize chat import handler
+        from ..handlers.chat_import_handler import ChatImportHandler
+        
+        self.chat_import_handler = ChatImportHandler(self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -233,6 +239,16 @@ class BotManager:
             logger.warning(f"Menu setup error (continuing): {menu_error}")
 
         try:
+            # Setup unified messaging system
+            self.unified_messaging.setup_handlers()
+            logger.info("📨 Unified messaging system initialized")
+            
+            # Auto-import existing chats for all users
+            await self._auto_import_existing_chats()
+        except Exception as messaging_error:
+            logger.warning(f"Messaging setup error (continuing): {messaging_error}")
+
+        try:
             from ..handlers.start_handler import StartHandler
 
             self.start_handler = StartHandler(self.bot, self.menu_system)
@@ -330,13 +346,7 @@ class BotManager:
                 f"Online maker setup error (continuing): {online_error}"
             )
             
-        try:
-            self.dm_reply_handler.setup_dm_handlers()
-            logger.info("📨 DM reply handlers registered")
-        except Exception as dm_error:
-            logger.warning(
-                f"DM reply handler setup error (continuing): {dm_error}"
-            )
+
             
         try:
             self.dm_reply_commands.register_handlers()
@@ -344,6 +354,14 @@ class BotManager:
         except Exception as dm_cmd_error:
             logger.warning(
                 f"DM reply commands setup error (continuing): {dm_cmd_error}"
+            )
+            
+        try:
+            self.chat_import_handler.register_handlers()
+            logger.info("📚 Chat import handler registered")
+        except Exception as import_error:
+            logger.warning(
+                f"Chat import handler setup error (continuing): {import_error}"
             )
 
         if self.session_scheduler:
@@ -402,11 +420,11 @@ class BotManager:
 
             logger.info(f"✅ User client connected: {account_name} for user {user_id}")
             
-            # Set up auto-reply handler for this client
-            await self.auto_reply_handler.setup_new_client_handler(user_id, account_name, client)
+            # Set up unified messaging for new client
+            await self.unified_messaging.setup_new_client_handler(user_id, account_name, client)
             
-            # Set up DM reply handler for this client
-            await self.dm_reply_handler.setup_new_client_handler(user_id, account_name, client)
+            # Auto-import chats for this new client
+            await self._auto_import_for_user(user_id)
 
             # Check if OTP destroyer is enabled and log status
             if await self._is_otp_protection_enabled(user_id, account_name):
@@ -474,3 +492,31 @@ class BotManager:
             raise
         finally:
             await self.cleanup()
+    
+    async def _auto_import_existing_chats(self):
+        """Automatically import existing chats for all users with admin groups"""
+        try:
+            # Get all users with configured admin groups
+            users_with_groups = await mongodb.db.users.find({"dm_reply_group_id": {"$exists": True}}).to_list(length=None)
+            
+            for user in users_with_groups:
+                user_id = user["telegram_id"]
+                admin_group_id = user["dm_reply_group_id"]
+                
+                # Check if user has managed accounts
+                if user_id in self.user_clients and self.user_clients[user_id]:
+                    logger.info(f"Auto-importing chats for user {user_id}")
+                    await self.chat_import_handler._import_all_chats_silent(user_id, admin_group_id)
+                    
+        except Exception as e:
+            logger.warning(f"Auto-import failed: {e}")
+    
+    async def _auto_import_for_user(self, user_id: int):
+        """Auto-import chats for a specific user"""
+        try:
+            admin_group_id = await self.unified_messaging._get_user_admin_group(user_id)
+            if admin_group_id:
+                logger.info(f"Auto-importing chats for new client of user {user_id}")
+                await self.chat_import_handler._import_all_chats_silent(user_id, admin_group_id)
+        except Exception as e:
+            logger.warning(f"Auto-import for user {user_id} failed: {e}")

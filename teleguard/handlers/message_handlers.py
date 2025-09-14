@@ -19,7 +19,7 @@ class MessageHandlers:
         self.auth_manager = bot_manager.auth_manager
         self.pending_actions = bot_manager.pending_actions
         self.user_clients = bot_manager.user_clients
-        self.messaging_manager = bot_manager.messaging_manager
+        self.messaging_manager = bot_manager.unified_messaging
         self.secure_2fa = bot_manager.secure_2fa
         self.session_backup = bot_manager.session_backup
 
@@ -410,7 +410,7 @@ class MessageHandlers:
             )
             
             if account:
-                success = await self.bot_manager.messaging_manager.send_message(
+                success = await self.messaging_manager.send_message(
                     user_id, account["name"], target, message
                 )
                 await event.reply(
