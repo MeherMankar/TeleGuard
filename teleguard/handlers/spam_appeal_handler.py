@@ -206,6 +206,12 @@ class SpamAppealHandler:
         # Handle appeal form submission
         elif "write me some details" in message_text or "why do you think" in message_text:
             await self._submit_appeal_message(user_id)
+            
+        # Handle already submitted complaint
+        elif "already submitted a complaint" in message_text or "supervisors will check" in message_text:
+            state['state'] = 'already_submitted'
+            await self._notify_user(user_id, "ℹ️ Appeal already exists. Supervisors will review it soon.")
+            await self._complete_appeal(user_id, True)
 
     async def _bypass_captcha(self, user_id: int, captcha_url: str) -> bool:
         """Attempt to bypass captcha using advanced methods"""
@@ -318,20 +324,27 @@ class SpamAppealHandler:
             await self._notify_user(user_id, "⚠️ Please click 'Done' button manually in spambot chat.")
 
     async def _submit_appeal_message(self, user_id: int):
-        """Submit appeal message from loaded templates"""
+        """Submit AI-selected appeal message based on spam bot context"""
         try:
             client = self._get_user_client(user_id)
             if not client:
                 return
             
-            # Select random appeal message from loaded file
-            appeal_message = random.choice(self.appeal_messages)
+            # Get recent spam bot message for context
+            context = ""
+            async for message in client.iter_messages("spambot", limit=3):
+                if message.text:
+                    context += message.text + " "
+                    break
+            
+            # AI-powered message selection
+            appeal_message = await self._select_smart_appeal_message(context)
             await client.send_message("spambot", appeal_message)
             
             self.active_appeals[user_id]['state'] = 'final_submitted'
             await self._notify_user(
                 user_id,
-                f"📝 **Appeal Details Submitted**\n\n"
+                f"🤖 **AI-Selected Appeal Submitted**\n\n"
                 f"Message: {appeal_message[:150]}...\n\n"
                 f"✅ Appeal process completed!"
             )
@@ -392,6 +405,67 @@ class SpamAppealHandler:
         except Exception as e:
             logger.error(f"Error getting user client: {e}")
             return None
+    
+    async def _select_smart_appeal_message(self, context: str) -> str:
+        """AI-powered appeal message selection based on context and account age"""
+        try:
+            context_lower = context.lower()
+            
+            # Get account age
+            account_age_days = await self._get_account_age_days()
+            is_new_account = account_age_days < 30  # Less than 30 days = new
+            
+            # Age-based selection first
+            if is_new_account:
+                new_keywords = ['new', 'recently', 'just created', 'started using', 'first time']
+                new_messages = [msg for msg in self.appeal_messages if any(kw in msg.lower() for kw in new_keywords)]
+                if new_messages:
+                    return random.choice(new_messages)
+            else:
+                old_keywords = ['long time', 'years', 'experienced', 'regular user', 'always used']
+                old_messages = [msg for msg in self.appeal_messages if any(kw in msg.lower() for kw in old_keywords)]
+                if old_messages:
+                    return random.choice(old_messages)
+            
+            # Context-based selection
+            if any(word in context_lower for word in ['advertising', 'promotional', 'spam']):
+                personal_messages = [msg for msg in self.appeal_messages if 'personal' in msg.lower() or 'friends' in msg.lower()]
+                if personal_messages:
+                    return random.choice(personal_messages)
+            
+            elif any(word in context_lower for word in ['mistake', 'error', 'wrong']):
+                mistake_messages = [msg for msg in self.appeal_messages if 'mistake' in msg.lower() or 'error' in msg.lower()]
+                if mistake_messages:
+                    return random.choice(mistake_messages)
+            
+            elif any(word in context_lower for word in ['details', 'explain', 'why']):
+                detailed_messages = [msg for msg in self.appeal_messages if len(msg) > 100]
+                if detailed_messages:
+                    return random.choice(detailed_messages)
+            
+            return random.choice(self.appeal_messages)
+            
+        except Exception as e:
+            logger.error(f"Error in smart message selection: {e}")
+            return random.choice(self.appeal_messages)
+    
+    async def _get_account_age_days(self) -> int:
+        """Get account creation age in days"""
+        try:
+            # Get first available user client
+            for user_id, clients in self.bot_manager.user_clients.items():
+                for client in clients.values():
+                    if client and client.is_connected():
+                        me = await client.get_me()
+                        if hasattr(me, 'date') and me.date:
+                            from datetime import datetime
+                            creation_date = me.date
+                            age_days = (datetime.now() - creation_date).days
+                            return age_days
+            return 365  # Default to old account if can't determine
+        except Exception as e:
+            logger.error(f"Error getting account age: {e}")
+            return 365  # Default to old account
     
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""

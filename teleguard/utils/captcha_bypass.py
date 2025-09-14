@@ -49,23 +49,17 @@ class CaptchaBypass:
             }
     
     async def _auto_bypass(self, url: str) -> Dict[str, Any]:
-        """Try multiple bypass methods automatically"""
-        methods = ['requests', 'selenium']
-        
-        for method in methods:
-            try:
-                result = await getattr(self, f"_{method}_bypass")(url)
-                if result['success']:
-                    return result
-            except Exception as e:
-                logger.warning(f"Method {method} failed: {e}")
-                continue
-        
-        return {
-            'success': False,
-            'error': 'All bypass methods failed',
-            'method': 'auto'
-        }
+        """Try selenium bypass only for Telegram captcha"""
+        try:
+            result = await self._selenium_bypass(url)
+            return result
+        except Exception as e:
+            logger.warning(f"Selenium bypass failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'method': 'auto'
+            }
     
     async def _requests_bypass(self, url: str) -> Dict[str, Any]:
         """Bypass using HTTP requests - disabled for Telegram captcha"""
@@ -99,9 +93,12 @@ class CaptchaBypass:
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_argument("--disable-web-security")
+            chrome_options.add_argument("--allow-running-insecure-content")
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             chrome_options.add_argument(f"--user-agent={random.choice(self.user_agents)}")
+            chrome_options.add_argument("--window-size=1920,1080")
             
             try:
                 from webdriver_manager.chrome import ChromeDriverManager
@@ -114,53 +111,104 @@ class CaptchaBypass:
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             driver.get(url)
             
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
             
-            wait = WebDriverWait(driver, 20)
+            wait = WebDriverWait(driver, 15)
             
-            # Handle web-based captcha (checkbox + "Go back to bot" button)
+            # Cloudflare Turnstile handling
             try:
-                # Find and click checkbox
-                checkbox_selectors = [
+                from .turnstile_bypass import TurnstileBypass
+                turnstile = TurnstileBypass()
+                
+                success = await turnstile.bypass_turnstile(driver)
+                if success:
+                    return {
+                        'success': True,
+                        'method': 'selenium',
+                        'final_url': driver.current_url
+                    }
+                # Wait for Cloudflare challenge to load
+                await asyncio.sleep(5)
+                
+                # Look for Cloudflare checkbox
+                cf_selectors = [
                     "input[type='checkbox']",
-                    ".recaptcha-checkbox",
-                    "[role='checkbox']",
-                    ".checkbox"
+                    ".cf-turnstile",
+                    "[data-sitekey]",
+                    ".challenge-form input[type='checkbox']",
+                    "#challenge-form input[type='checkbox']"
                 ]
                 
-                for selector in checkbox_selectors:
+                checkbox_clicked = False
+                for selector in cf_selectors:
                     try:
                         checkbox = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                        checkbox.click()
+                        # Human-like click
+                        actions = ActionChains(driver)
+                        actions.move_to_element(checkbox).pause(1).click().perform()
+                        checkbox_clicked = True
                         await asyncio.sleep(3)
                         break
                     except:
                         continue
                 
-                # Find "Go back to bot" button
-                try:
-                    button = driver.find_element(By.XPATH, "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'go back to bot')]")
-                    button.click()
+                # If checkbox not found, try JavaScript
+                if not checkbox_clicked:
+                    driver.execute_script("""
+                        const checkbox = document.querySelector('input[type="checkbox"]');
+                        if (checkbox) {
+                            checkbox.click();
+                        }
+                    """)
                     await asyncio.sleep(3)
-                except:
-                    # Try other button texts
-                    button_selectors = ["button[type='submit']", "input[type='submit']", ".btn", "button"]
-                    for selector in button_selectors:
-                        try:
+                
+                # Wait for verification to complete
+                await asyncio.sleep(5)
+                
+                # Look for "Go back to bot" or continue button
+                button_selectors = [
+                    "//button[contains(text(), 'Go back to bot')]",
+                    "//button[contains(text(), 'Continue')]",
+                    "//a[contains(text(), 'Go back to bot')]",
+                    "//a[contains(@href, 't.me')]",
+                    "button[type='submit']",
+                    ".btn",
+                    "button"
+                ]
+                
+                for selector in button_selectors:
+                    try:
+                        if selector.startswith('//'):
+                            button = driver.find_element(By.XPATH, selector)
+                        else:
                             button = driver.find_element(By.CSS_SELECTOR, selector)
-                            button.click()
+                        
+                        if button.is_displayed():
+                            actions = ActionChains(driver)
+                            actions.move_to_element(button).pause(1).click().perform()
                             await asyncio.sleep(3)
                             break
-                        except:
-                            continue
+                    except:
+                        continue
                 
                 # Check if redirected back to Telegram
+                await asyncio.sleep(3)
                 if 't.me' in driver.current_url or 'telegram' in driver.current_url.lower():
                     return {
                         'success': True,
                         'method': 'selenium',
                         'final_url': driver.current_url
                     }
+                
+                # Try direct navigation to Telegram
+                try:
+                    telegram_links = driver.find_elements(By.XPATH, "//a[contains(@href, 't.me')]")
+                    if telegram_links:
+                        telegram_links[0].click()
+                        await asyncio.sleep(3)
+                        return {'success': True, 'method': 'selenium'}
+                except:
+                    pass
                 
             except Exception as e:
                 logger.debug(f"Captcha handling error: {e}")
