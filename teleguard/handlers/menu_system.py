@@ -33,8 +33,8 @@ class MenuSystem:
         keyboard = [
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📨 DM Reply")],
-            [Button.text("📢 Channels"), Button.text("❓ Help")],
-            [Button.text("🆘 Support")],
+            [Button.text("📢 Channels"), Button.text("👥 Contacts")],
+            [Button.text("❓ Help"), Button.text("🆘 Support")],
         ]
 
         # Add Developer button only for admins
@@ -403,6 +403,8 @@ class MenuSystem:
                     "DM Reply",
                     "📢 Channels",
                     "Channels",
+                    "👥 Contacts",
+                    "Contacts",
                     "❓ Help",
                     "Help",
                     "🆘 Support",
@@ -427,6 +429,8 @@ class MenuSystem:
                     await self._handle_dm_reply(event)
                 elif text in ["📢 Channels", "Channels"]:
                     await self._handle_channels(event)
+                elif text in ["👥 Contacts", "Contacts"]:
+                    await self._handle_contacts(event)
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -757,6 +761,13 @@ class MenuSystem:
 
                 elif data.startswith("dm_reply:"):
                     await self._handle_dm_reply_callback(event, user_id, data)
+                
+                elif data.startswith("contacts:"):
+                    # Forward to contact handler
+                    if hasattr(self.account_manager, 'contact_handler'):
+                        await self.account_manager.contact_handler.handle_contacts_callback(event)
+                    else:
+                        await event.answer("❌ Contact system not available")
                 
                 elif data.startswith("remove:"):
                     parts = data.split(":")
@@ -1112,6 +1123,50 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle channels: {e}")
             await event.reply("❌ Error loading channel manager")
+
+    async def _handle_contacts(self, event):
+        """Handle Contacts menu"""
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            
+            if not accounts:
+                text = "👥 **Contact Management**\n\nNo accounts found. Add accounts first to manage contacts."
+                buttons = [
+                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                ]
+            else:
+                # Get contact count from database
+                contact_count = 0
+                for account in accounts:
+                    count = await mongodb.db.contacts.count_documents({"managed_by_account": account['name']})
+                    contact_count += count
+                
+                text = (
+                    "👥 **Contact Management System**\n\n"
+                    f"📊 **Statistics:**\n"
+                    f"• Total Contacts: {contact_count}\n"
+                    f"• Managed Accounts: {len(accounts)}\n\n"
+                    "🚀 **Features:**\n"
+                    "• Add, edit, delete contacts\n"
+                    "• Organize with tags and groups\n"
+                    "• Import/export contact lists\n"
+                    "• Sync with Telegram contacts\n"
+                    "• Blacklist/whitelist management\n\n"
+                    "Click below to access the contact manager:"
+                )
+                
+                buttons = [
+                    [Button.inline("👥 Open Contact Manager", "contacts:main")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+            
+            await self.bot.send_message(user_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Failed to handle contacts: {e}")
+            await event.reply("❌ Error loading contact management")
 
     async def _handle_help(self, event):
         """Handle Help menu"""

@@ -121,6 +121,11 @@ class BotManager:
         from ..handlers.spam_appeal_handler import SpamAppealHandler
 
         self.spam_appeal_handler = SpamAppealHandler(self)
+        
+        # Initialize contact handler
+        from ..handlers.contact_handler import ContactHandler
+        
+        self.contact_handler = ContactHandler(self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -437,6 +442,14 @@ class BotManager:
         except Exception as appeal_error:
             logger.warning(
                 f"Spam appeal handler setup error (continuing): {appeal_error}"
+            )
+            
+        try:
+            self.contact_handler.register_handlers()
+            logger.info("👥 Contact handler registered")
+        except Exception as contact_error:
+            logger.warning(
+                f"Contact handler setup error (continuing): {contact_error}"
             )
             
         # Execute startup commands after all components are ready
