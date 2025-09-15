@@ -1040,7 +1040,7 @@ class MenuSystem:
                         Button.inline("📨 Bulk Sender", "msg:bulk"),
                     ],
                     [
-                        Button.inline("🤖 Auto Reply", "msg:autoreply"),
+                        Button.inline("🤖 Auto Reply", "auto_reply:main"),
                         Button.inline("📝 Templates", "msg:templates"),
                     ],
                     [

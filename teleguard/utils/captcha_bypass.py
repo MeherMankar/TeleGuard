@@ -79,11 +79,13 @@ class CaptchaBypass:
             from selenium.webdriver.chrome.options import Options
             from selenium.webdriver.common.action_chains import ActionChains
             
-        except ImportError:
+        except ImportError as e:
+            logger.error(f"Selenium import failed: {e}")
             return {
                 'success': False,
-                'error': 'Selenium not available',
-                'method': 'selenium'
+                'error': 'Selenium not available - install with: pip install selenium webdriver-manager',
+                'method': 'selenium',
+                'manual_url': url
             }
         
         driver = None
@@ -91,16 +93,31 @@ class CaptchaBypass:
             chrome_options = Options()
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--disable-web-security")
-            chrome_options.add_argument("--allow-running-insecure-content")
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
-            chrome_options.add_argument(f"--user-agent={random.choice(self.user_agents)}")
-            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_experimental_option("prefs", {
+                "profile.default_content_setting_values.notifications": 2
+            })
+            
+            # Randomize user agent and window size
+            user_agent = random.choice(self.user_agents)
+            chrome_options.add_argument(f"--user-agent={user_agent}")
+            
+            widths = [1366, 1440, 1536, 1920]
+            heights = [768, 900, 1024, 1080]
+            width = random.choice(widths)
+            height = random.choice(heights)
+            chrome_options.add_argument(f"--window-size={width},{height}")
             
             try:
+                import os
+                os.environ['WDM_LOG_LEVEL'] = '0'
                 from webdriver_manager.chrome import ChromeDriverManager
                 from selenium.webdriver.chrome.service import Service
                 service = Service(ChromeDriverManager().install())
@@ -108,62 +125,59 @@ class CaptchaBypass:
             except:
                 driver = webdriver.Chrome(options=chrome_options)
             
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            driver.get(url)
+            # Enhanced anti-detection
+            driver.execute_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)
             
-            await asyncio.sleep(3)
+            await asyncio.sleep(random.uniform(2, 4))
+            driver.get(url)
+            await asyncio.sleep(random.uniform(3, 6))
             
             wait = WebDriverWait(driver, 15)
             
-            # Cloudflare Turnstile handling
+            # Simple approach - wait and check for completion
             try:
-                from .turnstile_bypass import TurnstileBypass
-                turnstile = TurnstileBypass()
+                # Wait for page to fully load
+                await asyncio.sleep(random.uniform(8, 12))
                 
-                success = await turnstile.bypass_turnstile(driver)
-                if success:
+                # Check if captcha completed automatically
+                current_url = driver.current_url.lower()
+                if ('t.me' in current_url or 'success' in current_url or 
+                    'complete' in current_url or 'telegram' in current_url):
                     return {
                         'success': True,
                         'method': 'selenium',
                         'final_url': driver.current_url
                     }
-                # Wait for Cloudflare challenge to load
-                await asyncio.sleep(5)
-                
-                # Look for Cloudflare checkbox
-                cf_selectors = [
-                    "input[type='checkbox']",
-                    ".cf-turnstile",
-                    "[data-sitekey]",
-                    ".challenge-form input[type='checkbox']",
-                    "#challenge-form input[type='checkbox']"
-                ]
-                
-                checkbox_clicked = False
-                for selector in cf_selectors:
-                    try:
-                        checkbox = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                        # Human-like click
-                        actions = ActionChains(driver)
-                        actions.move_to_element(checkbox).pause(1).click().perform()
-                        checkbox_clicked = True
-                        await asyncio.sleep(3)
-                        break
-                    except:
-                        continue
-                
-                # If checkbox not found, try JavaScript
-                if not checkbox_clicked:
-                    driver.execute_script("""
-                        const checkbox = document.querySelector('input[type="checkbox"]');
-                        if (checkbox) {
-                            checkbox.click();
+                # Minimal interaction - just wait for auto-completion
+                for attempt in range(6):  # 60 seconds total
+                    await asyncio.sleep(10)
+                    
+                    # Check if completed
+                    current_url = driver.current_url.lower()
+                    if ('t.me' in current_url or 'success' in current_url or 
+                        'complete' in current_url or 'telegram' in current_url):
+                        return {
+                            'success': True,
+                            'method': 'selenium',
+                            'final_url': driver.current_url
                         }
-                    """)
-                    await asyncio.sleep(3)
-                
-                # Wait for verification to complete
-                await asyncio.sleep(5)
+                    
+                    # Check page content
+                    try:
+                        page_text = driver.page_source.lower()
+                        if any(word in page_text for word in ['go back to bot', 'continue', 'success', 'complete']):
+                            return {
+                                'success': True,
+                                'method': 'selenium',
+                                'final_url': driver.current_url
+                            }
+                    except:
+                        pass
                 
                 # Look for "Go back to bot" or continue button
                 button_selectors = [
@@ -192,13 +206,29 @@ class CaptchaBypass:
                         continue
                 
                 # Check if redirected back to Telegram
-                await asyncio.sleep(3)
-                if 't.me' in driver.current_url or 'telegram' in driver.current_url.lower():
+                await asyncio.sleep(5)
+                current_url = driver.current_url
+                
+                # Check for success indicators
+                if ('t.me' in current_url or 'telegram' in current_url.lower() or 
+                    'success' in current_url.lower() or 'complete' in current_url.lower()):
                     return {
                         'success': True,
                         'method': 'selenium',
-                        'final_url': driver.current_url
+                        'final_url': current_url
                     }
+                
+                # Check page content for success indicators
+                try:
+                    page_text = driver.page_source.lower()
+                    if any(word in page_text for word in ['success', 'complete', 'verified', 'done']):
+                        return {
+                            'success': True,
+                            'method': 'selenium',
+                            'final_url': current_url
+                        }
+                except:
+                    pass
                 
                 # Try direct navigation to Telegram
                 try:
@@ -215,8 +245,9 @@ class CaptchaBypass:
             
             return {
                 'success': False,
-                'error': 'Captcha not solved',
-                'method': 'selenium'
+                'error': 'Captcha requires manual completion',
+                'method': 'selenium',
+                'manual_url': url
             }
             
         except Exception as e:

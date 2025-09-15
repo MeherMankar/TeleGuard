@@ -59,3 +59,7 @@ typer>=0.9.0
 selenium>=4.15.0
 webdriver-manager>=4.0.0
 beautifulsoup4>=4.12.0
+
+# Additional Selenium dependencies
+requests>=2.31.0
+urllib3>=1.26.0

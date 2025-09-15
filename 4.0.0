@@ -1,0 +1,12 @@
+Collecting webdriver-manager
+  Downloading webdriver_manager-4.0.2-py2.py3-none-any.whl.metadata (12 kB)
+Requirement already satisfied: requests in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from webdriver-manager) (2.31.0)
+Requirement already satisfied: python-dotenv in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from webdriver-manager) (1.0.0)
+Requirement already satisfied: packaging in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from webdriver-manager) (25.0)
+Requirement already satisfied: charset-normalizer<4,>=2 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from requests->webdriver-manager) (2.0.12)
+Requirement already satisfied: idna<4,>=2.5 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from requests->webdriver-manager) (3.10)
+Requirement already satisfied: urllib3<3,>=1.21.1 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from requests->webdriver-manager) (2.5.0)
+Requirement already satisfied: certifi>=2017.4.17 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from requests->webdriver-manager) (2025.8.3)
+Downloading webdriver_manager-4.0.2-py2.py3-none-any.whl (27 kB)
+Installing collected packages: webdriver-manager
+Successfully installed webdriver-manager-4.0.2

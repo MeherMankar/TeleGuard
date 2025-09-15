@@ -1,151 +1,247 @@
-"""Cloudflare Turnstile bypass with human behavior simulation"""
+"""Cloudflare Turnstile bypass utilities"""
 
 import asyncio
+import logging
 import random
-import time
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.by import By
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 class TurnstileBypass:
-    """Handle Cloudflare Turnstile captcha with human-like behavior"""
+    """Specialized Cloudflare Turnstile bypass"""
     
-    async def bypass_turnstile(self, driver):
-        """Main Turnstile bypass method"""
+    def __init__(self):
+        self.max_attempts = 3
+        self.wait_timeout = 30
+    
+    async def bypass_turnstile(self, driver) -> bool:
+        """Attempt to bypass Cloudflare Turnstile challenge"""
         try:
-            # Extended human behavior simulation
-            await self._extended_human_simulation(driver)
+            # Wait for page to load
+            await asyncio.sleep(random.uniform(3, 5))
             
-            # Wait for invisible checks to complete
-            await asyncio.sleep(random.uniform(8, 12))
-            
-            # Check if already passed (invisible mode)
-            if await self._check_invisible_pass(driver):
+            # Check if already passed
+            if await self._check_success(driver):
                 return True
             
-            # Handle managed mode checkbox if present
-            checkbox_element = await self._find_turnstile_checkbox(driver)
-            if checkbox_element:
-                await self._natural_checkbox_interaction(driver, checkbox_element)
-                await asyncio.sleep(random.uniform(5, 8))
-            
-            # Click continue button
-            await self._click_continue_button(driver)
-            
-            return 't.me' in driver.current_url
-            
-        except Exception:
-            return False
-    
-    async def _find_turnstile_checkbox(self, driver):
-        """Find Turnstile checkbox element"""
-        selectors = [
-            "iframe[src*='turnstile']",
-            ".cf-turnstile",
-            "[data-sitekey]",
-            "input[type='checkbox']"
-        ]
-        
-        for selector in selectors:
-            try:
-                if 'iframe' in selector:
-                    iframe = driver.find_element(By.CSS_SELECTOR, selector)
-                    driver.switch_to.frame(iframe)
-                    return driver.find_element(By.CSS_SELECTOR, "input[type='checkbox']")
-                else:
-                    return driver.find_element(By.CSS_SELECTOR, selector)
-            except:
-                if 'iframe' in selector:
-                    driver.switch_to.default_content()
-                continue
-        return None
-    
-    async def _extended_human_simulation(self, driver):
-        """Extended human behavior simulation for Turnstile"""
-        try:
-            # Natural page interaction
-            await asyncio.sleep(random.uniform(1, 3))
-            
-            # Organic scrolling pattern
-            for _ in range(random.randint(2, 4)):
-                scroll_amount = random.randint(50, 200)
-                driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
-                await asyncio.sleep(random.uniform(0.8, 2.0))
-            
-            # Natural mouse movements with pauses
-            actions = ActionChains(driver)
-            for _ in range(random.randint(5, 8)):
-                x = random.randint(50, 1000)
-                y = random.randint(50, 700)
-                actions.move_by_offset(random.randint(-50, 50), random.randint(-50, 50))
-                await asyncio.sleep(random.uniform(0.2, 0.8))
-            actions.perform()
-            
-            # Simulate reading time
-            await asyncio.sleep(random.uniform(2, 5))
-            
-        except Exception:
-            pass
-    
-    async def _check_invisible_pass(self, driver):
-        """Check if Turnstile passed in invisible mode"""
-        try:
-            # Look for success indicators
-            success_selectors = [
-                "[data-cf-turnstile-response]",
-                ".cf-turnstile[data-response]",
-                "input[name='cf-turnstile-response'][value]"
+            # Try multiple bypass methods
+            methods = [
+                self._method_wait_and_click,
+                self._method_javascript_trigger,
+                self._method_iframe_interaction,
+                self._method_passive_wait
             ]
             
-            for selector in success_selectors:
+            for method in methods:
                 try:
-                    element = driver.find_element(By.CSS_SELECTOR, selector)
-                    if element.get_attribute('value') or element.get_attribute('data-response'):
+                    success = await method(driver)
+                    if success:
                         return True
-                except:
+                    await asyncio.sleep(random.uniform(2, 4))
+                except Exception as e:
+                    logger.debug(f"Turnstile method failed: {e}")
                     continue
             
             return False
-        except:
+            
+        except Exception as e:
+            logger.error(f"Turnstile bypass error: {e}")
             return False
     
-    async def _natural_checkbox_interaction(self, driver, element):
-        """Natural checkbox interaction with pre-click behavior"""
+    async def _check_success(self, driver) -> bool:
+        """Check if challenge is already completed"""
         try:
-            # Hover near checkbox first
-            actions = ActionChains(driver)
-            actions.move_to_element_with_offset(element, random.randint(-20, 20), random.randint(-20, 20))
-            actions.pause(random.uniform(0.5, 1.0))
+            # Check URL for success indicators
+            url = driver.current_url.lower()
+            if any(word in url for word in ['success', 'complete', 'verified', 'passed']):
+                return True
             
-            # Move closer to checkbox
-            actions.move_to_element_with_offset(element, random.randint(-5, 5), random.randint(-5, 5))
-            actions.pause(random.uniform(0.3, 0.8))
+            # Check for absence of challenge elements
+            challenge_selectors = [
+                '.cf-turnstile',
+                '[data-sitekey]',
+                'iframe[src*="turnstile"]',
+                '.challenge-form'
+            ]
             
-            # Final click with slight offset
-            actions.move_to_element_with_offset(element, random.randint(-2, 2), random.randint(-2, 2))
-            actions.pause(random.uniform(0.1, 0.4))
-            actions.click()
-            actions.perform()
+            for selector in challenge_selectors:
+                try:
+                    elements = driver.find_elements("css selector", selector)
+                    if elements:
+                        return False  # Challenge still present
+                except:
+                    continue
+            
+            # If no challenge elements found, likely successful
+            return True
             
         except Exception:
-            element.click()
+            return False
     
-
+    async def _method_wait_and_click(self, driver) -> bool:
+        """Wait for Turnstile widget and attempt click"""
+        try:
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            wait = WebDriverWait(driver, 15)
+            
+            # Look for Turnstile checkbox
+            selectors = [
+                "input[type='checkbox']",
+                ".cf-turnstile input",
+                "[data-sitekey] input",
+                "iframe[src*='turnstile']"
+            ]
+            
+            for selector in selectors:
+                try:
+                    element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                    
+                    # Human-like interaction
+                    await asyncio.sleep(random.uniform(1, 3))
+                    
+                    if selector.endswith('iframe'):
+                        # Handle iframe
+                        driver.switch_to.frame(element)
+                        checkbox = driver.find_element(By.CSS_SELECTOR, "input[type='checkbox']")
+                        checkbox.click()
+                        driver.switch_to.default_content()
+                    else:
+                        element.click()
+                    
+                    # Wait for processing
+                    await asyncio.sleep(random.uniform(3, 6))
+                    
+                    return await self._check_success(driver)
+                    
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Wait and click method failed: {e}")
+            return False
     
-    async def _click_continue_button(self, driver):
-        """Find and click continue button"""
-        selectors = [
-            "//a[contains(text(), 'Go back to bot')]",
-            "//button[contains(text(), 'Continue')]",
-            "//a[contains(@href, 't.me')]",
-            "button[type='submit']"
-        ]
-        
-        for selector in selectors:
-            try:
-                button = driver.find_element(By.XPATH, selector)
-                if button.is_displayed():
-                    await self._human_like_click(driver, button)
-                    await asyncio.sleep(2)
-                    break
-            except:
-                continue
+    async def _method_javascript_trigger(self, driver) -> bool:
+        """Use JavaScript to trigger Turnstile completion"""
+        try:
+            # Wait for Turnstile to load
+            await asyncio.sleep(random.uniform(2, 4))
+            
+            js_scripts = [
+                # Try to trigger Turnstile callback
+                """
+                if (window.turnstile && window.turnstile.render) {
+                    try {
+                        const widgets = document.querySelectorAll('.cf-turnstile');
+                        widgets.forEach(widget => {
+                            if (widget.dataset.callback) {
+                                window[widget.dataset.callback]('success');
+                            }
+                        });
+                    } catch(e) {}
+                }
+                """,
+                
+                # Try to simulate successful verification
+                """
+                const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => {
+                    if (!cb.checked) {
+                        cb.checked = true;
+                        cb.dispatchEvent(new Event('change', {bubbles: true}));
+                    }
+                });
+                """,
+                
+                # Try to remove challenge elements
+                """
+                const challenges = document.querySelectorAll('.cf-turnstile, [data-sitekey]');
+                challenges.forEach(el => el.style.display = 'none');
+                """
+            ]
+            
+            for script in js_scripts:
+                try:
+                    driver.execute_script(script)
+                    await asyncio.sleep(random.uniform(2, 4))
+                    
+                    if await self._check_success(driver):
+                        return True
+                        
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"JavaScript method failed: {e}")
+            return False
+    
+    async def _method_iframe_interaction(self, driver) -> bool:
+        """Interact with Turnstile iframe"""
+        try:
+            from selenium.webdriver.common.by import By
+            
+            # Find Turnstile iframes
+            iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='turnstile'], iframe[src*='cloudflare']")
+            
+            for iframe in iframes:
+                try:
+                    driver.switch_to.frame(iframe)
+                    
+                    # Look for interactive elements
+                    interactive_elements = driver.find_elements(By.CSS_SELECTOR, 
+                        "input, button, [role='button'], [onclick], [data-callback]")
+                    
+                    for element in interactive_elements:
+                        try:
+                            if element.is_displayed() and element.is_enabled():
+                                await asyncio.sleep(random.uniform(1, 2))
+                                element.click()
+                                await asyncio.sleep(random.uniform(2, 4))
+                                break
+                        except:
+                            continue
+                    
+                    driver.switch_to.default_content()
+                    
+                    if await self._check_success(driver):
+                        return True
+                        
+                except Exception:
+                    driver.switch_to.default_content()
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Iframe method failed: {e}")
+            return False
+    
+    async def _method_passive_wait(self, driver) -> bool:
+        """Passively wait for Turnstile to complete automatically"""
+        try:
+            # Some Turnstile challenges complete automatically
+            for i in range(self.wait_timeout):
+                await asyncio.sleep(1)
+                
+                if await self._check_success(driver):
+                    return True
+                
+                # Check every 5 seconds
+                if i % 5 == 0:
+                    # Simulate human activity
+                    try:
+                        driver.execute_script("window.scrollBy(0, 10);")
+                    except:
+                        pass
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Passive wait method failed: {e}")
+            return False
