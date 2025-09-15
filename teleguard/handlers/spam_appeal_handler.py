@@ -53,30 +53,30 @@ class SpamAppealHandler:
                     await event.reply("⚠️ You already have an active appeal process. Please wait for it to complete.")
                     return
                 
-                # Initialize appeal state
-                self.active_appeals[user_id] = {
-                    'state': 'starting',
-                    'account_name': account_name,
-                    'captcha_url': None,
-                    'start_time': asyncio.get_event_loop().time()
-                }
+                # Show appeal mode selection
+                buttons = [
+                    [Button.inline("🤖 Automatic (with captcha bypass)", b"appeal_auto")],
+                    [Button.inline("👤 Manual Human Verification", b"appeal_manual")],
+                    [Button.inline("❌ Cancel", b"appeal_cancel")]
+                ]
                 
                 await event.reply(
-                    "🛡️ **Starting Spam Appeal Process**\n\n"
-                    "I will now initiate an automated appeal with @spambot.\n"
-                    "This process includes:\n"
-                    "• Automatic captcha handling\n"
-                    "• Appeal message submission\n"
-                    "• Status monitoring\n\n"
-                    "⏳ Please wait..."
+                    "🛡️ **Spam Appeal Process**\n\n"
+                    "Choose your preferred appeal method:\n\n"
+                    "🤖 **Automatic Mode:**\n"
+                    "• AI handles entire process\n"
+                    "• Attempts captcha bypass\n"
+                    "• Faster but may fail on complex captchas\n\n"
+                    "👤 **Manual Mode:**\n"
+                    "• Human verification required\n"
+                    "• No automatic captcha bypass\n"
+                    "• More reliable for complex captchas\n\n"
+                    "Select your preferred method:",
+                    buttons=buttons
                 )
-                
-                # Start the appeal process
-                await self._start_appeal_process(user_id)
                 
             except Exception as e:
                 logger.error(f"Appeal command error: {e}")
-                self.active_appeals.pop(user_id, None)
                 await event.reply("❌ Error starting the appeal process. Please try again.")
 
         @self.bot.on(events.NewMessage(pattern=r"^/appeal_status$"))
@@ -89,12 +89,20 @@ class SpamAppealHandler:
                 
             state = self.active_appeals[user_id]
             elapsed = int(asyncio.get_event_loop().time() - state['start_time'])
+            mode = state.get('mode', 'auto')
+            mode_text = "🤖 Automatic" if mode == "auto" else "👤 Manual"
             
             status_text = f"📊 **Appeal Status**\n\n"
+            status_text += f"Mode: {mode_text}\n"
             status_text += f"State: {state['state']}\n"
             status_text += f"Elapsed: {elapsed}s\n"
+            
             if state.get('captcha_url'):
                 status_text += f"Captcha: Detected\n"
+                if mode == "manual" and state['state'] == 'waiting_manual_captcha':
+                    status_text += f"\n⚠️ **Action Required:**\n"
+                    status_text += f"Complete captcha verification manually\n"
+                    status_text += f"Use /continue_appeal for options"
             
             await event.reply(status_text)
 
@@ -136,13 +144,19 @@ class SpamAppealHandler:
             
             state = self.active_appeals[user_id]
             if state['state'] == 'waiting_manual_captcha':
-                state['state'] = 'captcha_solved'
+                buttons = [
+                    [Button.inline("✅ I completed the captcha", b"captcha_done")],
+                    [Button.inline("🔄 Get new captcha link", b"captcha_refresh")],
+                    [Button.inline("❌ Cancel appeal", b"captcha_cancel")]
+                ]
+                
+                captcha_url = state.get('captcha_url', 'Not available')
                 await event.reply(
-                    "✅ **Captcha Completed**\n\n"
-                    "Looking for Done button in spambot chat...\n"
-                    "⏳ Please wait..."
+                    f"🔄 **Continue Appeal Process**\n\n"
+                    f"Current captcha: `{captcha_url}`\n\n"
+                    f"Please complete the captcha verification and confirm below:",
+                    buttons=buttons
                 )
-                await self._auto_click_done(user_id)
             else:
                 await event.reply(
                     f"ℹ️ **Current State:** {state['state']}\n\n"
@@ -150,24 +164,71 @@ class SpamAppealHandler:
                     f"Use /appeal_status to check progress."
                 )
 
+        @self.bot.on(events.CallbackQuery(pattern=b"appeal_(auto|manual|cancel)"))
+        async def appeal_mode_callback(event):
+            user_id = event.sender_id
+            mode = event.data.decode().split('_')[1]
+            
+            try:
+                await event.delete()
+                
+                if mode == "cancel":
+                    await event.respond("❌ Appeal process cancelled.")
+                    return
+                
+                # Initialize appeal state with selected mode
+                self.active_appeals[user_id] = {
+                    'state': 'starting',
+                    'mode': mode,  # 'auto' or 'manual'
+                    'captcha_url': None,
+                    'start_time': asyncio.get_event_loop().time()
+                }
+                
+                if mode == "auto":
+                    await event.respond(
+                        "🤖 **Automatic Appeal Mode**\n\n"
+                        "Starting automated process with captcha bypass...\n"
+                        "⏳ Please wait..."
+                    )
+                else:  # manual
+                    await event.respond(
+                        "👤 **Manual Human Verification Mode**\n\n"
+                        "Starting manual verification process...\n"
+                        "You will handle captchas manually.\n"
+                        "⏳ Please wait..."
+                    )
+                
+                # Start the appeal process
+                await self._start_appeal_process(user_id)
+                
+            except Exception as e:
+                logger.error(f"Appeal mode callback error: {e}")
+                await event.respond("❌ Error starting the appeal process. Please try again.")
+
         @self.bot.on(events.NewMessage(pattern=r"^/appeal_help$"))
         async def appeal_help_command(event):
             """Show detailed appeal help and troubleshooting"""
             help_text = (
                 "🎆 **Spam Appeal System Help**\n\n"
                 "🚀 **Quick Start:**\n"
-                "/appeal - Start automated appeal process\n"
+                "/appeal - Start appeal process (choose mode)\n"
                 "/appeal_status - Check current appeal status\n"
                 "/continue_appeal - Continue after manual captcha\n"
                 "/cancel_appeal - Cancel active appeal\n\n"
                 "🔧 **Troubleshooting:**\n"
                 "/check_selenium - Test captcha bypass setup\n"
                 "/appeal_help - Show this help message\n\n"
-                "🤖 **How It Works:**\n"
+                "🤖 **Automatic Mode:**\n"
                 "1. Bot contacts @spambot automatically\n"
                 "2. Navigates through appeal questions\n"
                 "3. Attempts automatic captcha bypass\n"
                 "4. Falls back to manual if needed\n"
+                "5. Submits AI-selected appeal message\n\n"
+                "👤 **Manual Mode:**\n"
+                "1. Bot contacts @spambot automatically\n"
+                "2. Navigates through appeal questions\n"
+                "3. Prompts you for manual captcha completion\n"
+                "4. You complete captcha in browser\n"
                 "5. Submits AI-selected appeal message\n\n"
                 "⚠️ **Manual Steps (if automation fails):**\n"
                 "1. Go to @spambot in Telegram\n"
@@ -181,6 +242,63 @@ class SpamAppealHandler:
             )
             await event.reply(help_text)
         
+        @self.bot.on(events.CallbackQuery(pattern=b"captcha_(done|refresh|cancel)"))
+        async def captcha_callback(event):
+            user_id = event.sender_id
+            action = event.data.decode().split('_')[1]
+            
+            try:
+                await event.delete()
+                
+                if user_id not in self.active_appeals:
+                    await event.respond("⚠️ No active appeal process found.")
+                    return
+                
+                state = self.active_appeals[user_id]
+                
+                if action == "cancel":
+                    self.active_appeals.pop(user_id, None)
+                    self.captcha_attempts.pop(user_id, None)
+                    await event.respond("❌ Appeal process cancelled.")
+                    return
+                
+                elif action == "refresh":
+                    await event.respond(
+                        "🔄 **Refreshing Captcha**\n\n"
+                        "Requesting new captcha from @spambot...\n"
+                        "⏳ Please wait..."
+                    )
+                    
+                    client = self._get_user_client(user_id)
+                    if client:
+                        async for message in client.iter_messages("spambot", limit=5):
+                            if "telegram.org/captcha" in message.text:
+                                urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', message.text)
+                                if urls:
+                                    new_captcha_url = urls[0]
+                                    state['captcha_url'] = new_captcha_url
+                                    await self._handle_manual_captcha(user_id, new_captcha_url)
+                                    return
+                        
+                        await event.respond("⚠️ No fresh captcha found. Please go to @spambot manually.")
+                    else:
+                        await event.respond("❌ No active client found.")
+                
+                elif action == "done":
+                    state['state'] = 'captcha_solved'
+                    await event.respond(
+                        "✅ **Captcha Verification Confirmed**\n\n"
+                        "Looking for 'Done' button in @spambot...\n"
+                        "⏳ Please wait..."
+                    )
+                    
+                    await asyncio.sleep(3)
+                    await self._auto_click_done(user_id)
+                
+            except Exception as e:
+                logger.error(f"Captcha callback error: {e}")
+                await event.respond("❌ Error processing captcha verification.")
+
         # Spambot handlers will be setup per client
 
     async def _start_appeal_process(self, user_id: int):
@@ -239,8 +357,15 @@ class SpamAppealHandler:
             urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', event.message.text)
             if urls:
                 captcha_url = urls[0]
+                state['captcha_url'] = captcha_url
+                state['state'] = 'captcha_detected'
                 
-                # Check captcha loop
+                # Check if manual mode is selected
+                if state.get('mode') == 'manual':
+                    await self._handle_manual_captcha(user_id, captcha_url)
+                    return
+                
+                # Automatic mode with bypass attempts
                 if user_id not in self.captcha_attempts:
                     self.captcha_attempts[user_id] = 0
                 self.captcha_attempts[user_id] += 1
@@ -250,24 +375,22 @@ class SpamAppealHandler:
                         user_id,
                         f"⚠️ **Too Many Captcha Attempts**\n\n"
                         f"The system has attempted {self.captcha_attempts[user_id]} captchas.\n"
-                        f"This usually means manual completion is required.\n\n"
+                        f"Switching to manual verification...\n\n"
                         f"**Manual Steps:**\n"
                         f"1. Go to @spambot\n"
                         f"2. Complete captcha: `{captcha_url}`\n"
-                        f"3. Follow remaining prompts manually\n\n"
+                        f"3. Use /continue_appeal when done\n\n"
                         f"The appeal process will continue automatically."
                     )
-                    state['state'] = 'manual_required'
+                    state['mode'] = 'manual'  # Switch to manual mode
+                    await self._handle_manual_captcha(user_id, captcha_url)
                     return
-                
-                state['captcha_url'] = captcha_url
-                state['state'] = 'captcha_detected'
                 
                 await self._notify_user(
                     user_id,
                     f"🔍 **Captcha Detected (#{self.captcha_attempts[user_id]})**\n\n"
                     f"URL: `{captcha_url}`\n\n"
-                    f"🤖 Attempting bypass..."
+                    f"🤖 Attempting automatic bypass..."
                 )
                 
                 success = await self._bypass_captcha(user_id, captcha_url)
@@ -276,18 +399,9 @@ class SpamAppealHandler:
                     await asyncio.sleep(5)  # Wait longer before clicking Done
                     await self._auto_click_done(user_id)
                 else:
-                    await self._notify_user(
-                        user_id,
-                        f"⚠️ **Manual Captcha Required**\n\n"
-                        f"Please complete the captcha manually:\n"
-                        f"`{captcha_url}`\n\n"
-                        f"**Steps:**\n"
-                        f"1. Open the URL above in your browser\n"
-                        f"2. Complete the captcha verification\n"
-                        f"3. Use /continue_appeal when done\n\n"
-                        f"💡 The captcha will redirect you back to Telegram when completed."
-                    )
-                    state['state'] = 'waiting_manual_captcha'
+                    # Fallback to manual mode
+                    state['mode'] = 'manual'
+                    await self._handle_manual_captcha(user_id, captcha_url)
                     
         # Step 5: Final submission - click "Done"
         elif "done" in message_text and event.message.buttons:
@@ -470,30 +584,69 @@ class SpamAppealHandler:
             logger.error(f"Error submitting appeal: {e}")
             await self._notify_user(user_id, "❌ Failed to submit appeal message.")
 
-    async def _complete_appeal(self, user_id: int, success: bool):
-        """Complete the appeal process"""
-        if success:
+    async def _handle_manual_captcha(self, user_id: int, captcha_url: str):
+        """Handle manual captcha verification process"""
+        try:
+            state = self.active_appeals[user_id]
+            state['state'] = 'waiting_manual_captcha'
+            
+            buttons = [
+                [Button.inline("✅ I completed the captcha", b"captcha_done")],
+                [Button.inline("🔄 Get new captcha link", b"captcha_refresh")],
+                [Button.inline("❌ Cancel appeal", b"captcha_cancel")]
+            ]
+            
             await self._notify_user(
                 user_id,
-                "🎉 **Appeal Process Completed!**\n\n"
-                "✅ Your appeal has been successfully submitted to Telegram.\n"
-                "📧 You should receive a response within 24-48 hours.\n\n"
-                "💡 **Next Steps:**\n"
-                "• Check your account restrictions periodically\n"
-                "• Monitor @spambot for updates\n"
-                "• Be patient - reviews can take 1-3 days\n\n"
-                "🔄 If no response after 72 hours, you can submit another appeal."
+                f"👤 **Manual Human Verification Required**\n\n"
+                f"🔗 **Captcha URL:**\n`{captcha_url}`\n\n"
+                f"📋 **Step-by-Step Instructions:**\n"
+                f"1️⃣ Click the captcha link above\n"
+                f"2️⃣ Complete the human verification in browser\n"
+                f"3️⃣ Wait for automatic redirect to Telegram\n"
+                f"4️⃣ Return here and click '✅ I completed the captcha'\n\n"
+                f"💡 **Tips:**\n"
+                f"• Keep this chat open during verification\n"
+                f"• The captcha may take 30-60 seconds to load\n"
+                f"• If stuck, use '🔄 Get new captcha link'\n\n"
+                f"⚠️ **No automatic bypass will be attempted in manual mode**"
+            )
+            
+            await self.bot.send_message(user_id, "Choose an action:", buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error handling manual captcha: {e}")
+            await self._notify_user(user_id, "❌ Error setting up manual verification.")
+
+    async def _complete_appeal(self, user_id: int, success: bool):
+        """Complete the appeal process"""
+        state = self.active_appeals.get(user_id, {})
+        mode = state.get('mode', 'auto')
+        
+        if success:
+            mode_text = "🤖 Automatic" if mode == "auto" else "👤 Manual"
+            await self._notify_user(
+                user_id,
+                f"🎉 **Appeal Process Completed!**\n\n"
+                f"Mode: {mode_text}\n"
+                f"✅ Your appeal has been successfully submitted to Telegram.\n"
+                f"📧 You should receive a response within 24-48 hours.\n\n"
+                f"💡 **Next Steps:**\n"
+                f"• Check your account restrictions periodically\n"
+                f"• Monitor @spambot for updates\n"
+                f"• Be patient - reviews can take 1-3 days\n\n"
+                f"🔄 If no response after 72 hours, you can submit another appeal."
             )
         else:
             await self._notify_user(
                 user_id,
-                "❌ **Appeal Process Failed**\n\n"
-                "The automated appeal could not be completed.\n\n"
-                "**Options:**\n"
-                "1. Try /appeal again\n"
-                "2. Use /appeal_help for manual steps\n"
-                "3. Check /check_selenium for captcha issues\n"
-                "4. Contact support if problems persist"
+                f"❌ **Appeal Process Failed**\n\n"
+                f"The appeal could not be completed.\n\n"
+                f"**Options:**\n"
+                f"1. Try /appeal again (choose different mode)\n"
+                f"2. Use /appeal_help for manual steps\n"
+                f"3. Check /check_selenium for captcha issues\n"
+                f"4. Contact support if problems persist"
             )
         
         # Clean up

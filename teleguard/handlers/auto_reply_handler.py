@@ -90,6 +90,19 @@ class AutoReplyHandler:
                 if not account or not account.get("auto_reply_enabled", False):
                     return
                 
+                # Skip auto-reply for bots to prevent unwanted interactions
+                sender = await event.get_sender()
+                if sender and getattr(sender, 'bot', False):
+                    logger.debug(f"Skipping auto-reply to bot: {sender.username or sender.id}")
+                    return
+                
+                # Skip common bot usernames
+                if sender and hasattr(sender, 'username') and sender.username:
+                    bot_usernames = ['spambot', 'botfather', 'userinfobot', 'telegram']
+                    if sender.username.lower() in bot_usernames or sender.username.lower().endswith('bot'):
+                        logger.debug(f"Skipping auto-reply to known bot: {sender.username}")
+                        return
+                
                 # Get user auto-reply settings for keywords
                 settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
                 

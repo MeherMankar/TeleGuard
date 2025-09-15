@@ -1,3 +1,0 @@
-Requirement already satisfied: beautifulsoup4 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (4.13.5)
-Requirement already satisfied: soupsieve>1.2 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from beautifulsoup4) (2.7)
-Requirement already satisfied: typing-extensions>=4.0.0 in c:\users\hp\appdata\local\programs\python\python312\lib\site-packages (from beautifulsoup4) (4.14.1)
