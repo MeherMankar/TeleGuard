@@ -35,6 +35,13 @@ class BotManager:
         self.bot = TelegramClient(session_name, API_ID, API_HASH)
         self.user_clients: Dict[int, Dict[str, TelegramClient]] = {}
         self.pending_actions: Dict[int, Dict[str, str]] = {}
+        
+        # Global handler registry to prevent duplicates
+        self.registered_handlers: Dict[str, set] = {
+            "otp": set(),
+            "messaging": set(),
+            "auto_reply": set()
+        }
 
         # Initialize managers
         self.auth_manager = AuthManager()
@@ -282,6 +289,11 @@ class BotManager:
             logger.warning(f"Menu setup error (continuing): {menu_error}")
 
         try:
+            # Clear messaging registry before setup to prevent duplicates
+            if hasattr(self, 'registered_handlers'):
+                self.registered_handlers["messaging"].clear()
+                logger.info("Cleared messaging handler registry before setup")
+            
             # Setup unified messaging system
             self.unified_messaging.setup_handlers()
             logger.info("📨 Unified messaging system initialized")
@@ -525,12 +537,18 @@ class BotManager:
 
             self.user_clients[user_id][account_name] = client
 
-            # Always set up OTP listener - it will check if enabled internally
-            await self.otp_destroyer.setup_otp_listener(client, user_id, account_name)
+            # Register OTP manager handler for this client (replaces old OTP destroyer)
+            handler_key = f"{user_id}:{account_name}"
+            if handler_key not in self.registered_handlers["otp"]:
+                await self.otp_manager.setup_handler_for_new_client(user_id, account_name, client)
+                self.registered_handlers["otp"].add(handler_key)
+                logger.info(f"🛡️ OTP handler registered for {account_name}")
+            else:
+                logger.info(f"🛡️ OTP handler already exists for {account_name}, skipping")
 
             logger.info(f"✅ User client connected: {account_name} for user {user_id}")
             
-            # Set up unified messaging for new client
+            # Set up unified messaging for new client (it will check for duplicates internally)
             await self.unified_messaging.setup_new_client_handler(user_id, account_name, client)
             
             # Auto-import chats for this new client

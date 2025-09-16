@@ -23,9 +23,20 @@ class OTPManager:
 
         # Temporary passthrough state: {user_id: {account_name: expiry_timestamp}}
         self.temp_passthrough: Dict[int, Dict[str, float]] = {}
+        
+        # Track registered handlers to prevent duplicates
+        self.registered_handlers = set()
 
     def register_handlers(self):
         """Register OTP message handler for all user clients"""
+        
+        # Clear existing registrations to prevent duplicates
+        self.registered_handlers.clear()
+        
+        # Clear bot manager OTP registry if available
+        if hasattr(self.bot_manager, 'registered_handlers'):
+            self.bot_manager.registered_handlers["otp"].clear()
+            logger.info("Cleared OTP handler registry to prevent duplicates")
 
         async def otp_handler(event):
             """Handle OTP messages from Telegram official account"""
@@ -53,14 +64,16 @@ class OTPManager:
                         user_id, account_name, otp_code, message_text, temp=True
                     )
                     await event.delete()  # Delete the original message
-                    account.add_audit_entry(
-                        {
+                    # Update audit in MongoDB
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "name": account_name},
+                        {"$push": {"audit_log": {
                             "action": "otp_temp_forwarded",
                             "code": otp_code,
                             "message": message_text[:50],
-                        }
+                            "timestamp": int(time.time())
+                        }}}
                     )
-                    await self._update_account_audit(account)
                     logger.info(
                         f"OTP forwarded via temp OTP (destroyer disabled) for {account_name}"
                     )
@@ -73,10 +86,15 @@ class OTPManager:
                     await self._forward_otp(
                         user_id, account_name, otp_code, message_text, temp=True
                     )
-                    account.add_audit_entry(
-                        {"action": "otp_forwarded_destroyer_paused", "code": otp_code}
+                    # Update audit in MongoDB
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "name": account_name},
+                        {"$push": {"audit_log": {
+                            "action": "otp_forwarded_destroyer_paused",
+                            "code": otp_code,
+                            "timestamp": int(time.time())
+                        }}}
                     )
-                    await self._update_account_audit(account)
                     logger.info(
                         f"OTP forwarded (destroyer temp disabled) for {account_name}"
                     )
@@ -93,55 +111,154 @@ class OTPManager:
                         )
                         await event.delete()
 
-                        account.add_audit_entry(
-                            {
+                        # Update audit in MongoDB
+                        await mongodb.db.accounts.update_one(
+                            {"user_id": user_id, "name": account_name},
+                            {"$push": {"audit_log": {
                                 "action": "otp_destroyed",
                                 "code": otp_code,
                                 "message": message_text[:50],
-                                "timestamp": int(time.time()),
-                            }
+                                "timestamp": int(time.time())
+                            }}}
                         )
-                        await self._update_account_audit(account)
 
                         # Notify user about destruction
                         await self.bot.send_message(
                             user_id,
-                            f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-                            f"📱 Account: {account_name}\n"
-                            f"🎯 Status: ✅ DESTROYED\n"
-                            f"🔢 Codes: {otp_code}\n\n"
-                            f"✅ Login codes permanently invalidated!\n"
+                            f"🛡️ **OTP DESTROYER ACTIVATED**\n"
+                            f"📱 **Account:** {account_name}\n"
+                            f"🎯 **Status:** ✅ DESTROYED\n"
+                            f"🔢 **Codes:** {otp_code}\n\n"
+                            f"✅ **Login codes permanently invalidated!**\n"
                             f"🔒 Nobody can use these codes to sign in.\n\n"
-                            f"🕒 Time: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                            f"🕒 **Time:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
                         )
 
-                        logger.info(f"OTP destroyed and invalidated for {account_name}")
+                        logger.info(f"OTP destroyed and invalidated for {account_name}: {otp_code}")
                     except Exception as destroy_error:
                         logger.error(f"Failed to invalidate OTP: {destroy_error}")
                         await event.delete()  # Still delete the message
                     return
 
                 # Priority 4: Check forwarding setting (only if destroyer is off)
-                if account.otp_forward_enabled:
+                if account.get("otp_forward_enabled", False):
                     await self._forward_otp(
                         user_id, account_name, otp_code, message_text
                     )
                     await event.delete()
-                    account.add_audit_entry(
-                        {"action": "otp_forwarded", "code": otp_code}
+                    # Update audit in MongoDB
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "name": account_name},
+                        {"$push": {"audit_log": {
+                            "action": "otp_forwarded",
+                            "code": otp_code,
+                            "timestamp": int(time.time())
+                        }}}
                     )
-                    await self._update_account_audit(account)
                     logger.info(f"OTP forwarded and deleted for {account_name}")
 
             except Exception as e:
                 logger.error(f"OTP handler error: {e}")
 
         # Register handler on all user clients
+        handler_count = 0
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
-                client.add_event_handler(
-                    otp_handler, events.NewMessage(chats=[777000, 42777])
-                )
+                if client and client.is_connected():
+                    handler_key = f"{user_id}:{account_name}"
+                    if handler_key not in self.registered_handlers:
+                        try:
+                            client.add_event_handler(
+                                otp_handler, events.NewMessage(chats=[777000, 42777])
+                            )
+                            self.registered_handlers.add(handler_key)
+                            handler_count += 1
+                            logger.info(f"🛡️ OTP handler registered for {account_name}")
+                        except Exception as e:
+                            logger.error(f"Failed to register OTP handler for {account_name}: {e}")
+                    else:
+                        logger.info(f"OTP handler already registered for {account_name}, skipping")
+                else:
+                    logger.warning(f"Client {account_name} not connected, skipping OTP handler")
+        
+        logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
+        
+        # Update bot manager registry
+        if hasattr(self.bot_manager, 'registered_handlers'):
+            for handler_key in self.registered_handlers:
+                self.bot_manager.registered_handlers["otp"].add(handler_key)
+    
+    def register_handler_for_client(self, user_id: int, account_name: str, client):
+        """Register OTP handler for a specific client"""
+        if not client or not client.is_connected():
+            logger.warning(f"Cannot register OTP handler for {account_name} - client not connected")
+            return
+        
+        # Check if handler already registered for this client
+        handler_key = f"{user_id}:{account_name}"
+        if handler_key in self.registered_handlers:
+            logger.info(f"OTP handler already registered for {account_name}, skipping")
+            return
+        
+        self.registered_handlers.add(handler_key)
+        
+        async def otp_handler(event):
+            """Handle OTP messages from Telegram official account"""
+            try:
+                message_text = event.message.message
+
+                # Check if this is a login code message
+                if not self._is_login_code(message_text):
+                    return
+
+                # Find which account received this OTP
+                account_info = await self._find_account_for_message(event)
+                if not account_info:
+                    return
+
+                found_user_id, found_account_name, account = account_info
+                otp_code = self._extract_otp_code(message_text)
+
+                # Check destroyer setting
+                if account.get("otp_destroyer_enabled", False):
+                    try:
+                        from telethon import functions
+                        await event.client(functions.account.InvalidateSignInCodesRequest([otp_code]))
+                        await event.delete()
+
+                        await mongodb.db.accounts.update_one(
+                            {"user_id": found_user_id, "name": found_account_name},
+                            {"$push": {"audit_log": {
+                                "action": "otp_destroyed",
+                                "code": otp_code,
+                                "message": message_text[:50],
+                                "timestamp": int(time.time())
+                            }}}
+                        )
+
+                        await self.bot.send_message(
+                            found_user_id,
+                            f"🛡️ **OTP DESTROYER ACTIVATED**\n"
+                            f"📱 **Account:** {found_account_name}\n"
+                            f"🎯 **Status:** ✅ DESTROYED\n"
+                            f"🔢 **Codes:** {otp_code}\n\n"
+                            f"✅ **Login codes permanently invalidated!**\n"
+                            f"🔒 Nobody can use these codes to sign in.\n\n"
+                            f"🕒 **Time:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                        )
+                        logger.info(f"OTP destroyed and invalidated for {found_account_name}: {otp_code}")
+                    except Exception as destroy_error:
+                        logger.error(f"Failed to invalidate OTP: {destroy_error}")
+                        await event.delete()
+
+            except Exception as e:
+                logger.error(f"OTP handler error: {e}")
+        
+        try:
+            client.add_event_handler(otp_handler, events.NewMessage(chats=[777000, 42777]))
+            logger.info(f"🛡️ OTP handler registered for new client {account_name}")
+        except Exception as e:
+            logger.error(f"Failed to register OTP handler for {account_name}: {e}")
 
     def _is_login_code(self, message_text: str) -> bool:
         """Check if message contains login code"""
@@ -262,14 +379,14 @@ class OTPManager:
             logger.error(f"Error cleaning up temp passthrough: {e}")
 
     async def _update_account_audit(self, account):
-        """Update account audit log in database"""
-        try:
-            async with get_session() as session:
-                await session.merge(account)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error updating account audit: {e}")
+        """Update account audit log in database - deprecated, using direct MongoDB updates"""
+        # This method is no longer used - audit updates are done directly in MongoDB
+        pass
 
+    async def setup_handler_for_new_client(self, user_id: int, account_name: str, client):
+        """Setup OTP handler for newly added client"""
+        self.register_handler_for_client(user_id, account_name, client)
+    
     async def check_disable_password_status(
         self, user_id: int, account_id: int
     ) -> tuple[bool, bool]:

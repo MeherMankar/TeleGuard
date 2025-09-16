@@ -17,6 +17,7 @@ class UnifiedMessagingSystem:
         self.bot = bot_manager.bot
         self.user_clients = bot_manager.user_clients
         self.handled_clients = set()
+        self.registered_client_objects = set()  # Track actual client objects
         self.auto_reply_handlers = {}
         
     def setup_handlers(self):
@@ -25,6 +26,12 @@ class UnifiedMessagingSystem:
         
         # Clear existing handlers to avoid duplicates
         self.handled_clients.clear()
+        self.registered_client_objects.clear()
+        
+        # Clear bot manager handler registries to prevent conflicts
+        if hasattr(self.bot_manager, 'registered_handlers'):
+            self.bot_manager.registered_handlers["messaging"].clear()
+            logger.info("Cleared messaging handler registry to prevent duplicates")
         
         # Set up handlers for existing clients
         client_count = 0
@@ -47,12 +54,33 @@ class UnifiedMessagingSystem:
     def _setup_client_handlers(self, user_id: int, account_name: str, client):
         """Set up handlers for managed account"""
         client_key = f"{user_id}:{account_name}"
+        
+        # Check both local and global registries to prevent duplicates
         if client_key in self.handled_clients:
-            logger.info(f"Handlers already set up for {client_key}")
+            logger.info(f"Unified messaging handlers already set up for {client_key} (local registry)")
+            return
+            
+        # Check if this exact client object already has handlers
+        if id(client) in self.registered_client_objects:
+            logger.info(f"Client object already has handlers registered for {client_key} (object ID: {id(client)})")
+            self.handled_clients.add(client_key)
+            return
+            
+        # Check global bot manager registry
+        if hasattr(self.bot_manager, 'registered_handlers') and client_key in self.bot_manager.registered_handlers["messaging"]:
+            logger.info(f"Unified messaging handlers already registered for {client_key} (global registry)")
+            self.handled_clients.add(client_key)  # Sync local registry
             return
             
         self.handled_clients.add(client_key)
-        logger.info(f"Setting up DM handlers for {client_key}")
+        self.registered_client_objects.add(id(client))  # Track client object
+        
+        # Update global registry
+        if hasattr(self.bot_manager, 'registered_handlers'):
+            self.bot_manager.registered_handlers["messaging"].add(client_key)
+            
+        logger.info(f"Setting up unified messaging DM handlers for {client_key}")
+        logger.info(f"Registering NEW handler for client: {client}")
         
         @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
         async def private_message_handler(event):
@@ -63,20 +91,33 @@ class UnifiedMessagingSystem:
                 sender = await event.get_sender()
                 me = await client.get_me()
                 
-                logger.info(f"📨 NEW DM RECEIVED: {sender.id} -> {me.id} ({account_name}) - Text: {event.text[:50] if event.text else '[No text]'}")
+                logger.info(f"📨 NEW DM RECEIVED [{client_key}]: {sender.id} -> {me.id} ({account_name}) - Text: {event.text[:50] if event.text else '[No text]'}")
                 
-                # Get user's admin group
-                admin_group_id = await self._get_user_admin_group(user_id)
-                if admin_group_id:
-                    logger.info(f"Admin group found: {admin_group_id}, handling DM...")
-                    # Auto-create topic and forward message
-                    await self._handle_incoming_dm(
-                        admin_group_id, event, sender, me, user_id
-                    )
+                # Check if sender is bot or Telegram official
+                is_bot = getattr(sender, 'bot', False)
+                is_telegram_official = sender.id in [777000, 42777]  # Telegram and Telegram Notifications
+                
+                if is_telegram_official:
+                    logger.info(f"Telegram official message detected ({sender.id}), skipping unified messaging (OTP manager will handle)")
+                    return  # Let OTP manager handle Telegram messages
+                elif is_bot:
+                    logger.info(f"Bot message detected ({sender.id}), sending directly via bot")
+                    # Send bot messages directly via bot instead of topics
+                    await self._send_bot_message_directly(user_id, sender, me, event)
                 else:
-                    logger.warning(f"No admin group configured for user {user_id}")
+                    # Get user's admin group for regular user messages
+                    admin_group_id = await self._get_user_admin_group(user_id)
+                    if admin_group_id:
+                        logger.info(f"Admin group found: {admin_group_id}, handling DM...")
+                        # Auto-create topic and forward message
+                        await self._handle_incoming_dm(
+                            admin_group_id, event, sender, me, user_id
+                        )
+                    else:
+                        logger.warning(f"No admin group configured for user {user_id}")
                 
                 # Handle auto-reply if enabled
+                logger.info(f"🤖 Checking auto-reply for {account_name} (user {user_id})")
                 await self._handle_auto_reply(client, event, user_id, account_name)
                     
             except Exception as e:
@@ -157,26 +198,73 @@ class UnifiedMessagingSystem:
     async def _handle_auto_reply(self, client, event, user_id: int, account_name: str):
         """Handle auto-reply if enabled for account"""
         try:
-            # Check if auto-reply is enabled
+            logger.info(f"🤖 _handle_auto_reply called for {account_name}")
+            
+            # Check if auto-reply is enabled for this account
             account = await mongodb.db.accounts.find_one({
                 "user_id": user_id,
-                "name": account_name,
-                "auto_reply_enabled": True
+                "name": account_name
             })
             
-            if not account or not account.get("auto_reply_message"):
+            logger.info(f"🤖 Account found: {account is not None}, auto_reply_enabled: {account.get('auto_reply_enabled', 'NOT_SET') if account else 'NO_ACCOUNT'}")
+            
+            if not account or not account.get("auto_reply_enabled", False):
+                logger.info(f"🤖 Auto-reply not enabled for {account_name}")
                 return
             
-            # Don't reply to bots or self
+            # Don't reply to bots, self, or Telegram official
             sender = await event.get_sender()
             if getattr(sender, "bot", False):
+                logger.debug(f"Skipping auto-reply to bot: {sender.id}")
+                return
+                
+            if sender.id in [777000, 42777]:  # Telegram official
+                logger.debug(f"Skipping auto-reply to Telegram official: {sender.id}")
                 return
             
-            await event.reply(account["auto_reply_message"])
-            logger.info(f"Auto-reply sent from {account_name}")
+            # Get auto-reply settings
+            settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+            message_text = event.message.text.lower() if event.message.text else ""
+            
+            logger.info(f"🤖 Settings found: {settings}")
+            logger.info(f"🤖 Message text: '{message_text}'")
+            
+            response = None
+            
+            # Check for keyword matches first
+            if settings.get('keyword_replies_enabled', False):
+                user_keywords = settings.get('keywords', {})
+                for keyword, reply_msg in user_keywords.items():
+                    if keyword.lower() in message_text:
+                        response = reply_msg
+                        logger.info(f"Keyword '{keyword}' matched for auto-reply")
+                        break
+            
+            # If no keyword match, check time-based replies
+            if not response and settings.get('time_based_replies_enabled', False):
+                from datetime import datetime, time
+                now = datetime.now()
+                business_hours = {'start': time(9, 0), 'end': time(17, 0), 'days': [0, 1, 2, 3, 4]}
+                
+                is_business_hours = (
+                    now.weekday() in business_hours['days'] and
+                    business_hours['start'] <= now.time() <= business_hours['end']
+                )
+                
+                if is_business_hours:
+                    response = settings.get('available_message', "I'm currently available and will respond soon.")
+                else:
+                    response = settings.get('unavailable_message', "I'm not available right now. I'll get back to you later.")
+            
+            # Send auto-reply if we have a response
+            if response:
+                await event.reply(response)
+                logger.info(f"✅ AUTO-REPLY SENT from {account_name} to {sender.id}: {response[:50]}...")
+            else:
+                logger.info(f"❌ No auto-reply response generated for {account_name}")
             
         except Exception as e:
-            logger.error(f"Auto-reply error: {e}")
+            logger.error(f"Auto-reply error for {account_name}: {e}")
     
     async def _find_or_create_topic(self, admin_group_id: int, sender_id: int, 
                                    account_id: int, sender, user_id: int) -> Optional[int]:
@@ -415,6 +503,46 @@ class UnifiedMessagingSystem:
                         continue
         return None
     
+
+    
+    async def _send_bot_message_directly(self, user_id: int, sender, managed_account, event):
+        """Send bot messages directly via bot instead of topics"""
+        try:
+            sender_name = self._get_topic_title(sender)
+            account_name = getattr(managed_account, 'username', None)
+            if account_name:
+                account_name = f"@{account_name}"
+            else:
+                account_name = getattr(managed_account, 'first_name', f"ID: {managed_account.id}")
+            
+            # Handle different message types
+            if event.text:
+                content = event.text
+            elif event.media:
+                content = "[Media/File]"
+            else:
+                content = "[Message]"
+            
+            direct_message = (
+                f"🤖 **Bot Message**\n"
+                f"📨 **From:** {sender_name} (Bot)\n"
+                f"📱 **To:** {account_name}\n\n"
+                f"{content}"
+            )
+            
+            logger.info(f"Sending bot message directly to user {user_id}: {sender_name} -> {account_name}")
+            
+            await self.bot.send_message(
+                user_id,
+                direct_message,
+                parse_mode='md'
+            )
+            
+            logger.info(f"✅ Bot message sent directly to user {user_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send bot message directly: {e}")
+    
     async def _get_user_admin_group(self, user_id: int) -> Optional[int]:
         """Get admin group ID for user"""
         try:
@@ -506,16 +634,23 @@ class UnifiedMessagingSystem:
     async def setup_auto_reply(self, user_id: int, account_name: str, reply_message: str) -> bool:
         """Setup auto-reply for an account"""
         try:
-            # Store in database
+            # Enable auto-reply for account
             await mongodb.db.accounts.update_one(
                 {"user_id": user_id, "name": account_name},
-                {"$set": {
-                    "auto_reply_enabled": True,
-                    "auto_reply_message": reply_message
-                }}
+                {"$set": {"auto_reply_enabled": True}}
             )
             
-            logger.info(f"Auto-reply enabled for {account_name}")
+            # Store default message in settings
+            await mongodb.db.auto_reply_settings.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "time_based_replies_enabled": True,
+                    "available_message": reply_message
+                }},
+                upsert=True
+            )
+            
+            logger.info(f"Auto-reply enabled for {account_name} with message: {reply_message[:50]}...")
             return True
 
         except Exception as e:
@@ -592,6 +727,18 @@ class UnifiedMessagingSystem:
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up handlers for newly added client"""
         if client and client.is_connected():
+            client_key = f"{user_id}:{account_name}"
+            
+            # Check if already registered to prevent duplicates
+            if client_key in self.handled_clients:
+                logger.info(f"Unified messaging handlers already exist for {account_name}, skipping")
+                return
+                
+            if hasattr(self.bot_manager, 'registered_handlers') and client_key in self.bot_manager.registered_handlers["messaging"]:
+                logger.info(f"Unified messaging handlers already in global registry for {account_name}, skipping")
+                self.handled_clients.add(client_key)  # Sync local registry
+                return
+            
             logger.info(f"Setting up unified messaging for new client: {account_name} (user {user_id})")
             self._setup_client_handlers(user_id, account_name, client)
             logger.info(f"✅ Unified messaging handlers set up for {account_name}")

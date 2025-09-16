@@ -83,11 +83,11 @@ class EnhancedOTPDestroyer:
                 if not account or not account.get("otp_destroyer_enabled", False):
                     return
 
-                    message = event.message.message or ""
-                    codes = self.extract_codes_from_message(message)
+                message = event.message.message or ""
+                codes = self.extract_codes_from_message(message)
 
-                    if not codes:
-                        return
+                if not codes:
+                    return
 
                     logger.info(
                         f"🛡️ OTP Destroyer: Found {len(codes)} codes for {account_name}"
@@ -167,25 +167,25 @@ class EnhancedOTPDestroyer:
         codes_str = ", ".join(codes)
         status = "✅ DESTROYED" if success else "❌ FAILED"
 
-        alert_message = (
-            f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-            f"📱 **Account:** {account_name}\n"
-            f"🎯 **Status:** {status}\n"
-            f"🔢 **Codes:** `{codes_str}`\n\n"
-        )
-
         if success:
-            alert_message += (
+            alert_message = (
+                f"🛡️ **OTP DESTROYER ACTIVATED**\n"
+                f"📱 **Account:** {account_name}\n"
+                f"🎯 **Status:** ✅ DESTROYED\n"
+                f"🔢 **Codes:** {codes_str}\n\n"
                 f"✅ **Login codes permanently invalidated!**\n"
                 f"🔒 Nobody can use these codes to sign in.\n\n"
+                f"🕒 **Time:** {time.strftime('%Y-%m-%d %H:%M:%S')}"
             )
         else:
-            alert_message += (
-                f"❌ **Failed to invalidate codes!**\n"
-                f"⚠️ Codes may still be usable for login.\n\n"
+            alert_message = (
+                f"🛡️ **OTP DESTRUCTION FAILED**\n"
+                f"**Account:** {account_name}\n"
+                f"**Codes:** {codes_str}\n"
+                f"**Status:** Failed to invalidate\n\n"
+                f"❌ Codes may still be usable for login.\n"
+                f"⚠️ Check account permissions and try again."
             )
-
-        alert_message += f"🕒 **Time:** {time.strftime('%Y-%m-%d %H:%M:%S')}"
 
         try:
             await self.bot.send_message(user_id, alert_message, parse_mode="markdown")
@@ -193,9 +193,7 @@ class EnhancedOTPDestroyer:
             logger.error(f"Failed to send destruction alert: {e}")
             # Fallback without markdown
             try:
-                simple_message = (
-                    f"🛡️ OTP DESTROYER: {status} for {account_name}. Codes: {codes_str}"
-                )
+                simple_message = f"🛡️ OTP DESTROYED: {account_name}. Codes: {codes_str}" if success else f"🛡️ OTP DESTRUCTION FAILED: {account_name}. Codes: {codes_str}"
                 await self.bot.send_message(user_id, simple_message)
             except Exception as e2:
                 logger.error(f"Failed to send fallback alert: {e2}")
