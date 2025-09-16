@@ -126,6 +126,11 @@ class BotManager:
         from ..handlers.contact_handler import ContactHandler
         
         self.contact_handler = ContactHandler(self)
+        
+        # Initialize contact export handler
+        from ..handlers.contact_export_handler import ContactExportHandler
+        
+        self.contact_export_handler = ContactExportHandler(self)
 
         # Session backup (optional)
         self.session_backup = None
@@ -450,6 +455,14 @@ class BotManager:
         except Exception as contact_error:
             logger.warning(
                 f"Contact handler setup error (continuing): {contact_error}"
+            )
+            
+        try:
+            self.contact_export_handler.setup_handlers()
+            logger.info("📤 Contact export handler registered")
+        except Exception as export_error:
+            logger.warning(
+                f"Contact export handler setup error (continuing): {export_error}"
             )
             
         # Execute startup commands after all components are ready

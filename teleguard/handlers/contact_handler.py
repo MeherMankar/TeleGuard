@@ -95,16 +95,23 @@ class ContactHandler:
                 logger.error(f"Contact callback error: {e}")
                 await event.answer("❌ Error processing request")
 
-        @self.bot.on(events.NewMessage(pattern=r"^(?!/)", func=lambda e: e.sender_id in self.pending_actions))
-        async def handle_text_input(event):
-            """Handle text input for contact operations"""
+        @self.bot.on(events.NewMessage(func=lambda e: e.sender_id in self.pending_actions and not e.message.text.startswith('/')))
+        async def handle_input(event):
+            """Handle text input and forwarded messages for contact operations"""
             user_id = event.sender_id
             action = self.pending_actions.get(user_id)
             
             if not action:
                 return
                 
-            text = event.message.text.strip()
+            # Handle forwarded messages
+            if event.message.forward:
+                if action['type'] == 'add_contact':
+                    await self._process_forwarded_contact(event, user_id, action)
+                    return
+                    
+            # Handle text input
+            text = event.message.text.strip() if event.message.text else ""
             
             if text.lower() in ['cancel', '/cancel']:
                 del self.pending_actions[user_id]
@@ -122,7 +129,7 @@ class ContactHandler:
                     await self._process_add_tags(event, user_id, text, action)
                     
             except Exception as e:
-                logger.error(f"Text input error: {e}")
+                logger.error(f"Input error: {e}")
                 await event.reply("❌ Error processing input")
 
     async def _get_user_account(self, user_id: int) -> str:
@@ -166,10 +173,74 @@ class ContactHandler:
         self.pending_actions[user_id] = {'type': 'add_contact', 'step': 'user_id'}
         await event.edit(
             "➕ **Add New Contact**\n\n"
-            "Send the user ID, username (@username), or forward a message from the user:\n\n"
+            "Send the user ID, username (@username), or **forward a message** from the user:\n\n"
+            "📝 Examples:\n"
+            "• `123456789` (user ID)\n"
+            "• `@username`\n"
+            "• Forward any message from the user\n\n"
             "Type 'cancel' to abort",
             buttons=[[Button.inline("❌ Cancel", "contacts:main")]]
         )
+
+    async def _process_forwarded_contact(self, event, user_id: int, action: dict):
+        """Process forwarded message to add contact"""
+        account = await self._get_user_account(user_id)
+        
+        try:
+            # Get sender info from forwarded message
+            forward_info = event.message.forward
+            
+            if hasattr(forward_info, 'from_id') and forward_info.from_id:
+                contact_user_id = forward_info.from_id.user_id
+                
+                # Try to get user info
+                client = self._get_user_client(user_id)
+                if client:
+                    try:
+                        user_entity = await client.get_entity(contact_user_id)
+                        first_name = user_entity.first_name or f"User_{contact_user_id}"
+                        last_name = user_entity.last_name
+                        username = user_entity.username
+                    except Exception:
+                        first_name = f"User_{contact_user_id}"
+                        last_name = None
+                        username = None
+                else:
+                    first_name = f"User_{contact_user_id}"
+                    last_name = None
+                    username = None
+                    
+                # Check if contact exists
+                existing = await ContactDB.get_contact(contact_user_id, account)
+                if existing:
+                    await event.reply("⚠️ Contact already exists!")
+                    return
+                    
+                # Create contact
+                contact = Contact(
+                    user_id=contact_user_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    username=username,
+                    managed_by_account=account
+                )
+                
+                success = await ContactDB.add_contact(contact)
+                if success:
+                    del self.pending_actions[user_id]
+                    buttons = [
+                        [Button.inline("👤 View Contact", f"contact:view:{contact_user_id}")],
+                        [Button.inline("🔙 Back", "contacts:main")]
+                    ]
+                    await event.reply(f"✅ Contact added from forwarded message: {first_name}", buttons=buttons)
+                else:
+                    await event.reply("❌ Failed to add contact")
+            else:
+                await event.reply("❌ Cannot extract user info from forwarded message")
+                
+        except Exception as e:
+            logger.error(f"Forwarded contact error: {e}")
+            await event.reply("❌ Error processing forwarded message")
 
     async def _process_add_contact(self, event, user_id: int, text: str, action: dict):
         """Process add contact input"""
