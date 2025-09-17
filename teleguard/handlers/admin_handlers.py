@@ -4,9 +4,6 @@ import logging
 
 from telethon import events
 
-from ..core.database import get_session
-from ..core.models import User
-
 logger = logging.getLogger(__name__)
 
 
@@ -24,17 +21,12 @@ class AdminHandlers:
         @self.bot.on(events.NewMessage(pattern=r"/backup_now"))
         async def backup_now_handler(event):
             user_id = event.sender_id
-
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(User).where(User.telegram_id == user_id)
-                )
-                user = result.scalar_one_or_none()
-                if not user or not user.is_admin:
-                    await event.reply("❌ Admin access required")
-                    return
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
 
             if not self.session_scheduler:
                 await event.reply("❌ Session backup not enabled")
@@ -47,21 +39,82 @@ class AdminHandlers:
                 await event.reply("✅ Manual backup job queued")
             except Exception as e:
                 await event.reply(f"❌ Failed to trigger backup: {e}")
+        
+        @self.bot.on(events.NewMessage(pattern=r"/backup_settings"))
+        async def backup_settings_handler(event):
+            user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
+
+            if not self.session_scheduler or not self.session_scheduler.bot_client:
+                await event.reply("❌ Telegram backup not enabled")
+                return
+
+            await event.reply("🔄 Triggering manual user settings backup...")
+
+            try:
+                self.session_scheduler.trigger_user_settings_push_now()
+                await event.reply("✅ User settings backup job queued")
+            except Exception as e:
+                await event.reply(f"❌ Failed to trigger settings backup: {e}")
+        
+        @self.bot.on(events.NewMessage(pattern=r"/backup_ids"))
+        async def backup_ids_handler(event):
+            user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
+
+            if not self.session_scheduler or not self.session_scheduler.bot_client:
+                await event.reply("❌ Telegram backup not enabled")
+                return
+
+            await event.reply("🔄 Triggering manual user IDs backup...")
+
+            try:
+                self.session_scheduler.trigger_user_ids_push_now()
+                await event.reply("✅ User IDs backup job queued")
+            except Exception as e:
+                await event.reply(f"❌ Failed to trigger IDs backup: {e}")
+        
+        @self.bot.on(events.NewMessage(pattern=r"/backup_sessions"))
+        async def backup_sessions_handler(event):
+            user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
+
+            if not self.session_scheduler or not self.session_scheduler.bot_client:
+                await event.reply("❌ Telegram backup not enabled")
+                return
+
+            await event.reply("🔄 Triggering manual session files backup...")
+
+            try:
+                self.session_scheduler.trigger_session_files_push_now()
+                await event.reply("✅ Session files backup job queued")
+            except Exception as e:
+                await event.reply(f"❌ Failed to trigger session files backup: {e}")
 
         @self.bot.on(events.NewMessage(pattern=r"/compact_now"))
         async def compact_now_handler(event):
             user_id = event.sender_id
-
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(User).where(User.telegram_id == user_id)
-                )
-                user = result.scalar_one_or_none()
-                if not user or not user.is_admin:
-                    await event.reply("❌ Admin access required")
-                    return
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
 
             if not self.session_scheduler:
                 await event.reply("❌ Session backup not enabled")
@@ -77,70 +130,104 @@ class AdminHandlers:
             except Exception as e:
                 await event.reply(f"❌ Failed to trigger compaction: {e}")
 
-        @self.bot.on(events.NewMessage(pattern=r"/topic_status"))
-        async def topic_status_handler(event):
+        @self.bot.on(events.NewMessage(pattern=r"/backup_all"))
+        async def backup_all_handler(event):
             user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
 
-            if user_id not in self.topic_routers:
-                await event.reply("❌ Topic routing not configured for your account")
+            if not self.session_scheduler:
+                await event.reply("❌ Session backup not enabled")
+                return
+
+            await event.reply("🔄 Triggering all backup jobs...")
+
+            try:
+                # Trigger all backup types
+                self.session_scheduler.trigger_push_now()  # Sessions to GitHub
+                if self.session_scheduler.bot_client:
+                    self.session_scheduler.trigger_user_settings_push_now()  # Settings
+                    self.session_scheduler.trigger_user_ids_push_now()  # IDs
+                    self.session_scheduler.trigger_session_files_push_now()  # Session files
+                
+                await event.reply("✅ All backup jobs queued:\n• Sessions → GitHub\n• Settings → Telegram (encrypted)\n• User IDs → Telegram\n• Session Files → Telegram (encrypted)")
+            except Exception as e:
+                await event.reply(f"❌ Failed to trigger backups: {e}")
+
+        @self.bot.on(events.NewMessage(pattern=r"/migrate_encrypt_data"))
+        async def migrate_encrypt_data_handler(event):
+            user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
+                return
+
+            await event.reply("🔄 Starting data encryption migration...")
+
+            try:
+                from ..utils.data_encryption import DataEncryption
+                from ..core.mongo_database import mongodb
+                
+                # Migrate users
+                users = await mongodb.db.users.find({}).to_list(length=None)
+                user_count = 0
+                for user in users:
+                    if not any(key.endswith('_enc') for key in user.keys()):
+                        encrypted_data = DataEncryption.encrypt_user_data(user)
+                        await mongodb.db.users.replace_one({"_id": user["_id"]}, encrypted_data)
+                        user_count += 1
+                
+                # Migrate accounts
+                accounts = await mongodb.db.accounts.find({}).to_list(length=None)
+                account_count = 0
+                for account in accounts:
+                    if not any(key.endswith('_enc') for key in account.keys()):
+                        encrypted_data = DataEncryption.encrypt_account_data(account)
+                        await mongodb.db.accounts.replace_one({"_id": account["_id"]}, encrypted_data)
+                        account_count += 1
+                
+                await event.reply(f"✅ Migration completed!\n\n📊 **Results:**\n• Users migrated: {user_count}\n• Accounts migrated: {account_count}\n\n🔒 All user data is now encrypted")
+                
+            except Exception as e:
+                await event.reply(f"❌ Migration failed: {e}")
+
+        @self.bot.on(events.NewMessage(pattern=r"/backup_status"))
+        async def backup_status_handler(event):
+            user_id = event.sender_id
+            
+            # Check admin access
+            from ..core.config import ADMIN_IDS
+            if user_id not in ADMIN_IDS:
+                await event.reply("❌ Admin access required")
                 return
 
             try:
-                router = self.topic_routers[user_id]
-                status = await router.get_status()
-
-                status_text = f"""
-🔄 **Your Topic Routing Status**
-
-Running: {'✅' if status['running'] else '❌'}
-Manager Forum: {status['manager_forum_chat_id']}
-Managed Accounts: {len(status['managed_accounts'])}
-
-**Accounts:**
-"""
-
-                for account_id in status["managed_accounts"]:
-                    queue_length = status["queue_lengths"].get(account_id, 0)
-                    status_text += f"• {account_id}: {queue_length} queued messages\\n"
-
+                from ..core.config import SESSION_BACKUP_ENABLED, TELEGRAM_BACKUP_CHANNEL
+                
+                status_text = "📊 **Backup System Status**\n\n"
+                status_text += f"Session Backup: {'✅ Enabled' if SESSION_BACKUP_ENABLED else '❌ Disabled'}\n"
+                status_text += f"Telegram Channel: {'✅ Configured' if TELEGRAM_BACKUP_CHANNEL else '❌ Not Set'}\n"
+                status_text += f"Scheduler: {'✅ Running' if self.session_scheduler and self.session_scheduler.running else '❌ Not Running'}\n\n"
+                
+                if TELEGRAM_BACKUP_CHANNEL:
+                    status_text += f"**Channel ID:** `{TELEGRAM_BACKUP_CHANNEL}`\n\n"
+                
+                status_text += "**Available Commands:**\n"
+                status_text += "• `/backup_now` - Sessions to GitHub\n"
+                status_text += "• `/backup_settings` - User settings to Telegram\n"
+                status_text += "• `/backup_ids` - User IDs to Telegram\n"
+                status_text += "• `/backup_sessions` - Session files to Telegram\n"
+                status_text += "• `/backup_all` - All backup types\n"
+                status_text += "• `/compact_now` - Compact GitHub history\n"
+                status_text += "• `/migrate_encrypt_data` - Encrypt existing data"
+                
                 await event.reply(status_text)
-
+                
             except Exception as e:
-                await event.reply(f"❌ Failed to get status: {e}")
-
-        @self.bot.on(events.NewMessage(pattern=r"/debug_topics"))
-        async def debug_topics_handler(event):
-            user_id = event.sender_id
-
-            if user_id not in self.topic_routers:
-                await event.reply("❌ No topic router found for your account")
-                return
-
-            try:
-                router = self.topic_routers[user_id]
-                status = await router.get_status()
-
-                debug_text = f"""
-🔍 **Debug: Topic Routing Status**
-
-Running: {status['running']}
-Forum ID: {status['manager_forum_chat_id']}
-Managed Accounts: {len(status['managed_accounts'])}
-
-**Accounts with Listeners:**
-"""
-
-                for account_id in status["managed_accounts"]:
-                    has_listener = account_id in router.inbound_listeners
-                    has_worker = account_id in router.sender_workers
-                    debug_text += f"• {account_id}: Listener={has_listener}, Worker={has_worker}\\n"
-
-                if user_id in self.bot_manager.user_clients:
-                    debug_text += f"\\n**User Clients:** {list(self.bot_manager.user_clients[user_id].keys())}\\n"
-                else:
-                    debug_text += f"\\n**User Clients:** None found\\n"
-
-                await event.reply(debug_text)
-
-            except Exception as e:
-                await event.reply(f"❌ Debug error: {e}")
+                await event.reply(f"❌ Failed to get backup status: {e}")

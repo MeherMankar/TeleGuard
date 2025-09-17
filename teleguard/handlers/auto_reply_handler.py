@@ -8,6 +8,7 @@ from datetime import datetime, time
 from telethon import events
 from telethon.tl.custom import Button
 from ..core.mongo_database import mongodb
+from ..utils.data_encryption import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,11 @@ class AutoReplyHandler:
         @client.on(events.NewMessage(incoming=True, func=lambda e: not e.is_group and not e.is_channel))
         async def auto_reply_handler(event):
             try:
-                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                if not account or not account.get("auto_reply_enabled", False):
+                encrypted_account = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+                if not encrypted_account:
+                    return
+                account = DataEncryption.decrypt_account_data(encrypted_account)
+                if not account.get("auto_reply_enabled", False):
                     return
                 
                 # Skip auto-reply for bots to prevent unwanted interactions
@@ -316,7 +320,8 @@ class AutoReplyHandler:
         """Refresh the main auto-reply menu"""
         try:
             # Get account statuses with reasonable limit
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+            encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+            accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
             enabled_count = sum(1 for acc in accounts if acc.get('auto_reply_enabled', False))
             total_count = len(accounts)
             
@@ -389,8 +394,9 @@ class AutoReplyHandler:
                     
                 elif data == "auto_reply:toggle":
                     # Show account selection for per-account control
-                    accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
-                    if accounts:
+                    encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                    if encrypted_accounts:
+                        accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
                         buttons = []
                         for account in accounts:
                             status = "🟢" if account.get('auto_reply_enabled', False) else "🔴"
@@ -505,15 +511,16 @@ class AutoReplyHandler:
                     self.last_toggle_time[toggle_key] = current_time
                     
                     try:
-                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                        if account:
+                        encrypted_account = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+                        if encrypted_account:
+                            account = DataEncryption.decrypt_account_data(encrypted_account)
                             current_status = account.get('auto_reply_enabled', False)
                             new_status = not current_status
                             
                             # Update database with proper error handling
                             result = await mongodb.db.accounts.update_one(
-                                {"user_id": user_id, "name": account_name},
-                                {"$set": {"auto_reply_enabled": new_status}}
+                                {"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)},
+                                {"$set": {"auto_reply_enabled_enc": DataEncryption.encrypt_field(new_status)}}
                             )
                             
                             if result.modified_count > 0:
@@ -523,7 +530,8 @@ class AutoReplyHandler:
                                 await event.answer(f"Auto-reply {status_text} for {account_name}!")
                                 
                                 # Refresh account list with current data
-                                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+                                encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+                                accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
                                 buttons = []
                                 for acc in accounts:
                                     acc_status = acc.get('auto_reply_enabled', False)
@@ -554,7 +562,7 @@ class AutoReplyHandler:
                         # Clear account auto-reply flags
                         await mongodb.db.accounts.update_many(
                             {"user_id": user_id},
-                            {"$unset": {"auto_reply_enabled": ""}}
+                            {"$unset": {"auto_reply_enabled_enc": ""}}
                         )
                         
                         # Force cleanup all handlers

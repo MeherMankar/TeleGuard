@@ -17,7 +17,10 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..core.config import FERNET
+from ..core.mongo_database import mongodb
 from .crypto_utils import encrypt_session_string
+from .data_encryption import DataEncryption
 from .mongo_store import (
     get_unpersisted_sessions,
     log_audit_event,
@@ -26,6 +29,93 @@ from .mongo_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class TelegramBackup:
+    """Handles backup operations to Telegram channels"""
+    
+    def __init__(self, bot_client):
+        self.bot_client = bot_client
+        self.backup_channel = os.environ.get("TELEGRAM_BACKUP_CHANNEL")
+        
+    async def delete_old_backups(self, backup_type: str) -> bool:
+        """Delete old backup files using stored message IDs"""
+        try:
+            if not self.backup_channel:
+                return False
+            
+            channel_id = self.backup_channel
+            if isinstance(channel_id, str) and channel_id.startswith('-'):
+                channel_id = int(channel_id)
+            
+            retention_count = int(os.environ.get("BACKUP_RETENTION_COUNT", "1"))
+            
+            # Get stored message IDs for this backup type
+            backup_records = await mongodb.db.backup_messages.find({
+                "backup_type": backup_type
+            }).sort("timestamp", -1).to_list(length=None)
+            
+            # Keep only the most recent ones, delete the rest
+            if len(backup_records) >= retention_count:
+                to_delete = backup_records[retention_count:]
+                deleted_count = 0
+                for record in to_delete:
+                    try:
+                        await self.bot_client.delete_messages(channel_id, record["message_id"])
+                        await mongodb.db.backup_messages.delete_one({"_id": record["_id"]})
+                        deleted_count += 1
+                        logger.info(f"Deleted old {backup_type} backup (ID: {record['message_id']})")
+                    except Exception as del_error:
+                        logger.warning(f"Failed to delete message {record['message_id']}: {del_error}")
+                        # Remove from database even if deletion failed
+                        await mongodb.db.backup_messages.delete_one({"_id": record["_id"]})
+                
+                return deleted_count > 0
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to delete old backups: {e}")
+            return False
+        
+    async def send_file(self, file_path: str, caption: str, backup_type: str = None) -> bool:
+        """Send file to Telegram backup channel and delete old backups"""
+        try:
+            if not self.backup_channel:
+                logger.warning("TELEGRAM_BACKUP_CHANNEL not configured")
+                return False
+            
+            # Delete old backups of the same type first
+            if backup_type:
+                await self.delete_old_backups(backup_type)
+            
+            # Convert channel ID to integer if it's a string
+            channel_id = self.backup_channel
+            if isinstance(channel_id, str) and channel_id.startswith('-'):
+                channel_id = int(channel_id)
+                
+            message = await self.bot_client.send_file(
+                channel_id,
+                file_path,
+                caption=caption
+            )
+            
+            # Store message ID for future cleanup
+            if backup_type and message:
+                await mongodb.db.backup_messages.insert_one({
+                    "backup_type": backup_type,
+                    "message_id": message.id,
+                    "timestamp": datetime.now(timezone.utc),
+                    "caption": caption
+                })
+            
+            logger.info(f"File sent to Telegram backup channel: {caption}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to send file to Telegram: {e}")
+            return False
+
 
 # Configuration
 import tempfile
@@ -354,4 +444,159 @@ class SessionBackupManager:
         except Exception as e:
             logger.error(f"Failed to compact history: {e}")
             log_audit_event(None, "compact_history", {"error": str(e)}, "scheduler")
+            return False
+
+    async def push_session_files_to_telegram(self, bot_client) -> bool:
+        """Backs up encrypted session files to Telegram."""
+        if not self.enabled:
+            return False
+
+        logger.info("Starting session files backup to Telegram.")
+        telegram_backup = TelegramBackup(bot_client)
+
+        try:
+            # Get all active accounts with session strings
+            accounts = await mongodb.db.accounts.find({
+                "user_id": {"$exists": True},
+                "$or": [
+                    {"session_string_enc": {"$exists": True, "$ne": ""}},
+                    {"session_string": {"$exists": True, "$ne": ""}}
+                ]
+            }).to_list(length=None)
+            
+            # Decrypt accounts for processing
+            accounts = [DataEncryption.decrypt_account_data(acc) for acc in accounts]
+
+            if not accounts:
+                logger.info("No session files to backup")
+                return True
+
+            # Create session files data
+            session_files_data = {
+                "sessions": [],
+                "backup_timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+            for account in accounts:
+                # Encrypt session string
+                encrypted_session = FERNET.encrypt(account["session_string"].encode())
+                
+                session_files_data["sessions"].append({
+                    "account_id": str(account["_id"]),
+                    "user_id": account["user_id"],
+                    "name": account["name"],
+                    "encrypted_session": encrypted_session.decode(),
+                    "created_at": account.get("created_at", "")
+                })
+
+            sessions_json = json.dumps(session_files_data, indent=2)
+            encrypted_sessions = FERNET.encrypt(sessions_json.encode())
+
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".sessions.enc") as temp_file:
+                temp_file.write(encrypted_sessions)
+                temp_file_path = temp_file.name
+
+            caption = f"Encrypted Session Files Backup\nAccounts: {len(accounts)}\nTimestamp: {datetime.now(timezone.utc).isoformat()}"
+            success = await telegram_backup.send_file(temp_file_path, caption, "session files")
+
+            os.remove(temp_file_path)
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to backup session files to Telegram: {e}")
+            return False
+
+    async def push_user_settings_to_telegram(self, bot_client) -> bool:
+        """Backs up user settings to Telegram."""
+        if not self.enabled:
+            return False
+
+        logger.info("Starting user settings backup to Telegram.")
+        telegram_backup = TelegramBackup(bot_client)
+
+        try:
+            encrypted_users = await mongodb.db.users.find({}).to_list(length=None)
+            encrypted_accounts = await mongodb.db.accounts.find({}).to_list(length=None)
+            
+            # Decrypt data before backup
+            users = [DataEncryption.decrypt_user_data(user) for user in encrypted_users]
+            accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
+
+            # Convert ObjectId to string for JSON serialization
+            for user in users:
+                user['_id'] = str(user['_id'])
+            for account in accounts:
+                account['_id'] = str(account['_id'])
+
+            settings_data = {
+                "users": users,
+                "accounts": accounts,
+                "backup_timestamp": datetime.now(timezone.utc).isoformat()
+            }
+
+            settings_json = json.dumps(settings_data, indent=2)
+            encrypted_settings = FERNET.encrypt(settings_json.encode())
+
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".json.enc") as temp_file:
+                temp_file.write(encrypted_settings)
+                temp_file_path = temp_file.name
+
+            caption = f"Encrypted User Settings Backup\nTimestamp: {datetime.now(timezone.utc).isoformat()}"
+            success = await telegram_backup.send_file(temp_file_path, caption, "user settings")
+
+            os.remove(temp_file_path)
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to backup user settings to Telegram: {e}")
+            return False
+
+    async def push_user_ids_to_telegram(self, bot_client) -> bool:
+        """Backs up user IDs to Telegram."""
+        if not self.enabled:
+            return False
+
+        logger.info("Starting user IDs backup to Telegram.")
+        telegram_backup = TelegramBackup(bot_client)
+
+        try:
+            users = await mongodb.db.users.find({}, {"telegram_id": 1}).to_list(length=None)
+            encrypted_accounts = await mongodb.db.accounts.find({}, {"name_enc": 1, "username_enc": 1, "user_id": 1}).to_list(length=None)
+            
+            # Decrypt account data for processing
+            accounts = []
+            for enc_acc in encrypted_accounts:
+                decrypted_acc = DataEncryption.decrypt_account_data(enc_acc)
+                accounts.append({
+                    "name": decrypted_acc.get("name"),
+                    "username": decrypted_acc.get("username"),
+                    "user_id": enc_acc.get("user_id")
+                })
+
+            user_map = {user['telegram_id']: [] for user in users}
+            for acc in accounts:
+                if acc.get('user_id') in user_map:
+                    user_map[acc['user_id']].append({
+                        "name": acc.get("name"),
+                        "username": acc.get("username")
+                    })
+
+            user_ids_data = [
+                {"telegram_id": uid, "accounts": accs} for uid, accs in user_map.items()
+            ]
+
+            user_ids_json = json.dumps(user_ids_data, indent=2)
+
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as temp_file:
+                temp_file.write(user_ids_json)
+                temp_file_path = temp_file.name
+
+            caption = f"User IDs Backup\nTimestamp: {datetime.now(timezone.utc).isoformat()}"
+            success = await telegram_backup.send_file(temp_file_path, caption, "user ids")
+
+            os.remove(temp_file_path)
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to backup user IDs to Telegram: {e}")
             return False

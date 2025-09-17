@@ -145,7 +145,13 @@ class BotManager:
 
         if os.environ.get("SESSION_BACKUP_ENABLED", "false").lower() == "true":
             self.session_backup = SessionBackupManager()
-            self.session_scheduler = SessionScheduler()
+            # Pass bot client to scheduler for Telegram backups
+            self.session_scheduler = SessionScheduler(self.bot)
+        
+        # Initialize admin handlers (after session_scheduler)
+        from ..handlers.admin_handlers import AdminHandlers
+        
+        self.admin_handlers = AdminHandlers(self)
 
         logger.info("TeleGuard Bot Manager initialized")
 
@@ -475,6 +481,14 @@ class BotManager:
         except Exception as export_error:
             logger.warning(
                 f"Contact export handler setup error (continuing): {export_error}"
+            )
+            
+        try:
+            self.admin_handlers.register_handlers()
+            logger.info("👑 Admin handlers registered")
+        except Exception as admin_error:
+            logger.warning(
+                f"Admin handlers setup error (continuing): {admin_error}"
             )
             
         # Execute startup commands after all components are ready

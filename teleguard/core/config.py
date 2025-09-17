@@ -92,6 +92,7 @@ HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "300"))
 
 # Security Settings
 SESSION_BACKUP_ENABLED = os.getenv("SESSION_BACKUP_ENABLED", "false").lower() == "true"
+TELEGRAM_BACKUP_CHANNEL = os.getenv("TELEGRAM_BACKUP_CHANNEL")
 AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "30"))
 
 # Admin Configuration

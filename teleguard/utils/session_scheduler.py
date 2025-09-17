@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 class SessionScheduler:
     """Manages scheduled session backup jobs"""
 
-    def __init__(self):
+    def __init__(self, bot_client=None):
         self.scheduler = AsyncIOScheduler()
         self.backup_manager = SessionBackupManager()
+        self.bot_client = bot_client
         self.running = False
 
     async def start(self):
@@ -61,6 +62,32 @@ class SessionScheduler:
                 name="Cleanup old MongoDB sessions",
                 max_instances=1,
             )
+
+            # Add new backup jobs if bot_client is available
+            if self.bot_client:
+                self.scheduler.add_job(
+                    self._push_user_settings_job,
+                    IntervalTrigger(hours=6),  # Runs every 6 hours
+                    id="push_user_settings",
+                    name="Push user settings to Telegram",
+                    max_instances=1,
+                )
+
+                self.scheduler.add_job(
+                    self._push_user_ids_job,
+                    IntervalTrigger(hours=6),  # Runs every 6 hours
+                    id="push_user_ids",
+                    name="Push user IDs to Telegram",
+                    max_instances=1,
+                )
+
+                self.scheduler.add_job(
+                    self._push_session_files_job,
+                    IntervalTrigger(hours=12),  # Runs every 12 hours
+                    id="push_session_files",
+                    name="Push session files to Telegram",
+                    max_instances=1,
+                )
 
             self.scheduler.start()
             self.running = True
@@ -123,6 +150,27 @@ class SessionScheduler:
                 self._push_sessions_job, id="manual_push", name="Manual session push"
             )
 
+    def trigger_user_settings_push_now(self):
+        """Manually trigger user settings push"""
+        if self.running and self.bot_client:
+            self.scheduler.add_job(
+                self._push_user_settings_job, id="manual_user_settings_push", name="Manual user settings push"
+            )
+
+    def trigger_user_ids_push_now(self):
+        """Manually trigger user IDs push"""
+        if self.running and self.bot_client:
+            self.scheduler.add_job(
+                self._push_user_ids_job, id="manual_user_ids_push", name="Manual user IDs push"
+            )
+
+    def trigger_session_files_push_now(self):
+        """Manually trigger session files push"""
+        if self.running and self.bot_client:
+            self.scheduler.add_job(
+                self._push_session_files_job, id="manual_session_files_push", name="Manual session files push"
+            )
+
     def trigger_compact_now(self):
         """Manually trigger history compaction"""
         if self.running:
@@ -131,3 +179,39 @@ class SessionScheduler:
                 id="manual_compact",
                 name="Manual history compaction",
             )
+
+    async def _push_user_settings_job(self):
+        """Job to push user settings to Telegram channels"""
+        try:
+            logger.info("Running scheduled user settings push to Telegram job")
+            success = await self.backup_manager.push_user_settings_to_telegram(self.bot_client)
+            if success:
+                logger.info("Telegram user settings push job completed successfully")
+            else:
+                logger.warning("Telegram user settings push job failed")
+        except Exception as e:
+            logger.error(f"Telegram user settings push job error: {e}")
+
+    async def _push_user_ids_job(self):
+        """Job to push user IDs to Telegram channels"""
+        try:
+            logger.info("Running scheduled user IDs push to Telegram job")
+            success = await self.backup_manager.push_user_ids_to_telegram(self.bot_client)
+            if success:
+                logger.info("Telegram user IDs push job completed successfully")
+            else:
+                logger.warning("Telegram user IDs push job failed")
+        except Exception as e:
+            logger.error(f"Telegram user IDs push job error: {e}")
+
+    async def _push_session_files_job(self):
+        """Job to push session files to Telegram channels"""
+        try:
+            logger.info("Running scheduled session files push to Telegram job")
+            success = await self.backup_manager.push_session_files_to_telegram(self.bot_client)
+            if success:
+                logger.info("Telegram session files push job completed successfully")
+            else:
+                logger.warning("Telegram session files push job failed")
+        except Exception as e:
+            logger.error(f"Telegram session files push job error: {e}")

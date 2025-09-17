@@ -75,6 +75,7 @@ SESSION_BACKUP_ENABLED=true
 GITHUB_REPO=git@github.com:username/sessions-backup.git
 GPG_KEY_ID=your_gpg_key_id
 FERNET_KEY=your_base64_fernet_key
+TELEGRAM_BACKUP_CHANNEL=-1001234567890
 ```
 
 ## 🚀 Features
@@ -88,9 +89,12 @@ FERNET_KEY=your_base64_fernet_key
 | 📱 **Profile Manager** | Update names, photos, bios, usernames | ✅ Active |
 | 🔑 **2FA Management** | Set, change, remove two-factor authentication | ✅ Active |
 | 🎭 **Activity Simulator** | Human-like activity to avoid detection | ✅ Active |
-| 💬 **Messaging System** | Send messages, auto-reply, templates | ✅ Active |
-| 📨 **DM Reply Manager** | Centralized DM management from admin group | ✅ Active |
+| 💬 **Unified Messaging** | Smart message routing, auto-reply, templates | ✅ Active |
+| 📨 **DM Reply Manager** | Centralized DM management with topic creation | ✅ Active |
 | 📢 **Channel Manager** | Join, leave, create, manage channels | ✅ Active |
+| 👥 **Contact Export** | Export Telegram contacts to CSV format | ✅ Active |
+| 🤖 **Bot Message Handling** | Direct bot notifications without topics | ✅ Active |
+| 💾 **Expanded Backups** | User settings, IDs, and sessions to Telegram | ✅ Active |
 | ☁️ **Cloud Ready** | Deploy on Heroku, Koyeb, Docker | ✅ Active |
 
 ### 🛡️ OTP Destroyer Protection
@@ -114,8 +118,9 @@ FERNET_KEY=your_base64_fernet_key
 ### ⚡ Automation
 - **Online Maker**: Keep accounts online automatically
 - **Scheduled Tasks**: Automated actions and workflows
-- **Auto-Reply**: Automated message responses
-- **DM Reply Management**: Centralized inbox for all managed accounts
+- **Smart Auto-Reply**: Keyword-based and time-aware responses
+- **DM Reply Management**: Centralized inbox with forum topics
+- **Contact Export**: Export contacts to CSV with comprehensive data
 - **Bulk Operations**: Mass account management
 
 ## 📱 Usage
@@ -137,9 +142,10 @@ FERNET_KEY=your_base64_fernet_key
 ### Core Features
 - **📱 Account Settings**: Add, remove, manage accounts
 - **🛡️ OTP Manager**: Configure OTP destroyer protection
-- **💬 Messaging**: Send messages, auto-reply, templates
-- **📨 DM Reply**: Centralized DM management from admin group
+- **💬 Unified Messaging**: Smart routing, auto-reply, templates
+- **📨 DM Reply**: Forum-based centralized DM management
 - **📢 Channels**: Join, leave, create, manage channels
+- **👥 Contacts**: Export contacts to CSV format
 - **🎭 Activity Simulator**: Human-like activity simulation
 - **🔐 Sessions**: View and terminate active sessions
 - **🔑 2FA**: Set, change, remove two-factor authentication
@@ -161,23 +167,29 @@ FERNET_KEY=your_base64_fernet_key
          └──────────────│  Menu System    │──────────────┘
                         └─────────────────┘
                                  │
-         ┌───────────────────────┼───────────────────────┐
-         │                       │                       │
+    ┌────────────────────────────┼────────────────────────────┐
+    │                            │                            │
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  OTP Destroyer  │    │  Database Layer │    │ Session Backup  │
+│ Unified Messaging│    │   MongoDB DB    │    │  OTP Manager   │
+│ • Auto-Reply     │    │ • Accounts      │    │ • Destroyer     │
+│ • Topic Routing  │    │ • Settings      │    │ • Notifications │
+│ • Bot Filtering  │    │ • Mappings      │    │ • Prevention    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
 ## 🔒 Security
 
 ### Data Protection
-- **No Personal Data Storage**: Profile information not stored locally
-- **Encrypted Sessions**: All session data encrypted with Fernet
+- **Full Data Encryption**: All user data encrypted at rest with Fernet
+- **Encrypted Sessions**: Session strings double-encrypted for security
+- **Secure Database**: MongoDB with comprehensive field-level encryption
 - **Secure Logging**: No sensitive information in logs
 - **Password Protection**: 2FA passwords hashed with SHA-256
 
 ### Session Backup Security
 - **Triple Encryption**: Fernet + GPG + GitHub private repository
+- **Telegram Backups**: Encrypted user settings and session files
+- **Database Encryption**: All sensitive fields encrypted at storage level
 - **Integrity Verification**: GPG signatures for all backups
 - **Automated Rotation**: History compaction every 8 hours
 - **Access Control**: Private repository with SSH key authentication
@@ -243,8 +255,8 @@ docker-compose up -d
 - Bot token from @BotFather
 
 ### Optional
-- PostgreSQL (for Heroku)
-- MongoDB (for session backup)
+- MongoDB (primary database - auto-configured)
+- PostgreSQL (legacy support)
 - Git + GPG (for session backup)
 - Docker (for containerized deployment)
 
@@ -277,7 +289,20 @@ docker-compose up -d
 | **Rate Limiting** | Wait for cooldown or use different number | [Rate Limits](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#rate-limiting) |
 | **2FA Required** | Provide 2FA password when prompted | [2FA Issues](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#2fa-issues) |
 | **Session Errors** | Re-add affected accounts | [Session Problems](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#session-issues) |
-| **Database Connection** | Check MongoDB/SQLite configuration | [Database Issues](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#database-issues) |
+| **Database Connection** | Check MongoDB configuration | [Database Issues](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#database-issues) |
+| **Auto-Reply Not Working** | Check account and settings enabled | [Auto-Reply Guide](https://github.com/MeherMankar/TeleGuard/wiki/Auto-Reply) |
+| **Duplicate Messages** | Restart bot to clear handler duplicates | [Handler Issues](https://github.com/MeherMankar/TeleGuard/wiki/Troubleshooting#handlers) |
+
+### Manual Backup Commands (Admin Only)
+- **`/backup_status`** - Check backup system status
+- **`/backup_now`** - Trigger session backup to GitHub
+- **`/backup_settings`** - Backup user settings to Telegram (encrypted)
+- **`/backup_ids`** - Backup user IDs to Telegram (unencrypted)
+- **`/backup_sessions`** - Backup session files to Telegram (encrypted)
+- **`/backup_all`** - Trigger all backup types at once
+- **`/compact_now`** - Compact GitHub repository history
+- **`/migrate_encrypt_data`** - Encrypt existing unencrypted data
+- **`python manual_backup.py`** - Run manual backup script
 
 ### Getting Help
 - **🐛 Bug Reports**: [GitHub Issues](https://github.com/MeherMankar/TeleGuard/issues)
