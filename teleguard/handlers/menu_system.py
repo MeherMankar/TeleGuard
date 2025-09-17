@@ -27,6 +27,8 @@ class MenuSystem:
         self.bot = bot_instance
         self.account_manager = account_manager
         self.secure_2fa_handlers = Secure2FAHandlers(bot_instance, account_manager)
+        self._menu_text_handler = None
+        self._callback_handler = None
 
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
         """Get persistent reply keyboard menu"""
@@ -386,6 +388,10 @@ class MenuSystem:
 
     def setup_menu_handlers(self):
         """Set up menu text handlers and legacy callback handler"""
+        
+        # Clear existing handlers to prevent duplicates
+        self.bot.remove_event_handler(self._menu_text_handler)
+        self.bot.remove_event_handler(self._callback_handler)
 
         @self.bot.on(
             events.NewMessage(
@@ -445,6 +451,9 @@ class MenuSystem:
             except Exception as e:
                 logger.error(f"Menu handler error for {text}: {e}")
                 await event.reply("❌ Error processing menu action")
+        
+        # Store handler reference for cleanup
+        self._menu_text_handler = menu_text_handler
 
         # Handle callback queries from inline buttons
         @self.bot.on(events.CallbackQuery)
@@ -1039,6 +1048,9 @@ class MenuSystem:
             except Exception as e:
                 logger.error(f"Callback handler error: {e}")
                 await event.answer("❌ Error processing action", alert=True)
+        
+        # Store handler reference for cleanup
+        self._callback_handler = callback_handler
 
     async def _handle_account_settings(self, event):
         """Handle Account Settings menu"""
