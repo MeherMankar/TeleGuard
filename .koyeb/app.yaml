@@ -16,6 +16,9 @@ services:
       http:
         path: /health
         port: 8080
+      grace_period_seconds: 60
+      interval_seconds: 30
+      restart_limit: 3
     env:
       - key: API_ID
         scope: project

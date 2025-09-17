@@ -270,6 +270,8 @@ async def main() -> None:
 
         # Start web server for Koyeb if needed
         web_runner = await start_web_server()
+        if web_runner:
+            logger.info("Web server started for Koyeb health checks")
 
         # Skip health checks for now
         logger.info("Skipping health checks - starting bot directly")
