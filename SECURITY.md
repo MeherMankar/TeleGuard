@@ -17,7 +17,7 @@ Please do not report security vulnerabilities through public GitHub issues.
 
 ### 2. Report privately
 
-Send an email to: **security@teleguard.dev** with:
+Send an message to: **t.me//meher_mankar** with:
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
@@ -64,4 +64,4 @@ We follow responsible disclosure practices:
 
 ## Contact
 
-For security-related questions: security@teleguard.dev
+For security-related questions: t.me/meher_mankar
