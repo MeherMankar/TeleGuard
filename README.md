@@ -43,7 +43,7 @@ A professional Telegram bot for managing multiple user accounts with advanced OT
 ### ☁️ Cloud Deployment
 
 - **Heroku**: Use one-click deploy button above or `./deploy/heroku.sh`
-- **Koyeb**: Run `./deploy/koyeb.sh` for free tier deployment
+- **Koyeb**: Run `./deploy/koyeb.sh` for free tier deployment ([Guide](deploy/KOYEB.md))
 - **Docker**: `docker-compose up -d`
 
 ## 🔧 Configuration

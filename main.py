@@ -26,6 +26,8 @@ import traceback
 from pathlib import Path
 from typing import NoReturn
 
+from aiohttp import web
+
 try:
     from teleguard import AccountManager
     from teleguard.core.async_client_manager import client_manager
@@ -189,6 +191,29 @@ def setup_signal_handlers() -> None:
         signal.signal(signal.SIGHUP, signal_handler)
 
 
+async def health_check(request):
+    """Health check endpoint for Koyeb"""
+    return web.json_response({"status": "healthy", "service": "teleguard"})
+
+
+async def start_web_server():
+    """Start web server for Koyeb health checks"""
+    if os.getenv("KOYEB_DEPLOYMENT") == "true":
+        app = web.Application()
+        app.router.add_get("/health", health_check)
+        
+        port = int(os.getenv("PORT", 8080))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        
+        logger.info(f"Web server started on port {port} for Koyeb health checks")
+        return runner
+    return None
+
+
 def print_startup_banner() -> None:
     """Print professional startup banner."""
     try:
@@ -243,18 +268,26 @@ async def main() -> None:
 
         db_helpers.db = db_instance
 
+        # Start web server for Koyeb if needed
+        web_runner = await start_web_server()
+
         # Skip health checks for now
         logger.info("Skipping health checks - starting bot directly")
 
         # Initialize and start the bot
         logger.info("Health checks passed - Starting TeleGuard Bot...")
 
-        async with AccountManager() as bot:
-            logger.info("TeleGuard Bot successfully started")
-            print("\nBot is running! Press Ctrl+C to stop.\n")
+        try:
+            async with AccountManager() as bot:
+                logger.info("TeleGuard Bot successfully started")
+                print("\nBot is running! Press Ctrl+C to stop.\n")
 
-            # Run until disconnected
-            await bot.bot.run_until_disconnected()
+                # Run until disconnected
+                await bot.bot.run_until_disconnected()
+        finally:
+            # Cleanup web server
+            if web_runner:
+                await web_runner.cleanup()
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")

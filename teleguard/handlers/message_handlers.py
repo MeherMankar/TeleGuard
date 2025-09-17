@@ -20,6 +20,7 @@ class MessageHandlers:
         self.pending_actions = bot_manager.pending_actions
         self.user_clients = bot_manager.user_clients
         self.messaging_manager = bot_manager.unified_messaging
+        self.template_handler = bot_manager.template_handler
         self.secure_2fa = bot_manager.secure_2fa
         self.session_backup = bot_manager.session_backup
 
@@ -116,6 +117,13 @@ class MessageHandlers:
             await self._handle_profile_actions(event, user, action, message)
         elif action.startswith(("message_", "set_autoreply", "compose_message")):
             await self._handle_messaging_actions(event, user, action, message)
+        elif action.startswith("template_"):
+            # Redirect template actions to new template handler
+            if hasattr(self.bot_manager, 'template_handler'):
+                await self.bot_manager.template_handler.process_text_input(event, self.pending_actions[user_id], message)
+            else:
+                await event.reply("Template system not available")
+                self.pending_actions.pop(user_id, None)
         elif action.startswith(("otp_", "disable_otp", "set_otp", "enable_temp")):
             await self._handle_otp_actions(event, user, action, message)
         elif action.startswith("channel_"):
@@ -123,7 +131,12 @@ class MessageHandlers:
         elif action == "set_dm_group_id":
             await self._handle_dm_group_actions(event, user, action, message)
         else:
-            await self._handle_misc_actions(event, user, action, message)
+            # Check if it's an old template action that should be ignored
+            if action.startswith("create_template"):
+                await event.reply("Please use /templates command for the new advanced template system")
+                self.pending_actions.pop(user_id, None)
+            else:
+                await self._handle_misc_actions(event, user, action, message)
 
     async def _handle_auth_actions(self, event, user, action, message):
         """Handle authentication related actions"""
@@ -397,11 +410,18 @@ class MessageHandlers:
                 "account_id": account_id,
                 "target": message.strip(),
             }
-            await event.reply("📝 Now send the message content:")
+            await event.reply("📝 Now send the message content:\n\n💡 Type 'template' to use a message template")
 
         elif action == "compose_message_content":
             account_id = self.pending_actions[user_id].get("account_id")
             target = self.pending_actions[user_id].get("target")
+            
+            # Check if user wants to use a template
+            if message.lower() == "template":
+                from telethon.tl.custom import Button
+                text, buttons = await self.bot_manager.template_handler.get_template_selection_menu(user_id)
+                await event.reply(text, buttons=buttons)
+                return
             
             # Get account name from account_id
             from bson import ObjectId

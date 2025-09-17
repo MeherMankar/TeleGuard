@@ -53,8 +53,8 @@ class BotManager:
         )
         self.secure_2fa = Secure2FAManager()
         self.secure_input = SecureInputManager()
-        # Messaging manager is now part of unified messaging
-        self.messaging_manager = None
+        # Initialize messaging manager
+        self.messaging_manager = MessagingManager(self)
 
         # Initialize Activity Simulator with comprehensive audit
         from ..workers.activity_simulator import ActivitySimulator
@@ -147,6 +147,11 @@ class BotManager:
             self.session_backup = SessionBackupManager()
             # Pass bot client to scheduler for Telegram backups
             self.session_scheduler = SessionScheduler(self.bot)
+        
+        # Initialize template handler
+        from ..handlers.template_handler import TemplateHandler
+        
+        self.template_handler = TemplateHandler(self)
         
         # Initialize admin handlers (after session_scheduler)
         from ..handlers.admin_handlers import AdminHandlers
@@ -489,6 +494,14 @@ class BotManager:
         except Exception as admin_error:
             logger.warning(
                 f"Admin handlers setup error (continuing): {admin_error}"
+            )
+            
+        try:
+            # Template handler is self-registering
+            logger.info("📝 Template handler registered")
+        except Exception as template_error:
+            logger.warning(
+                f"Template handler setup error (continuing): {template_error}"
             )
             
         # Execute startup commands after all components are ready

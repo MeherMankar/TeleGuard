@@ -2571,19 +2571,20 @@ class MenuSystem:
             logger.error(f"Failed to send auto-reply menu: {e}")
 
     async def _send_templates_menu(self, user_id: int, message_id: int):
-        """Send message templates menu"""
+        """Send message templates menu - redirect to new advanced template system"""
         text = (
-            "📝 **Message Templates**\n\n"
-            "Create and manage reusable message templates.\n\n"
-            "Available actions:"
-            "• Create new template\n"
-            "• Edit existing templates\n"
-            "• Use template in message\n"
-            "• Delete templates"
+            "📝 **Advanced Message Templates**\n\n"
+            "Use the new advanced template system with:\n\n"
+            "✨ **Features:**\n"
+            "• Dynamic variables ({name}, {username}, {time}, {date})\n"
+            "• Rich media support (images, videos)\n"
+            "• Template categories\n"
+            "• Quick reply buttons\n"
+            "• Step-by-step creation wizard\n\n"
+            "Use `/templates` command to access the advanced system."
         )
         buttons = [
-            [Button.inline("➕ Create Template", "template:create")],
-            [Button.inline("📋 View Templates", "template:list")],
+            [Button.inline("🚀 Open Advanced Templates", "template:main")],
             [Button.inline("🔙 Back", "menu:messaging")],
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
@@ -2622,17 +2623,19 @@ class MenuSystem:
             await self._set_autoreply_message(user_id, account_id, event)
 
     async def _handle_template_callback(self, event, user_id: int, data: str):
-        """Handle template callbacks"""
+        """Handle template callbacks - redirect to new template system"""
         parts = data.split(":")
         action = parts[1]
 
-        if action == "create":
-            await self._create_template(user_id, event)
-        elif action == "list":
-            await self._list_templates(user_id, event.message_id)
-        elif action == "use":
-            template_id = parts[2]  # Keep as string
-            await self._use_template(user_id, template_id, event)
+        if action == "main":
+            # Redirect to new advanced template system
+            if hasattr(self.account_manager, 'template_handler'):
+                await self.account_manager.template_handler.show_main_menu(event)
+            else:
+                await event.answer("Template system not available")
+        else:
+            # All other template actions handled by new system
+            await event.answer("Use /templates command for advanced template features")
 
     async def _send_autoreply_management(
         self, user_id: int, account_id: str, message_id: int
@@ -2711,27 +2714,7 @@ class MenuSystem:
             await event.answer("📝 Reply with message")
             await self.bot.send_message(user_id, text)
 
-    async def _use_template(self, user_id: int, template_id: str, event):
-        """Use a template for messaging"""
-        try:
-            # Placeholder for template functionality
-            text = (
-                f"📝 **Using Template #{template_id}**\n\n"
-                "Template functionality coming soon!\n\n"
-                "This will allow you to:\n"
-                "• Use saved message templates\n"
-                "• Quick message composition\n"
-                "• Personalized content\n"
-                "• Bulk messaging support"
-            )
 
-            buttons = [[Button.inline("🔙 Back to Templates", "msg:templates")]]
-            await event.answer(f"📝 Template feature")
-            await self.bot.send_message(user_id, text, buttons=buttons)
-
-        except Exception as e:
-            logger.error(f"Failed to use template: {e}")
-            await event.answer("❌ Error using template")
     
     async def _handle_bulk_callback(self, event, user_id: int, data: str):
         """Handle bulk sender callbacks"""
@@ -2752,48 +2735,9 @@ class MenuSystem:
             job_id = parts[2]
             await self._stop_bulk_job(user_id, job_id, event)
 
-    async def _create_template(self, user_id: int, event):
-        """Create message template"""
-        if self.account_manager:
-            self.account_manager.pending_actions[user_id] = {
-                "action": "create_template_name"
-            }
 
-            text = (
-                "➕ **Create Template**\n\n"
-                "Reply with a name for your template:\n\n"
-                "Example: greeting, promotion, support"
-            )
 
-            await event.answer("➕ Reply with template name")
-            await self.bot.send_message(user_id, text)
 
-    async def _list_templates(self, user_id: int, message_id: int):
-        """List user templates"""
-        try:
-            # Placeholder for template listing
-            text = (
-                "📋 **Your Templates**\n\n"
-                "Template system coming soon!\n\n"
-                "Features will include:\n"
-                "• Save frequently used messages\n"
-                "• Quick template selection\n"
-                "• Template categories\n"
-                "• Variable substitution\n"
-                "• Template sharing"
-            )
-            buttons = [
-                [Button.inline("➕ Create Template", "template:create")],
-                [Button.inline("🔙 Back", "menu:messaging")],
-            ]
-
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-
-        except Exception as e:
-            logger.error(f"Failed to list templates: {e}")
-            text = "❌ Error loading templates"
-            buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
     async def _send_bulk_sender_menu(self, user_id: int, message_id: int):
         """Send bulk sender management menu"""

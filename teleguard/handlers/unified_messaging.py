@@ -672,57 +672,7 @@ class UnifiedMessagingSystem:
             logger.error(f"Failed to disable auto-reply: {e}")
             return False
     
-    async def create_template(self, user_id: int, name: str, content: str) -> bool:
-        """Create message template"""
-        try:
-            import time
-            
-            account = await mongodb.db.accounts.find_one({"user_id": user_id})
-            if not account:
-                return False
 
-            template = {
-                "account_id": account["_id"],
-                "user_id": user_id,
-                "name": name,
-                "content": content,
-                "created_at": int(time.time()),
-            }
-
-            await mongodb.db.message_templates.insert_one(template)
-            logger.info(f"Template '{name}' created for user {user_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to create template: {e}")
-            return False
-    
-    async def get_templates(self, user_id: int) -> list:
-        """Get user's message templates"""
-        try:
-            templates = await mongodb.db.message_templates.find(
-                {"user_id": user_id}
-            ).to_list(length=None)
-            return [(str(t["_id"]), t["name"], t["content"]) for t in templates]
-
-        except Exception as e:
-            logger.error(f"Failed to get templates: {e}")
-            return []
-    
-    async def delete_template(self, user_id: int, template_id: str) -> bool:
-        """Delete message template"""
-        try:
-            from bson import ObjectId
-            
-            result = await mongodb.db.message_templates.delete_one(
-                {"_id": ObjectId(template_id), "user_id": user_id}
-            )
-            
-            return result.deleted_count > 0
-
-        except Exception as e:
-            logger.error(f"Failed to delete template: {e}")
-            return False
     
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up handlers for newly added client"""

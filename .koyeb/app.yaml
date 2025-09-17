@@ -4,7 +4,7 @@ services:
     type: web
     git:
       branch: main
-      build_command: pip install -r config/requirements.txt
+      build_command: pip install -r requirements.txt
       run_command: python main.py
     instance_type: nano
     regions:
@@ -12,6 +12,10 @@ services:
     ports:
       - port: 8080
         protocol: http
+    health_check:
+      http:
+        path: /health
+        port: 8080
     env:
       - key: API_ID
         scope: project
@@ -21,5 +25,11 @@ services:
         scope: project
       - key: ADMIN_IDS
         scope: project
+      - key: PORT
+        value: "8080"
+      - key: KOYEB_DEPLOYMENT
+        value: "true"
       - key: DATABASE_URL
         value: "sqlite+aiosqlite:///bot_data.db"
+      - key: BACKUP_RETENTION_COUNT
+        value: "1"
