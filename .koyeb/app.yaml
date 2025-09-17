@@ -33,3 +33,5 @@ services:
         value: "sqlite+aiosqlite:///bot_data.db"
       - key: BACKUP_RETENTION_COUNT
         value: "1"
+      - key: FERNET_KEY
+        scope: project
