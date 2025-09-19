@@ -149,27 +149,65 @@ class ContactHandler:
 
     async def _show_contacts_list(self, event, user_id: int):
         """Show paginated contacts list"""
-        account = await self._get_user_account(user_id)
-        contacts = await ContactDB.get_all_contacts(account, limit=10)
+        from ..core.mongo_database import mongodb
         
-        if not contacts:
-            await event.edit("📭 No contacts found", buttons=[[Button.inline("➕ Add Contact", "contacts:add")]])
+        # Get user's accounts to find contacts
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+        if not accounts:
+            await event.edit("👥 **All Contacts**\n\n❌ No accounts found.", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
-            
-        text = "👥 **Your Contacts**\n\n"
+        
+        # Get contacts directly from Telegram API
+        all_contacts = []
+        total_contacts = 0
+        
+        for account in accounts:
+            if not account.get("is_active", False):
+                continue
+                
+            try:
+                # Get client for this account
+                if (user_id in self.bot_manager.user_clients and 
+                    account['name'] in self.bot_manager.user_clients[user_id]):
+                    client = self.bot_manager.user_clients[user_id][account['name']]
+                    if client and client.is_connected():
+                        from telethon.tl.functions.contacts import GetContactsRequest
+                        from telethon.tl.types import User
+                        
+                        result = await client(GetContactsRequest(hash=0))
+                        account_contacts = 0
+                        
+                        for user in result.users[:10]:  # Limit to first 10 per account
+                            if isinstance(user, User) and not user.bot:
+                                name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Unknown"
+                                username = f"@{user.username}" if user.username else "No username"
+                                phone = user.phone or "No phone"
+                                
+                                all_contacts.append({
+                                    'name': name,
+                                    'username': username,
+                                    'phone': phone,
+                                    'account': account['name'],
+                                    'user_id': user.id
+                                })
+                                account_contacts += 1
+                        
+                        total_contacts += len([u for u in result.users if isinstance(u, User) and not u.bot])
+            except Exception as e:
+                logger.error(f"Error getting contacts for {account['name']}: {e}")
+                continue
+        
+        if not all_contacts:
+            await event.edit("👥 **All Contacts**\n\n💭 No contacts found in active accounts.\n\nMake sure accounts are connected and have contacts.", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
+            return
+        
+        text = f"👥 **All Contacts** (Showing {len(all_contacts)} of {total_contacts})\n\n"
         buttons = []
         
-        for contact in contacts[:8]:  # Show max 8 contacts
-            name = f"{contact.first_name} {contact.last_name or ''}".strip()
-            status = ""
-            if contact.is_blacklisted:
-                status = "🚫"
-            elif contact.is_whitelisted:
-                status = "✅"
-                
-            text += f"{status} {name} (@{contact.username or 'N/A'})\n"
-            buttons.append([Button.inline(f"👤 {name}", f"contact:view:{contact.user_id}")])
-            
+        for i, contact in enumerate(all_contacts[:8], 1):  # Show max 8 contacts
+            text += f"{i}. **{contact['name']}**\n   {contact['username']} | {contact['phone']}\n   Account: {contact['account']}\n\n"
+            # Note: We can't use contact:view since these aren't stored in DB
+        
         buttons.append([Button.inline("🔙 Back", "contacts:main")])
         await event.edit(text, buttons=buttons)
 

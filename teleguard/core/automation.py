@@ -45,57 +45,13 @@ class AutomationEngine:
         """Main automation loop"""
         while self.running:
             try:
-                await self._process_online_maker()
                 await self._process_scheduled_jobs()
                 await asyncio.sleep(60)  # Check every minute
             except Exception as e:
                 logger.error(f"Automation loop error: {e}")
                 await asyncio.sleep(60)
 
-    async def _process_online_maker(self):
-        """Process online maker for all enabled accounts"""
-        try:
-            accounts = await mongodb.db.accounts.find(
-                {"online_maker_enabled": True, "is_active": True}
-            ).to_list(length=None)
 
-            for account in accounts:
-                try:
-                    # Check if it's time to update online status
-                    if self._should_update_online(account):
-                        (
-                            success,
-                            msg,
-                        ) = await self.fullclient_manager.update_online_status(
-                            account["user_id"], account["_id"]
-                        )
-                        if success:
-                            logger.info(f"Updated online status for {account['name']}")
-
-                except Exception as e:
-                    logger.error(f"Online maker error for {account['name']}: {e}")
-
-        except Exception as e:
-            logger.error(f"Process online maker error: {e}")
-
-    def _should_update_online(self, account) -> bool:
-        """Check if account should update online status"""
-        if not account.get("last_online_update"):
-            return True
-
-        try:
-            last_update = time.strptime(
-                account["last_online_update"], "%Y-%m-%d %H:%M:%S"
-            )
-            last_timestamp = time.mktime(last_update)
-            current_timestamp = time.time()
-
-            return (current_timestamp - last_timestamp) >= account.get(
-                "online_maker_interval", 300
-            )
-        except Exception as e:
-            logger.error(f"Error parsing last_online_update: {e}")
-            return True
 
     async def _process_scheduled_jobs(self):
         """Process scheduled automation jobs"""

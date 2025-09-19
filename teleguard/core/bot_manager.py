@@ -356,6 +356,8 @@ class BotManager:
             await self.automation_engine.start()
         except Exception as automation_error:
             logger.warning(f"Automation engine error (continuing): {automation_error}")
+            
+        # Note: Online maker is now handled by dedicated OnlineMaker class, not automation engine
 
         try:
             await self.activity_simulator.start()
@@ -388,10 +390,10 @@ class BotManager:
             )
             
         try:
-            self.auto_reply_handler.setup_auto_reply_handlers()
+            # Only setup menu and text handlers, not the duplicate message handlers
             self.auto_reply_handler.setup_auto_reply_menu()
             self.auto_reply_handler.setup_text_handler()
-            logger.info("🤖 Auto-reply handlers registered")
+            logger.info("🤖 Auto-reply menu registered (message handling via unified messaging)")
         except Exception as auto_reply_error:
             logger.warning(
                 f"Auto-reply handler setup error (continuing): {auto_reply_error}"
