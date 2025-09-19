@@ -111,15 +111,15 @@ class OTPManager:
                         )
                         await event.delete()
 
-                        # Update audit in MongoDB
+                        # Update audit in MongoDB with encrypted fields
                         await mongodb.db.accounts.update_one(
-                            {"user_id": user_id, "name": account_name},
-                            {"$push": {"audit_log": {
+                            {"user_id": int(user_id), "name_enc": DataEncryption.encrypt_field(str(account_name))},
+                            {"$push": {"audit_log_enc": DataEncryption.encrypt_field({
                                 "action": "otp_destroyed",
                                 "code": otp_code,
                                 "message": message_text[:50],
                                 "timestamp": int(time.time())
-                            }}}
+                            })}}
                         )
 
                         # Notify user about destruction
@@ -227,13 +227,13 @@ class OTPManager:
                         await event.delete()
 
                         await mongodb.db.accounts.update_one(
-                            {"user_id": found_user_id, "name": found_account_name},
-                            {"$push": {"audit_log": {
+                            {"user_id": int(found_user_id), "name_enc": DataEncryption.encrypt_field(str(found_account_name))},
+                            {"$push": {"audit_log_enc": DataEncryption.encrypt_field({
                                 "action": "otp_destroyed",
                                 "code": otp_code,
                                 "message": message_text[:50],
                                 "timestamp": int(time.time())
-                            }}}
+                            })}}
                         )
 
                         await self.bot.send_message(
@@ -274,9 +274,21 @@ class OTPManager:
 
     def _extract_otp_code(self, message_text: str) -> Optional[str]:
         """Extract OTP code from message"""
-        # Look for 5-6 digit codes
-        match = re.search(r"\b(\d{5,6})\b", message_text)
-        return match.group(1) if match else "Unknown"
+        # Look for 5-7 digit codes with optional hyphens/spaces
+        patterns = [
+            r"\b(\d{5,7})\b",  # Simple 5-7 digits
+            r"\b(\d{2,3}[-\s]\d{2,4})\b",  # With hyphens/spaces like "12-345" or "123 45"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, message_text)
+            if match:
+                # Remove hyphens and spaces
+                code = re.sub(r"[^0-9]", "", match.group(1))
+                if 5 <= len(code) <= 7:
+                    return code
+        
+        return "Unknown"
 
     async def _find_account_for_message(self, event) -> Optional[tuple]:
         """Find which account received the OTP message"""
@@ -288,11 +300,13 @@ class OTPManager:
             for user_id, clients in self.user_clients.items():
                 for account_name, user_client in clients.items():
                     if user_client == client:
-                        # Get account from MongoDB
-                        account = await mongodb.db.accounts.find_one({
-                            "user_id": user_id,
-                            "name": account_name
+                        # Get account from MongoDB with proper field handling
+                        from ..utils.data_encryption import DataEncryption
+                        encrypted_account = await mongodb.db.accounts.find_one({
+                            "user_id": int(user_id),
+                            "name_enc": DataEncryption.encrypt_field(str(account_name))
                         })
+                        account = DataEncryption.decrypt_account_data(encrypted_account) if encrypted_account else None
                         if account:
                             return user_id, account_name, account
 
