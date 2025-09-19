@@ -58,16 +58,16 @@ class AutoReplyHandler:
             for client_key in clients_to_remove:
                 self.handled_clients.discard(client_key)
             
-            # Disconnect and reconnect clients to clear handlers
+            # Remove all event handlers from user clients
             if user_id in self.user_clients:
                 for account_name, client in self.user_clients[user_id].items():
                     if client and client.is_connected():
                         try:
-                            await client.disconnect()
-                            await asyncio.sleep(RECONNECT_DELAY)
-                            await client.connect()
+                            # Remove all event handlers to prevent duplicates
+                            client.remove_event_handler(None)
+                            logger.info(f"Removed all handlers for {account_name}")
                         except Exception as e:
-                            logger.error(f"Error restarting client {account_name}: {e}")
+                            logger.error(f"Error removing handlers for {account_name}: {e}")
             
             logger.info(f"Force cleanup completed for user {user_id}")
             
@@ -80,17 +80,36 @@ class AutoReplyHandler:
         # Check if handler already exists for this client
         client_key = f"{user_id}:{account_name}"
         if client_key in self.handled_clients:
+            logger.info(f"Handler already exists for {client_key}, skipping")
             return
+        
+        # Remove any existing handlers for this client to prevent duplicates
+        try:
+            client.remove_event_handler(None)  # Remove all handlers
+        except Exception as e:
+            logger.debug(f"Error removing existing handlers: {e}")
             
         self.handled_clients.add(client_key)
+        logger.info(f"Setting up auto-reply handler for {client_key}")
         
         @client.on(events.NewMessage(incoming=True, func=lambda e: not e.is_group and not e.is_channel))
         async def auto_reply_handler(event):
             try:
-                encrypted_account = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
-                if not encrypted_account:
+                # Try to find account by encrypted name first, then by plain name
+                account_doc = None
+                try:
+                    account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+                except:
+                    pass
+                
+                # If not found with encrypted name, try plain name
+                if not account_doc:
+                    account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                
+                if not account_doc:
                     return
-                account = DataEncryption.decrypt_account_data(encrypted_account)
+                
+                account = DataEncryption.decrypt_account_data(account_doc)
                 if not account.get("auto_reply_enabled", False):
                     return
                 
@@ -286,6 +305,26 @@ class AutoReplyHandler:
             debug_text += f"**Handled Clients:** {[k for k in self.handled_clients if k.startswith(f'{user_id}:')]}"
             
             await event.reply(debug_text)
+        
+        @self.bot.on(events.NewMessage(pattern=r"^/fix_duplicate_replies$"))
+        async def fix_duplicate_replies_command(event):
+            user_id = event.sender_id
+            
+            try:
+                # Force cleanup all handlers
+                await self.force_cleanup_user_handlers(user_id)
+                
+                # Disable all auto-reply temporarily
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$unset": {"auto_reply_enabled_enc": "", "auto_reply_enabled": ""}}
+                )
+                
+                await event.reply("✅ **Duplicate Reply Fix Applied**\n\nAll auto-reply handlers cleared. Please re-enable auto-reply for your accounts to avoid duplicates.")
+                
+            except Exception as e:
+                await event.reply(f"❌ **Error fixing duplicates:** {str(e)}")
+                logger.error(f"Fix duplicate replies error: {e}")
         
         @self.bot.on(events.NewMessage(pattern=r"^(?!/)"))
         async def handle_text_input(event):
@@ -523,17 +562,33 @@ class AutoReplyHandler:
                     self.last_toggle_time[toggle_key] = current_time
                     
                     try:
-                        encrypted_account = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
-                        if encrypted_account:
-                            account = DataEncryption.decrypt_account_data(encrypted_account)
+                        # Try to find account by encrypted name first, then by plain name
+                        account_doc = None
+                        try:
+                            account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+                        except:
+                            pass
+                        
+                        # If not found with encrypted name, try plain name
+                        if not account_doc:
+                            account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                        
+                        if account_doc:
+                            # Decrypt account data if encrypted
+                            account = DataEncryption.decrypt_account_data(account_doc)
                             current_status = account.get('auto_reply_enabled', False)
                             new_status = not current_status
                             
-                            # Update database with proper error handling
-                            result = await mongodb.db.accounts.update_one(
-                                {"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)},
-                                {"$set": {"auto_reply_enabled_enc": DataEncryption.encrypt_field(new_status)}}
-                            )
+                            # Update database - handle both encrypted and unencrypted data
+                            update_query = {"user_id": user_id}
+                            if "name_enc" in account_doc:
+                                update_query["name_enc"] = account_doc["name_enc"]
+                                update_data = {"$set": {"auto_reply_enabled_enc": DataEncryption.encrypt_field(new_status)}}
+                            else:
+                                update_query["name"] = account_name
+                                update_data = {"$set": {"auto_reply_enabled": new_status}}
+                            
+                            result = await mongodb.db.accounts.update_one(update_query, update_data)
                             
                             if result.modified_count > 0:
                                 logger.info(f"Auto-reply toggle for {account_name}: {current_status} -> {new_status}")
@@ -571,16 +626,16 @@ class AutoReplyHandler:
                         # Clear database settings
                         await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
                         
-                        # Clear account auto-reply flags
+                        # Clear account auto-reply flags (handle both encrypted and unencrypted)
                         await mongodb.db.accounts.update_many(
                             {"user_id": user_id},
-                            {"$unset": {"auto_reply_enabled_enc": ""}}
+                            {"$unset": {"auto_reply_enabled_enc": "", "auto_reply_enabled": ""}}
                         )
                         
                         # Force cleanup all handlers
                         await self.force_cleanup_user_handlers(user_id)
                         
-                        await event.edit("✅ **Complete Auto-Reply Reset**\n\nAll settings, keywords, and handlers cleared. Old auto-replies should stop now.", 
+                        await event.edit("✅ **Complete Auto-Reply Reset**\n\nAll settings, keywords, and handlers cleared. Duplicate replies should stop now.", 
                                        buttons=[[Button.inline("🔙 Back", "auto_reply:main")]])
                     except Exception as reset_error:
                         logger.error(f"Error during auto-reply reset for user {user_id}: {reset_error}")
