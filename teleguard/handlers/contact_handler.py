@@ -95,13 +95,13 @@ class ContactHandler:
                 logger.error(f"Contact callback error: {e}")
                 await event.answer("❌ Error processing request")
 
-        @self.bot.on(events.NewMessage(func=lambda e: e.sender_id in self.pending_actions and not e.message.text.startswith('/')))
+        @self.bot.on(events.NewMessage(func=lambda e: e.sender_id in self.pending_actions and not e.message.text.startswith('/') and self.pending_actions.get(e.sender_id, {}).get('type') in ['add_contact', 'search', 'add_notes', 'add_tags']))
         async def handle_input(event):
             """Handle text input and forwarded messages for contact operations"""
             user_id = event.sender_id
             action = self.pending_actions.get(user_id)
             
-            if not action:
+            if not action or action.get('type') not in ['add_contact', 'search', 'add_notes', 'add_tags']:
                 return
                 
             # Handle forwarded messages
@@ -173,14 +173,17 @@ class ContactHandler:
         self.pending_actions[user_id] = {'type': 'add_contact', 'step': 'user_id'}
         await event.edit(
             "➕ **Add New Contact**\n\n"
-            "Send the user ID, username (@username), or **forward a message** from the user:\n\n"
+            "Send the user ID, username (@username), phone number, or **forward a message** from the user:\n\n"
             "📝 Examples:\n"
             "• `123456789` (user ID)\n"
             "• `@username`\n"
+            "• `+1234567890` (phone number)\n"
+            "• `+91 97996 59003` (phone with spaces)\n"
             "• Forward any message from the user\n\n"
             "Type 'cancel' to abort",
             buttons=[[Button.inline("❌ Cancel", "contacts:main")]]
         )
+
 
     async def _process_forwarded_contact(self, event, user_id: int, action: dict):
         """Process forwarded message to add contact"""
@@ -264,6 +267,57 @@ class ContactHandler:
                 except Exception:
                     await event.reply("❌ User not found")
                     return
+            elif text.startswith('+') or (text.replace(' ', '').replace('-', '').isdigit() and len(text.replace(' ', '').replace('-', '')) > 7):
+                # Handle phone number
+                phone = text.replace(' ', '').replace('-', '')
+                try:
+                    client = self._get_user_client(user_id)
+                    if client:
+                        # Try to resolve phone number to user
+                        from telethon.tl.functions.contacts import ResolvePhoneRequest
+                        try:
+                            result = await client(ResolvePhoneRequest(phone=phone))
+                            if result.users:
+                                user_entity = result.users[0]
+                                contact_user_id = user_entity.id
+                                first_name = user_entity.first_name or f"Contact_{phone}"
+                                last_name = user_entity.last_name
+                                username = user_entity.username
+                            else:
+                                await event.reply("❌ Phone number not found in Telegram")
+                                return
+                        except Exception:
+                            # If phone resolution fails, try importing the contact first
+                            from telethon.tl.functions.contacts import ImportContactsRequest
+                            from telethon.tl.types import InputPhoneContact
+                            
+                            contact_to_add = InputPhoneContact(
+                                client_id=0,
+                                phone=phone,
+                                first_name=f"Contact_{phone[-4:]}",
+                                last_name=""
+                            )
+                            
+                            try:
+                                import_result = await client(ImportContactsRequest([contact_to_add]))
+                                if import_result.users:
+                                    user_entity = import_result.users[0]
+                                    contact_user_id = user_entity.id
+                                    first_name = user_entity.first_name or f"Contact_{phone}"
+                                    last_name = user_entity.last_name
+                                    username = user_entity.username
+                                else:
+                                    await event.reply("❌ Could not add contact with this phone number")
+                                    return
+                            except Exception as e:
+                                await event.reply(f"❌ Failed to import contact: Phone number may not be registered on Telegram")
+                                return
+                    else:
+                        await event.reply("❌ No active client found")
+                        return
+                except Exception as e:
+                    await event.reply("❌ Error processing phone number")
+                    return
             else:
                 try:
                     contact_user_id = int(text)
@@ -271,7 +325,7 @@ class ContactHandler:
                     last_name = None
                     username = None
                 except ValueError:
-                    await event.reply("❌ Invalid user ID. Send a number or @username")
+                    await event.reply("❌ Invalid input. Send a user ID, @username, or phone number (+1234567890)")
                     return
             
             # Check if contact exists
