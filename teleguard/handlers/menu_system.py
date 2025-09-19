@@ -101,8 +101,8 @@ class MenuSystem:
         keyboard = [
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
-            [Button.text("👥 Contacts"), Button.text("❓ Help")],
-            [Button.text("🆘 Support")],
+            [Button.text("👥 Contacts"), Button.text("🕵️ Device Snooper")],
+            [Button.text("❓ Help"), Button.text("🆘 Support")],
         ]
 
         # Add Developer button only for admins
@@ -483,6 +483,8 @@ class MenuSystem:
                     "Channels",
                     "👥 Contacts",
                     "Contacts",
+                    "🕵️ Device Snooper",
+                    "Device Snooper",
                     "❓ Help",
                     "Help",
                     "🆘 Support",
@@ -509,6 +511,8 @@ class MenuSystem:
                     await self._handle_channels(event)
                 elif text in ["👥 Contacts", "Contacts"]:
                     await self._handle_contacts(event)
+                elif text in ["🕵️ Device Snooper", "Device Snooper"]:
+                    await self._handle_device_snooper(event)
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -843,6 +847,9 @@ class MenuSystem:
                         )
                     else:
                         await self._handle_dm_reply_callback(event, user_id, data)
+                
+                elif data.startswith("device_"):
+                    await self._handle_device_callback(event, user_id, data)
                 
                 elif data.startswith("contacts:"):
                     # Handle contacts callbacks with simplified approach
@@ -1411,6 +1418,70 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle contacts: {e}")
             await event.reply("❌ Error loading contact management")
+    
+    async def _handle_device_snooper(self, event):
+        """Handle Device Snooper menu"""
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            
+            if not accounts:
+                text = "🕵️ **Device Snooper**\n\nNo accounts found. Add accounts first to monitor device information."
+                buttons = [
+                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                ]
+            else:
+                text = (
+                    "🕵️ **Device Snooper**\n\n"
+                    "Monitor and track device information from your Telegram sessions:\n\n"
+                    "🔍 **Scan Devices** - Get current device info\n"
+                    "📱 **Device History** - View stored device data\n"
+                    "⚠️ **Suspicious Devices** - Detect potential threats\n"
+                    "🔒 **Terminate Sessions** - End suspicious sessions\n\n"
+                    f"📊 **Status:** {len(accounts)} accounts available for monitoring"
+                )
+                
+                buttons = [
+                    [Button.inline("🔍 Scan Devices", "device_scan")],
+                    [Button.inline("📱 Device History", "device_history")],
+                    [Button.inline("⚠️ Suspicious Devices", "device_suspicious")],
+                    [Button.inline("🔒 Terminate Sessions", "device_terminate")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+            
+            await self.bot.send_message(user_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Failed to handle device snooper: {e}")
+            await event.reply("❌ Error loading device snooper")
+    
+    async def _handle_device_callback(self, event, user_id: int, data: str):
+        """Handle device snooping callbacks"""
+        try:
+            if not hasattr(self.account_manager, 'device_handler'):
+                # Initialize device handler if not exists
+                from ..handlers.device_handler import DeviceHandler
+                self.account_manager.device_handler = DeviceHandler(mongodb, self.account_manager)
+            
+            device_handler = self.account_manager.device_handler
+            
+            if data == "device_scan":
+                await device_handler.scan_devices(event, None)
+            elif data == "device_history":
+                await device_handler.show_device_history(event, None)
+            elif data == "device_suspicious":
+                await device_handler.show_suspicious_devices(event, None)
+            elif data == "device_terminate":
+                await device_handler.terminate_sessions(event, None)
+            elif data == "device_menu":
+                await device_handler.device_menu(event, None)
+            else:
+                await event.answer("❌ Unknown device action")
+                
+        except Exception as e:
+            logger.error(f"Device callback error: {e}")
+            await event.answer("❌ Error processing device action")
 
     async def _handle_help(self, event):
         """Handle Help menu"""

@@ -276,7 +276,15 @@ async def main() -> None:
         try:
             # Start the full bot normally
             async with AccountManager() as bot:
-                logger.info("TeleGuard Bot successfully started")
+                # Initialize device snooper
+                from teleguard.handlers.device_handler import register_handlers
+                
+                # Setup device snooping handlers
+                from teleguard.utils.database import Database
+                db_instance = Database()
+                register_handlers(bot.application, db_instance, bot)
+                
+                logger.info("TeleGuard Bot successfully started with device snooping")
                 print("\nBot is running! Press Ctrl+C to stop.\n")
                 
                 # Keep bot running with proper error handling
