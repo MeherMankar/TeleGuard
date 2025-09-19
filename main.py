@@ -39,7 +39,7 @@ try:
 except ImportError as e:
     print(f"❌ Failed to import TeleGuard modules: {e}")
     print(
-        "💡 Please ensure all dependencies are installed: pip install -r config/requirements.txt"
+        "💡 Please ensure all dependencies are installed: pip install -r requirements.txt"
     )
     sys.exit(1)
 
@@ -299,13 +299,13 @@ async def main() -> None:
     except ImportError as e:
         logger.error("Import error", error=str(e))
         print(f"\nMissing dependencies: {e}")
-        print("Run: pip install -r config/requirements.txt")
+        print("Run: pip install -r requirements.txt")
         sys.exit(1)
 
     except FileNotFoundError as e:
         logger.error("Configuration file not found", error=str(e))
         print(f"\nConfiguration error: {e}")
-        print("Ensure config/.env file exists with required variables")
+        print("Ensure .env file exists with required variables")
         sys.exit(1)
 
     except Exception as e:

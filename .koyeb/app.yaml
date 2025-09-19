@@ -4,7 +4,7 @@ services:
     type: web
     git:
       branch: main
-      build_command: pip install -r requirements.txt
+      build_command: pip install -r requirements-minimal.txt
       run_command: python main.py
     instance_type: nano
     regions:
