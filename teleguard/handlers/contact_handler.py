@@ -95,13 +95,18 @@ class ContactHandler:
                 logger.error(f"Contact callback error: {e}")
                 await event.answer("❌ Error processing request")
 
-        @self.bot.on(events.NewMessage(func=lambda e: e.sender_id in self.pending_actions and not e.message.text.startswith('/') and self.pending_actions.get(e.sender_id, {}).get('type') in ['add_contact', 'search', 'add_notes', 'add_tags']))
+        @self.bot.on(events.NewMessage(func=lambda e: e.sender_id in self.pending_actions and not e.message.text.startswith('/') and self.pending_actions.get(e.sender_id, {}).get('type') in ['add_contact', 'search', 'add_notes', 'add_tags', 'import']))
         async def handle_input(event):
-            """Handle text input and forwarded messages for contact operations"""
+            """Handle text input, file uploads, and forwarded messages for contact operations"""
             user_id = event.sender_id
             action = self.pending_actions.get(user_id)
             
-            if not action or action.get('type') not in ['add_contact', 'search', 'add_notes', 'add_tags']:
+            if not action or action.get('type') not in ['add_contact', 'search', 'add_notes', 'add_tags', 'import']:
+                return
+            
+            # Handle file uploads for import
+            if action['type'] == 'import' and event.message.document:
+                await self._process_import_file(event, user_id)
                 return
                 
             # Handle forwarded messages
@@ -623,13 +628,160 @@ class ContactHandler:
         """Start contact import process"""
         await event.edit(
             "📥 **Import Contacts**\n\n"
-            "Send a CSV file with the following columns:\n"
+            "Send a CSV file with contacts. Supported formats:\n\n"
+            "**Format 1 (TeleGuard):**\n"
             "`user_id, first_name, last_name, username, phone, tags, is_blacklisted, is_whitelisted, notes`\n\n"
+            "**Format 2 (Export):**\n"
+            "`ID, First Name, Last Name, Username, Phone, Is Bot, Is Verified, Is Premium, ...`\n\n"
             "The file should have headers in the first row.",
             buttons=[[Button.inline("❌ Cancel", "contacts:main")]]
         )
         
         self.pending_actions[user_id] = {'type': 'import'}
+
+    async def _process_import_file(self, event, user_id: int):
+        """Process uploaded CSV file for contact import"""
+        try:
+            # Download the file
+            file_path = await event.download_media()
+            
+            if not file_path or not file_path.endswith('.csv'):
+                await event.reply("❌ Please send a CSV file")
+                return
+            
+            account = await self._get_user_account(user_id)
+            if not account:
+                await event.reply("❌ No active account found")
+                return
+            
+            imported_count = 0
+            skipped_count = 0
+            error_count = 0
+            
+            with open(file_path, 'r', encoding='utf-8') as csvfile:
+                # Detect CSV format by reading first line
+                first_line = csvfile.readline().strip()
+                csvfile.seek(0)
+                
+                reader = csv.DictReader(csvfile)
+                
+                # Check if it's export format (ID, First Name, Last Name, Username, Phone, ...)
+                if 'ID' in reader.fieldnames and 'First Name' in reader.fieldnames:
+                    # Export format
+                    for row in reader:
+                        try:
+                            user_id_val = int(row['ID'])
+                            first_name = row.get('First Name', '').strip()
+                            last_name = row.get('Last Name', '').strip()
+                            username = row.get('Username', '').strip()
+                            phone = row.get('Phone', '').strip()
+                            
+                            # Skip bots
+                            if row.get('Is Bot', 'False').lower() == 'true':
+                                skipped_count += 1
+                                continue
+                            
+                            # Check if contact already exists
+                            existing = await ContactDB.get_contact(user_id_val, account)
+                            if existing:
+                                skipped_count += 1
+                                continue
+                            
+                            # Create contact
+                            contact = Contact(
+                                user_id=user_id_val,
+                                first_name=first_name or f"User_{user_id_val}",
+                                last_name=last_name or None,
+                                username=username or None,
+                                phone=phone or None,
+                                managed_by_account=account
+                            )
+                            
+                            success = await ContactDB.add_contact(contact)
+                            if success:
+                                imported_count += 1
+                            else:
+                                error_count += 1
+                                
+                        except Exception as e:
+                            logger.error(f"Error importing contact: {e}")
+                            error_count += 1
+                            continue
+                            
+                # Check if it's TeleGuard format (user_id, first_name, last_name, ...)
+                elif 'user_id' in reader.fieldnames:
+                    # TeleGuard format
+                    for row in reader:
+                        try:
+                            user_id_val = int(row['user_id'])
+                            first_name = row.get('first_name', '').strip()
+                            last_name = row.get('last_name', '').strip()
+                            username = row.get('username', '').strip()
+                            phone = row.get('phone', '').strip()
+                            tags = row.get('tags', '').strip().split(',') if row.get('tags') else []
+                            is_blacklisted = row.get('is_blacklisted', 'False').lower() == 'true'
+                            is_whitelisted = row.get('is_whitelisted', 'False').lower() == 'true'
+                            notes = row.get('notes', '').strip()
+                            
+                            # Check if contact already exists
+                            existing = await ContactDB.get_contact(user_id_val, account)
+                            if existing:
+                                skipped_count += 1
+                                continue
+                            
+                            # Create contact
+                            contact = Contact(
+                                user_id=user_id_val,
+                                first_name=first_name or f"User_{user_id_val}",
+                                last_name=last_name or None,
+                                username=username or None,
+                                phone=phone or None,
+                                tags=tags,
+                                is_blacklisted=is_blacklisted,
+                                is_whitelisted=is_whitelisted,
+                                notes=notes,
+                                managed_by_account=account
+                            )
+                            
+                            success = await ContactDB.add_contact(contact)
+                            if success:
+                                imported_count += 1
+                            else:
+                                error_count += 1
+                                
+                        except Exception as e:
+                            logger.error(f"Error importing contact: {e}")
+                            error_count += 1
+                            continue
+                else:
+                    await event.reply("❌ Unsupported CSV format. Please check the file headers.")
+                    return
+            
+            # Clean up file
+            import os
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            
+            # Clear pending action
+            del self.pending_actions[user_id]
+            
+            # Send results
+            text = (
+                f"📥 **Import Complete**\n\n"
+                f"✅ Imported: {imported_count}\n"
+                f"⏭️ Skipped: {skipped_count}\n"
+                f"❌ Errors: {error_count}\n\n"
+                f"Total processed: {imported_count + skipped_count + error_count}"
+            )
+            
+            buttons = [[Button.inline("🔙 Back to Contacts", "contacts:main")]]
+            await event.reply(text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Import file error: {e}")
+            await event.reply(f"❌ Error processing file: {str(e)}")
+            if user_id in self.pending_actions:
+                del self.pending_actions[user_id]
 
     def _get_user_client(self, user_id: int):
         """Get user's first available client"""
