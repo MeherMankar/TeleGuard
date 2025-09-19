@@ -39,9 +39,10 @@ class ContactExportHandler:
             
             # Show account selection
             buttons = []
-            for account in accounts[:8]:  # Limit to 8 accounts
+            for i, account in enumerate(accounts[:8]):  # Limit to 8 accounts
                 status = "🟢" if account.get("is_active", False) else "🔴"
-                buttons.append([Button.inline(f"{status} {account['name']}", f"export_contacts:{account['name']}")])
+                # Use index instead of full name to avoid callback data length limit
+                buttons.append([Button.inline(f"{status} {account['name']}", f"export_contacts:{i}")])
             
             buttons.append([Button.inline("🔙 Back", "menu:main")])
             
@@ -51,7 +52,22 @@ class ContactExportHandler:
         @self.bot.on(events.CallbackQuery(pattern=r"^export_contacts:"))
         async def handle_account_selection(event):
             user_id = event.sender_id
-            account_name = event.data.decode().replace("export_contacts:", "")
+            account_index_str = event.data.decode().replace("export_contacts:", "")
+            
+            try:
+                account_index = int(account_index_str)
+            except ValueError:
+                await event.edit("❌ Invalid account selection.")
+                return
+            
+            # Get accounts again to find the selected one
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if account_index >= len(accounts) or account_index < 0:
+                await event.edit("❌ Account not found.")
+                return
+            
+            account = accounts[account_index]
+            account_name = account['name']
             
             # Check cooldown to prevent rapid exports
             cooldown_key = f"{user_id}:{account_name}"
