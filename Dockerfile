@@ -30,8 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
-COPY config/requirements.txt ./config/
-RUN pip install --no-cache-dir --user -r config/requirements.txt
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
 FROM python:3.11-slim as production
@@ -83,8 +83,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
         print(f'Health check failed: {e}'); \
         sys.exit(1)" || exit 1
 
-# Expose port for web interface (if enabled)
-EXPOSE 8080
+# Expose port for health checks
+EXPOSE 8000
 
 # Use exec form for proper signal handling
 ENTRYPOINT ["python", "main.py"]

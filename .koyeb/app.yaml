@@ -10,12 +10,12 @@ services:
     regions:
       - fra
     ports:
-      - port: 8080
+      - port: 8000
         protocol: http
     health_check:
       http:
         path: /health
-        port: 8080
+        port: 8000
       grace_period_seconds: 60
       interval_seconds: 30
       restart_limit: 3
@@ -29,7 +29,7 @@ services:
       - key: ADMIN_IDS
         scope: project
       - key: PORT
-        value: "8080"
+        value: "8000"
       - key: KOYEB_DEPLOYMENT
         value: "true"
       - key: DATABASE_URL

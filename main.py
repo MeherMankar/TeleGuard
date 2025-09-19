@@ -197,21 +197,20 @@ async def health_check(request):
 
 
 async def start_web_server():
-    """Start web server for Koyeb health checks"""
-    if os.getenv("KOYEB_DEPLOYMENT") == "true":
-        app = web.Application()
-        app.router.add_get("/health", health_check)
-        
-        port = int(os.getenv("PORT", 8080))
-        runner = web.AppRunner(app)
-        await runner.setup()
-        
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        
-        logger.info(f"Web server started on port {port} for Koyeb health checks")
-        return runner
-    return None
+    """Start web server for cloud platform health checks"""
+    app = web.Application()
+    app.router.add_get("/health", health_check)
+    app.router.add_get("/", health_check)  # Root endpoint
+    
+    port = int(os.getenv("PORT", 8000))  # Default to 8000 for Koyeb
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    logger.info(f"Health check server started on port {port}")
+    return runner
 
 
 def print_startup_banner() -> None:
@@ -268,24 +267,35 @@ async def main() -> None:
 
         db_helpers.db = db_instance
 
-        # Start web server for Koyeb if needed
+        # Start health check web server
         web_runner = await start_web_server()
-        if web_runner:
-            logger.info("Web server started for Koyeb health checks")
 
-        # Skip health checks for now
-        logger.info("Skipping health checks - starting bot directly")
-
-        # Initialize and start the bot
-        logger.info("Health checks passed - Starting TeleGuard Bot...")
+        # Initialize and start the bot quickly for cloud deployment
+        logger.info("Starting TeleGuard Bot...")
 
         try:
-            async with AccountManager() as bot:
-                logger.info("TeleGuard Bot successfully started")
+            # Use startup optimizer for cloud deployments
+            from teleguard.utils.startup_optimizer import startup_optimizer
+            
+            async def start_bot():
+                async with AccountManager() as bot:
+                    logger.info("TeleGuard Bot successfully started")
+                    return bot
+            
+            bot = await startup_optimizer.optimize_startup(start_bot)
+            
+            if bot:
                 print("\nBot is running! Press Ctrl+C to stop.\n")
-
-                # Run until disconnected
-                await bot.bot.run_until_disconnected()
+                try:
+                    await bot.bot.run_until_disconnected()
+                except Exception as e:
+                    logger.error(f"Bot disconnected: {e}")
+            else:
+                logger.warning("Bot startup failed or timed out, keeping health server running")
+            
+            # Keep the health server running even if bot fails
+            while True:
+                await asyncio.sleep(60)
         finally:
             # Cleanup web server
             if web_runner:
