@@ -53,12 +53,14 @@ class OnlineMakerWorker:
                                 account["user_id"], str(account["_id"])
                             )
                             if success:
+                                account_name = account.get('phone') or account.get('name', 'unknown')
                                 logger.debug(
-                                    f"Updated online status for account {account['name']}"
+                                    f"Updated online status for account {account_name}"
                                 )
                             else:
+                                account_name = account.get('phone') or account.get('name', 'unknown')
                                 logger.warning(
-                                    f"Failed to update online status for {account['name']}: {msg}"
+                                    f"Failed to update online status for {account_name}: {msg}"
                                 )
                 except Exception as e:
                     logger.error(

@@ -336,23 +336,24 @@ class FullClientManager:
                 logger.error(f"Account {account_id} not found in database")
                 return None
 
-            logger.info(f"Found account: {account['name']}")
+            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+            logger.info(f"Found account: {account_name}")
             # Get client from user_clients dict
             user_clients = self.user_clients.get(user_id, {})
             logger.info(
                 f"Available clients for user {user_id}: {list(user_clients.keys())}"
             )
-            client = user_clients.get(account["name"])
+            client = user_clients.get(account_name)
             if client:
-                logger.info(f"Found client for {account['name']}")
+                logger.info(f"Found client for {account_name}")
                 if not client.is_connected():
                     logger.info(
-                        f"Client for {account['name']} is not connected, connecting..."
+                        f"Client for {account_name} is not connected, connecting..."
                     )
                     await client.connect()
-                    logger.info(f"Client for {account['name']} connected.")
+                    logger.info(f"Client for {account_name} connected.")
             else:
-                logger.error(f"No client found for {account['name']}")
+                logger.error(f"No client found for {account_name}")
             return client
 
         except Exception as e:

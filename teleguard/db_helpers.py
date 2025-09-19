@@ -22,6 +22,18 @@ def get_fernet():
     return None
 
 
+def decrypt_with_fernet(fernet_instance, encrypted_data):
+    """Decrypt data using Fernet instance"""
+    if not fernet_instance or not encrypted_data:
+        return encrypted_data
+    
+    try:
+        return fernet_instance.decrypt(encrypted_data.encode()).decode()
+    except Exception as e:
+        logger.error(f"Failed to decrypt with Fernet: {e}")
+        return encrypted_data
+
+
 def save_user_settings(user_id: int, settings: Dict[str, Any]):
     """Save user settings to database"""
 
@@ -75,7 +87,6 @@ def add_account(user_id: int, phone: str, session_data: Dict[str, Any]):
             "db/accounts.json.enc" if fernet else "db/accounts.json",
             update_accounts,
             f"Add account {phone} for user {user_id}",
-            encrypt_with_fernet=fernet,
         )
         logger.info("Added account", user_id=user_id, phone=phone)
     except Exception as e:
@@ -91,9 +102,18 @@ def get_user_accounts(user_id: int) -> Dict[str, Any]:
 
     try:
         data, _ = db.get_json(
-            "db/accounts.json.enc" if fernet else "db/accounts.json",
-            decrypt_with_fernet=fernet,
+            "db/accounts.json.enc" if fernet else "db/accounts.json"
         )
+        
+        # Decrypt if needed
+        if fernet and isinstance(data, str):
+            try:
+                import json
+                decrypted_str = fernet.decrypt(data.encode()).decode()
+                data = json.loads(decrypted_str)
+            except Exception as e:
+                logger.error(f"Failed to decrypt accounts data: {e}")
+                data = {"accounts": {}}
         accounts = data.get("accounts", {})
         return accounts.get(str(user_id), {})
     except Exception as e:
@@ -120,7 +140,6 @@ def remove_account(user_id: int, phone: str):
             "db/accounts.json.enc" if fernet else "db/accounts.json",
             update_accounts,
             f"Remove account {phone} for user {user_id}",
-            encrypt_with_fernet=fernet,
         )
         logger.info("Removed account", user_id=user_id, phone=phone)
     except Exception as e:

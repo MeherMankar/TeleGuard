@@ -8,6 +8,7 @@ GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
 
+import json
 import logging
 from typing import List, Optional
 
@@ -16,6 +17,7 @@ from telethon import Button, events
 from ..core.config import ADMIN_IDS
 from ..core.mongo_database import mongodb
 from .secure_2fa_handlers import Secure2FAHandlers
+from ..utils.network_helpers import format_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,70 @@ class MenuSystem:
         self.secure_2fa_handlers = Secure2FAHandlers(bot_instance, account_manager)
         self._menu_text_handler = None
         self._callback_handler = None
+    
+    def _parse_callback(self, callback_data: str):
+        """Parse callback data - handles both JSON and colon-delimited formats"""
+        if not callback_data:
+            return {}
+        try:
+            parsed = json.loads(callback_data)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        
+        parts = callback_data.split(':')
+        action = parts[0] if parts else ''
+        subaction = parts[1] if len(parts) > 1 else None
+        rest = parts[2:] if len(parts) > 2 else []
+        
+        out = {
+            "action": action,
+            "subaction": subaction,
+            "parts": rest,
+        }
+        if rest:
+            out["id"] = rest[0]
+        if subaction and not rest:
+            out.setdefault("name", subaction if action == "account" and subaction not in ("add","list","remove","manage","refresh") else None)
+        return out
+    
+    def format_display_name(self, account):
+        """Format display name from account object or DB record"""
+        def _get(obj, key):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+        
+        first = _get(account, "first_name") or _get(account, "first")
+        last = _get(account, "last_name") or _get(account, "last")
+        username = _get(account, "username")
+        display_name_field = _get(account, "display_name")
+        user_id = _get(account, "id") or _get(account, "_id") or _get(account, "user_id")
+        phone = _get(account, "phone")
+        
+        if display_name_field:
+            base = display_name_field
+        else:
+            name = " ".join(p for p in (first, last) if p)
+            if name:
+                base = name
+            elif username:
+                base = f"@{username}"
+            elif phone:
+                base = phone
+            elif user_id:
+                base = f"ID:{user_id}"
+            else:
+                base = "Unknown"
+        
+        # Debug logging for Unknown accounts
+        if base == "Unknown":
+            logger.debug(f"Account row for unknown display -> {account}")
+        
+        return base
 
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
         """Get persistent reply keyboard menu"""
@@ -179,7 +245,9 @@ class MenuSystem:
                     destroyer_status = (
                         "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     )
-                    text += f"{i}. {status}{destroyer_status} {account['name']} ({account['phone']})\n"
+                    display_name = format_display_name(account)
+                    phone = account.get('phone', 'Unknown')
+                    text += f"{i}. {status}{destroyer_status} {display_name} ({phone})\n"
                 text += "\nUse /accs to list accounts or /add to add more."
 
             await self.bot.send_message(user_id, text)
@@ -219,8 +287,9 @@ class MenuSystem:
             )
             last_destroyed = account.get("otp_destroyed_at", "Never")
 
+            display_name = format_display_name(account)
             text = (
-                f"📱 **Account: {account['name']}**\n\n"
+                f"📱 **Account: {display_name}**\n\n"
                 f"📞 Phone: {account['phone']}\n"
                 f"🛡️ OTP Destroyer: {destroyer_status}\n"
                 f"🎭 Activity Sim: {simulation_status}\n"
@@ -285,8 +354,9 @@ class MenuSystem:
                 "🔒 Set" if account.get("otp_destroyer_disable_auth") else "⚪ Not Set"
             )
 
+            display_name = format_display_name(account)
             text = (
-                f"🛡️ **OTP Manager: {account['name']}**\n\n"
+                f"🛡️ **OTP Manager: {display_name}**\n\n"
                 f"📞 Phone: {account['phone']}\n\n"
                 f"🛡️ **Destroyer**: {destroyer_status}\n"
                 f"📤 **Forward**: {forward_status}\n"
@@ -324,9 +394,11 @@ class MenuSystem:
             audit_log = account.get("audit_log", [])
 
             if not audit_log:
-                text = f"📋 **Audit Log: {account['name']}**\n\nNo audit entries found."
+                display_name = format_display_name(account)
+                text = f"📋 **Audit Log: {display_name}**\n\nNo audit entries found."
             else:
-                text = f"📋 **Audit Log: {account['name']}**\n\n"
+                display_name = format_display_name(account)
+                text = f"📋 **Audit Log: {display_name}**\n\n"
 
                 # Show last 10 entries
                 for entry in audit_log[-10:]:
@@ -1075,13 +1147,15 @@ class MenuSystem:
                     destroyer_status = (
                         "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     )
-                    text += f"{i}. {status}{destroyer_status} {account['name']} ({account['phone']})\n"
+                    display_name = format_display_name(account)
+                    account_phone = account.get('phone', 'Unknown')
+                    text += f"{i}. {status}{destroyer_status} {display_name} ({account_phone})\n"
 
                     # Add manage button for each account
                     buttons.append(
                         [
                             Button.inline(
-                                f"⚙️ Manage {account['name']}",
+                                f"⚙️ Manage {format_display_name(account)}",
                                 f"account:manage:{account['_id']}",
                             )
                         ]
@@ -1106,7 +1180,7 @@ class MenuSystem:
 
         except Exception as e:
             logger.error(f"Failed to handle account settings: {e}")
-            await event.reply("❌ Error loading account settings")
+            await event.reply("❌ Error loading account settings. Please try again.")
 
     async def _handle_otp_manager(self, event):
         """Handle OTP Manager menu"""
@@ -1136,8 +1210,9 @@ class MenuSystem:
                     forward_status = (
                         "📤" if account.get("otp_forward_enabled", False) else "⚪"
                     )
+                    display_name = account.get('display_name') or format_display_name(account)
                     button_text = (
-                        f"{destroyer_status}{forward_status} {account['name']}"
+                        f"{destroyer_status}{forward_status} {display_name}"
                     )
                     buttons.append(
                         [Button.inline(button_text, f"otp:manage:{account['_id']}")]
@@ -1161,7 +1236,7 @@ class MenuSystem:
 
         except Exception as e:
             logger.error(f"Failed to handle OTP manager: {e}")
-            await event.reply("❌ Error loading OTP manager")
+            await event.reply("❌ Error loading OTP manager. Please try again.")
 
     async def _handle_messaging(self, event):
         """Handle Messaging menu"""
@@ -2022,10 +2097,11 @@ class MenuSystem:
                     
                     # Start or stop online maker using bot_manager's online_maker
                     if hasattr(self.account_manager, 'online_maker'):
+                        account_identifier = account.get("phone") or account.get("name", "unknown")
                         if new_status:
-                            await self.account_manager.online_maker.start_online_maker(user_id, account["name"])
+                            await self.account_manager.online_maker.start_online_maker(user_id, account_identifier)
                         else:
-                            await self.account_manager.online_maker.stop_online_maker(user_id, account["name"])
+                            await self.account_manager.online_maker.stop_online_maker(user_id, account_identifier)
                     
                     status = "started" if new_status else "stopped"
                     status_emoji = "🟢" if new_status else "🔴"

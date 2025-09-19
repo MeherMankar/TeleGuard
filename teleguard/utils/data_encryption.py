@@ -26,6 +26,10 @@ class DataEncryption:
         if data is None:
             return None
         
+        # If encryption is disabled, return data as-is
+        if FERNET is None:
+            return data
+        
         try:
             # Convert to JSON string first
             json_str = json.dumps(data, default=str)
@@ -42,6 +46,10 @@ class DataEncryption:
         if encrypted_data is None:
             return None
         
+        # If encryption is disabled, return data as-is
+        if FERNET is None:
+            return encrypted_data
+        
         try:
             # Decrypt to bytes then to string
             decrypted_bytes = FERNET.decrypt(encrypted_data.encode())
@@ -50,11 +58,16 @@ class DataEncryption:
             return json.loads(json_str)
         except Exception as e:
             logger.error(f"Failed to decrypt field: {e}")
-            raise
+            # Return None for corrupted data instead of raising
+            return None
     
     @staticmethod
     def encrypt_user_data(user_data: Dict) -> Dict:
         """Encrypt sensitive user data fields"""
+        # If encryption is disabled, return data as-is
+        if FERNET is None:
+            return user_data.copy()
+        
         encrypted_data = user_data.copy()
         
         # Fields to encrypt
@@ -83,14 +96,25 @@ class DataEncryption:
         
         for enc_field in encrypted_fields:
             original_field = enc_field[:-4]  # Remove '_enc' suffix
-            decrypted_data[original_field] = DataEncryption.decrypt_field(decrypted_data[enc_field])
-            del decrypted_data[enc_field]
+            try:
+                decrypted_value = DataEncryption.decrypt_field(decrypted_data[enc_field])
+                if decrypted_value is not None:
+                    decrypted_data[original_field] = decrypted_value
+                del decrypted_data[enc_field]
+            except Exception as e:
+                logger.error(f"Failed to decrypt field {enc_field}: {e}")
+                # Remove corrupted encrypted field
+                del decrypted_data[enc_field]
         
         return decrypted_data
     
     @staticmethod
     def encrypt_account_data(account_data: Dict) -> Dict:
         """Encrypt sensitive account data fields"""
+        # If encryption is disabled, return data as-is
+        if FERNET is None:
+            return account_data.copy()
+        
         encrypted_data = account_data.copy()
         
         # Fields to encrypt
@@ -122,8 +146,15 @@ class DataEncryption:
         
         for enc_field in encrypted_fields:
             original_field = enc_field[:-4]  # Remove '_enc' suffix
-            decrypted_data[original_field] = DataEncryption.decrypt_field(decrypted_data[enc_field])
-            del decrypted_data[enc_field]
+            try:
+                decrypted_value = DataEncryption.decrypt_field(decrypted_data[enc_field])
+                if decrypted_value is not None:
+                    decrypted_data[original_field] = decrypted_value
+                del decrypted_data[enc_field]
+            except Exception as e:
+                logger.error(f"Failed to decrypt field {enc_field}: {e}")
+                # Remove corrupted encrypted field
+                del decrypted_data[enc_field]
         
         return decrypted_data
     

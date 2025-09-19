@@ -157,6 +157,15 @@ class BotManager:
         from ..handlers.admin_handlers import AdminHandlers
         
         self.admin_handlers = AdminHandlers(self)
+        
+        # Initialize backup scheduler
+        from ..sync.scheduler import start_scheduler
+        
+        try:
+            start_scheduler(self.bot)
+            logger.info("🔄 Backup scheduler initialized")
+        except Exception as backup_error:
+            logger.warning(f"Backup scheduler setup error (continuing): {backup_error}")
 
         logger.info("TeleGuard Bot Manager initialized")
 
@@ -171,8 +180,6 @@ class BotManager:
         """Initialize bot, database, and load existing sessions"""
         try:
             await init_db()
-            # Skip migrations - using MongoDB now
-            # await self._run_migrations()
             await self.bot.start(bot_token=BOT_TOKEN)
             await self._load_existing_sessions()
             await self._setup_components()
@@ -218,14 +225,15 @@ class BotManager:
 
             # Get the client for this account
             user_clients = self.user_clients.get(user_id, {})
-            client = user_clients.get(account["name"])
+            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+            client = user_clients.get(account_name)
 
             if client and client.is_connected():
                 # Set up OTP listener (it will check if already set up)
                 await self.otp_destroyer.setup_otp_listener(
-                    client, user_id, account["name"]
+                    client, user_id, account_name
                 )
-                logger.info(f"🛡️ OTP listener ensured for {account['name']}")
+                logger.info(f"🛡️ OTP listener ensured for {account_name}")
 
         except Exception as e:
             logger.error(f"Failed to ensure OTP listener: {e}")
@@ -246,7 +254,7 @@ class BotManager:
             if not account:
                 return False, "Account not found"
 
-            account_name = account["name"]
+            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
 
             # Disconnect client if active
             user_clients = self.user_clients.get(user_id, {})
@@ -273,24 +281,7 @@ class BotManager:
             logger.error(f"Failed to remove account: {e}")
             return False, f"Error removing account: {str(e)}"
 
-    async def _run_migrations(self):
-        """Run database migrations with error handling"""
-        try:
-            import sys
-            from pathlib import Path
 
-            scripts_path = Path(__file__).parent.parent / "scripts"
-            sys.path.insert(0, str(scripts_path))
-
-            from scripts.migrations import run_all_migrations
-
-            await run_all_migrations()
-
-            from scripts.fullclient_migrations import run_fullclient_migrations
-
-            await run_fullclient_migrations()
-        except Exception as migration_error:
-            logger.warning(f"Migration error (continuing): {migration_error}")
 
     async def _setup_components(self):
         """Setup all bot components"""
@@ -533,15 +524,17 @@ class BotManager:
             for account in accounts:
                 if account.get("session_string"):
                     try:
+                        account_name = account.get('name') or account.get('phone', 'unknown')
                         await self.start_user_client(
                             account["user_id"],
-                            account["name"],
+                            account_name,
                             account["session_string"],
                         )
-                        logger.info(f"✅ Loaded client for {account['name']}")
+                        logger.info(f"✅ Loaded client for {account_name}")
                     except Exception as e:
+                        account_name = account.get('name') or account.get('phone', 'unknown')
                         logger.error(
-                            f"❌ Failed to load client for {account['name']}: {e}"
+                            f"❌ Failed to load client for {account_name}: {e}"
                         )
 
             logger.info(f"Total accounts loaded: {accounts_found}")
@@ -562,7 +555,14 @@ class BotManager:
             if user_id not in self.user_clients:
                 self.user_clients[user_id] = {}
 
-            self.user_clients[user_id][account_name] = client
+            # Store client using phone as key for consistency
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            client_key = account.get('phone') if account else account_name
+            self.user_clients[user_id][client_key] = client
+            
+            # Also store with account_name for backward compatibility
+            if client_key != account_name:
+                self.user_clients[user_id][account_name] = client
 
             # Register OTP manager handler for this client (replaces old OTP destroyer)
             handler_key = f"{user_id}:{account_name}"
@@ -596,9 +596,14 @@ class BotManager:
     async def _is_otp_protection_enabled(self, user_id: int, account_name: str) -> bool:
         """Check if OTP protection is enabled for an account"""
         try:
+            # Try to find account by name first, then by phone
             account = await mongodb.db.accounts.find_one(
                 {"user_id": user_id, "name": account_name}
             )
+            if not account:
+                account = await mongodb.db.accounts.find_one(
+                    {"user_id": user_id, "phone": account_name}
+                )
             return account.get("otp_destroyer_enabled", False) if account else False
         except Exception as e:
             logger.error(f"Error checking OTP protection status: {e}")
@@ -617,6 +622,10 @@ class BotManager:
 
             if self.session_scheduler:
                 await self.session_scheduler.stop()
+                
+            # Stop backup scheduler
+            from ..sync.scheduler import stop_scheduler
+            stop_scheduler()
 
             # Disconnect all user clients
             client_count = 0

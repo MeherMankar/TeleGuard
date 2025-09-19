@@ -10,8 +10,7 @@ from datetime import datetime, timedelta
 from telethon import Button
 
 from ..core.comprehensive_audit import ComprehensiveAudit
-from ..core.database import get_session
-from ..core.models import Account, User
+from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +28,15 @@ class EnhancedAuditHandler:
     ):
         """Show comprehensive audit log for account"""
         try:
-            async with get_session() as session:
-                from sqlalchemy import select
+            from bson import ObjectId
+            
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
 
-                result = await session.execute(
-                    select(Account)
-                    .join(User)
-                    .where(User.telegram_id == user_id, Account.id == account_id)
-                )
-                account = result.scalar_one_or_none()
-
-                if not account:
-                    await bot.send_message(user_id, "❌ Account not found")
-                    return
+            if not account:
+                await bot.send_message(user_id, "❌ Account not found")
+                return
 
                 # Get audit events
                 events = await self.audit.get_account_audit_log(
@@ -50,12 +45,12 @@ class EnhancedAuditHandler:
 
                 if not events:
                     text = (
-                        f"📋 **Comprehensive Audit Log: {account.name}**\\n\\n"
+                        f"📋 **Comprehensive Audit Log: {account['name']}**\\n\\n"
                         f"No activities recorded in the last {hours} hours.\\n\\n"
                         f"Activities are logged when simulation is enabled and running."
                     )
                 else:
-                    text = f"📋 **Comprehensive Audit Log: {account.name}** (Last {hours}h)\\n\\n"
+                    text = f"📋 **Comprehensive Audit Log: {account['name']}** (Last {hours}h)\\n\\n"
 
                     # Group events by type for summary
                     summary = await self.audit.get_activity_summary(
@@ -147,19 +142,15 @@ class EnhancedAuditHandler:
     ):
         """Show detailed activity summary"""
         try:
-            async with get_session() as session:
-                from sqlalchemy import select
+            from bson import ObjectId
+            
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
 
-                result = await session.execute(
-                    select(Account)
-                    .join(User)
-                    .where(User.telegram_id == user_id, Account.id == account_id)
-                )
-                account = result.scalar_one_or_none()
-
-                if not account:
-                    await bot.send_message(user_id, "❌ Account not found")
-                    return
+            if not account:
+                await bot.send_message(user_id, "❌ Account not found")
+                return
 
                 # Get summaries for different time periods
                 summary_24h = await self.audit.get_activity_summary(
@@ -169,7 +160,7 @@ class EnhancedAuditHandler:
                     user_id, account_id, 168
                 )  # 7 days
 
-                text = f"📊 **Activity Summary: {account.name}**\\n\\n"
+                text = f"📊 **Activity Summary: {account['name']}**\\n\\n"
 
                 # 24 hour summary
                 text += "**📅 Last 24 Hours:**\\n"
@@ -236,19 +227,15 @@ class EnhancedAuditHandler:
     ):
         """Show detailed activity statistics"""
         try:
-            async with get_session() as session:
-                from sqlalchemy import select
+            from bson import ObjectId
+            
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
 
-                result = await session.execute(
-                    select(Account)
-                    .join(User)
-                    .where(User.telegram_id == user_id, Account.id == account_id)
-                )
-                account = result.scalar_one_or_none()
-
-                if not account:
-                    await bot.send_message(user_id, "❌ Account not found")
-                    return
+            if not account:
+                await bot.send_message(user_id, "❌ Account not found")
+                return
 
                 # Get events for analysis
                 events_24h = await self.audit.get_account_audit_log(
@@ -258,7 +245,7 @@ class EnhancedAuditHandler:
                     user_id, account_id, 168, 1000
                 )
 
-                text = f"📈 **Activity Statistics: {account.name}**\\n\\n"
+                text = f"📈 **Activity Statistics: {account['name']}**\\n\\n"
 
                 if events_24h:
                     # Analyze activity patterns

@@ -63,8 +63,27 @@ def get_or_create_encryption_key() -> bytes:
 
 
 # Initialize encryption
-ENCRYPTION_KEY = get_or_create_encryption_key()
-FERNET = Fernet(ENCRYPTION_KEY)
+fernet_key_env = os.getenv("FERNET_KEY")
+if fernet_key_env:
+    try:
+        FERNET = Fernet(fernet_key_env.encode())
+        logger.info("Encryption enabled with FERNET_KEY")
+    except Exception as e:
+        logger.warning(f"Invalid FERNET_KEY, disabling encryption: {e}")
+        FERNET = None
+else:
+    logger.info("FERNET_KEY not provided, encryption disabled")
+    FERNET = None
+
+# Legacy encryption key (for backward compatibility)
+try:
+    ENCRYPTION_KEY = get_or_create_encryption_key()
+except Exception as e:
+    logger.warning(f"Failed to create legacy encryption key: {e}")
+    ENCRYPTION_KEY = None
+
+# Backup system encryption key (separate from Fernet key)
+BACKUP_ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")  # For AES-GCM public snapshots
 
 # Session manager will be initialized later to avoid circular imports
 
@@ -94,6 +113,16 @@ HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "300"))
 SESSION_BACKUP_ENABLED = os.getenv("SESSION_BACKUP_ENABLED", "false").lower() == "true"
 TELEGRAM_BACKUP_CHANNEL = os.getenv("TELEGRAM_BACKUP_CHANNEL")
 AUDIT_LOG_RETENTION_DAYS = int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "30"))
+
+# Backup System Settings
+MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("MONGO_URI")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+GITHUB_REPO = os.getenv("GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_BACKUP_BRANCH = os.getenv("GITHUB_BACKUP_BRANCH", "backups")
+SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR")
+# ENCRYPTION_KEY should be set separately for AES-GCM encryption
 
 # Admin Configuration
 ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")

@@ -43,15 +43,36 @@ class OnlineMaker:
                 # Check if online maker is still enabled
                 account = await mongodb.db.accounts.find_one({
                     "user_id": user_id,
-                    "name": account_name
+                    "phone": account_name
                 })
+                
+                # If not found by phone, try by name
+                if not account:
+                    account = await mongodb.db.accounts.find_one({
+                        "user_id": user_id,
+                        "name": account_name
+                    })
                 
                 if not account or not account.get("online_maker_enabled", False):
                     break
                     
-                # Get client
-                client = self.user_clients.get(user_id, {}).get(account_name)
+                # Get client - try both account_name and phone as keys
+                user_clients_dict = self.user_clients.get(user_id, {})
+                client = user_clients_dict.get(account_name)
+                
+                # If not found by account_name, try to find by phone or other identifier
+                if not client and account:
+                    phone = account.get('phone')
+                    name = account.get('name')
+                    display_name = account.get('display_name')
+                    
+                    for key in [phone, name, display_name]:
+                        if key and key in user_clients_dict:
+                            client = user_clients_dict[key]
+                            break
+                
                 if not client or not client.is_connected():
+                    logger.warning(f"Client not found or disconnected for {account_name}")
                     break
                     
                 try:
@@ -92,7 +113,8 @@ class OnlineMaker:
             }).to_list(length=None)
             
             for account in accounts:
-                await self.start_online_maker(account["user_id"], account["name"])
+                account_identifier = account.get("phone") or account.get("name", "unknown")
+                await self.start_online_maker(account["user_id"], account_identifier)
                 
         except Exception as e:
             logger.error(f"Failed to setup existing online makers: {e}")

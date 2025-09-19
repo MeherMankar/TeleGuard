@@ -4,8 +4,7 @@ import logging
 
 from telethon import events
 
-from ..core.database import get_session
-from ..core.models import Account, User
+from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
 

@@ -19,19 +19,15 @@ class UnifiedMessagingSystem:
         self.handled_clients = set()
         self.registered_client_objects = set()  # Track actual client objects
         self.auto_reply_handlers = {}
+        self.processed_messages = set()  # Track processed messages to prevent duplicates
         
     def setup_handlers(self):
         """Set up all messaging handlers"""
         logger.info("SETTING UP UNIFIED MESSAGING HANDLERS - Total user_clients: {}".format(len(self.user_clients)))
         
-        # Clear existing handlers to avoid duplicates
-        self.handled_clients.clear()
-        self.registered_client_objects.clear()
-        
-        # Clear bot manager handler registries to prevent conflicts
-        if hasattr(self.bot_manager, 'registered_handlers'):
-            self.bot_manager.registered_handlers["messaging"].clear()
-            logger.info("Cleared messaging handler registry to prevent duplicates")
+        # Don't clear existing handlers - just check for duplicates
+        logger.info(f"Current handled clients: {len(self.handled_clients)}")
+        logger.info(f"Current registered client objects: {len(self.registered_client_objects)}")
         
         # Set up handlers for existing clients
         client_count = 0
@@ -55,38 +51,55 @@ class UnifiedMessagingSystem:
         """Set up handlers for managed account"""
         client_key = f"{user_id}:{account_name}"
         
-        # Check both local and global registries to prevent duplicates
+        # Check if handlers already exist for this client
         if client_key in self.handled_clients:
-            logger.info(f"Unified messaging handlers already set up for {client_key} (local registry)")
+            logger.info(f"Handlers already exist for {client_key}, skipping")
             return
             
         # Check if this exact client object already has handlers
-        if id(client) in self.registered_client_objects:
-            logger.info(f"Client object already has handlers registered for {client_key} (object ID: {id(client)})")
+        client_obj_id = id(client)
+        if client_obj_id in self.registered_client_objects:
+            logger.info(f"Client object {client_obj_id} already has handlers, skipping {client_key}")
             self.handled_clients.add(client_key)
             return
             
-        # Check global bot manager registry
-        if hasattr(self.bot_manager, 'registered_handlers') and client_key in self.bot_manager.registered_handlers["messaging"]:
-            logger.info(f"Unified messaging handlers already registered for {client_key} (global registry)")
-            self.handled_clients.add(client_key)  # Sync local registry
-            return
+        # Check if client already has event handlers registered
+        if hasattr(client, '_event_builders') and client._event_builders:
+            logger.info(f"Client {client_key} already has {len(client._event_builders)} event handlers, checking for duplicates")
+            # Check if any handler is for private messages
+            for builder in client._event_builders:
+                if hasattr(builder, 'func') and 'private' in str(builder.func):
+                    logger.warning(f"Found existing private message handler for {client_key}, skipping to prevent duplicates")
+                    self.handled_clients.add(client_key)
+                    self.registered_client_objects.add(client_obj_id)
+                    return
             
+        # Mark as handled before registering to prevent race conditions
         self.handled_clients.add(client_key)
-        self.registered_client_objects.add(id(client))  # Track client object
+        self.registered_client_objects.add(id(client))
         
         # Update global registry
         if hasattr(self.bot_manager, 'registered_handlers'):
             self.bot_manager.registered_handlers["messaging"].add(client_key)
             
-        logger.info(f"Setting up unified messaging DM handlers for {client_key}")
-        logger.info(f"Registering NEW handler for client: {client}")
+        logger.info(f"Registering NEW unified messaging handler for {client_key} (object ID: {id(client)})")
         
         @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
         async def private_message_handler(event):
             try:
                 if event.out:
                     return
+                
+                # Create unique message ID for deduplication
+                message_id = f"{event.chat_id}_{event.id}_{client_key}"
+                if message_id in self.processed_messages:
+                    logger.debug(f"Message {message_id} already processed, skipping")
+                    return
+                
+                self.processed_messages.add(message_id)
+                # Keep only last 1000 processed messages to prevent memory leak
+                if len(self.processed_messages) > 1000:
+                    self.processed_messages = set(list(self.processed_messages)[-500:])
                 
                 sender = await event.get_sender()
                 me = await client.get_me()
@@ -116,9 +129,10 @@ class UnifiedMessagingSystem:
                     else:
                         logger.warning(f"No admin group configured for user {user_id}")
                 
-                # Handle auto-reply if enabled
-                logger.info(f"🤖 Checking auto-reply for {account_name} (user {user_id})")
-                await self._handle_auto_reply(client, event, user_id, account_name)
+                # Handle auto-reply if enabled (only for non-bot messages)
+                if not is_bot and not is_telegram_official:
+                    logger.info(f"🤖 Checking auto-reply for {account_name} (user {user_id})")
+                    await self._handle_auto_reply(client, event, user_id, account_name)
                     
             except Exception as e:
                 logger.error(f"Private message handler error for {account_name}: {e}", exc_info=True)
@@ -677,20 +691,15 @@ class UnifiedMessagingSystem:
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up handlers for newly added client"""
         if client and client.is_connected():
-            client_key = f"{user_id}:{account_name}"
-            
-            # Check if already registered to prevent duplicates
-            if client_key in self.handled_clients:
-                logger.info(f"Unified messaging handlers already exist for {account_name}, skipping")
-                return
-                
-            if hasattr(self.bot_manager, 'registered_handlers') and client_key in self.bot_manager.registered_handlers["messaging"]:
-                logger.info(f"Unified messaging handlers already in global registry for {account_name}, skipping")
-                self.handled_clients.add(client_key)  # Sync local registry
-                return
-            
             logger.info(f"Setting up unified messaging for new client: {account_name} (user {user_id})")
             self._setup_client_handlers(user_id, account_name, client)
-            logger.info(f"✅ Unified messaging handlers set up for {account_name}")
         else:
             logger.error(f"Cannot setup handlers for {account_name} - client not connected")
+    
+    def cleanup_handlers(self):
+        """Clean up all registered handlers"""
+        logger.info(f"Cleaning up {len(self.handled_clients)} unified messaging handlers")
+        self.handled_clients.clear()
+        self.registered_client_objects.clear()
+        if hasattr(self.bot_manager, 'registered_handlers'):
+            self.bot_manager.registered_handlers["messaging"].clear()

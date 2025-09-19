@@ -12,13 +12,16 @@ import asyncio
 import logging
 import os
 import tempfile
+import time
 from typing import Dict, Optional
 
 from telethon import TelegramClient
 from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
+from telethon.errors.rpcerrorlist import PasswordHashInvalidError
 from telethon.sessions import StringSession
 
 from ..core.config import API_HASH, API_ID
+from ..utils.network_helpers import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +40,10 @@ class OTPDestroyer:
         try:
             temp_session_file = self._create_temp_session()
             client = TelegramClient(temp_session_file, API_ID, API_HASH)
-            await client.connect()
+            await retry_async(client.connect)
 
             # Request and immediately consume the OTP
-            sent_code = await client.send_code_request(phone)
+            sent_code = await retry_async(client.send_code_request, phone)
 
             try:
                 await client.sign_in(
@@ -88,9 +91,9 @@ class OTPDestroyer:
         try:
             temp_session_file = self._create_temp_session()
             client = TelegramClient(temp_session_file, API_ID, API_HASH)
-            await client.connect()
+            await retry_async(client.connect)
 
-            sent_code = await client.send_code_request(phone)
+            sent_code = await retry_async(client.send_code_request, phone)
 
             return {
                 "phone": phone,
@@ -136,6 +139,8 @@ class AuthManager:
     def __init__(self):
         self._pending_auths: Dict[int, Dict[str, any]] = {}
         self._otp_destroyer = OTPDestroyer()
+        self.MAX_2FA_ATTEMPTS = 5
+        self.COOLDOWN_SECONDS = 10
 
     async def destroy_otp_code(self, phone: str, code: str) -> bool:
         """Legacy method - now handled by invalidateSignInCodes in bot"""
@@ -155,7 +160,13 @@ class AuthManager:
                 }
             else:
                 auth_data = await self._start_normal_auth(phone)
-                self._pending_auths[user_id] = {"type": "normal", "data": auth_data}
+                self._pending_auths[user_id] = {
+                    "type": "normal", 
+                    "data": auth_data,
+                    "attempts": 0,
+                    "first_attempt_ts": time.time(),
+                    "locked_until": None
+                }
             return True
 
         except Exception as e:
@@ -166,8 +177,8 @@ class AuthManager:
     async def _start_normal_auth(self, phone: str) -> Dict[str, any]:
         """Start normal authentication flow"""
         client = TelegramClient(StringSession(), API_ID, API_HASH)
-        await client.connect()
-        sent_code = await client.send_code_request(phone)
+        await retry_async(client.connect)
+        sent_code = await retry_async(client.send_code_request, phone)
 
         return {
             "phone": phone,
@@ -176,13 +187,14 @@ class AuthManager:
         }
 
     async def complete_auth(
-        self, user_id: int, code: str, password: Optional[str] = None
+        self, user_id: int, code: Optional[str] = None, password: Optional[str] = None
     ) -> str:
         """Complete authentication flow"""
         if user_id not in self._pending_auths:
             raise ValueError("No pending authentication found")
 
         auth_info = self._pending_auths[user_id]
+        logger.info(f"Completing auth for user {user_id}, type: {auth_info['type']}, has_code: {code is not None}, has_password: {password is not None}")
 
         try:
             if auth_info["type"] == "destroy_mode":
@@ -193,6 +205,12 @@ class AuthManager:
                 return await self._complete_normal_auth(
                     user_id, auth_info, code, password
                 )
+        except ValueError as e:
+            # Don't clear pending auth for 2FA requirement
+            if "Two-factor" in str(e):
+                logger.info(f"2FA required for user {user_id}, keeping auth pending")
+            logger.error(f"Auth completion failed for user {user_id}: {e}")
+            raise
         except Exception as e:
             logger.error(f"Auth completion failed for user {user_id}: {e}")
             raise
@@ -205,37 +223,77 @@ class AuthManager:
         return await self._otp_destroyer.verify_code(auth_info["data"], code, password)
 
     async def _complete_normal_auth(
-        self, user_id: int, auth_info: Dict, code: str, password: Optional[str]
+        self, user_id: int, auth_info: Dict, code: Optional[str], password: Optional[str]
     ) -> str:
         """Complete normal authentication"""
         client = auth_info["data"]["client"]
 
         try:
             if password:
-                # 2FA step
-                await client.sign_in(password=password)
-                self._pending_auths.pop(user_id)
-            else:
-                # OTP step
-                await client.sign_in(
-                    phone=auth_info["data"]["phone"],
-                    code=code,
-                    phone_code_hash=auth_info["data"]["phone_code_hash"],
-                )
-                self._pending_auths.pop(user_id)
+                # Check if user is locked due to too many attempts
+                now = time.time()
+                if auth_info.get("locked_until") and now < auth_info["locked_until"]:
+                    wait = int(auth_info["locked_until"] - now)
+                    raise ValueError(f"Too many failed attempts. Try again in {wait}s.")
 
-            # Get session and cleanup
-            session_string = StringSession.save(client.session)
-            await client.disconnect()
-            return session_string
+                # 2FA step - client should already be in 2FA state
+                try:
+                    await client.sign_in(password=password)
+                    # Success - clean up and return session
+                    self._pending_auths.pop(user_id)
+                    session_string = StringSession.save(client.session)
+                    await client.disconnect()
+                    return session_string
+                except PasswordHashInvalidError:
+                    # Wrong password - increment attempts
+                    auth_info["attempts"] += 1
+                    remaining = self.MAX_2FA_ATTEMPTS - auth_info["attempts"]
+                    
+                    if remaining <= 0:
+                        # Too many attempts - clear state
+                        self._pending_auths.pop(user_id, None)
+                        await client.disconnect()
+                        raise ValueError("Too many incorrect attempts. Please restart login.")
+                    else:
+                        # Apply cooldown and keep session alive
+                        auth_info["locked_until"] = time.time() + self.COOLDOWN_SECONDS
+                        raise ValueError(f"❌ Incorrect password. {remaining} attempts left. Wait {self.COOLDOWN_SECONDS}s.")
+                        
+            elif code:
+                # OTP step
+                try:
+                    await client.sign_in(
+                        phone=auth_info["data"]["phone"],
+                        code=code,
+                        phone_code_hash=auth_info["data"]["phone_code_hash"],
+                    )
+                    # Success - clean up and return session
+                    self._pending_auths.pop(user_id)
+                    session_string = StringSession.save(client.session)
+                    await client.disconnect()
+                    return session_string
+                except PhoneCodeInvalidError:
+                    raise ValueError("❌ The code you entered is invalid or expired. Please try again.")
+                except SessionPasswordNeededError:
+                    # 2FA required - keep client alive and pending auth
+                    logger.info(f"2FA required for user {user_id}, keeping client session alive")
+                    raise ValueError("Two-factor authentication password required")
+            else:
+                raise ValueError("Either code or password must be provided")
 
         except SessionPasswordNeededError:
-            # Keep pending for 2FA
+            # 2FA required - keep client alive and pending auth
+            logger.info(f"2FA required for user {user_id}, keeping client session alive")
             raise ValueError("Two-factor authentication password required")
+        except PasswordHashInvalidError:
+            # This is handled above in the password section
+            raise
         except Exception as e:
-            self._pending_auths.pop(user_id, None)
-            if client and client.is_connected():
-                await client.disconnect()
+            # Only clear pending auth and disconnect for non-2FA/non-password errors
+            if "Two-factor" not in str(e) and "attempts" not in str(e) and "Incorrect password" not in str(e):
+                self._pending_auths.pop(user_id, None)
+                if client and client.is_connected():
+                    await client.disconnect()
             raise
 
     def cancel_auth(self, user_id: int) -> bool:

@@ -544,9 +544,9 @@ if __name__ == "__main__":
 
     # Example configuration
     db = GitHubJSONDB(
-        owner=os.getenv("DB_GITHUB_OWNER", "MeherMankar"),
-        repo=os.getenv("DB_GITHUB_REPO", "TeleGuard"),
-        token=os.getenv("GITHUB_TOKEN", ""),
+        owner=os.getenv("DB_GITHUB_OWNER", "your_owner"),
+        repo=os.getenv("DB_GITHUB_REPO", "your_repo"),
+        token=os.getenv("GITHUB_TOKEN", "your_token_here"),
         branch=os.getenv("DB_GITHUB_BRANCH", "db-live"),
         write_allowed=os.getenv("DB_WRITE_ALLOWED", "false").lower() == "true",
     )

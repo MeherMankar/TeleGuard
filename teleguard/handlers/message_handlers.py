@@ -6,6 +6,7 @@ import re
 from telethon import events
 
 from ..core.mongo_database import mongodb
+from ..utils.network_helpers import retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class MessageHandlers:
 
             if account:
                 try:
-                    client = self.user_clients.get(user_id, {}).get(account["name"])
+                    account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+                    client = self.user_clients.get(user_id, {}).get(account_name)
                     if client:
                         photo_path = await event.download_media()
 
@@ -102,7 +104,7 @@ class MessageHandlers:
         action = self.pending_actions[user_id]["action"]
         logger.info(f"Processing user action: {action.replace('_', ' ').title()}")
 
-        user = await mongodb.db.users.find_one({"telegram_id": user_id})
+        user = await mongodb.get_user(user_id)
         if not user:
             await event.reply("Please start the bot first with /start")
             self.pending_actions.pop(user_id, None)
@@ -229,6 +231,9 @@ class MessageHandlers:
 
             # Start the client for this account
             await self.bot_manager.start_user_client(user_id, phone, session_string)
+            
+            # Fetch and store real account name
+            await self._fetch_and_store_account_name(user_id, phone)
 
             await event.reply(
                 f"✅ Account {phone} added successfully!\\nUse /toggle_protection to enable OTP destroyer."
@@ -256,7 +261,7 @@ class MessageHandlers:
 
         try:
             session_string = await self.auth_manager.complete_auth(
-                user_id, "", password
+                user_id, code=None, password=password
             )
 
             if session_string == "OTP_DESTROYED":
@@ -280,16 +285,31 @@ class MessageHandlers:
                     logger.error(f"Failed to backup session for {phone}: {e}")
 
             await self.bot_manager.start_user_client(user_id, phone, session_string)
+            
+            # Fetch and store real account name
+            await self._fetch_and_store_account_name(user_id, phone)
 
             await event.reply(
                 f"✅ Account {phone} added successfully with 2FA!\\nUse /toggle_protection to enable OTP destroyer."
             )
 
         except Exception as e:
-            await event.reply(f"❌ 2FA failed: {str(e)}")
-            logger.error(f"2FA failed: {str(e)}")
+            error_msg = str(e)
+            if "attempts left" in error_msg or "Try again in" in error_msg:
+                # Password retry case - keep pending action for retry
+                await event.reply(f"❌ {error_msg}")
+                logger.info(f"2FA retry for user {user_id}: {error_msg}")
+                return  # Don't clear pending actions
+            elif "Too many incorrect attempts" in error_msg:
+                # Terminal failure - clear everything
+                await event.reply(f"❌ {error_msg}")
+                logger.error(f"2FA terminal failure for user {user_id}: {error_msg}")
+            else:
+                # Other errors
+                await event.reply(f"❌ 2FA failed: {error_msg}")
+                logger.error(f"2FA failed: {error_msg}")
 
-        # Always cleanup pending actions after 2FA processing
+        # Cleanup pending actions after 2FA processing (except for retries)
         self.pending_actions.pop(user_id, None)
 
     async def _handle_2fa_actions(self, event, user, action, message):
@@ -327,7 +347,8 @@ class MessageHandlers:
             )
 
             if account:
-                client = self.user_clients.get(user_id, {}).get(account["name"])
+                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+                client = self.user_clients.get(user_id, {}).get(account_name)
                 if client:
                     try:
                         from telethon import functions
@@ -357,7 +378,8 @@ class MessageHandlers:
             )
 
             if account:
-                client = self.user_clients.get(user_id, {}).get(account["name"])
+                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+                client = self.user_clients.get(user_id, {}).get(account_name)
                 if client:
                     try:
                         from telethon import functions
@@ -381,7 +403,8 @@ class MessageHandlers:
             )
 
             if account:
-                client = self.user_clients.get(user_id, {}).get(account["name"])
+                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+                client = self.user_clients.get(user_id, {}).get(account_name)
                 if client:
                     try:
                         from telethon import functions
@@ -430,8 +453,9 @@ class MessageHandlers:
             )
             
             if account:
+                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
                 success = await self.messaging_manager.send_message(
-                    user_id, account["name"], target, message
+                    user_id, account_name, target, message
                 )
                 await event.reply(
                     "✅ Message sent!" if success else "❌ Failed to send message."
@@ -655,3 +679,35 @@ class MessageHandlers:
         if action in ["channel_join_target", "channel_leave_target", "channel_create_about", "channel_delete_target"]:
             if action not in ["channel_create_type", "channel_create_title"]:
                 pass  # Already handled above
+    
+    async def _fetch_and_store_account_name(self, user_id: int, phone: str):
+        """Fetch real account name from Telegram and store in database"""
+        try:
+            if user_id in self.user_clients and phone in self.user_clients[user_id]:
+                client = self.user_clients[user_id][phone]
+                if client and client.is_connected():
+                    me = await retry_async(client.get_me)
+                    
+                    # Format display name
+                    first_name = getattr(me, 'first_name', None) or ''
+                    last_name = getattr(me, 'last_name', None) or ''
+                    username = getattr(me, 'username', None)
+                    
+                    display_name = ' '.join(part for part in (first_name, last_name) if part)
+                    if not display_name:
+                        display_name = f'@{username}' if username else phone
+                    
+                    # Update account in database
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "phone": phone},
+                        {"$set": {
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "username": username,
+                            "display_name": display_name,
+                            "name": display_name  # Update name field too
+                        }}
+                    )
+                    logger.info(f"Updated account name for {phone}: {display_name}")
+        except Exception as e:
+            logger.error(f"Failed to fetch account name for {phone}: {e}")

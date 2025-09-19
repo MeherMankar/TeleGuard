@@ -12,8 +12,7 @@ import logging
 
 from telethon import Button, events
 
-from ..core.database import get_session
-from ..core.models import Account, User
+from ..core.mongo_database import mongodb
 from .enhanced_audit_handler import EnhancedAuditHandler
 
 logger = logging.getLogger(__name__)
@@ -41,17 +40,11 @@ class SimulationHandlers:
             command = event.pattern_match.group(1).lower()
             account_name = event.pattern_match.group(2)
 
-            # Check if user exists and has developer mode (optional)
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(User).where(User.telegram_id == user_id)
-                )
-                user = result.scalar_one_or_none()
-                if not user:
-                    await event.reply("Please start the bot first with /start")
-                    return
+            # Check if user exists
+            user = await mongodb.get_user(user_id)
+            if not user:
+                await event.reply("Please start the bot first with /start")
+                return
 
             if command == "start":
                 await self._handle_start_simulation(event, user_id, account_name)
@@ -104,16 +97,10 @@ class SimulationHandlers:
             account_name = event.pattern_match.group(1)
 
             # Check if user exists
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(User).where(User.telegram_id == user_id)
-                )
-                user = result.scalar_one_or_none()
-                if not user:
-                    await event.reply("Please start the bot first with /start")
-                    return
+            user = await mongodb.get_user(user_id)
+            if not user:
+                await event.reply("Please start the bot first with /start")
+                return
 
             await self._handle_audit_log(event, user_id, account_name)
 
@@ -134,7 +121,7 @@ class SimulationHandlers:
                     return
 
                 success, message = await self.activity_simulator.enable_simulation(
-                    user_id, account.id
+                    user_id, str(account["_id"])
                 )
                 if success:
                     await event.reply(f"🎭 Simulation started for {account_name}")
@@ -150,7 +137,7 @@ class SimulationHandlers:
                 started_count = 0
                 for account in accounts:
                     success, _ = await self.activity_simulator.enable_simulation(
-                        user_id, account.id
+                        user_id, str(account["_id"])
                     )
                     if success:
                         started_count += 1
@@ -180,7 +167,7 @@ class SimulationHandlers:
                     return
 
                 success, message = await self.activity_simulator.disable_simulation(
-                    user_id, account.id
+                    user_id, str(account["_id"])
                 )
                 if success:
                     await event.reply(f"🛑 Simulation stopped for {account_name}")
@@ -196,7 +183,7 @@ class SimulationHandlers:
                 stopped_count = 0
                 for account in accounts:
                     success, _ = await self.activity_simulator.disable_simulation(
-                        user_id, account.id
+                        user_id, str(account["_id"])
                     )
                     if success:
                         stopped_count += 1
@@ -221,14 +208,13 @@ class SimulationHandlers:
                     await event.reply(f"❌ Account '{account_name}' not found")
                     return
 
-                status = "🟢 Active" if account.simulation_enabled else "🔴 Inactive"
-                status = "🟢 Active" if account.simulation_enabled else "🔴 Inactive"
+                status = "🟢 Active" if account.get("simulation_enabled", False) else "🔴 Inactive"
 
                 # Create status message with audit button
                 status_text = f"🎭 **Simulation Status for {account_name}:**\n\n"
                 status_text += f"Status: {status}\n\n"
 
-                if account.simulation_enabled:
+                if account.get("simulation_enabled", False):
                     status_text += "**Available Actions:**\n"
                     status_text += "• View comprehensive audit log\n"
                     status_text += "• Check activity statistics\n"
@@ -237,15 +223,15 @@ class SimulationHandlers:
                 buttons = [
                     [
                         Button.inline(
-                            "📋 View Audit Log", f"audit:refresh:{account.id}:24"
+                            "📋 View Audit Log", f"audit:refresh:{account['_id']}:24"
                         )
                     ],
                     [
                         Button.inline(
-                            "📊 Activity Summary", f"audit:summary:{account.id}"
+                            "📊 Activity Summary", f"audit:summary:{account['_id']}"
                         )
                     ],
-                    [Button.inline("📈 Statistics", f"audit:stats:{account.id}")],
+                    [Button.inline("📈 Statistics", f"audit:stats:{account['_id']}")],
                 ]
 
                 sent_message = await event.reply(status_text, buttons=buttons)
@@ -260,9 +246,9 @@ class SimulationHandlers:
                 active_count = 0
 
                 for account in accounts:
-                    status = "🟢" if account.simulation_enabled else "🔴"
-                    status_text += f"{status} {account.name}\n"
-                    if account.simulation_enabled:
+                    status = "🟢" if account.get("simulation_enabled", False) else "🔴"
+                    status_text += f"{status} {account['name']}\n"
+                    if account.get("simulation_enabled", False):
                         active_count += 1
 
                 status_text += (
@@ -280,15 +266,10 @@ class SimulationHandlers:
     async def _get_account_by_name(self, user_id: int, account_name: str):
         """Get account by name for user"""
         try:
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(Account)
-                    .join(User)
-                    .where(User.telegram_id == user_id, Account.name == account_name)
-                )
-                return result.scalar_one_or_none()
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "name": account_name}
+            )
+            return account
         except Exception as e:
             logger.error(f"Get account by name error: {e}")
             return None
@@ -296,15 +277,10 @@ class SimulationHandlers:
     async def _get_user_accounts(self, user_id: int):
         """Get all accounts for user"""
         try:
-            async with get_session() as session:
-                from sqlalchemy import select
-
-                result = await session.execute(
-                    select(Account)
-                    .join(User)
-                    .where(User.telegram_id == user_id, Account.is_active == True)
-                )
-                return result.scalars().all()
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "is_active": True}
+            ).to_list(length=None)
+            return accounts
         except Exception as e:
             logger.error(f"Get user accounts error: {e}")
             return []
@@ -324,7 +300,7 @@ class SimulationHandlers:
                     f"📋 Loading audit log for {account_name}..."
                 )
                 await self.audit_handler.show_comprehensive_audit_log(
-                    self.bot, user_id, account.id, sent_message.id
+                    self.bot, user_id, str(account["_id"]), sent_message.id
                 )
             else:
                 # Show list of accounts to choose from
@@ -337,12 +313,12 @@ class SimulationHandlers:
                 buttons = []
 
                 for account in accounts:
-                    status = "🟢" if account.simulation_enabled else "🔴"
-                    text += f"{status} {account.name}\n"
+                    status = "🟢" if account.get("simulation_enabled", False) else "🔴"
+                    text += f"{status} {account['name']}\n"
                     buttons.append(
                         [
                             Button.inline(
-                                f"📋 {account.name}", f"audit:refresh:{account.id}:24"
+                                f"📋 {account['name']}", f"audit:refresh:{account['_id']}:24"
                             )
                         ]
                     )
