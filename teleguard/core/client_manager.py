@@ -320,6 +320,14 @@ class FullClientManager:
             return True, "Online status updated"
 
         except Exception as e:
+            error_msg = str(e)
+            if "authorization key" in error_msg and "simultaneously" in error_msg:
+                logger.warning(f"Session conflict detected for account {account_id}, marking as inactive")
+                await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id},
+                    {"$set": {"session_conflict": True, "last_conflict": time.strftime("%Y-%m-%d %H:%M:%S")}}
+                )
+                return False, "Session conflict - account used elsewhere"
             logger.error(f"Failed to update online status: {e}")
             return False, f"Error: {str(e)}"
 

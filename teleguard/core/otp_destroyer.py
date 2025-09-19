@@ -71,8 +71,10 @@ class EnhancedOTPDestroyer:
 
     async def setup_otp_listener(self, client, user_id: int, account_name: str):
         """Set up OTP destroyer listener for an account"""
+        
+        logger.info(f"Setting up OTP destroyer listener for {account_name}")
 
-        @client.on(events.NewMessage(from_users=777000))
+        @client.on(events.NewMessage(from_users=[777000, 42777]))
         async def otp_destroyer_handler(event):
             try:
                 # Check if OTP destroyer is enabled for this account
@@ -89,73 +91,73 @@ class EnhancedOTPDestroyer:
                 if not codes:
                     return
 
-                    logger.info(
-                        f"🛡️ OTP Destroyer: Found {len(codes)} codes for {account_name}"
+                logger.info(
+                    f"🛡️ OTP Destroyer: Found {len(codes)} codes for {account_name}"
+                )
+
+                # Invalidate codes using Telegram API immediately
+                try:
+                    result = await client(
+                        functions.account.InvalidateSignInCodesRequest(codes=codes)
                     )
 
-                    # Invalidate codes using Telegram API immediately
-                    try:
-                        result = await client(
-                            functions.account.InvalidateSignInCodesRequest(codes=codes)
-                        )
+                    # Log the action
+                    audit_entry = {
+                        "action": "invalidate_codes",
+                        "codes": codes,
+                        "result": bool(result),
+                        "message_id": event.message.id,
+                        "raw_message": message[:200],  # First 200 chars
+                        "timestamp": int(time.time()),
+                    }
 
-                        # Log the action
-                        audit_entry = {
-                            "action": "invalidate_codes",
-                            "codes": codes,
-                            "result": bool(result),
-                            "message_id": event.message.id,
-                            "raw_message": message[:200],  # First 200 chars
-                            "timestamp": int(time.time()),
-                        }
+                    # Update account with audit entry
+                    from bson import ObjectId
 
-                        # Update account with audit entry
-                        from bson import ObjectId
-
-                        await mongodb.db.accounts.update_one(
-                            {"_id": account["_id"]},
-                            {
-                                "$push": {"audit_log": audit_entry},
-                                "$set": {
-                                    "otp_destroyed_at": time.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                },
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {
+                            "$push": {"audit_log": audit_entry},
+                            "$set": {
+                                "otp_destroyed_at": time.strftime(
+                                    "%Y-%m-%d %H:%M:%S"
+                                )
                             },
-                        )
+                        },
+                    )
 
-                        # Notify owner immediately
-                        await self._send_destruction_alert(
-                            user_id, account_name, codes, bool(result)
-                        )
+                    # Notify owner immediately
+                    await self._send_destruction_alert(
+                        user_id, account_name, codes, bool(result)
+                    )
 
-                        logger.info(
-                            f"✅ Successfully invalidated {len(codes)} codes for {account_name}"
-                        )
+                    logger.info(
+                        f"✅ Successfully invalidated {len(codes)} codes for {account_name}"
+                    )
 
-                    except Exception as e:
-                        logger.error(
-                            f"❌ Failed to invalidate codes for {account_name}: {e}"
-                        )
+                except Exception as e:
+                    logger.error(
+                        f"❌ Failed to invalidate codes for {account_name}: {e}"
+                    )
 
-                        # Log the failure
-                        audit_entry = {
-                            "action": "invalidate_error",
-                            "codes": codes,
-                            "error": str(e),
-                            "timestamp": int(time.time()),
-                        }
+                    # Log the failure
+                    audit_entry = {
+                        "action": "invalidate_error",
+                        "codes": codes,
+                        "error": str(e),
+                        "timestamp": int(time.time()),
+                    }
 
-                        # Update account with error audit entry
-                        await mongodb.db.accounts.update_one(
-                            {"_id": account["_id"]},
-                            {"$push": {"audit_log": audit_entry}},
-                        )
+                    # Update account with error audit entry
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$push": {"audit_log": audit_entry}},
+                    )
 
-                        # Still notify about the attempt
-                        await self._send_destruction_alert(
-                            user_id, account_name, codes, False
-                        )
+                    # Still notify about the attempt
+                    await self._send_destruction_alert(
+                        user_id, account_name, codes, False
+                    )
 
             except Exception as e:
                 logger.error(f"OTP destroyer handler error for {account_name}: {e}")

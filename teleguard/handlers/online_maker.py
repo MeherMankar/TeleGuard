@@ -53,38 +53,49 @@ class OnlineMaker:
                         "name": account_name
                     })
                 
-                if not account or not account.get("online_maker_enabled", False):
+                if not account or not account.get("online_maker_enabled", False) or account.get("session_conflict", False):
+                    if account and account.get("session_conflict", False):
+                        logger.info(f"Online maker stopped for {account_name} due to session conflict")
                     break
                     
-                # Get client - try both account_name and phone as keys
+                # Get client - try multiple keys
                 user_clients_dict = self.user_clients.get(user_id, {})
-                client = user_clients_dict.get(account_name)
+                client = None
                 
-                # If not found by account_name, try to find by phone or other identifier
-                if not client and account:
-                    phone = account.get('phone')
-                    name = account.get('name')
-                    display_name = account.get('display_name')
-                    
-                    for key in [phone, name, display_name]:
-                        if key and key in user_clients_dict:
-                            client = user_clients_dict[key]
-                            break
+                # Try different keys to find the client
+                possible_keys = [
+                    account_name,
+                    account.get('phone') if account else None,
+                    account.get('name') if account else None,
+                    account.get('display_name') if account else None
+                ]
+                
+                for key in possible_keys:
+                    if key and key in user_clients_dict:
+                        client = user_clients_dict[key]
+                        logger.debug(f"Found client for {account_name} using key: {key}")
+                        break
                 
                 if not client or not client.is_connected():
                     logger.warning(f"Client not found or disconnected for {account_name}")
                     break
                     
                 try:
-                    # Send typing action to stay online
-                    from telethon import functions, types
-                    await client(functions.messages.SetTypingRequest(
-                        peer='me',
-                        action=types.SendMessageTypingAction()
-                    ))
-                    logger.debug(f"Online ping sent for {account_name}")
+                    # Send update status to stay online
+                    from telethon.tl.functions.account import UpdateStatusRequest
+                    await client(UpdateStatusRequest(offline=False))
+                    logger.debug(f"Online status updated for {account_name}")
                 except Exception as e:
-                    logger.error(f"Online ping failed for {account_name}: {e}")
+                    error_msg = str(e)
+                    if "authorization key" in error_msg and "simultaneously" in error_msg:
+                        logger.warning(f"Session conflict for {account_name}, pausing online maker")
+                        # Mark account as having session conflict
+                        await mongodb.db.accounts.update_one(
+                            {"user_id": user_id, "name": account_name},
+                            {"$set": {"session_conflict": True, "online_maker_enabled": False}}
+                        )
+                        break  # Exit the loop to stop online maker
+                    logger.error(f"Online status update failed for {account_name}: {e}")
                     
                 # Random interval between 2-5 minutes for online pings
                 interval = random.randint(120, 300)

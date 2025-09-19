@@ -596,6 +596,15 @@ class UnifiedMessagingSystem:
             return True
 
         except Exception as e:
+            error_msg = str(e)
+            if "authorization key" in error_msg and "simultaneously" in error_msg:
+                logger.warning(f"Session conflict detected for {account_name}")
+                # Mark account as having session conflict
+                await mongodb.db.accounts.update_one(
+                    {"user_id": user_id, "name": account_name},
+                    {"$set": {"session_conflict": True}}
+                )
+                return False
             logger.error(f"Failed to send message from {account_name} to {target}: {e}")
             return False
     
