@@ -277,23 +277,32 @@ async def main() -> None:
             # Use startup optimizer for cloud deployments
             from teleguard.utils.startup_optimizer import startup_optimizer
             
-            async def start_bot():
-                async with AccountManager() as bot:
-                    logger.info("TeleGuard Bot successfully started")
-                    return bot
+            # Use simplified cloud bot for cloud deployments
+            if startup_optimizer.is_cloud_deployment:
+                from teleguard.utils.cloud_bot_manager import cloud_bot
+                success = await cloud_bot.start()
+                if success:
+                    logger.info("Cloud bot started successfully")
+                    await cloud_bot.keep_alive()
+                else:
+                    logger.error("Failed to start cloud bot")
+                bot = None
+            else:
+                async def start_bot():
+                    async with AccountManager() as bot:
+                        logger.info("TeleGuard Bot successfully started")
+                        return bot
+                
+                bot = await startup_optimizer.optimize_startup(start_bot)
             
-            bot = await startup_optimizer.optimize_startup(start_bot)
-            
-            if bot:
+            if not startup_optimizer.is_cloud_deployment and bot:
                 print("\nBot is running! Press Ctrl+C to stop.\n")
                 try:
                     await bot.bot.run_until_disconnected()
                 except Exception as e:
                     logger.error(f"Bot disconnected: {e}")
-            else:
-                logger.warning("Bot startup failed or timed out, keeping health server running")
             
-            # Keep the health server running even if bot fails
+            # Keep the health server running
             while True:
                 await asyncio.sleep(60)
         finally:

@@ -26,22 +26,23 @@ class StartupOptimizer:
     
     async def optimize_startup(self, startup_func, *args, **kwargs):
         """Run startup function with timeout for cloud deployments"""
-        if not self.is_cloud_deployment:
-            return await startup_func(*args, **kwargs)
-        
         try:
-            logger.info(f"Cloud deployment detected, using {self.startup_timeout}s timeout")
-            return await asyncio.wait_for(
-                startup_func(*args, **kwargs),
-                timeout=self.startup_timeout
-            )
+            if self.is_cloud_deployment:
+                logger.info(f"Cloud deployment detected, using {self.startup_timeout}s timeout")
+                return await asyncio.wait_for(
+                    startup_func(*args, **kwargs),
+                    timeout=self.startup_timeout
+                )
+            else:
+                return await startup_func(*args, **kwargs)
         except asyncio.TimeoutError:
-            logger.warning(f"Startup timeout after {self.startup_timeout}s, continuing anyway")
-            return None
+            logger.warning(f"Startup timeout after {self.startup_timeout}s")
+            if self.is_cloud_deployment:
+                return None
+            raise
         except Exception as e:
             logger.error(f"Startup error: {e}")
             if self.is_cloud_deployment:
-                # Don't fail completely on cloud platforms
                 logger.info("Continuing with minimal startup for cloud deployment")
                 return None
             raise
