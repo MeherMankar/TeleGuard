@@ -58,7 +58,17 @@ class MessageHandlers:
                     account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
                     client = self.user_clients.get(user_id, {}).get(account_name)
                     if client:
-                        photo_path = await event.download_media()
+                        import os
+                        import tempfile
+                        
+                        # Use secure temporary directory
+                        temp_dir = tempfile.gettempdir()
+                        photo_path = await event.download_media(file=temp_dir)
+                        
+                        # Validate file path to prevent traversal
+                        if not photo_path or not os.path.commonpath([photo_path, temp_dir]) == temp_dir:
+                            await event.reply("❌ Invalid file path")
+                            return
 
                         from telethon import functions
 

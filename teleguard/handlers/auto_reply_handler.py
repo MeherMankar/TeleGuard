@@ -108,7 +108,7 @@ class AutoReplyHandler:
                         return
                 
                 # Get user auto-reply settings for keywords
-                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": int(user_id)}) or {}
                 
                 message_text = event.message.text.lower() if event.message.text else ""
                 sender_id = event.sender_id
@@ -125,11 +125,15 @@ class AutoReplyHandler:
                     for keyword, reply_msg in user_keywords.items():
                         # Escape special regex characters to prevent injection
                         escaped_keyword = re.escape(keyword.lower())
-                        if re.search(r'\b' + escaped_keyword + r'\b', message_text):
-                            matched_keyword = keyword
-                            # Sanitize response to prevent XSS
-                            response = html.escape(reply_msg)
-                            break
+                        try:
+                            if re.search(r'\b' + escaped_keyword + r'\b', message_text):
+                                matched_keyword = keyword
+                                # Sanitize response to prevent XSS
+                                response = html.escape(reply_msg)
+                                break
+                        except re.error:
+                            # Skip invalid regex patterns
+                            continue
                 
                 if matched_keyword:
                     self.analytics['keyword_hits'][matched_keyword] = self.analytics['keyword_hits'].get(matched_keyword, 0) + 1
@@ -178,7 +182,7 @@ class AutoReplyHandler:
     async def _get_user_keywords(self, user_id: int) -> dict:
         """Get user-specific keywords"""
         try:
-            settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id})
+            settings = await mongodb.db.auto_reply_settings.find_one({"user_id": int(user_id)})
             return settings.get('keywords', {}) if settings else {}
         except Exception as e:
             logger.error(f"Error loading keywords for user {user_id}: {e}")
@@ -191,6 +195,10 @@ class AutoReplyHandler:
             safe_keyword = keyword.strip().lower()
             safe_message = message.strip()
             
+            # Validate user_id to prevent injection
+            if not isinstance(user_id, int):
+                raise ValueError("Invalid user_id")
+                
             await mongodb.db.auto_reply_settings.update_one(
                 {"user_id": user_id},
                 {"$set": {f"keywords.{safe_keyword}": safe_message}},
@@ -204,6 +212,10 @@ class AutoReplyHandler:
         """Remove keyword for specific user"""
         try:
             safe_keyword = keyword.strip().lower()
+            # Validate user_id to prevent injection
+            if not isinstance(user_id, int):
+                raise ValueError("Invalid user_id")
+                
             await mongodb.db.auto_reply_settings.update_one(
                 {"user_id": user_id},
                 {"$unset": {f"keywords.{safe_keyword}": ""}}

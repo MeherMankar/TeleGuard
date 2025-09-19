@@ -107,6 +107,13 @@ class DMReplyCommands:
             elif data == "dm_disable":
                 # Disable by removing admin group from user
                 from ..core.mongo_database import mongodb
+                from bson import ObjectId
+                
+                # Validate user_id is integer to prevent injection
+                if not isinstance(user_id, int):
+                    await event.edit("❌ Invalid user ID")
+                    return
+                    
                 await mongodb.db.users.update_one(
                     {"telegram_id": user_id},
                     {"$unset": {"dm_reply_group_id": ""}}
@@ -128,6 +135,13 @@ class DMReplyCommands:
             
             # Store group ID directly in database for unified messaging
             from ..core.mongo_database import mongodb
+            from bson import ObjectId
+            
+            # Validate inputs to prevent injection
+            if not isinstance(user_id, int) or not isinstance(group_id, int):
+                await event.reply("❌ Invalid input parameters")
+                return
+                
             await mongodb.db.users.update_one(
                 {"telegram_id": user_id},
                 {"$set": {"dm_reply_group_id": group_id}},

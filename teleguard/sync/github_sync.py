@@ -14,8 +14,16 @@ GIT_AUTHOR_NAME = "teleguard-bot"
 GIT_AUTHOR_EMAIL = "noreply@teleguard.bot"
 
 def _run(cmd, cwd=None):
-    """Run shell command"""
-    subprocess.check_call(cmd, shell=True, cwd=cwd)
+    """Run shell command safely"""
+    # Use shell=False and pass command as list to prevent injection
+    if isinstance(cmd, str):
+        # For simple commands, split safely
+        import shlex
+        cmd_list = shlex.split(cmd)
+    else:
+        cmd_list = cmd
+    
+    subprocess.check_call(cmd_list, cwd=cwd)
 
 def push_hourly_snapshot(local_snapshot_path: str):
     """Push hourly snapshot to GitHub (preserves history)"""
@@ -32,12 +40,11 @@ def push_hourly_snapshot(local_snapshot_path: str):
             snapshots_dir = os.path.join(tmp, "snapshots")
             os.makedirs(snapshots_dir, exist_ok=True)
             
-            # Copy snapshot file
+            # Copy snapshot file safely
+            import shutil
             dst = os.path.join(snapshots_dir, os.path.basename(local_snapshot_path))
-            if os.name == 'nt':  # Windows
-                _run(f'copy "{local_snapshot_path}" "{dst}"', cwd=tmp)
-            else:  # Unix
-                _run(f'cp "{local_snapshot_path}" "{dst}"', cwd=tmp)
+            # Use shutil.copy2 instead of shell commands to prevent injection
+            shutil.copy2(local_snapshot_path, dst)
             
             _run("git add -A", cwd=tmp)
             ts = datetime.utcnow().isoformat()
@@ -60,12 +67,11 @@ def force_orphan_push_latest(local_snapshot_path: str):
             _run("git init .", cwd=tmp)
             _run(f"git remote add origin {GIT_REPO_URL}", cwd=tmp)
             
-            # Copy snapshot file
+            # Copy snapshot file safely
+            import shutil
             dst = os.path.join(tmp, os.path.basename(local_snapshot_path))
-            if os.name == 'nt':  # Windows
-                _run(f'copy "{local_snapshot_path}" "{dst}"', cwd=tmp)
-            else:  # Unix
-                _run(f'cp "{local_snapshot_path}" "{dst}"', cwd=tmp)
+            # Use shutil.copy2 instead of shell commands to prevent injection
+            shutil.copy2(local_snapshot_path, dst)
             
             _run("git add -A", cwd=tmp)
             ts = datetime.utcnow().isoformat()

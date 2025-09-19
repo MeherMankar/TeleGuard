@@ -12,7 +12,7 @@ Provides complete transparency for users.
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -74,7 +74,7 @@ class ComprehensiveAudit:
                 "event_type": event_type.value,
                 "event_data": json.dumps(details),
                 "ip_address": ip_address,
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(timezone.utc),
             }
             await mongodb.db.audit_events.insert_one(audit_event)
 

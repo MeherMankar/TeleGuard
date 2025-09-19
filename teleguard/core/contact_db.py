@@ -73,12 +73,20 @@ class ContactDB:
     async def search_contacts(managed_by_account: str, query: str) -> List[Contact]:
         """Search contacts by name or username"""
         try:
+            # Sanitize query to prevent regex injection
+            import re
+            safe_query = re.escape(query.strip())
+            
+            # Validate inputs
+            if not managed_by_account or not safe_query:
+                return []
+                
             filter_query = {
                 "managed_by_account": managed_by_account,
                 "$or": [
-                    {"first_name": {"$regex": query, "$options": "i"}},
-                    {"last_name": {"$regex": query, "$options": "i"}},
-                    {"username": {"$regex": query, "$options": "i"}}
+                    {"first_name": {"$regex": safe_query, "$options": "i"}},
+                    {"last_name": {"$regex": safe_query, "$options": "i"}},
+                    {"username": {"$regex": safe_query, "$options": "i"}}
                 ]
             }
             cursor = mongodb.db.contacts.find(filter_query).limit(50)
@@ -94,7 +102,14 @@ class ContactDB:
     async def get_contacts_by_tag(managed_by_account: str, tag: str) -> List[Contact]:
         """Get contacts by tag"""
         try:
-            cursor = mongodb.db.contacts.find({"managed_by_account": managed_by_account, "tags": tag}).limit(50)
+            # Validate inputs to prevent injection
+            if not managed_by_account or not tag:
+                return []
+                
+            # Sanitize tag input
+            safe_tag = str(tag).strip()
+            
+            cursor = mongodb.db.contacts.find({"managed_by_account": managed_by_account, "tags": safe_tag}).limit(50)
             contacts = []
             async for data in cursor:
                 contacts.append(Contact.from_dict(data))

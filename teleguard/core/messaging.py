@@ -164,19 +164,31 @@ class MessagingManager:
         try:
             now = datetime.now()
             
-            # Default replacements
+            # Sanitize target_info to prevent injection
+            safe_target_info = {}
+            if target_info:
+                for key, value in target_info.items():
+                    if isinstance(value, str):
+                        # Remove potentially dangerous characters
+                        safe_value = re.sub(r'[<>"\\{}]', '', str(value)[:100])
+                        safe_target_info[key] = safe_value
+                    else:
+                        safe_target_info[key] = str(value)[:100]
+            
+            # Default replacements with safe values
             replacements = {
                 "{time}": now.strftime("%H:%M"),
                 "{date}": now.strftime("%Y-%m-%d"),
                 "{datetime}": now.strftime("%Y-%m-%d %H:%M"),
-                "{name}": target_info.get("first_name", "Friend") if target_info else "Friend",
-                "{username}": f"@{target_info.get('username')}" if target_info and target_info.get("username") else "Friend",
-                "{full_name}": f"{target_info.get('first_name', '')} {target_info.get('last_name', '')}".strip() if target_info else "Friend"
+                "{name}": safe_target_info.get("first_name", "Friend"),
+                "{username}": f"@{safe_target_info.get('username')}" if safe_target_info.get("username") else "Friend",
+                "{full_name}": f"{safe_target_info.get('first_name', '')} {safe_target_info.get('last_name', '')}".strip() or "Friend"
             }
             
-            # Replace variables
+            # Replace variables safely
             for var, value in replacements.items():
-                content = content.replace(var, value)
+                if var in content:
+                    content = content.replace(var, str(value))
             
             return content
             

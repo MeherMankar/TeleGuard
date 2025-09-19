@@ -42,9 +42,14 @@ class AutomationWorker:
         """Process pending automation jobs"""
         try:
             current_time = datetime.utcnow().isoformat()
+            # Validate current_time to prevent injection
+            if not isinstance(current_time, str):
+                logger.error("Invalid current_time format")
+                return
+                
             jobs = await mongodb.db.automation_jobs.find(
                 {"enabled": True, "next_run": {"$lte": current_time}}
-            ).to_list(length=None)
+            ).to_list(length=100)  # Limit results
 
             for job in jobs:
                 await self._execute_job(job)
@@ -57,7 +62,15 @@ class AutomationWorker:
         try:
             import json
 
-            config = json.loads(job["job_config"])
+            # Safely parse job config to prevent code injection
+            try:
+                config = json.loads(job["job_config"])
+                if not isinstance(config, dict):
+                    logger.error(f"Invalid job config format for job {job['_id']}")
+                    return
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in job config for job {job['_id']}: {e}")
+                return
 
             if job["job_type"] == "auto_reply":
                 await self._handle_auto_reply(job["account_id"], config)
@@ -95,10 +108,20 @@ class AutomationWorker:
     async def _handle_online_maker(self, account_id: str, config: Dict[str, Any]):
         """Handle online maker job"""
         if hasattr(self.bot_manager, "fullclient_manager"):
-            # Get user_id from account
+            # Get user_id from account with validation
             from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id)})
+            from bson.errors import InvalidId
+            
+            try:
+                # Validate ObjectId format to prevent injection
+                if not ObjectId.is_valid(account_id):
+                    logger.error(f"Invalid account_id format: {account_id}")
+                    return
+                    
+                account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id)})
+            except InvalidId as e:
+                logger.error(f"Invalid ObjectId: {account_id} - {e}")
+                return
             if account:
                 await self.bot_manager.fullclient_manager.update_online_status(
                     account["user_id"], account_id

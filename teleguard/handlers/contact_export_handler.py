@@ -76,8 +76,8 @@ class ContactExportHandler:
             # Start export process
             try:
                 await event.edit("📇 **Exporting Contacts...**\n\n⏳ Please wait while we fetch your contacts...")
-            except Exception:
-                pass  # Ignore edit errors
+            except Exception as e:
+                logger.warning(f"Failed to edit message: {e}")
             
             try:
                 contacts_data = await self.export_contacts(client, account_name)

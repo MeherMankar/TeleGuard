@@ -65,9 +65,11 @@ class Secure2FAManager:
         except errors.EmailUnconfirmedError as e:
             # Email confirmation required
             logger.info(f"Email confirmation required: {e}")
+            import html
+            safe_email = html.escape(str(email)) if email else "your email"
             return (
                 False,
-                f"Email confirmation required. A code was sent to {email}. Please confirm and try again.",
+                f"Email confirmation required. A code was sent to {safe_email}. Please confirm and try again.",
             )
 
         except errors.PasswordHashInvalidError:
@@ -129,9 +131,11 @@ class Secure2FAManager:
 
         except errors.EmailUnconfirmedError as e:
             logger.info(f"Email confirmation required: {e}")
+            import html
+            safe_email = html.escape(str(email)) if email else "your email"
             return (
                 False,
-                f"Email confirmation required. A code was sent to {email}. Please confirm and try again.",
+                f"Email confirmation required. A code was sent to {safe_email}. Please confirm and try again.",
             )
 
         except errors.PasswordTooFreshError:

@@ -346,6 +346,11 @@ class UnifiedMessagingSystem:
     async def _find_existing_topic(self, admin_group_id: int, sender_id: int, account_id: int) -> Optional[int]:
         """Find existing topic for sender and account combination"""
         try:
+            # Validate inputs to prevent injection
+            if not all(isinstance(x, int) for x in [admin_group_id, sender_id, account_id]):
+                logger.error("Invalid input types for topic mapping")
+                return None
+                
             # First check database for existing mapping
             mapping = await mongodb.db.topic_mappings.find_one({
                 "admin_group_id": admin_group_id,
@@ -469,6 +474,11 @@ class UnifiedMessagingSystem:
     async def _get_topic_mapping(self, admin_group_id: int, topic_id: int) -> Optional[dict]:
         """Get user and account mapping from database"""
         try:
+            # Validate inputs to prevent injection
+            if not isinstance(admin_group_id, int) or not isinstance(topic_id, int):
+                logger.error("Invalid input types for topic mapping lookup")
+                return None
+                
             mapping = await mongodb.db.topic_mappings.find_one({
                 "admin_group_id": admin_group_id,
                 "topic_id": topic_id

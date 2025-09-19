@@ -64,7 +64,7 @@ services:
 
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-teleguard}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme123}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-SecureMongoPass2024!}
       MONGO_INITDB_DATABASE: teleguard
 
     volumes:
@@ -102,7 +102,7 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --requirepass ${REDIS_PASSWORD:-changeme123}
+      --requirepass ${REDIS_PASSWORD:-SecureRedisPass2024!}
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
       --save 900 1
@@ -204,7 +204,7 @@ services:
       - "${GRAFANA_PORT:-3000}:3000"
 
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-SecureGrafanaPass2024!}
       - GF_USERS_ALLOW_SIGN_UP=false
 
     volumes:

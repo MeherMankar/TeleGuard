@@ -42,7 +42,7 @@ class LocalJSONDB:
 
     def _calculate_sha(self, content: str) -> str:
         """Calculate SHA hash for content (simulates GitHub SHA)"""
-        return hashlib.sha1(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode()).hexdigest()
 
     def get_json(
         self, path: str, decrypt_with_fernet: Optional[Fernet] = None

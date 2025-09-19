@@ -31,9 +31,12 @@ class TurnstileBypass:
         """Get Cloudflare clearance token"""
         try:
             response = self.session.get(url)
-            if 'cf_clearance' in self.session.cookies:
-                return self.session.cookies['cf_clearance']
-            return None
+            try:
+                if 'cf_clearance' in self.session.cookies:
+                    return self.session.cookies['cf_clearance']
+                return None
+            finally:
+                response.close()
         except Exception as e:
             logger.error(f"CF clearance failed: {e}")
             return None

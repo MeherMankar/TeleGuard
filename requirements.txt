@@ -3,9 +3,10 @@ telethon==1.28.5
 
 # Cryptography and Security
 cryptography>=43.0.1
-argon2-cffi==23.1.0
+argon2-cffi>=23.1.0
 argon2-cffi-bindings>=21.2.0
 python-gnupg==0.5.2
+bleach>=6.0.0
 
 # Database
 pymongo>=4.6.3
@@ -56,6 +57,10 @@ prometheus-client>=0.17.0
 click>=8.1.0
 rich>=13.4.0
 typer>=0.9.0
+
+# Security enhancements
+argon2-cffi>=23.1.0
+bleach>=6.0.0
 
 # Web Automation for Captcha Bypass
 selenium>=4.15.0

@@ -161,6 +161,10 @@ class SessionBackupManager:
     def ensure_local_clone(self):
         """Ensure local git clone exists and is up to date"""
         if not self.workdir.exists():
+            # Use absolute path to git and validate repo URL
+            if not self.github_repo or not self.github_repo.startswith(("https://", "git@")):
+                raise ValueError("Invalid GitHub repository URL")
+            
             subprocess.run(
                 ["/usr/bin/git", "clone", self.github_repo, str(self.workdir)],
                 check=True,
@@ -192,7 +196,12 @@ class SessionBackupManager:
         sessions_dir = self.workdir / "sessions"
         sessions_dir.mkdir(exist_ok=True)
 
-        file_path = sessions_dir / f"{account_id}.enc"
+        # Sanitize account_id to prevent path traversal
+        safe_account_id = "".join(c for c in account_id if c.isalnum() or c in "_-")
+        if not safe_account_id or safe_account_id != account_id:
+            raise ValueError(f"Invalid account_id: {account_id}")
+        
+        file_path = sessions_dir / f"{safe_account_id}.enc"
         with open(file_path, "wb") as f:
             f.write(encrypted_bytes)
 
