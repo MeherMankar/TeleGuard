@@ -274,37 +274,19 @@ async def main() -> None:
         logger.info("Starting TeleGuard Bot...")
 
         try:
-            # Use startup optimizer for cloud deployments
-            from teleguard.utils.startup_optimizer import startup_optimizer
-            
-            # Use simplified cloud bot for cloud deployments
-            if startup_optimizer.is_cloud_deployment:
-                from teleguard.utils.cloud_bot_manager import cloud_bot
-                success = await cloud_bot.start()
-                if success:
-                    logger.info("Cloud bot started successfully")
-                    await cloud_bot.keep_alive()
-                else:
-                    logger.error("Failed to start cloud bot")
-                bot = None
-            else:
-                async def start_bot():
-                    async with AccountManager() as bot:
-                        logger.info("TeleGuard Bot successfully started")
-                        return bot
-                
-                bot = await startup_optimizer.optimize_startup(start_bot)
-            
-            if not startup_optimizer.is_cloud_deployment and bot:
+            # Start the full bot normally
+            async with AccountManager() as bot:
+                logger.info("TeleGuard Bot successfully started")
                 print("\nBot is running! Press Ctrl+C to stop.\n")
+                
+                # Keep bot running with proper error handling
                 try:
                     await bot.bot.run_until_disconnected()
                 except Exception as e:
-                    logger.error(f"Bot disconnected: {e}")
-            
-            # Keep the health server running
-            while True:
-                await asyncio.sleep(60)
+                    logger.error(f"Bot error: {e}")
+                    # Keep health server running even if bot has issues
+                    while True:
+                        await asyncio.sleep(60)
         finally:
             # Cleanup web server
             if web_runner:
