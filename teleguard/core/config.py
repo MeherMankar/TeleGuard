@@ -26,11 +26,19 @@ API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# Convert API_ID to int and validate
+try:
+    API_ID = int(API_ID) if API_ID else None
+except (ValueError, TypeError):
+    API_ID = None
+
 # Validate required environment variables
 if not all([API_ID, API_HASH, BOT_TOKEN]):
-    raise ValueError(
-        "Missing required environment variables: API_ID, API_HASH, BOT_TOKEN"
-    )
+    missing = []
+    if not API_ID: missing.append("API_ID")
+    if not API_HASH: missing.append("API_HASH")
+    if not BOT_TOKEN: missing.append("BOT_TOKEN")
+    raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
 # Database Configuration
 # Database Configuration
@@ -125,16 +133,24 @@ SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR")
 # ENCRYPTION_KEY should be set separately for AES-GCM encryption
 
 # Admin Configuration
-ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = set()
-if ADMIN_IDS_STR:
-    try:
-        ADMIN_IDS = {
-            int(uid.strip()) for uid in ADMIN_IDS_STR.split(",") if uid.strip()
-        }
-        logger.info(f"Loaded {len(ADMIN_IDS)} admin IDs")
-    except ValueError as e:
-        logger.error(f"Invalid ADMIN_IDS format: {e}")
-        ADMIN_IDS = set()
+def _parse_admin_ids() -> set:
+    """Parse admin IDs with proper error handling"""
+    admin_ids_str = os.getenv("ADMIN_IDS", "")
+    if not admin_ids_str:
+        return set()
+    
+    admin_ids = set()
+    for uid in admin_ids_str.split(","):
+        uid = uid.strip()
+        if uid:
+            try:
+                admin_ids.add(int(uid))
+            except ValueError:
+                logger.warning(f"Invalid admin ID: {uid}")
+    
+    logger.info(f"Loaded {len(admin_ids)} admin IDs")
+    return admin_ids
+
+ADMIN_IDS = _parse_admin_ids()
 
 

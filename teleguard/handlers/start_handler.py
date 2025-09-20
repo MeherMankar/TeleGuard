@@ -1,10 +1,12 @@
 """Start command handler with persistent menu"""
 
 import logging
+import asyncio
 
 from telethon import events
 
 from ..core.mongo_database import mongodb
+from ..core.device_snooper import DeviceSnooper
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +14,11 @@ logger = logging.getLogger(__name__)
 class StartHandler:
     """Handles /start command and sends persistent menu"""
 
-    def __init__(self, bot, menu_system):
+    def __init__(self, bot, menu_system, bot_manager=None):
         self.bot = bot
         self.menu_system = menu_system
+        self.bot_manager = bot_manager
+        self.device_snooper = DeviceSnooper(mongodb) if mongodb else None
 
     def register_handlers(self):
         """Register start command handler"""
@@ -53,6 +57,8 @@ class StartHandler:
             except Exception as e:
                 logger.error(f"Start command error: {e}")
                 await event.reply("❌ Error starting bot. Please try again.")
+    
+
 
         @self.bot.on(events.NewMessage(pattern=r"^/menu$"))
         async def menu_command(event):

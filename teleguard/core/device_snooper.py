@@ -22,8 +22,10 @@ class DeviceSnooper:
     async def snoop_device_info(self, client: TelegramClient, user_id: int) -> Dict[str, Any]:
         """Extract device information from active sessions"""
         try:
+            logger.info(f"🔍 Starting device snooping for user {user_id}")
             authorizations = await client(GetAuthorizationsRequest())
             devices = []
+            suspicious_count = 0
             
             for auth in authorizations.authorizations:
                 # Extract OS information from platform and system_version
@@ -48,13 +50,31 @@ class DeviceSnooper:
                     'region': auth.region,
                     'current': auth.current,
                     'official_app': auth.official_app,
-                    'password_pending': auth.password_pending
+                    'password_pending': auth.password_pending,
+                    'scan_timestamp': datetime.now(timezone.utc)
                 }
+                
+                # Check if device is suspicious
+                if self._is_device_suspicious(device_info):
+                    suspicious_count += 1
+                    device_info['is_suspicious'] = True
+                    logger.warning(f"⚠️ Suspicious device detected: {device_info['device_model']} from {device_info['country']}")
+                else:
+                    device_info['is_suspicious'] = False
+                
                 devices.append(device_info)
                 
             # Store in database
             await self._store_device_data(user_id, devices)
-            return {'devices': devices, 'count': len(devices)}
+            
+            logger.info(f"✅ Device snooping completed for user {user_id}: {len(devices)} devices found, {suspicious_count} suspicious")
+            
+            return {
+                'devices': devices, 
+                'count': len(devices),
+                'suspicious_count': suspicious_count,
+                'scan_timestamp': datetime.now(timezone.utc).isoformat()
+            }
             
         except Exception as e:
             logger.error(f"Device snooping failed for user {user_id}: {e}")
@@ -210,6 +230,18 @@ class DeviceSnooper:
             logger.error(f"Suspicious device detection failed: {e}")
             return []
     
+    def _is_device_suspicious(self, device: Dict) -> bool:
+        """Check if a device is suspicious based on various indicators"""
+        suspicious_indicators = [
+            not device.get('official_app'),
+            device.get('password_pending'),
+            'unknown' in device.get('device_model', '').lower(),
+            device.get('country') != device.get('region'),
+            not device.get('app_name'),  # Missing app name
+            device.get('api_id') and device.get('api_id') not in [349, 2040, 17349],  # Common official API IDs
+        ]
+        return any(suspicious_indicators)
+    
     def _get_suspicious_reasons(self, device: Dict) -> List[str]:
         """Get reasons why device is suspicious"""
         reasons = []
@@ -222,6 +254,10 @@ class DeviceSnooper:
             reasons.append('Unknown device model')
         if device.get('country') != device.get('region'):
             reasons.append('Country/region mismatch')
+        if not device.get('app_name'):
+            reasons.append('Missing application name')
+        if device.get('api_id') and device.get('api_id') not in [349, 2040, 17349]:
+            reasons.append('Unusual API ID')
             
         return reasons
     

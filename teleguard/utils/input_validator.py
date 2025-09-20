@@ -16,13 +16,13 @@ class InputValidator:
     @staticmethod
     def validate_user_id(user_id: Any) -> Optional[int]:
         """Validate and sanitize user ID"""
+        if user_id is None:
+            return None
         try:
             uid = int(user_id)
-            if uid > 0:
-                return uid
-        except (ValueError, TypeError):
-            pass
-        return None
+            return uid if uid > 0 else None
+        except (ValueError, TypeError, OverflowError):
+            return None
     
     @staticmethod
     def validate_object_id(obj_id: Any) -> Optional[str]:
@@ -37,13 +37,13 @@ class InputValidator:
     @staticmethod
     def validate_phone_number(phone: str) -> Optional[str]:
         """Validate phone number format"""
-        if not isinstance(phone, str):
+        if not isinstance(phone, str) or not phone.strip():
             return None
         
         # Remove all non-digit characters except +
-        clean_phone = re.sub(r'[^\d+]', '', phone)
+        clean_phone = re.sub(r'[^\d+]', '', phone.strip())
         
-        # Check if it matches international format
+        # Must start with + and have 10-15 digits
         if re.match(r'^\+\d{10,15}$', clean_phone):
             return clean_phone
         
@@ -83,11 +83,12 @@ class InputValidator:
         if not isinstance(text, str):
             return ""
         
-        # Remove null bytes and control characters
+        # Remove null bytes and control characters (except newlines and tabs)
         clean_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
         
-        # Limit length
-        return clean_text[:max_length].strip()
+        # Normalize whitespace and limit length
+        clean_text = ' '.join(clean_text.split())
+        return clean_text[:max_length] if clean_text else ""
     
     @staticmethod
     def validate_database_field(field_name: str) -> bool:

