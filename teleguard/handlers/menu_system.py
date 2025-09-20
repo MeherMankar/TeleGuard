@@ -816,6 +816,10 @@ class MenuSystem:
                 elif data.startswith("dev:"):
                     await self._handle_developer_callback(event, user_id, data)
 
+                elif data.startswith("device:"):
+                    # Route to the new device handler logic
+                    await self._handle_device_callback(event, user_id, data)
+
                 elif data.startswith("menu:"):
                     await self._handle_menu_callback(event, user_id, data)
 
@@ -1460,22 +1464,31 @@ class MenuSystem:
         """Handle device snooping callbacks"""
         try:
             if not hasattr(self.account_manager, 'device_handler'):
-                # Initialize device handler if not exists
                 from ..handlers.device_handler import DeviceHandler
                 self.account_manager.device_handler = DeviceHandler(mongodb, self.account_manager)
             
             device_handler = self.account_manager.device_handler
-            
-            if data == "device_scan":
-                await device_handler.scan_devices(event, None)
-            elif data == "device_history":
-                await device_handler.show_device_history(event, None)
-            elif data == "device_suspicious":
-                await device_handler.show_suspicious_devices(event, None)
-            elif data == "device_terminate":
-                await device_handler.terminate_sessions(event, None)
-            elif data == "device_menu":
-                await device_handler.device_menu(event, None)
+
+            parts = data.split(':')
+            action = parts[1] if len(parts) > 1 else "menu"
+            account_id = parts[2] if len(parts) > 2 else None
+
+            if action == "menu":
+                await device_handler.device_menu(event)
+            elif action == "scan":
+                await device_handler.scan_devices(event)
+            elif action == "scan_account":
+                await device_handler.scan_devices(event, account_id)
+            elif action == "history":
+                await device_handler.show_device_history(event)
+            elif action == "history_account":
+                await device_handler.show_device_history(event, account_id)
+            elif action == "suspicious":
+                await device_handler.show_suspicious_devices(event)
+            elif action == "suspicious_account":
+                await device_handler.show_suspicious_devices(event, account_id)
+            # Terminate is a destructive action, so it's better to keep it explicit
+            # and add confirmation steps within the handler itself.
             else:
                 await event.answer("❌ Unknown device action")
                 

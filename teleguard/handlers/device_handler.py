@@ -1,207 +1,248 @@
 """
 Device Snooping Handler for TeleGuard
-Handles device monitoring commands and notifications
+
+Handles UI and logic for device monitoring, history, and session termination.
 """
 
 import logging
-from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
+from telethon import Button, events
 from ..core.device_snooper import DeviceSnooper
-from ..utils.database import Database
-
-from ..core.account_manager import AccountManager
+from ..core.mongo_database import mongodb
+from ..utils.network_helpers import format_display_name
 
 logger = logging.getLogger(__name__)
 
 class DeviceHandler:
-    def __init__(self, db: Database, account_manager: AccountManager):
+    def __init__(self, db, bot_manager):
         self.db = db
-        self.account_manager = account_manager
-        self.device_snooper = DeviceSnooper(db)
-    
-    async def device_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show device snooping menu"""
-        keyboard = [
-            [InlineKeyboardButton("🔍 Scan Devices", callback_data="device_scan")],
-            [InlineKeyboardButton("📱 Device History", callback_data="device_history")],
-            [InlineKeyboardButton("⚠️ Suspicious Devices", callback_data="device_suspicious")],
-            [InlineKeyboardButton("🔒 Terminate Sessions", callback_data="device_terminate")],
-            [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
-        ]
+        self.bot_manager = bot_manager
+        self.bot = bot_manager.bot
+        self.snooper = DeviceSnooper(db)
+        self.user_clients = bot_manager.user_clients
+
+    async def device_menu(self, event):
+        """Shows the main device snooper menu."""
+        user_id = event.sender_id
+        accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
         
-        text = "🕵️ **Device Snooping**\n\n" \
-               "Monitor and track device information from your Telegram sessions:\n\n" \
-               "🔍 **Scan Devices** - Get current device info\n" \
-               "📱 **Device History** - View stored device data\n" \
-               "⚠️ **Suspicious Devices** - Detect potential threats\n" \
-               "🔒 **Terminate Sessions** - End suspicious sessions"
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        if update.callback_query:
-            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-        else:
-            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
-    
-    async def scan_devices(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Scan devices for all user accounts"""
-        user_id = update.effective_user.id
-        await update.callback_query.answer("Scanning devices...")
-        
-        try:
-            accounts = await self.account_manager.get_user_accounts(user_id)
-            if not accounts:
-                await update.callback_query.edit_message_text("❌ No accounts found. Add accounts first.")
-                return
-            
-            total_devices = 0
-            results = []
-            
-            for account in accounts:
-                client = await self.account_manager.get_client(user_id, account['phone'])
-                if client:
-                    device_info = await self.device_snooper.snoop_device_info(client, user_id)
-                    total_devices += device_info.get('count', 0)
-                    results.append(f"📱 {account['phone']}: {device_info.get('count', 0)} devices")
-            
-            text = f"🔍 **Device Scan Complete**\n\n" \
-                   f"📊 **Total Devices Found**: {total_devices}\n\n" + \
-                   "\n".join(results)
-            
-            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="device_menu")]]
-            await update.callback_query.edit_message_text(
-                text, 
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-            
-        except Exception as e:
-            logger.error(f"Device scan failed: {e}")
-            await update.callback_query.edit_message_text(f"❌ Scan failed: {str(e)}")
-    
-    async def show_device_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show device history"""
-        user_id = update.effective_user.id
-        
-        try:
-            history = await self.device_snooper.get_device_history(user_id)
-            devices = history.get('devices', [])
-            
-            if not devices:
-                text = "📱 **Device History**\n\n❌ No device data found."
-            else:
-                text = f"📱 **Device History**\n\n📊 **Total Devices**: {len(devices)}\n\n"
-                
-                for i, device in enumerate(devices[:5]):  # Show first 5
-                    device_emoji = self._get_device_emoji(device.get('device_type', 'Unknown'))
-                    text += f"**Device {i+1}:**\n" \
-                           f"{device_emoji} {device.get('device_type', 'Unknown')}: {device.get('device_model', 'Unknown')}\n" \
-                           f"💻 OS: {device.get('os_name', 'Unknown')} {device.get('os_version', '')}\n" \
-                           f"🏗️ Arch: {device.get('os_architecture', 'Unknown')}\n" \
-                           f"🌍 Location: {device.get('country', 'Unknown')}\n" \
-                           f"📅 Last Active: {device.get('date_active', 'Unknown')}\n\n"
-                
-                if len(devices) > 5:
-                    text += f"... and {len(devices) - 5} more devices"
-            
-            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="device_menu")]]
-            await update.callback_query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-            
-        except Exception as e:
-            logger.error(f"Device history failed: {e}")
-            await update.callback_query.edit_message_text(f"❌ Failed to load history: {str(e)}")
-    
-    async def show_suspicious_devices(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show suspicious devices"""
-        user_id = update.effective_user.id
-        
-        try:
-            suspicious = await self.device_snooper.detect_suspicious_devices(user_id)
-            
-            if not suspicious:
-                text = "⚠️ **Suspicious Devices**\n\n✅ No suspicious devices detected."
-            else:
-                text = f"⚠️ **Suspicious Devices**\n\n🚨 **Found {len(suspicious)} suspicious devices:**\n\n"
-                
-                for i, item in enumerate(suspicious[:3]):  # Show first 3
-                    device = item['device']
-                    reasons = item['reasons']
-                    
-                    device_emoji = self._get_device_emoji(device.get('device_type', 'Unknown'))
-                    text += f"**Device {i+1}:**\n" \
-                           f"{device_emoji} {device.get('device_type', 'Unknown')}: {device.get('device_model', 'Unknown')}\n" \
-                           f"💻 {device.get('os_name', 'Unknown')} {device.get('os_version', '')}\n" \
-                           f"🌍 {device.get('country', 'Unknown')}\n" \
-                           f"⚠️ Reasons: {', '.join(reasons)}\n\n"
-            
-            keyboard = [
-                [InlineKeyboardButton("🔒 Terminate Suspicious", callback_data="device_terminate")],
-                [InlineKeyboardButton("🔙 Back", callback_data="device_menu")]
+        if not accounts:
+            text = "🕵️ **Device Snooper**\n\nNo active accounts found. Add accounts first to monitor device information."
+            buttons = [
+                [Button.inline("➕ Add Account", "account:add")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
-            
-            await update.callback_query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+        else:
+            text = (
+                "🕵️ **Device Snooper**\n\n"
+                "Monitor and track device information from your Telegram sessions:\n\n"
+                "🔍 **Scan Devices** - Get current device info\n"
+                "📱 **Device History** - View stored device data\n"
+                "⚠️ **Suspicious Devices** - Detect potential threats\n"
+                "🔒 **Terminate Sessions** - End suspicious sessions\n\n"
+                f"📊 **Status:** {len(accounts)} accounts available for monitoring"
             )
             
-        except Exception as e:
-            logger.error(f"Suspicious device check failed: {e}")
-            await update.callback_query.edit_message_text(f"❌ Check failed: {str(e)}")
-    
-    async def terminate_sessions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Terminate suspicious sessions"""
-        user_id = update.effective_user.id
-        await update.callback_query.answer("Terminating suspicious sessions...")
+            buttons = [
+                [Button.inline("🔍 Scan Devices", "device:scan")],
+                [Button.inline("📱 Device History", "device:history")],
+                [Button.inline("⚠️ Suspicious Devices", "device:suspicious")],
+                [Button.inline("🔒 Terminate Sessions", "device:terminate")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")]
+            ]
         
-        try:
-            accounts = await self.account_manager.get_user_accounts(user_id)
-            total_terminated = 0
-            
-            for account in accounts:
-                client = await self.account_manager.get_client(user_id, account['phone'])
-                if client:
-                    result = await self.device_snooper.terminate_suspicious_sessions(client, user_id)
-                    total_terminated += result.get('terminated_count', 0)
-            
-            text = f"🔒 **Session Termination Complete**\n\n" \
-                   f"✅ Terminated {total_terminated} suspicious sessions"
-            
-            keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="device_menu")]]
-            await update.callback_query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
-            )
-            
-        except Exception as e:
-            logger.error(f"Session termination failed: {e}")
-            await update.callback_query.edit_message_text(f"❌ Termination failed: {str(e)}")
-    
+        if hasattr(event, 'edit'):
+            await event.edit(text, buttons=buttons)
+        else:
+            await event.reply(text, buttons=buttons)
+
+    async def _select_account(self, event, action: str):
+        """Helper to show account selection menu."""
+        user_id = event.sender_id
+        accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
+
+        if not accounts:
+            await event.edit("No active accounts found.", buttons=[[Button.inline("🔙 Back", "device:menu")]])
+            return
+
+        buttons = []
+        for acc in accounts:
+            display_name = format_display_name(acc)
+            buttons.append([Button.inline(f"📱 {display_name}", f"device:{action}_account:{acc['_id']}")])
+        
+        buttons.append([Button.inline("🔙 Back", "device:menu")])
+        
+        action_title = action.replace("_", " ").title()
+        await event.edit(f"🕵️ **{action_title}**\n\nSelect an account:", buttons=buttons)
+
+    async def scan_devices(self, event, account_id=None):
+        """Scan active devices for an account."""
+        user_id = event.sender_id
+        if not account_id:
+            await self._select_account(event, "scan")
+            return
+
+        await event.edit("🔍 Scanning for devices... please wait.")
+        
+        from bson import ObjectId
+        account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+        if not account:
+            await event.edit("❌ Account not found.")
+            return
+
+        client = self._get_client_for_account(user_id, account)
+        if not client:
+            await event.edit("❌ Account not connected.")
+            return
+
+        result = await self.snooper.snoop_device_info(client, user_id)
+        
+        if 'error' in result:
+            await event.edit(f"❌ Error scanning devices: {result['error']}")
+            return
+
+        text = f"🔍 **Active Devices for {format_display_name(account)}** ({result['count']} found)\n\n"
+        if not result['devices']:
+            text += "No active devices found."
+        else:
+            for dev in result['devices']:
+                device_emoji = self._get_device_emoji(dev.get('device_type', 'Unknown'))
+                current_marker = " (Current)" if dev.get('current') else ""
+                text += f"{device_emoji} **{dev.get('device_model', 'Unknown')}**{current_marker}\n"
+                text += f"   OS: {dev.get('os_name', 'N/A')} {dev.get('os_version', 'N/A')}\n"
+                text += f"   App: {dev.get('app_name', 'N/A')} {dev.get('app_version', 'N/A')}\n"
+                text += f"   IP: {dev.get('ip', 'N/A')} ({dev.get('country', 'N/A')})\n"
+                if dev.get('date_active'):
+                    text += f"   Last Active: {dev['date_active'].strftime('%Y-%m-%d %H:%M')}\n\n"
+                else:
+                    text += "\n"
+
+        buttons = [
+            [Button.inline("🔄 Refresh", f"device:scan_account:{account_id}")],
+            [Button.inline("🔙 Back", "device:scan")]
+        ]
+        await event.edit(text, buttons=buttons)
+
+    async def show_device_history(self, event, account_id=None):
+        """Show device history for an account."""
+        user_id = event.sender_id
+        if not account_id:
+            await self._select_account(event, "history")
+            return
+
+        await event.edit("📚 Loading device history... please wait.")
+        
+        from bson import ObjectId
+        account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+        if not account:
+            await event.edit("❌ Account not found.")
+            return
+
+        result = await self.snooper.get_device_history(user_id)
+        
+        if 'error' in result:
+            await event.edit(f"❌ Error loading history: {result['error']}")
+            return
+
+        text = f"📚 **Device History for {format_display_name(account)}** ({result['count']} found)\n\n"
+        if not result['devices']:
+            text += "No device history found."
+        else:
+            for dev in result['devices']:
+                device_emoji = self._get_device_emoji(dev.get('device_type', 'Unknown'))
+                text += f"{device_emoji} **{dev.get('device_model', 'Unknown')}**\n"
+                text += f"   OS: {dev.get('os_name', 'N/A')} {dev.get('os_version', 'N/A')}\n"
+                if dev.get('date_active'):
+                    text += f"   Last Active: {dev['date_active'].strftime('%Y-%m-%d %H:%M')}\n\n"
+                else:
+                    text += "\n"
+
+        buttons = [
+            [Button.inline("🔄 Refresh", f"device:history_account:{account_id}")],
+            [Button.inline("🔙 Back", "device:history")]
+        ]
+        await event.edit(text, buttons=buttons)
+
+    async def show_suspicious_devices(self, event, account_id=None):
+        """Show suspicious devices for an account."""
+        user_id = event.sender_id
+        if not account_id:
+            await self._select_account(event, "suspicious")
+            return
+
+        await event.edit("⚠️ Detecting suspicious devices... please wait.")
+        
+        from bson import ObjectId
+        account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+        if not account:
+            await event.edit("❌ Account not found.")
+            return
+
+        suspicious_devices = await self.snooper.detect_suspicious_devices(user_id)
+        
+        text = f"⚠️ **Suspicious Devices for {format_display_name(account)}** ({len(suspicious_devices)} found)\n\n"
+        if not suspicious_devices:
+            text += "✅ No suspicious devices detected."
+        else:
+            for item in suspicious_devices:
+                dev = item['device']
+                reasons = ", ".join(item['reasons'])
+                device_emoji = self._get_device_emoji(dev.get('device_type', 'Unknown'))
+                text += f"{device_emoji} **{dev.get('device_model', 'Unknown')}**\n"
+                text += f"   Reasons: {reasons}\n\n"
+
+        buttons = [
+            [Button.inline("🔄 Refresh", f"device:suspicious_account:{account_id}")],
+            [Button.inline("🔙 Back", "device:suspicious")]
+        ]
+        await event.edit(text, buttons=buttons)
+
+    def _get_client_for_account(self, user_id, account):
+        """Helper to get a connected client for an account."""
+        account_name = account.get('name') or account.get('phone')
+        client = self.user_clients.get(user_id, {}).get(account_name)
+        if client and client.is_connected():
+            return client
+        return None
+
     def _get_device_emoji(self, device_type: str) -> str:
-        """Get emoji for device type"""
+        """Get an emoji for a device type."""
         emoji_map = {
             'Mobile': '📱',
-            'Tablet': '📱',
+            'Tablet': '📲',
             'Laptop': '💻',
             'Desktop': '🖥️',
             'Web': '🌐',
-            'Computer': '💻',
+            'Computer': '🖱️',
             'Unknown': '❓'
         }
         return emoji_map.get(device_type, '❓')
 
-def register_handlers(application, db: Database, account_manager: AccountManager):
-    """Register device snooping handlers"""
-    handler = DeviceHandler(db, account_manager)
-    
-    application.add_handler(CallbackQueryHandler(handler.device_menu, pattern="^device_menu$"))
-    application.add_handler(CallbackQueryHandler(handler.scan_devices, pattern="^device_scan$"))
-    application.add_handler(CallbackQueryHandler(handler.show_device_history, pattern="^device_history$"))
-    application.add_handler(CallbackQueryHandler(handler.show_suspicious_devices, pattern="^device_suspicious$"))
-    application.add_handler(CallbackQueryHandler(handler.terminate_sessions, pattern="^device_terminate$"))
+def register_handlers(bot, db, bot_manager):
+    """Register device snooping handlers."""
+    handler = DeviceHandler(db, bot_manager)
+
+    @bot.on(events.CallbackQuery(pattern=b"device:"))
+    async def device_callback_handler(event):
+        user_id = event.sender_id
+        data = event.data.decode('utf-8')
+        parts = data.split(':')
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else None
+
+        if action == "menu":
+            await handler.device_menu(event)
+        elif action == "scan":
+            await handler.scan_devices(event)
+        elif action == "scan_account":
+            await handler.scan_devices(event, account_id)
+        elif action == "history":
+            await handler.show_device_history(event)
+        elif action == "history_account":
+            await handler.show_device_history(event, account_id)
+        elif action == "suspicious":
+            await handler.show_suspicious_devices(event)
+        elif action == "suspicious_account":
+            await handler.show_suspicious_devices(event, account_id)
+        # Add terminate logic here if needed
+        else:
+            await event.answer("Unknown action")

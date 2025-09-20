@@ -14,5 +14,5 @@ setup(
         "APScheduler==3.10.4",
         "requests>=2.31.0",
     ],
-    python_requires=">=3.11",
+    python_requires=">=3.12",
 )

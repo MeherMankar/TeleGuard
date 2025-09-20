@@ -134,6 +134,11 @@ class BotManager:
         
         self.contact_handler = ContactHandler(self)
         
+        # Initialize device snooper handler
+        from ..handlers.device_handler import DeviceHandler, register_handlers
+        self.device_handler = DeviceHandler(mongodb, self)
+        register_handlers(self.bot, mongodb, self)
+
         # Initialize contact export handler
         from ..handlers.contact_export_handler import ContactExportHandler
         
@@ -472,6 +477,12 @@ class BotManager:
             logger.warning(
                 f"Contact handler setup error (continuing): {contact_error}"
             )
+
+        try:
+            # Device handler is now registered in __init__
+            logger.info("🕵️ Device snooper handlers registered")
+        except Exception as device_error:
+            logger.warning(f"Device handler setup error (continuing): {device_error}")
             
         try:
             self.contact_export_handler.setup_handlers()

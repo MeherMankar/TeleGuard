@@ -1,5 +1,5 @@
 # Multi-stage build for production optimization
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 # Set build arguments
 ARG BUILD_DATE
@@ -34,7 +34,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.12-slim as production
 
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
