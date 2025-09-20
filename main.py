@@ -293,6 +293,35 @@ async def main() -> None:
                     # Keep health server running even if bot has issues
                     while True:
                         await asyncio.sleep(60)
+        except Exception as e:
+            # Handle rate limits and other startup errors
+            if "FloodWaitError" in str(e) or "wait of" in str(e):
+                import re
+                wait_match = re.search(r'wait of (\d+) seconds', str(e))
+                if wait_match:
+                    wait_time = int(wait_match.group(1))
+                    logger.warning(f"Rate limited, waiting {wait_time} seconds...")
+                    print(f"\n[WAIT] Telegram rate limit hit. Waiting {wait_time} seconds...")
+                    print("[INFO] This is normal and the bot will start automatically.")
+                    
+                    # Keep health server running during wait
+                    await asyncio.sleep(min(wait_time, 300))  # Cap at 5 minutes
+                    
+                    # Retry startup
+                    logger.info("Retrying bot startup after rate limit...")
+                    try:
+                        async with AccountManager() as bot:
+                            logger.info("TeleGuard Bot started successfully after rate limit")
+                            await bot.bot.run_until_disconnected()
+                    except Exception as retry_error:
+                        logger.error(f"Retry failed: {retry_error}")
+                        # Keep health server running
+                        while True:
+                            await asyncio.sleep(60)
+                else:
+                    raise e
+            else:
+                raise e
         finally:
             # Cleanup web server
             if web_runner:

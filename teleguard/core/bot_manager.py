@@ -185,7 +185,26 @@ class BotManager:
         """Initialize bot, database, and load existing sessions"""
         try:
             await init_db()
-            await self.bot.start(bot_token=BOT_TOKEN)
+            
+            # Handle rate limits during bot startup
+            try:
+                await self.bot.start(bot_token=BOT_TOKEN)
+            except Exception as e:
+                if "FloodWaitError" in str(e) or "wait of" in str(e):
+                    import re
+                    wait_match = re.search(r'wait of (\d+) seconds', str(e))
+                    if wait_match:
+                        wait_time = int(wait_match.group(1))
+                        logger.warning(f"Bot startup rate limited, waiting {wait_time} seconds...")
+                        # Wait with a reasonable maximum
+                        await asyncio.sleep(min(wait_time, 300))  # Cap at 5 minutes
+                        # Retry startup
+                        await self.bot.start(bot_token=BOT_TOKEN)
+                    else:
+                        raise e
+                else:
+                    raise e
+            
             await self._load_existing_sessions()
             await self._setup_components()
             logger.info(
