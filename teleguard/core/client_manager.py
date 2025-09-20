@@ -345,15 +345,36 @@ class FullClientManager:
                 return None
 
             account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-            logger.info(f"Found account: {account_name}")
+            account_phone = account.get('phone')
+            logger.info(f"Found account: {account_name} (phone: {account_phone})")
+            
             # Get client from user_clients dict
             user_clients = self.user_clients.get(user_id, {})
             logger.info(
                 f"Available clients for user {user_id}: {list(user_clients.keys())}"
             )
+            
+            # Try multiple lookup strategies
+            client = None
+            
+            # 1. Try by account name
             client = user_clients.get(account_name)
             if client:
-                logger.info(f"Found client for {account_name}")
+                logger.info(f"Found client by name: {account_name}")
+            
+            # 2. Try by phone number if name lookup failed
+            if not client and account_phone:
+                client = user_clients.get(account_phone)
+                if client:
+                    logger.info(f"Found client by phone: {account_phone}")
+            
+            # 3. Try by display name if available
+            if not client and account.get('display_name'):
+                client = user_clients.get(account.get('display_name'))
+                if client:
+                    logger.info(f"Found client by display name: {account.get('display_name')}")
+            
+            if client:
                 if not client.is_connected():
                     logger.info(
                         f"Client for {account_name} is not connected, connecting..."
@@ -361,7 +382,9 @@ class FullClientManager:
                     await client.connect()
                     logger.info(f"Client for {account_name} connected.")
             else:
-                logger.error(f"No client found for {account_name}")
+                logger.error(f"No client found for {account_name} (phone: {account_phone})")
+                logger.error(f"Tried keys: {account_name}, {account_phone}, {account.get('display_name')}")
+            
             return client
 
         except Exception as e:

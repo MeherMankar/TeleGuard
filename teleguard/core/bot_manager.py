@@ -557,14 +557,19 @@ class BotManager:
             if user_id not in self.user_clients:
                 self.user_clients[user_id] = {}
 
-            # Store client using phone as key for consistency
+            # Store client with multiple keys for reliable lookup
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-            client_key = account.get('phone') if account else account_name
-            self.user_clients[user_id][client_key] = client
             
-            # Also store with account_name for backward compatibility
-            if client_key != account_name:
-                self.user_clients[user_id][account_name] = client
+            # Primary key: account name
+            self.user_clients[user_id][account_name] = client
+            
+            # Secondary key: phone number (if available)
+            if account and account.get('phone'):
+                self.user_clients[user_id][account.get('phone')] = client
+            
+            # Tertiary key: display name (if different from account name)
+            if account and account.get('display_name') and account.get('display_name') != account_name:
+                self.user_clients[user_id][account.get('display_name')] = client
 
             # Register OTP manager handler for this client (replaces old OTP destroyer)
             handler_key = f"{user_id}:{account_name}"
