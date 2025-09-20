@@ -280,8 +280,6 @@ async def main() -> None:
                 from teleguard.handlers.device_handler import register_handlers
                 
                 # Setup device snooping handlers
-                from teleguard.utils.database import Database
-                db_instance = Database()
                 register_handlers(bot.application, db_instance, bot)
                 
                 logger.info("TeleGuard Bot successfully started with device snooping")
