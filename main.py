@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""TeleGuard - Professional Telegram Account Manager
+
+A secure, professional-grade Telegram bot for managing multiple user accounts
+with advanced OTP destroyer protection against unauthorized access attempts.
+
+Developed by:
+- @Meher_Mankar (https://t.me/Meher_Mankar)
+- @Gutkesh (https://t.me/Gutkesh)
+
+Repository: https://github.com/MeherMankar/TeleGuard
+Support: https://t.me/ContactXYZrobot
+Documentation: https://github.com/MeherMankar/TeleGuard/wiki
+
+License: MIT
+Version: 2.0.0
+"""
+
+import asyncio
+import logging
+import os
+import signal
+import sys
+import time
+import traceback
+from pathlib import Path
+from typing import NoReturn
+
+from aiohttp import web
+
+try:
+    from teleguard import AccountManager
+    from teleguard.core.client_manager import get_client_manager
+    from teleguard.core.task_queue import task_queue
+    from teleguard.core.database_manager import init_database_manager, db_manager
+    from teleguard.utils.health_server import health_checker
+    from teleguard.utils.logger import get_logger
+except ImportError as e:
+    print(f"Failed to import TeleGuard modules: {e}")
+    print(
+        "💡 Please ensure all dependencies are installed: pip install -r requirements.txt"
+    )
+    sys.exit(1)
+
+# Configure professional logging
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+
+# Enhanced logging setup with rotation and structured format
+from logging.handlers import RotatingFileHandler
+
+# Create formatters
+detailed_formatter = logging.Formatter(
+    '%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+simple_formatter = logging.Formatter(
+    '%(levelname)s: %(message)s'
+)
+
+# Configure root logger
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# File handler with rotation (10MB max, keep 5 files)
+file_handler = RotatingFileHandler(
+    log_dir / "teleguard.log",
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5,
+    encoding="utf-8"
+)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(detailed_formatter)
+
+# Console handler for errors only
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.ERROR)
+console_handler.setFormatter(simple_formatter)
+
+# Set UTF-8 encoding for console output
+try:
+    import sys
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+except Exception:
+    pass  # Ignore encoding setup errors
+
+# Add handlers to root logger
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+# Configure specific loggers
+logging.getLogger("teleguard").setLevel(logging.INFO)
+logging.getLogger("teleguard.core").setLevel(logging.INFO)
+logging.getLogger("teleguard.handlers").setLevel(logging.INFO)
+logging.getLogger("teleguard.utils").setLevel(logging.INFO)
+
+# Silence noisy external modules
+for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "urllib3", "aiohttp"]:
+    logging.getLogger(mod).setLevel(logging.ERROR)
+
+logger = get_logger(__name__)
+
+# Global database instance
+db = None
+
+
+def initialize_database():
+    """Initialize database backend (legacy compatibility)"""
+    logger.info("Legacy database initialization skipped - using MongoDB")
+    return None
+
+
+async def perform_startup_checks() -> bool:
+    """Perform comprehensive startup health checks.
+
+    Returns:
+        bool: True if all checks pass, False otherwise
+    """
+    logger.info("🔍 Performing startup health checks...")
+
+    try:
+        health_status = await health_checker.get_health_status()
+
+        if health_status.get("status") == "healthy":
+            logger.info("✅ All health checks passed")
+            return True
+        else:
+            logger.error("❌ Health checks failed: %s", health_status.get("issues", []))
+            return False
+
+    except Exception as e:
+        logger.error("💥 Health check error: %s", str(e))
+        return False
+
+
+async def graceful_shutdown() -> None:
+    """Perform graceful shutdown of all services."""
+    logger.info("🔄 Initiating graceful shutdown...")
+
+    shutdown_tasks = []
+    start_time = time.time()
+
+    try:
+        # Stop task queue
+        logger.info("⏹️ Stopping task queue...")
+        shutdown_tasks.append(task_queue.stop())
+
+        # Shutdown client manager
+        logger.info("🔌 Shutting down client manager...")
+        client_manager = get_client_manager()
+        if client_manager:
+            shutdown_tasks.append(client_manager.shutdown_all_managed_clients())
+        else:
+            logger.debug("No client manager to shutdown")
+
+        # Wait for all shutdown tasks with timeout
+        logger.info("⏳ Waiting for shutdown tasks to complete (30s timeout)...")
+        await asyncio.wait_for(
+            asyncio.gather(*shutdown_tasks, return_exceptions=True), timeout=30.0
+        )
+
+        elapsed = time.time() - start_time
+        logger.info("✅ Graceful shutdown completed in %.2f seconds", elapsed)
+
+    except asyncio.TimeoutError:
+        elapsed = time.time() - start_time
+        logger.warning("⚠️ Shutdown timeout reached after %.2f seconds, forcing exit", elapsed)
+    except Exception as e:
+        logger.error("💥 Error during shutdown: %s", str(e))
+        logger.debug("Shutdown error details:", exc_info=True)
+
+    finally:
+        # Ensure logging is flushed
+        logger.debug("💾 Flushing log handlers...")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+
+def setup_signal_handlers() -> None:
+    """Setup signal handlers for graceful shutdown."""
+
+    def signal_handler(signum: int, frame) -> NoReturn:
+        signal_name = signal.Signals(signum).name
+        logger.info("📶 Received %s signal, initiating shutdown", signal_name)
+        print(f"\n📶 Received {signal_name} signal, shutting down gracefully...")
+
+        # Create shutdown task
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(graceful_shutdown())
+
+        sys.exit(0)
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
+
+    if hasattr(signal, "SIGHUP"):  # Unix only
+        signal.signal(signal.SIGHUP, signal_handler)
+
+
+async def health_check(request):
+    """Health check endpoint for cloud platforms"""
+    client_ip = request.remote
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    
+    logger.debug("🌡️ Health check from %s (UA: %s)", client_ip, user_agent)
+    
+    response_data = {
+        "status": "healthy", 
+        "service": "teleguard",
+        "timestamp": time.time()
+    }
+    
+    return web.json_response(response_data)
+
+
+async def start_web_server():
+    """Start web server for cloud platform health checks"""
+    logger.info("🌐 Setting up health check web server...")
+    
+    app = web.Application()
+    app.router.add_get("/health", health_check)
+    app.router.add_get("/", health_check)  # Root endpoint
+    logger.debug("🔗 Health check routes configured")
+    
+    port = int(os.getenv("PORT", 8000))
+    logger.info("🔌 Attempting to start web server on port %d", port)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Try multiple ports if the default is in use
+    ports_tried = []
+    for attempt_port in [port, port + 1, port + 2, 8001, 8080, 3000]:
+        try:
+            site = web.TCPSite(runner, "0.0.0.0", attempt_port)
+            await site.start()
+            print(f"Health server running on port {attempt_port}")
+            logger.info("✅ Health check server started successfully on port %d", attempt_port)
+            return runner
+        except OSError as e:
+            ports_tried.append(attempt_port)
+            if "10048" in str(e) or "Address already in use" in str(e):
+                logger.debug("🚫 Port %d in use, trying next...", attempt_port)
+                continue
+            logger.error("💥 Unexpected error on port %d: %s", attempt_port, str(e))
+            raise
+    
+    logger.warning("⚠️ Could not start health server - all ports in use: %s", ports_tried)
+    return runner
+
+
+def print_startup_banner() -> None:
+    """Print professional startup banner."""
+    try:
+        banner = """
+╔══════════════════════════════════════════════════════════════╗
+║                      TeleGuard v1.0.0                        ║
+║              Professional Telegram Account Manager           ║
+╠══════════════════════════════════════════════════════════════╣
+║  OTP Destroyer Protection      Multi-Account Support         ║
+║  Military-Grade Encryption     Advanced Automation           ║
+║  Health Monitoring             Activity Simulation           ║
+╠══════════════════════════════════════════════════════════════╣
+║  Developers: @Meher_Mankar & @Gutkesh                        ║
+║  GitHub: github.com/MeherMankar/TeleGuard                    ║
+║  Support: t.me/ContactXYZrobot                               ║
+║  Docs: github.com/MeherMankar/TeleGuard/wiki                 ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+        print(banner)
+    except UnicodeEncodeError:
+        # Fallback for systems with encoding issues
+        print("=" * 60)
+        print("           TeleGuard v1.0.0")
+        print("    Professional Telegram Account Manager")
+        print("=" * 60)
+        print("Features:")
+        print("- OTP Destroyer Protection")
+        print("- Multi-Account Support")
+        print("- Military-Grade Encryption")
+        print("- Advanced Automation")
+        print("=" * 60)
+        print("Developers: @Meher_Mankar & @Gutkesh")
+        print("GitHub: github.com/MeherMankar/TeleGuard")
+        print("Support: t.me/ContactXYZrobot")
+        print("=" * 60)
+
+
+async def main() -> None:
+    """Main application entry point with comprehensive error handling."""
+    startup_time = time.time()
+    logger.info("🚀 TeleGuard application starting up...")
+    
+    try:
+        # Print startup banner
+        print_startup_banner()
+        logger.info("🎨 Startup banner displayed")
+
+        # Setup signal handlers
+        setup_signal_handlers()
+        logger.info("📶 Signal handlers configured")
+
+        # Database initialization
+        logger.info("💾 Initializing database connections...")
+        print("Connecting to database...")
+        await init_database_manager()
+        db_instance = initialize_database()
+        
+        health = await db_manager.health_check()
+        if health.get('mongodb') and health.get('redis'):
+            print("Database connected successfully")
+            logger.info("✅ Database health check passed - MongoDB: %s, Redis: %s", 
+                       health.get('mongodb'), health.get('redis'))
+        else:
+            logger.warning("⚠️ Database health check issues: %s", health)
+        
+        # Start web server
+        logger.info("🌐 Starting health check web server...")
+        web_runner = await start_web_server()
+        logger.info("✅ Web server started successfully")
+
+        print("\n" + "="*50)
+        logger.info("🤖 Initializing TeleGuard bot...")
+
+        try:
+            # Start the full bot normally
+            async with AccountManager() as bot:
+                startup_elapsed = time.time() - startup_time
+                print("\nTeleGuard is ready!")
+                logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
+                
+                # Keep bot running with proper error handling
+                try:
+                    logger.info("🏃 Starting bot main loop...")
+                    await bot.run()
+                except Exception as e:
+                    logger.error("💥 Bot runtime error: %s", str(e))
+                    logger.debug("Bot error details:", exc_info=True)
+                    # Keep health server running even if bot has issues
+                    logger.info("🔄 Keeping health server alive despite bot error...")
+                    while True:
+                        await asyncio.sleep(60)
+        except Exception as e:
+            # Handle rate limits and other startup errors
+            logger.error("🚨 Bot startup error: %s", str(e))
+            if "FloodWaitError" in str(e) or "wait of" in str(e):
+                import re
+                wait_match = re.search(r'wait of (\d+) seconds', str(e))
+                if wait_match:
+                    wait_time = int(wait_match.group(1))
+                    logger.info("⏳ Waiting %d seconds due to rate limit...", wait_time)
+                    print(f"\nTelegram rate limit - waiting {wait_time} seconds...")
+                    print("📝 This is normal, the bot will start automatically")
+                    
+                    # Keep health server running during wait
+                    await asyncio.sleep(min(wait_time, 300))  # Cap at 5 minutes
+                    logger.info("✅ Rate limit wait completed, retrying...")
+                    
+                    print("Retrying startup...")
+                    try:
+                        async with AccountManager() as bot:
+                            logger.info("✅ Bot started successfully after rate limit")
+                            print("Bot started successfully after rate limit")
+                            await bot.run()
+                    except Exception as retry_error:
+                        logger.error("💥 Retry failed: %s", str(retry_error))
+                        print(f"Retry failed: {retry_error}")
+                        # Keep health server running
+                        while True:
+                            await asyncio.sleep(60)
+                else:
+                    logger.error("🚨 Could not parse wait time from rate limit error")
+                    raise e
+            else:
+                logger.error("💥 Unhandled startup error: %s", str(e))
+                logger.debug("Startup error details:", exc_info=True)
+                raise e
+
+    except KeyboardInterrupt:
+        logger.info("⌨️ Keyboard interrupt received")
+        print("\nShutting down TeleGuard...")
+        await graceful_shutdown()
+
+    except ImportError as e:
+        logger.error("📦 Missing dependencies: %s", str(e))
+        print(f"\nMissing dependencies: {e}")
+        print("Run: pip install -r requirements.txt")
+        sys.exit(1)
+
+    except FileNotFoundError as e:
+        logger.error("📁 Configuration file not found: %s", str(e))
+        print(f"\nConfiguration error: {e}")
+        print("Ensure .env file exists with required variables")
+        sys.exit(1)
+
+    except Exception as e:
+        total_runtime = time.time() - startup_time
+        logger.error("💥 Fatal application error after %.2f seconds: %s", total_runtime, str(e))
+        logger.error("📋 Full traceback: %s", traceback.format_exc())
+        print(f"\n🚨 Fatal error occurred: {e}")
+        print("📝 Check logs/teleguard.log for detailed error information")
+        print("🆘 Need help? Contact: https://t.me/ContactXYZrobot")
+
+        try:
+            await graceful_shutdown()
+        except Exception as shutdown_error:
+            logger.error("💥 Shutdown error: %s", str(shutdown_error))
+        sys.exit(1)
+
+    finally:
+        total_runtime = time.time() - startup_time
+        logger.info("🏁 TeleGuard shutdown complete - Total runtime: %.2f seconds", total_runtime)
+        print("TeleGuard shutdown complete")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nGoodbye!")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\nCritical error: {e}")
+        sys.exit(1)

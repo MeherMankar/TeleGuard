@@ -1,0 +1,34 @@
+{
+  "name": "TeleGuard",
+  "description": "Telegram Account Manager with OTP Destroyer Protection",
+  "repository": "https://github.com/MeherMankar/TeleGuard",
+  "stack": "heroku-22",
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID from https://my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash from https://my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather",
+      "required": true
+    },
+    "ADMIN_IDS": {
+      "description": "Comma-separated admin user IDs",
+      "required": true
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql:mini"
+    }
+  ]
+}
