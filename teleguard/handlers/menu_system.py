@@ -1523,9 +1523,23 @@ class MenuSystem:
                 await event.answer("⏰ Temp OTP enabled! Forward ON, Destroyer OFF for 5 minutes.")
                 await self._handle_otp_setting_callback(event, user_id, "otp_setting:temp")
                 # Schedule cleanup after 5 minutes
-                from ..handlers.temp_otp_cleanup import cleanup_temp_otp
                 import asyncio
-                asyncio.create_task(cleanup_temp_otp(user_id, account_id, expiry_time))
+                async def simple_cleanup():
+                    await asyncio.sleep(300)  # 5 minutes
+                    try:
+                        from bson import ObjectId
+                        await mongodb.db.accounts.update_one(
+                            {"_id": ObjectId(account_id)},
+                            {"$unset": {
+                                "otp_temp_passthrough": "",
+                                "temp_passthrough_expiry": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            }}
+                        )
+                    except Exception as e:
+                        logger.error(f"Temp OTP cleanup error: {e}")
+                asyncio.create_task(simple_cleanup())
             except Exception as e:
                 logger.error(f"Error handling temp OTP: {e}")
                 await event.answer("❌ Error handling temp OTP")
