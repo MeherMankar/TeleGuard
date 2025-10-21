@@ -198,9 +198,8 @@ class DMReplyHandler:
                     if enhanced_reply:
                         reply_text = enhanced_reply
                 
-                # Add human-like delay
-                delay = random.uniform(2, 6)
-                await asyncio.sleep(delay)
+                # Extremely realistic human reply behavior
+                await self._simulate_human_reply_behavior(managed_client, sender_id, reply_text)
                 
                 await managed_client.send_message(sender_id, reply_text)
                 await event.reply("✅ Reply sent successfully!")
@@ -301,9 +300,8 @@ class DMReplyHandler:
             # Generate AI response
             response = await self._ai_generate_dm_reply(event, me)
             if response:
-                # Human-like delay
-                delay = random.uniform(5, 15)
-                await asyncio.sleep(delay)
+                # Extremely realistic auto-reply behavior
+                await self._simulate_human_auto_reply_behavior(event.client, event.chat_id, response)
                 await event.reply(response)
                 
                 # Log auto-reply
@@ -451,3 +449,63 @@ Enhanced reply:"""
         except Exception as e:
             logger.error(f"AI enhancement check error: {e}")
             return False
+    
+    async def _simulate_human_reply_behavior(self, client, target, message: str):
+        """Simulate extremely realistic human reply behavior"""
+        # Read the conversation context first (like humans do)
+        context_reading_time = random.uniform(1.5, 4.0)
+        await asyncio.sleep(context_reading_time)
+        
+        # Think about the response
+        thinking_time = len(message) * 0.1 + random.uniform(2.0, 6.0)
+        await asyncio.sleep(thinking_time)
+        
+        # Start typing
+        await client.send_typing(target)
+        
+        # Realistic typing with natural pauses
+        words = message.split()
+        typing_speed = random.uniform(45, 75)  # WPM
+        chars_per_second = (typing_speed * 5) / 60
+        
+        base_time = len(message) / chars_per_second
+        
+        # Add natural variations and pauses
+        segments = max(1, len(words) // 4)
+        segment_time = base_time / segments
+        
+        for i in range(segments):
+            await asyncio.sleep(segment_time * random.uniform(0.7, 1.4))
+            
+            # Natural pauses while typing
+            if random.random() < 0.4:
+                await asyncio.sleep(random.uniform(0.5, 2.0))
+            
+            # Refresh typing indicator
+            if i < segments - 1 and random.random() < 0.3:
+                await client.send_typing(target)
+        
+        # Brief pause before sending (review)
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+    
+    async def _simulate_human_auto_reply_behavior(self, client, chat_id, message: str):
+        """Simulate realistic auto-reply behavior (more immediate but still human)"""
+        # Brief moment to "see" the message
+        await asyncio.sleep(random.uniform(0.3, 1.5))
+        
+        # Start typing
+        await client.send_typing(chat_id)
+        
+        # Faster typing for auto-replies but still realistic
+        typing_time = len(message) * random.uniform(0.04, 0.08)
+        typing_time = max(2.0, min(typing_time, 8.0))
+        
+        # Add some natural variation
+        if random.random() < 0.3:  # 30% chance for brief pause
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await client.send_typing(chat_id)
+        
+        await asyncio.sleep(typing_time)
+        
+        # Small pause before sending
+        await asyncio.sleep(random.uniform(0.2, 1.0))

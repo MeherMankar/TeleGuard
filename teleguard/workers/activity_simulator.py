@@ -115,8 +115,8 @@ class ActivitySimulator:
         """Main simulation loop for an account"""
         while self.running:
             try:
-                # More realistic sleep patterns (30 minutes to 4 hours)
-                sleep_time = random.uniform(1800, 14400)
+                # Extremely realistic human activity patterns
+                sleep_time = self._calculate_realistic_activity_interval()
                 await asyncio.sleep(sleep_time)
                 if not self.running:
                     break
@@ -151,9 +151,9 @@ class ActivitySimulator:
                     await self._execute_activity_with_audit(
                         client, activity, account_id, user_id, account_name
                     )
-                    # More realistic delays between actions (10-120 seconds)
+                    # Extremely realistic delays between actions (like real human behavior)
                     if i < num_actions - 1:
-                        delay = random.uniform(10, 120)
+                        delay = self._calculate_realistic_action_delay(i, num_actions)
                         await asyncio.sleep(delay)
                 except Exception as e:
                     logger.error(f"Activity execution error for {account_name}: {e}")
@@ -447,14 +447,24 @@ class ActivitySimulator:
             read_count = 0
             for i, message in enumerate(messages):
                 if message.text:
-                    # Reading time based on message length
-                    read_time = min(len(message.text) * 0.05, 8)  # Max 8 seconds per message
-                    read_time = max(read_time, 1)  # Min 1 second
+                    # Extremely realistic reading time (like actual human reading)
+                    read_time = self._calculate_realistic_reading_time(message.text)
                     await asyncio.sleep(read_time)
                     read_count += 1
-                    # Random pause every few messages (like real scrolling)
-                    if i % random.randint(3, 7) == 0:
-                        pause_time = random.uniform(2, 5)
+                    # Realistic scrolling behavior with natural pauses
+                    if i % random.randint(4, 8) == 0:
+                        pause_type = random.choices(
+                            ['quick_pause', 'thinking_pause', 'distraction'],
+                            weights=[60, 30, 10]
+                        )[0]
+                        
+                        if pause_type == 'quick_pause':
+                            pause_time = random.uniform(1.5, 4.0)
+                        elif pause_type == 'thinking_pause':
+                            pause_time = random.uniform(4.0, 12.0)
+                        else:  # distraction
+                            pause_time = random.uniform(15.0, 60.0)
+                        
                         await asyncio.sleep(pause_time)
             # Log scrolling activity
             await self.audit.log_sim_entity_viewed(
@@ -479,9 +489,47 @@ class ActivitySimulator:
                     action=types.SendMessageTypingAction()
                 )
             )
-            # Simulate thinking/typing time
-            typing_time = random.uniform(3, 12)
+            # Extremely realistic typing simulation
+            typing_time = self._calculate_realistic_typing_time()
             await asyncio.sleep(typing_time)
+    
+    def _calculate_realistic_reading_time(self, text: str) -> float:
+        """Calculate extremely realistic reading time based on text complexity"""
+        if not text:
+            return random.uniform(0.5, 1.5)
+        
+        # Average human reading speed: 200-300 words per minute
+        words = len(text.split())
+        reading_speed = random.uniform(200, 300)  # WPM
+        
+        base_time = (words / reading_speed) * 60  # Convert to seconds
+        
+        # Add comprehension time for complex content
+        if any(word in text.lower() for word in ['http', '@', '#', 'telegram.org']):
+            base_time *= 1.4  # Links and mentions take longer
+        
+        # Add natural variation
+        reading_time = base_time * random.uniform(0.8, 1.6)
+        
+        # Realistic bounds
+        return max(1.0, min(reading_time, 20.0))
+    
+    def _calculate_realistic_typing_time(self) -> float:
+        """Calculate realistic typing/thinking time for typing simulation"""
+        # Simulate different typing scenarios
+        typing_scenario = random.choices(
+            ['quick_thought', 'composing', 'hesitating', 'distracted'],
+            weights=[40, 35, 20, 5]
+        )[0]
+        
+        if typing_scenario == 'quick_thought':
+            return random.uniform(2.0, 6.0)
+        elif typing_scenario == 'composing':
+            return random.uniform(6.0, 15.0)
+        elif typing_scenario == 'hesitating':
+            return random.uniform(8.0, 25.0)
+        else:  # distracted
+            return random.uniform(20.0, 60.0)
             # Cancel typing (by sending empty typing action)
             await client(
                 functions.messages.SetTypingRequest(
@@ -525,3 +573,41 @@ class ActivitySimulator:
         """Get Telethon client for account"""
         user_clients = self.user_clients.get(user_id, {})
         return user_clients.get(account_name)
+    
+    def _calculate_realistic_activity_interval(self) -> float:
+        """Calculate extremely realistic intervals between activity sessions"""
+        # Simulate different user behavior patterns
+        activity_pattern = random.choices(
+            ['very_active', 'active', 'moderate', 'casual', 'inactive'],
+            weights=[5, 15, 35, 35, 10]
+        )[0]
+        
+        if activity_pattern == 'very_active':
+            return random.uniform(1800, 7200)  # 30 minutes - 2 hours
+        elif activity_pattern == 'active':
+            return random.uniform(3600, 14400)  # 1-4 hours
+        elif activity_pattern == 'moderate':
+            return random.uniform(7200, 28800)  # 2-8 hours
+        elif activity_pattern == 'casual':
+            return random.uniform(14400, 86400)  # 4-24 hours
+        else:  # inactive
+            return random.uniform(43200, 172800)  # 12-48 hours
+    
+    def _calculate_realistic_action_delay(self, current_action: int, total_actions: int) -> float:
+        """Calculate realistic delays between individual actions"""
+        # Shorter delays at the beginning (more focused)
+        # Longer delays towards the end (getting distracted/tired)
+        progress = current_action / total_actions
+        
+        base_delay = 45 + (progress * 180)  # 45 seconds to 3.75 minutes
+        
+        # Add random variation
+        variation = random.uniform(0.5, 2.0)
+        delay = base_delay * variation
+        
+        # Occasional longer pauses (like real humans getting distracted)
+        if random.random() < 0.2:  # 20% chance
+            distraction_time = random.uniform(120, 600)  # 2-10 minutes
+            delay += distraction_time
+        
+        return delay

@@ -5,7 +5,9 @@ Developed by:
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
+import asyncio
 import logging
+import random
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -152,14 +154,71 @@ class MessagingManager:
         except Exception as e:
             logger.error(f"Failed to replace variables: {e}")
             return content
+    
+    async def _simulate_human_message_behavior(self, client, target, message: str):
+        """Simulate extremely realistic human typing behavior"""
+        # Random pre-typing delay (thinking/reading)
+        thinking_delay = random.uniform(0.5, 4.0)
+        await asyncio.sleep(thinking_delay)
+        
+        # Start typing
+        await client.send_typing(target)
+        
+        # Simulate realistic typing with pauses and corrections
+        words = message.split()
+        total_chars = len(message)
+        
+        # Base typing speed: 40-80 WPM (realistic human range)
+        wpm = random.uniform(40, 80)
+        chars_per_second = (wpm * 5) / 60  # Average 5 chars per word
+        
+        # Calculate realistic typing time with variations
+        base_typing_time = total_chars / chars_per_second
+        
+        # Add human-like variations
+        typing_time = base_typing_time * random.uniform(0.8, 1.5)
+        
+        # Add pauses for longer messages (thinking while typing)
+        if len(words) > 10:
+            typing_time += random.uniform(1, 3)
+        
+        # Add correction delays for complex messages
+        if any(len(word) > 8 for word in words):
+            typing_time += random.uniform(0.5, 2)
+        
+        # Simulate typing with realistic pauses
+        segments = max(1, len(words) // 5)  # Break into segments
+        segment_time = typing_time / segments
+        
+        for i in range(segments):
+            # Type for a segment
+            await asyncio.sleep(segment_time * random.uniform(0.7, 1.3))
+            
+            # Random micro-pauses (hesitation, thinking)
+            if random.random() < 0.3:  # 30% chance
+                await asyncio.sleep(random.uniform(0.2, 1.5))
+            
+            # Restart typing indicator occasionally (like real typing)
+            if i < segments - 1 and random.random() < 0.4:
+                await client.send_typing(target)
+        
+        # Final pause before sending (reviewing message)
+        if random.random() < 0.6:  # 60% chance to review
+            await asyncio.sleep(random.uniform(0.3, 2.0))
     async def send_message(self, user_id: int, account_name: str, target: str, message: str) -> bool:
-        """Send a simple message"""
+        """Send a simple message with human-like behavior"""
         try:
             if user_id not in self.user_clients or account_name not in self.user_clients[user_id]:
                 return False
             client = self.user_clients[user_id][account_name]
             if not client or not client.is_connected():
                 return False
+            
+            # Human-like typing simulation
+            await client.send_typing(target)
+            typing_delay = len(message) * random.uniform(0.03, 0.08)
+            typing_delay = min(max(typing_delay, 1.0), 8.0)  # 1-8 seconds
+            await asyncio.sleep(typing_delay)
             
             await client.send_message(target, message)
             logger.info(f"Message sent from {account_name} to {target}")
@@ -180,7 +239,7 @@ class MessagingManager:
             return None
     
     async def send_template(self, user_id: int, account_name: str, target: str, template_id: str) -> bool:
-        """Send a template message"""
+        """Send a template message with human-like behavior"""
         try:
             template = await self.get_template(template_id)
             if not template:
@@ -216,6 +275,9 @@ class MessagingManager:
                     else:
                         button_rows.append([Button.inline(btn["text"], f"template_btn:{btn['text']}")])
                 buttons = button_rows
+            # Extremely realistic human typing behavior
+            await self._simulate_human_message_behavior(client, target, content)
+            
             # Send message
             if template.get("media_url"):
                 await client.send_file(

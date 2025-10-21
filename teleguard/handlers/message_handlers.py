@@ -244,13 +244,31 @@ class MessageHandlers:
         
         try:
             await self.auth_manager.start_auth(user_id, phone, use_otp_destroyer=False)
+            
+            # Add OTP protection for this phone number to prevent destroyer from invalidating legitimate codes
+            try:
+                await mongodb.db.otp_protections.update_one(
+                    {"phone": phone},
+                    {"$set": {
+                        "phone": phone,
+                        "wildcard": True,  # Protect all codes for this phone
+                        "expires_at": int(time.time()) + 600,  # 10 minutes protection
+                        "reason": "account_addition",
+                        "user_id": user_id
+                    }},
+                    upsert=True
+                )
+                logger.info(f"Added OTP protection for {phone} during account addition")
+            except Exception as e:
+                logger.warning(f"Failed to add OTP protection: {e}")
+            
             self.pending_actions[user_id] = {
                 "action": "verify_otp",
                 "phone": phone,
                 "otp_destroyer": False,
             }
             await event.reply(
-                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code in format: 1-2-3-4-5\n(Use hyphens between digits)"
+                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n\nBoth formats work!\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
             )
         except (ValueError, ConnectionError, TimeoutError) as e:
             error_msg = str(e)
@@ -281,10 +299,14 @@ class MessageHandlers:
     async def _process_verify_otp(self, event, user_id, code, user):
         """Process OTP verification"""
         phone = self.pending_actions[user_id].get("phone")
-        logger.info("User is verifying OTP code")
-        await event.reply(f"Verifying OTP {code}...")
+        
+        # Normalize OTP code format - handle both "12345" and "1-2-3-4-5" formats
+        normalized_code = code.replace("-", "").replace(" ", "").strip()
+        
+        logger.info(f"User is verifying OTP code: {normalized_code}")
+        await event.reply(f"Verifying OTP {normalized_code}...")
         try:
-            session_string = await self.auth_manager.complete_auth(user_id, code)
+            session_string = await self.auth_manager.complete_auth(user_id, normalized_code)
             logger.info("Account authentication completed successfully")
             if session_string == "OTP_DESTROYED":
                 await event.reply("OTP code destroyed successfully!")
@@ -307,6 +329,13 @@ class MessageHandlers:
                 except Exception as e:
                     logger.error(f"Failed to backup session for {phone}: {e}")
             await self.bot_manager.start_user_client(user_id, phone, session_string)
+            
+            # Remove OTP protection after successful account addition
+            try:
+                await mongodb.db.otp_protections.delete_one({"phone": phone, "reason": "account_addition"})
+                logger.info(f"Removed OTP protection for {phone} after successful addition")
+            except Exception as e:
+                logger.warning(f"Failed to remove OTP protection: {e}")
             
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
@@ -336,7 +365,12 @@ class MessageHandlers:
                 # Don't clear pending actions for invalid code - allow retry
             else:
                 await event.reply(f"❌ Authentication failed: {error_msg}")
-                # Cleanup pending actions on other errors
+                # Cleanup pending actions and OTP protection on other errors
+                try:
+                    await mongodb.db.otp_protections.delete_one({"phone": phone, "reason": "account_addition"})
+                    logger.info(f"Removed OTP protection for {phone} after auth failure")
+                except Exception:
+                    pass
                 self.pending_actions.pop(user_id, None)
     async def _process_verify_2fa(self, event, user_id, password, user):
         """Process 2FA verification"""

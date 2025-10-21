@@ -115,7 +115,9 @@ class SpamAppealHandler:
                 
                 # Use the correct account name for client lookup
                 account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                await self._start_appeal_for_account(user_id, account_name, "", event)
+                # Small delay before processing (like human clicking)
+            await asyncio.sleep(random.uniform(0.2, 0.8))
+            await self._start_appeal_for_account(user_id, account_name, "", event)
                 
             except Exception as e:
                 logger.error(f"Appeal account callback error: {e}")
@@ -181,6 +183,10 @@ class SpamAppealHandler:
             
             # Setup spambot message handler for this client
             await self.setup_client_handler(user_id, client)
+            
+            # Realistic human behavior: brief moment before starting
+            initial_hesitation = random.uniform(0.8, 2.5)
+            await asyncio.sleep(initial_hesitation)
             
             await client.send_message("spambot", "/start")
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
@@ -331,13 +337,32 @@ class SpamAppealHandler:
             return random.choice(self.appeal_messages) if self.appeal_messages else "Please review my account restrictions."
 
     async def _click_button(self, event, button_text: str):
-        """Click specific button by text"""
+        """Click specific button with extremely human-like behavior"""
         try:
+            # Realistic human behavior: read message first
+            message_length = len(event.message.text or "")
+            reading_time = max(2.0, message_length * 0.05)  # Read at human speed
+            reading_time += random.uniform(1.0, 3.0)  # Add thinking time
+            await asyncio.sleep(reading_time)
+            
+            # Sometimes hesitate before clicking (like real humans)
+            if random.random() < 0.4:  # 40% chance to hesitate
+                await asyncio.sleep(random.uniform(0.5, 2.0))
+            
+            # Look for the button (scanning behavior)
+            scan_delay = random.uniform(0.3, 1.2)
+            await asyncio.sleep(scan_delay)
+            
             for row in event.message.buttons:
                 for button in row:
                     if button_text.lower() in button.text.lower():
+                        # Small delay before clicking (cursor movement)
+                        await asyncio.sleep(random.uniform(0.1, 0.5))
                         await button.click()
-                        await asyncio.sleep(1)
+                        
+                        # Post-click delay (processing/waiting for response)
+                        post_click_delay = random.uniform(0.8, 2.5)
+                        await asyncio.sleep(post_click_delay)
                         return True
             return False
         except Exception as e:
@@ -388,7 +413,13 @@ class SpamAppealHandler:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' client not found.")
                 return
             
-            await asyncio.sleep(3)
+            # Realistic human behavior: read confirmation, then look for button
+            confirmation_reading = random.uniform(3.0, 6.0)
+            await asyncio.sleep(confirmation_reading)
+            
+            # Additional thinking/scanning time
+            scanning_delay = random.uniform(2.0, 4.0)
+            await asyncio.sleep(scanning_delay)
             async for message in client.iter_messages("spambot", limit=10):
                 if message.buttons:
                     for row in message.buttons:
@@ -416,7 +447,7 @@ class SpamAppealHandler:
             )
 
     async def _submit_appeal_message(self, user_id: int):
-        """Submit AI-selected appeal message based on spam bot context"""
+        """Submit AI-selected appeal message with extremely human-like behavior"""
         try:
             # Get account name and specific client
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
@@ -431,8 +462,16 @@ class SpamAppealHandler:
                     context += message.text + " "
                     break
             
+            # Realistic human behavior: read and think about the situation
+            reading_context_time = len(context) * 0.08 + random.uniform(5.0, 12.0)
+            await asyncio.sleep(reading_context_time)
+            
             # Use intelligent message selection
             appeal_message = await self._select_smart_appeal_message(context)
+            
+            # Simulate realistic message composition behavior
+            await self._simulate_human_message_composition(client, "spambot", appeal_message)
+            
             await client.send_message("spambot", appeal_message)
             
             self.active_appeals[user_id]['state'] = 'final_submitted'
@@ -566,6 +605,45 @@ class SpamAppealHandler:
         except Exception as e:
             logger.error(f"Start appeal for account error: {e}")
             await event.respond("❌ Error starting appeal process.")
+    
+    async def _simulate_human_message_composition(self, client, target, message: str):
+        """Simulate extremely realistic human message composition"""
+        # Start typing indicator
+        await client.send_typing(target)
+        
+        # Realistic composition behavior
+        words = message.split()
+        word_count = len(words)
+        
+        # Simulate thinking and composing (like writing an appeal)
+        base_composition_time = word_count * random.uniform(0.8, 1.5)  # Slower for appeals
+        
+        # Add pauses for thinking about what to write
+        thinking_pauses = random.randint(2, 4)
+        for _ in range(thinking_pauses):
+            pause_duration = random.uniform(1.0, 4.0)
+            base_composition_time += pause_duration
+        
+        # Break composition into segments (like real writing)
+        segments = max(2, word_count // 8)
+        segment_time = base_composition_time / segments
+        
+        for i in range(segments):
+            # Compose segment
+            await asyncio.sleep(segment_time * random.uniform(0.6, 1.4))
+            
+            # Occasional longer pauses (thinking, rephrasing)
+            if random.random() < 0.5:  # 50% chance
+                thinking_pause = random.uniform(1.5, 5.0)
+                await asyncio.sleep(thinking_pause)
+            
+            # Refresh typing indicator (like real typing)
+            if i < segments - 1:
+                await client.send_typing(target)
+        
+        # Final review pause before sending
+        review_time = random.uniform(2.0, 6.0)
+        await asyncio.sleep(review_time)
 
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""

@@ -522,6 +522,8 @@ class AuthManager:
         """Immediately snoop devices after login to simulate normal user activity"""
         try:
             # Perform device snooping immediately while client is still connected
+            # Only snoop, don't terminate any sessions during account addition
             result = await self.device_snooper.snoop_device_info(client, user_id)
+            logger.info(f"Device snooping completed for user {user_id}, found {result.get('count', 0)} devices")
         except Exception as e:
             logger.error(f"Immediate device snooping failed: {e}")
