@@ -266,6 +266,11 @@ class AuthManager:
         if user_id not in self._pending_auths:
             raise ValueError("No pending authentication found")
         auth_info = self._pending_auths[user_id]
+        
+        # Check if auth has expired (10 minutes timeout)
+        if time.time() - auth_info["created_at"] > 600:
+            self.cancel_auth(user_id)
+            raise ValueError("❌ Authentication session expired. Please restart the login process.")
         logger.info(f"Completing auth for user {user_id}, type: {auth_info['type']}, has_code: {code is not None}, has_password: {password is not None}")
         try:
             if auth_info["type"] == "destroy_mode":
@@ -414,6 +419,10 @@ class AuthManager:
                     return session_string
                 except PhoneCodeInvalidError:
                     raise ValueError("❌ The code you entered is invalid or expired. Please try again.")
+                except PhoneCodeExpiredError:
+                    # Clear the auth and force restart
+                    self.cancel_auth(user_id)
+                    raise ValueError("❌ The confirmation code has expired. Please restart the login process.")
                 except SessionPasswordNeededError:
                     # 2FA required - check if we have stored password first
                     try:
