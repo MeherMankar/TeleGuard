@@ -116,8 +116,8 @@ class SpamAppealHandler:
                 # Use the correct account name for client lookup
                 account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
                 # Small delay before processing (like human clicking)
-            await asyncio.sleep(random.uniform(0.2, 0.8))
-            await self._start_appeal_for_account(user_id, account_name, "", event)
+                await asyncio.sleep(random.uniform(0.2, 0.8))
+                await self._start_appeal_for_account(user_id, account_name, "", event)
                 
             except Exception as e:
                 logger.error(f"Appeal account callback error: {e}")

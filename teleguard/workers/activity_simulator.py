@@ -492,6 +492,20 @@ class ActivitySimulator:
             # Extremely realistic typing simulation
             typing_time = self._calculate_realistic_typing_time()
             await asyncio.sleep(typing_time)
+            
+            # Cancel typing (by sending empty typing action)
+            await client(
+                functions.messages.SetTypingRequest(
+                    peer=entity,
+                    action=types.SendMessageCancelAction()
+                )
+            )
+            # Log typing simulation
+            await self.audit.log_sim_entity_viewed(
+                account_id, user_id, f"Typing in {entity.name}", 1, typing_time
+            )
+        except Exception as e:
+            logger.error(f"Typing simulation error for {account_name}: {e}")
     
     def _calculate_realistic_reading_time(self, text: str) -> float:
         """Calculate extremely realistic reading time based on text complexity"""
@@ -530,19 +544,6 @@ class ActivitySimulator:
             return random.uniform(8.0, 25.0)
         else:  # distracted
             return random.uniform(20.0, 60.0)
-            # Cancel typing (by sending empty typing action)
-            await client(
-                functions.messages.SetTypingRequest(
-                    peer=entity,
-                    action=types.SendMessageCancelAction()
-                )
-            )
-            # Log typing simulation
-            await self.audit.log_sim_entity_viewed(
-                account_id, user_id, f"Typing in {entity.name}", 1, typing_time
-            )
-        except Exception as e:
-            logger.error(f"Typing simulation error for {account_name}: {e}")
     async def get_simulation_stats(self, user_id: int) -> Dict[str, Any]:
         """Get simulation statistics for user"""
         try:
