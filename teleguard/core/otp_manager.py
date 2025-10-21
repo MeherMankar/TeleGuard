@@ -47,6 +47,8 @@ class OTPManager:
         # Clear bot manager OTP registry if available
         if hasattr(self.bot_manager, 'registered_handlers'):
             self.bot_manager.registered_handlers["otp"].clear()
+        
+        logger.info("🛡️ Registering OTP handlers for all active clients...")
         async def otp_handler(event):
             """Handle OTP messages from Telegram official account"""
             try:
@@ -262,23 +264,30 @@ class OTPManager:
         handler_count = 0
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
-                if client and client.is_connected():
+                if client and hasattr(client, 'is_connected') and client.is_connected():
                     handler_key = f"{user_id}:{account_name}"
                     if handler_key not in self.registered_handlers:
                         try:
+                            # Register handler for Telegram service messages (777000) and login codes (42777)
                             client.add_event_handler(
                                 otp_handler, events.NewMessage(chats=[777000, 42777])
                             )
                             self.registered_handlers.add(handler_key)
                             handler_count += 1
-                            logger.debug(f"Registered OTP handler for {handler_key}")
+                            logger.info(f"✅ Registered OTP handler for {handler_key}")
                         except Exception as e:
-                            logger.error(f"Failed to register OTP handler for {handler_key}: {e}")
+                            logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
                     else:
                         logger.debug(f"OTP handler already exists for {handler_key}")
                 else:
-                    logger.warning(f"Client not connected for {user_id}:{account_name}, skipping OTP handler")
-        logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
+                    logger.warning(f"⚠️ Client not connected for {user_id}:{account_name}, skipping OTP handler")
+        if handler_count > 0:
+            logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
+            print(f"  OTP handlers registered for {handler_count} accounts")
+        else:
+            logger.warning("⚠️ No OTP handlers registered - no active clients found")
+            print("  No active accounts found for OTP protection")
+        
         if hasattr(self.bot_manager, 'registered_handlers'):
             for handler_key in self.registered_handlers:
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
@@ -509,6 +518,7 @@ class OTPManager:
             )
             if not account:
                 return False, "Account not found"
+            
             if enabled:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
@@ -522,7 +532,15 @@ class OTPManager:
                         "timestamp": int(time.time())
                     }}}
                 )
-                message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled"
+                
+                # Re-register handlers to ensure OTP destroyer is active
+                try:
+                    self.register_handlers()
+                    logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
+                except Exception as handler_error:
+                    logger.warning(f"Failed to re-register handlers: {handler_error}")
+                
+                message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
@@ -533,6 +551,7 @@ class OTPManager:
                     }}}
                 )
                 message = "❌ OTP Destroyer disabled"
+            
             return True, message
         except Exception as e:
             logger.error(f"Error toggling destroyer: {e}")
@@ -548,12 +567,14 @@ class OTPManager:
             )
             if not account:
                 return False, "Account not found"
+            
             if enabled:
                 if account.get("otp_destroyer_enabled", False):
                     return (
                         False,
                         "❌ Cannot enable forwarding while OTP Destroyer is active\n\n💡 Use 'Temp OTP' for 5-minute access or disable OTP Destroyer first",
                     )
+                
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
                     {"$set": {"otp_forward_enabled": True},
@@ -562,7 +583,15 @@ class OTPManager:
                         "timestamp": int(time.time())
                     }}}
                 )
-                message = "✅ OTP Forwarding enabled"
+                
+                # Re-register handlers to ensure OTP forwarding is active
+                try:
+                    self.register_handlers()
+                    logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
+                except Exception as handler_error:
+                    logger.warning(f"Failed to re-register handlers: {handler_error}")
+                
+                message = "✅ OTP Forwarding enabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
@@ -573,6 +602,7 @@ class OTPManager:
                     }}}
                 )
                 message = "❌ OTP Forwarding disabled"
+            
             return True, message
         except Exception as e:
             logger.error(f"Error toggling forwarding: {e}")

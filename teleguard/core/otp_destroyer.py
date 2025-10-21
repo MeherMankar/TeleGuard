@@ -80,7 +80,12 @@ class OTPDestroyer:
     async def setup_otp_listener(self, client, user_id: int, account_name: str):
         """Set up OTP destroyer listener for an account"""
         
-        logger.info(f"Setting up OTP destroyer listener for {account_name}")
+        logger.info(f"🛡️ Setting up OTP destroyer listener for {account_name}")
+        
+        # Ensure client is connected
+        if not client or not hasattr(client, 'is_connected') or not client.is_connected():
+            logger.warning(f"Client not connected for {account_name}, cannot setup OTP listener")
+            return
 
         @client.on(events.NewMessage(from_users=[777000, 42777]))
         async def otp_destroyer_handler(event):

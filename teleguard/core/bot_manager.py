@@ -190,6 +190,10 @@ class BotManager:
         try:
             print("Loading user accounts...")
             logger.info("Loading existing user sessions...")
+            
+            # Auto-cleanup orphaned accounts first
+            await self._auto_cleanup_accounts()
+            
             accounts = await asyncio.wait_for(
                 mongodb.db.accounts.find({"is_active": True}).to_list(length=None),
                 timeout=5.0
@@ -388,6 +392,14 @@ class BotManager:
             "otp_manager", OTPManager, self
         )
         
+        # Ensure OTP handlers are registered for existing clients
+        if self.otp_manager and self.user_clients:
+            try:
+                self.otp_manager.register_handlers()
+                logger.info("OTP handlers registered during initialization")
+            except Exception as e:
+                logger.warning(f"Failed to register OTP handlers during init: {e}")
+        
         logger.info("Initializing messaging manager...")
         self.messaging_manager = await self.component_manager.initialize_component(
             "messaging_manager", MessagingManager, self
@@ -395,6 +407,14 @@ class BotManager:
         print("  OTP Destroyer ready")
         print("  Messaging system ready")
         print("  Menu system ready")
+        
+        # Verify OTP manager is working
+        if self.otp_manager:
+            handler_count = len(self.otp_manager.registered_handlers)
+            if handler_count > 0:
+                print(f"  OTP protection active for {handler_count} accounts")
+            else:
+                print("  OTP protection ready (no accounts loaded yet)")
         
         # Set unified_messaging as alias to messaging_manager for compatibility
         self.unified_messaging = self.messaging_manager
@@ -440,6 +460,137 @@ class BotManager:
         self.developer_commands = await self.component_manager.initialize_component(
             "developer_commands", DeveloperCommands, self
         )
+        
+        # Add OTP debug command
+        @self.bot.on(events.NewMessage(pattern=r'/otp_debug'))
+        async def otp_debug_handler(event):
+            """Debug OTP functionality"""
+            user_id = event.sender_id
+            if user_id not in config.security.admin_ids:
+                return
+            
+            try:
+                # Check OTP manager status
+                otp_status = "❌ Not initialized"
+                handler_count = 0
+                
+                if self.otp_manager:
+                    otp_status = "✅ Initialized"
+                    handler_count = len(self.otp_manager.registered_handlers)
+                
+                # Check user accounts
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                account_info = []
+                
+                for account in accounts:
+                    name = account.get('name', 'Unknown')
+                    destroyer = "✅" if account.get('otp_destroyer_enabled') else "❌"
+                    forward = "✅" if account.get('otp_forward_enabled') else "❌"
+                    account_info.append(f"  {name}: Destroyer {destroyer} | Forward {forward}")
+                
+                # Check active clients
+                user_clients = self.user_clients.get(user_id, {})
+                client_info = []
+                
+                for name, client in user_clients.items():
+                    connected = "✅" if client and hasattr(client, 'is_connected') and client.is_connected() else "❌"
+                    client_info.append(f"  {name}: {connected}")
+                
+                debug_msg = f"""🔍 **OTP Debug Info**
+
+**OTP Manager:** {otp_status}
+**Registered Handlers:** {handler_count}
+
+**Your Accounts ({len(accounts)}):**
+{chr(10).join(account_info) if account_info else "  No accounts found"}
+
+**Active Clients ({len(user_clients)}):**
+{chr(10).join(client_info) if client_info else "  No clients connected"}
+
+**Next Steps:**
+- Add accounts if none exist
+- Enable OTP Destroyer/Forward in settings
+- Check client connections"""
+                
+                await event.reply(debug_msg)
+                
+            except Exception as e:
+                await event.reply(f"Debug error: {e}")
+                logger.error(f"OTP debug error: {e}")
+        
+        # Add OTP fix command
+        @self.bot.on(events.NewMessage(pattern=r'/otp_fix'))
+        async def otp_fix_handler(event):
+            """Force re-register OTP handlers"""
+            user_id = event.sender_id
+            if user_id not in config.security.admin_ids:
+                return
+            
+            try:
+                if self.otp_manager:
+                    old_count = len(self.otp_manager.registered_handlers)
+                    self.otp_manager.register_handlers()
+                    new_count = len(self.otp_manager.registered_handlers)
+                    
+                    await event.reply(
+                        f"🔧 **OTP Fix Applied**\n\n"
+                        f"Handlers before: {old_count}\n"
+                        f"Handlers after: {new_count}\n\n"
+                        f"OTP protection should now be active!"
+                    )
+                    logger.info(f"OTP handlers re-registered: {old_count} -> {new_count}")
+                else:
+                    await event.reply("❌ OTP Manager not available")
+                    
+            except Exception as e:
+                await event.reply(f"Fix error: {e}")
+                logger.error(f"OTP fix error: {e}")
+        
+        # Add cleanup command
+        @self.bot.on(events.NewMessage(pattern=r'/cleanup_accounts'))
+        async def cleanup_accounts_handler(event):
+            """Cleanup inactive accounts"""
+            user_id = event.sender_id
+            if user_id not in config.security.admin_ids:
+                return
+            
+            try:
+                # Find accounts to cleanup
+                inactive = await mongodb.db.accounts.count_documents({"is_active": False})
+                reauth = await mongodb.db.accounts.count_documents({"needs_reauth": True})
+                no_session = await mongodb.db.accounts.count_documents({"session_string": {"$exists": False}})
+                
+                total_cleanup = inactive + reauth + no_session
+                
+                if total_cleanup == 0:
+                    await event.reply("✅ No accounts need cleanup")
+                    return
+                
+                # Delete inactive accounts
+                result1 = await mongodb.db.accounts.delete_many({"is_active": False})
+                result2 = await mongodb.db.accounts.delete_many({"needs_reauth": True})
+                result3 = await mongodb.db.accounts.delete_many({"session_string": {"$exists": False}})
+                
+                total_deleted = result1.deleted_count + result2.deleted_count + result3.deleted_count
+                
+                # Get remaining count
+                remaining = await mongodb.db.accounts.count_documents({})
+                
+                await event.reply(
+                    f"🧽 **Account Cleanup Complete**\n\n"
+                    f"Deleted accounts:\n"
+                    f"  Inactive: {result1.deleted_count}\n"
+                    f"  Need reauth: {result2.deleted_count}\n"
+                    f"  No session: {result3.deleted_count}\n\n"
+                    f"Total deleted: {total_deleted}\n"
+                    f"Remaining accounts: {remaining}"
+                )
+                
+                logger.info(f"Cleaned up {total_deleted} accounts, {remaining} remaining")
+                
+            except Exception as e:
+                await event.reply(f"Cleanup error: {e}")
+                logger.error(f"Account cleanup error: {e}")
         
         from ..handlers.spam_appeal_handler import SpamAppealHandler
         self.spam_appeal_handler = await self.component_manager.initialize_component(
@@ -493,6 +644,9 @@ class BotManager:
         # Initialize account invalidation handler
         from ..utils.account_invalidation import init_account_invalidation_handler
         self.account_invalidation_handler = init_account_invalidation_handler(self)
+        
+        # Start periodic cleanup task
+        asyncio.create_task(self._periodic_cleanup_task())
     async def start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:
         """Public method to start a user client"""
         await self._start_user_client(user_id, account_name, session_string)
@@ -783,6 +937,52 @@ class BotManager:
             return account.get('phone', 'Unknown') if account else 'Unknown'
         except Exception:
             return 'Unknown'
+    
+    async def _auto_cleanup_accounts(self):
+        """Automatically cleanup orphaned accounts during startup"""
+        try:
+            # Count accounts to cleanup
+            inactive = await mongodb.db.accounts.count_documents({"is_active": False})
+            reauth = await mongodb.db.accounts.count_documents({"needs_reauth": True})
+            no_session = await mongodb.db.accounts.count_documents({"session_string": {"$exists": False}})
+            
+            total_cleanup = inactive + reauth + no_session
+            
+            if total_cleanup > 0:
+                print(f"Cleaning up {total_cleanup} orphaned accounts...")
+                
+                # Delete orphaned accounts
+                result1 = await mongodb.db.accounts.delete_many({"is_active": False})
+                result2 = await mongodb.db.accounts.delete_many({"needs_reauth": True})
+                result3 = await mongodb.db.accounts.delete_many({"session_string": {"$exists": False}})
+                
+                total_deleted = result1.deleted_count + result2.deleted_count + result3.deleted_count
+                print(f"Removed {total_deleted} orphaned accounts")
+                logger.info(f"Auto-cleanup removed {total_deleted} orphaned accounts")
+            
+        except Exception as e:
+            logger.warning(f"Auto-cleanup failed: {e}")
+    
+    async def _periodic_cleanup_task(self):
+        """Run cleanup every 5 minutes"""
+        while self.is_running:
+            try:
+                await asyncio.sleep(300)  # 5 minutes
+                if not self.is_running:
+                    break
+                    
+                # Silent cleanup
+                result1 = await mongodb.db.accounts.delete_many({"is_active": False})
+                result2 = await mongodb.db.accounts.delete_many({"needs_reauth": True})
+                result3 = await mongodb.db.accounts.delete_many({"session_string": {"$exists": False}})
+                
+                total_deleted = result1.deleted_count + result2.deleted_count + result3.deleted_count
+                if total_deleted > 0:
+                    logger.info(f"Periodic cleanup removed {total_deleted} orphaned accounts")
+                    
+            except Exception as e:
+                logger.warning(f"Periodic cleanup error: {e}")
+                await asyncio.sleep(60)  # Wait 1 minute before retry
     
     async def _handle_session_invalidation(self, user_id: int, account_name: str, phone: str, error_message: str):
         """Handle session invalidation by removing account and notifying user"""
