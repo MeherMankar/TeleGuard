@@ -708,7 +708,11 @@ class MenuSystem:
                 elif data.startswith("cleanup:"):
                     await self._handle_cleanup_callback(event, user_id, data)
                 elif data.startswith("cleanup_selection:"):
-                    await self._handle_cleanup_selection_callback(event, user_id, data)
+                    try:
+                        await self._handle_cleanup_selection_callback(event, user_id, data)
+                    except Exception as e:
+                        logger.error(f"Cleanup selection callback error: {e}")
+                        await event.answer("❌ Error processing cleanup selection")
                 elif data.startswith("contacts:"):
                     try:
                         parts = data.split(":")
@@ -1240,20 +1244,28 @@ class MenuSystem:
                 ]
             else:
                 text = (
-                    "🧹 **Account Cleanup System**\n\n"
-                    "Clean up your Telegram accounts safely and efficiently.\n\n"
-                    "⚠️ **Warning**: Cleanup actions cannot be undone!\n\n"
-                    "📊 **Available Cleanup Options:**\n"
+                    "🧹 **Account Cleanup**\n\n"
+                    "Select an account to clean:\n\n"
+                    "⚠️ **Warning**: Cleanup actions cannot be undone!\n"
+                    "📋 Available cleanup options:\n"
                     "• 💬 Personal chats\n"
                     "• 🤖 Bot chats\n"
                     "• 📢 Telegram official chats\n"
-                    "• 🚫 Spambot chats\n\n"
-                    "Select an account to start cleanup:"
+                    "• 🚫 Spambot chats\n"
+                    "• 🚪 Exit channels\n"
+                    "• 👥 Exit groups\n"
+                    "• 🗑️ Delete owned groups\n"
+                    "• 📺 Delete owned channels"
                 )
-                buttons = [
-                    [Button.inline("🧹 Start Cleanup", "cleanup:menu")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
-                ]
+                
+                buttons = []
+                for account in accounts:
+                    status = "🟢" if account.get("is_active", False) else "🔴"
+                    display_name = format_display_name(account)
+                    button_text = f"{status} {display_name}"
+                    buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
+                
+                buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle cleanup: {e}")
@@ -1265,7 +1277,8 @@ class MenuSystem:
         action = parts[1] if len(parts) > 1 else "menu"
         
         if action == "menu":
-            await self._send_cleanup_menu(user_id, event.message_id)
+            # Redirect to main cleanup handler
+            await self._handle_cleanup(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
         elif action == "select":
             account_id = parts[2] if len(parts) > 2 else None
             if account_id:
@@ -1274,7 +1287,15 @@ class MenuSystem:
             account_id = parts[2] if len(parts) > 2 else None
             cleanup_types = parts[3] if len(parts) > 3 else None
             if account_id and cleanup_types:
-                await self._send_cleanup_confirmation(user_id, event.message_id, account_id, cleanup_types)
+                try:
+                    await self._send_cleanup_confirmation(user_id, event.message_id, account_id, cleanup_types)
+                except Exception as e:
+                    if "Content of the message was not modified" in str(e):
+                        # Message content is the same, just answer the callback
+                        await event.answer("✅ Cleanup options confirmed")
+                    else:
+                        logger.error(f"Cleanup options error: {e}")
+                        await event.answer("❌ Error processing cleanup options")
         elif action == "confirm":
             account_id = parts[2] if len(parts) > 2 else None
             cleanup_types = parts[3] if len(parts) > 3 else None
@@ -1285,40 +1306,7 @@ class MenuSystem:
             if account_id:
                 await self._handle_spam_appeal(event, user_id, account_id)
     
-    async def _send_cleanup_menu(self, user_id: int, message_id: int):
-        """Send account cleanup menu"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-            if not accounts:
-                text = "🧹 **Account Cleanup**\n\n❌ No accounts found."
-                buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
-                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-                return
-            
-            text = (
-                "🧹 **Account Cleanup**\n\n"
-                "Select an account to clean:\n\n"
-                "⚠️ **Warning**: Cleanup actions cannot be undone!\n"
-                "📋 Available cleanup options:\n"
-                "• 💬 Personal chats\n"
-                "• 🤖 Bot chats\n"
-                "• 📢 Telegram official chats\n"
-                "• 🚫 Spambot chats"
-            )
-            
-            buttons = []
-            for account in accounts:
-                status = "🟢" if account.get("is_active", False) else "🔴"
-                display_name = format_display_name(account)
-                button_text = f"{status} {display_name}"
-                buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
-            
-            buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-            
-        except Exception as e:
-            logger.error(f"Error in cleanup menu: {e}")
-            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup menu", buttons=[[Button.inline("🔙 Back", "menu:main")]])
+
     
     async def _send_cleanup_selection(self, user_id: int, message_id: int, account_id: str):
         """Send cleanup type selection for account"""
@@ -1472,11 +1460,22 @@ class MenuSystem:
                 'owned_channels': 'owned_channels' in cleanup_list
             }
             
-            await self.bot.edit_message(
-                user_id, event.message_id,
-                f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below",
-                buttons=None
-            )
+            try:
+                await self.bot.edit_message(
+                    user_id, event.message_id,
+                    f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below",
+                    buttons=None
+                )
+            except Exception as edit_error:
+                if "Content of the message was not modified" in str(edit_error):
+                    # Message is already showing progress, continue
+                    pass
+                else:
+                    # Send new message if edit fails
+                    await self.bot.send_message(
+                        user_id,
+                        f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below"
+                    )
             
             from teleguard.core.account_cleaner import AccountCleaner
             cleaner = AccountCleaner()
@@ -1499,7 +1498,8 @@ class MenuSystem:
                     )
                     last_update_time = current_time
                 except Exception as e:
-                    logger.debug(f"Progress update error: {e}")
+                    if "Content of the message was not modified" not in str(e):
+                        logger.debug(f"Progress update error: {e}")
             
             result = await cleaner.cleanup_account(client, cleanup_settings, progress_callback)
             
@@ -1514,8 +1514,16 @@ class MenuSystem:
             
             try:
                 await self.bot.edit_message(user_id, event.message_id, result_text, buttons=buttons)
-            except Exception:
-                await self.bot.send_message(user_id, result_text, buttons=buttons)
+            except Exception as edit_error:
+                if "Content of the message was not modified" in str(edit_error):
+                    # Message content is the same, just answer callback if available
+                    try:
+                        await event.answer("✅ Cleanup completed successfully!")
+                    except:
+                        pass
+                else:
+                    # Send new message if edit fails for other reasons
+                    await self.bot.send_message(user_id, result_text, buttons=buttons)
             
             await mongodb.add_audit_entry(account_id, {
                 "action": "cleanup_completed",
@@ -1537,37 +1545,54 @@ class MenuSystem:
             
             try:
                 await self.bot.edit_message(user_id, event.message_id, error_text, buttons=buttons)
-            except Exception:
-                await self.bot.send_message(user_id, error_text, buttons=buttons)
+            except Exception as edit_error:
+                if "Content of the message was not modified" in str(edit_error):
+                    # Message content is the same, just answer callback if available
+                    try:
+                        await event.answer("❌ Cleanup failed")
+                    except:
+                        pass
+                else:
+                    # Send new message if edit fails for other reasons
+                    await self.bot.send_message(user_id, error_text, buttons=buttons)
     
     async def _handle_cleanup_selection_callback(self, event, user_id: int, data: str):
         """Handle cleanup selection text input"""
         try:
-            # Get pending action
-            if not hasattr(self.account_manager, 'pending_actions') or user_id not in self.account_manager.pending_actions:
-                await event.reply("❌ No pending cleanup action found.")
-                return
-            
-            action_data = self.account_manager.pending_actions[user_id]
-            if action_data.get('action') != 'cleanup_selection':
-                await event.reply("❌ Invalid action state.")
-                return
-            
-            account_id = action_data.get('account_id')
-            cleanup_types = data.strip().lower()
-            
-            # Clear pending action
-            del self.account_manager.pending_actions[user_id]
-            
-            # Process the cleanup confirmation
-            await self._send_cleanup_confirmation(user_id, None, account_id, cleanup_types)
+            # Check if this is a text message (not callback)
+            if hasattr(event, 'text'):
+                # This is a text message response
+                if not hasattr(self.account_manager, 'pending_actions') or user_id not in self.account_manager.pending_actions:
+                    await event.reply("❌ No pending cleanup action found.")
+                    return
+                
+                action_data = self.account_manager.pending_actions[user_id]
+                if action_data.get('action') != 'cleanup_selection':
+                    await event.reply("❌ Invalid action state.")
+                    return
+                
+                account_id = action_data.get('account_id')
+                cleanup_types = event.text.strip().lower()
+                
+                # Clear pending action
+                del self.account_manager.pending_actions[user_id]
+                
+                # Send confirmation as new message to avoid edit conflicts
+                await self._send_cleanup_confirmation_new(user_id, account_id, cleanup_types)
+            else:
+                # This is a callback query - handle differently
+                parts = data.split(":")
+                if len(parts) >= 3:
+                    account_id = parts[2]
+                    cleanup_types = parts[3] if len(parts) > 3 else "all"
+                    await self._send_cleanup_confirmation_new(user_id, account_id, cleanup_types)
             
         except Exception as e:
             logger.error(f"Error in cleanup selection callback: {e}")
             await event.reply("❌ Error processing cleanup selection.")
     
-    async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
-        """Send cleanup confirmation with selected options"""
+    async def _send_cleanup_confirmation_new(self, user_id: int, account_id: str, cleanup_types: str):
+        """Send cleanup confirmation as new message to avoid edit conflicts"""
         try:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
@@ -1626,6 +1651,84 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Error in cleanup confirmation: {e}")
             await self.bot.send_message(user_id, "❌ Error loading cleanup confirmation")
+    
+    async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
+        """Send cleanup confirmation with selected options (legacy method for edit)"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                if message_id:
+                    await self.bot.edit_message(user_id, message_id, "❌ Account not found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+                else:
+                    await self.bot.send_message(user_id, "❌ Account not found")
+                return
+            
+            display_name = format_display_name(account)
+            
+            # Parse cleanup types
+            cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
+            if 'all' in cleanup_list:
+                cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
+            
+            # Create display text for selected options
+            selected_options = []
+            if 'personal' in cleanup_list:
+                selected_options.append("✅ 💬 Personal chats")
+            if 'bots' in cleanup_list:
+                selected_options.append("✅ 🤖 Bot chats")
+            if 'telegram' in cleanup_list:
+                selected_options.append("✅ 📢 Telegram official chats")
+            if 'spambot' in cleanup_list:
+                selected_options.append("✅ 🚫 Spambot chats")
+            if 'channels' in cleanup_list:
+                selected_options.append("✅ 🚪 Exit from channels")
+            if 'groups' in cleanup_list:
+                selected_options.append("✅ 👥 Exit from groups")
+            if 'owned_groups' in cleanup_list:
+                selected_options.append("✅ 🗑️ Delete owned groups")
+            if 'owned_channels' in cleanup_list:
+                selected_options.append("✅ 📺 Delete owned channels")
+            
+            if not selected_options:
+                error_msg = "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all"
+                if message_id:
+                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+                else:
+                    await self.bot.send_message(user_id, error_msg)
+                return
+            
+            text = (
+                f"🧹 **Final Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
+                f"**Selected cleanup actions:**\n"
+                + "\n".join(selected_options) + "\n\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
+                f"All selected chats and data will be permanently deleted.\n\n"
+                f"Are you absolutely sure you want to proceed?"
+            )
+            
+            buttons = [
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")],
+                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
+            ]
+            
+            if message_id:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup confirmation: {e}")
+            error_msg = "❌ Error loading cleanup confirmation"
+            if message_id:
+                try:
+                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+                except:
+                    await self.bot.send_message(user_id, error_msg)
+            else:
+                await self.bot.send_message(user_id, error_msg)
     
     async def _handle_spam_appeal(self, event, user_id: int, account_id: str):
         """Handle spam appeal for account before cleanup"""
