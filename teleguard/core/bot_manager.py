@@ -152,11 +152,17 @@ class BotManager:
             raise TeleGuardError("Database initialization failed", details={'error': str(e)})
     async def _initialize_bot_client(self) -> None:
         try:
+            from .device_snooper import DeviceSnooper
+            device_params = DeviceSnooper.get_spoofed_device_params()
+            
             session_name = f"teleguard_bot_{int(time.time())}"
-            self.bot = TelegramClient(session_name, config.telegram.api_id, config.telegram.api_hash)
+            self.bot = TelegramClient(
+                session_name, 
+                config.telegram.api_id, 
+                config.telegram.api_hash,
+                **device_params
+            )
             await self._start_bot_with_retry()
-            # Clear any existing handlers to prevent duplicates
-            self.bot.remove_event_handler()
             print("Bot authenticated")
             logger.info("Bot client initialized")
         except Exception as e:
@@ -242,15 +248,18 @@ class BotManager:
             if not session_string or not isinstance(session_string, str):
                 raise ValueError("Invalid session string format")
             
-            # Create client with session string
+            # Create client with session string and device spoofing
+            from .device_snooper import DeviceSnooper
+            device_params = DeviceSnooper.get_spoofed_device_params()
+            
             client = TelegramClient(
                 StringSession(session_string), 
                 config.telegram.api_id, 
                 config.telegram.api_hash,
-
                 connection_retries=2,
                 retry_delay=2,
-                timeout=10
+                timeout=10,
+                **device_params
             )
             
             # Connect with timeout and better error handling
