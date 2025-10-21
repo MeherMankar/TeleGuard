@@ -196,7 +196,8 @@ class MessageHandlers:
             await self._handle_session_phone_login(event, user, action, message)
         elif action == "validate_session_string":
             await self._handle_session_validation(event, user, action, message)
-
+        elif action == "cleanup_selection":
+            await self._handle_cleanup_selection(event, user, action, message)
         else:
             if hasattr(self.bot_manager, 'session_export_handler') and hasattr(self.bot_manager, 'pending_fresh_sessions'):
                 if user_id in self.bot_manager.pending_fresh_sessions:
@@ -942,7 +943,58 @@ class MessageHandlers:
         await event.reply(response)
         self.pending_actions.pop(user_id, None)
     
-
+    async def _handle_cleanup_selection(self, event, user, action, message):
+        """Handle cleanup selection input"""
+        user_id = event.sender_id
+        account_id = self.pending_actions[user_id].get("account_id")
+        
+        if not account_id:
+            await event.reply("❌ Account ID not found")
+            self.pending_actions.pop(user_id, None)
+            return
+        
+        # Validate cleanup types
+        cleanup_types = message.strip().lower()
+        valid_types = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels', 'all']
+        
+        if cleanup_types == 'all':
+            selected_types = 'all'
+        else:
+            selected_list = [t.strip() for t in cleanup_types.split(',')]
+            invalid_types = [t for t in selected_list if t not in valid_types]
+            
+            if invalid_types:
+                await event.reply(
+                    f"❌ Invalid cleanup types: {', '.join(invalid_types)}\n\n"
+                    f"Valid options: {', '.join(valid_types)}"
+                )
+                return
+            
+            selected_types = ','.join(selected_list)
+        
+        # Send to confirmation
+        if hasattr(self.bot_manager, 'menu_system'):
+            # Get the latest message to edit
+            try:
+                # Find the cleanup selection message to edit
+                async for msg in self.bot.iter_messages(user_id, limit=10):
+                    if "Cleanup Selection" in (msg.text or ""):
+                        await self.bot_manager.menu_system._send_cleanup_confirmation(
+                            user_id, msg.id, account_id, selected_types
+                        )
+                        break
+                else:
+                    # If no message found, send new one
+                    await self.bot_manager.menu_system._send_cleanup_confirmation(
+                        user_id, event.id, account_id, selected_types
+                    )
+            except Exception as e:
+                logger.error(f"Error sending cleanup confirmation: {e}")
+                await event.reply("❌ Error processing selection")
+        else:
+            await event.reply("❌ Menu system not available")
+        
+        self.pending_actions.pop(user_id, None)
     
     async def _fetch_and_store_account_name(self, user_id: int, phone: str):
         """Fetch real account name from Telegram and store in database"""

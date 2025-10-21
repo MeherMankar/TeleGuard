@@ -26,11 +26,21 @@ class SpamAppealHandler:
             messages_file = Path(__file__).parent.parent / "data" / "appeal_messages.txt"
             if messages_file.exists():
                 content = messages_file.read_text(encoding='utf-8')
-                messages = [msg.strip() for msg in content.split('\n\n') if msg.strip()]
+                # Split by double newlines and filter out empty messages
+                messages = [msg.strip() for msg in content.split('\n\n') if msg.strip() and len(msg.strip()) > 50]
+                logger.info(f"Loaded {len(messages)} appeal messages from file")
                 return messages
+            else:
+                logger.warning(f"Appeal messages file not found: {messages_file}")
         except Exception as e:
             logger.error(f"Failed to load appeal messages: {e}")
-        return []
+        
+        # Return default messages if file loading fails
+        return [
+            "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. I use Telegram for personal communication with friends and family. Please review my account and remove any restrictions. Thank you for your time and consideration.",
+            "I am writing to appeal the spam restrictions placed on my account. I have been using Telegram responsibly for legitimate purposes only. I believe this restriction was applied in error. I would appreciate if you could review my case and restore my account to normal status.",
+            "Dear Telegram Support, my account has been flagged as spam, but I assure you this is a mistake. I only use Telegram to communicate with close contacts and have never engaged in spam activities. Please investigate and lift the restrictions on my account."
+        ]
 
     def register_handlers(self):
         """Register appeal handlers with smart detection"""
@@ -293,48 +303,57 @@ class SpamAppealHandler:
             await self._complete_appeal(user_id, True)
 
     async def _select_smart_appeal_message(self, context: str) -> str:
-        """AI-powered appeal message selection using integrated spam detector"""
+        """AI-powered appeal message selection from loaded appeal messages only"""
         try:
+            # Always use messages from appeal_messages.txt file only
+            if not self.appeal_messages:
+                logger.error("No appeal messages loaded from file")
+                return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+            
+            # Try AI selection from loaded messages if spam detector available
             if hasattr(self.bot_manager, 'spam_detector'):
                 detector = self.bot_manager.spam_detector
                 
-                # Analyze spambot response to detect spam limit type
-                analysis = detector.analyze_spambot_response(context)
-                spam_limit_type = analysis['spam_limit_type']
-                
-                # Get account age for better message selection
-                account_age_days = await self._get_account_age_days()
-                
-                # Try AI-enhanced message selection first
-                selected_message = None
-                if hasattr(detector, 'ai_select_best_message'):
-                    try:
-                        selected_message = await detector.ai_select_best_message(
-                            spam_limit_type, context, account_age_days
+                try:
+                    # Analyze spambot response to detect spam limit type
+                    analysis = detector.analyze_spambot_response(context)
+                    spam_limit_type = analysis.get('spam_limit_type')
+                    
+                    # Get account age for better message selection
+                    account_age_days = await self._get_account_age_days()
+                    
+                    # Use AI to select best message from loaded appeal messages
+                    if hasattr(detector, 'ai_select_from_messages'):
+                        selected_message = await detector.ai_select_from_messages(
+                            self.appeal_messages, spam_limit_type, context, account_age_days
                         )
                         if selected_message:
-                            logger.info(f"AI selected message for {spam_limit_type.value}: {len(selected_message)} chars")
-                    except Exception as e:
-                        logger.warning(f"AI message selection failed: {e}")
-                
-                # Fallback to rule-based selection
-                if not selected_message:
-                    selected_message = detector.select_optimal_message(
-                        spam_limit_type=spam_limit_type,
-                        account_age_days=account_age_days,
-                        context=context,
-                        user_preferences={'tone': 'polite', 'length': 'medium'}
-                    )
-                    logger.info(f"Rule-based message selected for {spam_limit_type.value}: {len(selected_message)} chars")
-                
-                return selected_message
-            else:
-                logger.warning("Spam detector not available, using random message")
-                return random.choice(self.appeal_messages) if self.appeal_messages else "Please review my account restrictions."
+                            logger.info(f"AI selected message from file: {len(selected_message)} chars")
+                            return selected_message
+                    
+                    # Fallback: use rule-based selection from loaded messages
+                    if hasattr(detector, 'select_from_messages'):
+                        selected_message = detector.select_from_messages(
+                            self.appeal_messages, spam_limit_type, account_age_days
+                        )
+                        if selected_message:
+                            logger.info(f"Rule-based selection from file: {len(selected_message)} chars")
+                            return selected_message
+                            
+                except Exception as e:
+                    logger.warning(f"AI/Rule-based selection failed: {e}")
+            
+            # Final fallback: random selection from loaded messages
+            selected = random.choice(self.appeal_messages)
+            logger.info(f"Random selection from file: {len(selected)} chars")
+            return selected
             
         except Exception as e:
             logger.error(f"Error in smart message selection: {e}")
-            return random.choice(self.appeal_messages) if self.appeal_messages else "Please review my account restrictions."
+            # Emergency fallback if everything fails
+            if self.appeal_messages:
+                return random.choice(self.appeal_messages)
+            return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
 
     async def _click_button(self, event, button_text: str):
         """Click specific button with extremely human-like behavior"""
@@ -456,11 +475,13 @@ class SpamAppealHandler:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' client not found.")
                 return
             
-            context = ""
-            async for message in client.iter_messages("spambot", limit=3):
-                if message.text:
-                    context += message.text + " "
-                    break
+            # Get context from stored data or recent messages
+            context = self.active_appeals[user_id].get('context', '')
+            if not context:
+                async for message in client.iter_messages("spambot", limit=3):
+                    if message.text:
+                        context += message.text + " "
+                        break
             
             # Realistic human behavior: read and think about the situation
             reading_context_time = len(context) * 0.08 + random.uniform(5.0, 12.0)
@@ -598,6 +619,7 @@ class SpamAppealHandler:
             if user_id not in self.active_appeals:
                 self.active_appeals[user_id] = {}
             self.active_appeals[user_id]['account_name'] = account_name
+            self.active_appeals[user_id]['context'] = context
             
             # Start the appeal process directly
             await self._start_appeal_process(user_id)

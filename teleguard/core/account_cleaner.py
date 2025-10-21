@@ -123,6 +123,18 @@ class AccountCleaner:
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"🚫 Spambot cleanup: {count}")
+            
+            if cleanup_settings.get('owned_groups', False):
+                count = await self._delete_owned_groups(
+                    client, dialogs, progress, progress_callback
+                )
+                results.append(f"🗑️ Deleted owned groups: {count}")
+            
+            if cleanup_settings.get('owned_channels', False):
+                count = await self._delete_owned_channels(
+                    client, dialogs, progress, progress_callback
+                )
+                results.append(f"📺 Deleted owned channels: {count}")
 
             # Final verification
             if progress_callback:
@@ -382,6 +394,104 @@ class AccountCleaner:
                 continue
 
         return count
+    
+    async def _delete_owned_groups(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+        """Delete groups owned by the user"""
+        from telethon.tl.types import Chat, Channel
+        from telethon.tl.functions.channels import DeleteChannelRequest
+        from telethon.tl.functions.messages import DeleteChatRequest
+        
+        progress.current_operation = "Finding owned groups"
+        
+        owned_groups = []
+        for dialog in dialogs:
+            try:
+                if isinstance(dialog.entity, Chat):
+                    # For basic groups, check if we're the creator
+                    chat_full = await client.get_entity(dialog.entity.id)
+                    if hasattr(chat_full, 'creator') and chat_full.creator:
+                        owned_groups.append(dialog)
+                elif isinstance(dialog.entity, Channel) and dialog.entity.megagroup:
+                    # For supergroups, check admin rights
+                    try:
+                        permissions = await client.get_permissions(dialog.entity)
+                        if permissions.is_creator:
+                            owned_groups.append(dialog)
+                    except Exception:
+                        continue
+            except Exception as e:
+                progress.add_error(f"Error checking group ownership {dialog.name}: {e}")
+                continue
+        
+        progress.current_operation = f"Deleting {len(owned_groups)} owned groups"
+        
+        count = 0
+        for i, dialog in enumerate(owned_groups):
+            try:
+                if isinstance(dialog.entity, Chat):
+                    # Delete basic group
+                    await client(DeleteChatRequest(chat_id=dialog.entity.id))
+                elif isinstance(dialog.entity, Channel):
+                    # Delete supergroup
+                    await client(DeleteChannelRequest(channel=dialog.entity))
+                
+                count += 1
+                progress.processed_items += 1
+                progress.current_operation = f"Owned groups: {i+1}/{len(owned_groups)}"
+                
+                if progress_callback and (i + 1) % 2 == 0:
+                    await progress_callback(progress.get_progress_text())
+                
+                await asyncio.sleep(self.cleanup_delay * 2)  # Longer delay for deletions
+                
+            except Exception as e:
+                progress.add_error(f"Error deleting owned group {dialog.name}: {e}")
+                continue
+        
+        return count
+    
+    async def _delete_owned_channels(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+        """Delete channels owned by the user"""
+        from telethon.tl.types import Channel
+        from telethon.tl.functions.channels import DeleteChannelRequest
+        
+        progress.current_operation = "Finding owned channels"
+        
+        owned_channels = []
+        for dialog in dialogs:
+            try:
+                if isinstance(dialog.entity, Channel) and not dialog.entity.megagroup:
+                    # Check if we're the creator of this channel
+                    try:
+                        permissions = await client.get_permissions(dialog.entity)
+                        if permissions.is_creator:
+                            owned_channels.append(dialog)
+                    except Exception:
+                        continue
+            except Exception as e:
+                progress.add_error(f"Error checking channel ownership {dialog.name}: {e}")
+                continue
+        
+        progress.current_operation = f"Deleting {len(owned_channels)} owned channels"
+        
+        count = 0
+        for i, dialog in enumerate(owned_channels):
+            try:
+                await client(DeleteChannelRequest(channel=dialog.entity))
+                count += 1
+                progress.processed_items += 1
+                progress.current_operation = f"Owned channels: {i+1}/{len(owned_channels)}"
+                
+                if progress_callback and (i + 1) % 2 == 0:
+                    await progress_callback(progress.get_progress_text())
+                
+                await asyncio.sleep(self.cleanup_delay * 2)  # Longer delay for deletions
+                
+            except Exception as e:
+                progress.add_error(f"Error deleting owned channel {dialog.name}: {e}")
+                continue
+        
+        return count
 
     async def _final_cleanup_check(self, client, cleanup_settings, progress: CleanupProgress, progress_callback=None):
         """Final cleanup check"""
@@ -447,7 +557,9 @@ class AccountCleaner:
             'channels': [],
             'contacts_count': 0,
             'telegram_chats': [],
-            'spambot_chats': []
+            'spambot_chats': [],
+            'owned_groups': [],
+            'owned_channels': []
         }
 
         try:
@@ -489,6 +601,43 @@ class AccountCleaner:
                         'name': dialog.name,
                         'id': dialog.entity.id
                     })
+                
+                # Check for owned groups and channels
+                if cleanup_settings.get('owned_groups', False):
+                    try:
+                        if isinstance(dialog.entity, Chat):
+                            # Basic group - check if creator
+                            chat_full = await client.get_entity(dialog.entity.id)
+                            if hasattr(chat_full, 'creator') and chat_full.creator:
+                                preview['owned_groups'].append({
+                                    'name': dialog.name,
+                                    'id': dialog.entity.id,
+                                    'type': 'group'
+                                })
+                        elif isinstance(dialog.entity, Channel) and dialog.entity.megagroup:
+                            # Supergroup - check creator permissions
+                            permissions = await client.get_permissions(dialog.entity)
+                            if permissions.is_creator:
+                                preview['owned_groups'].append({
+                                    'name': dialog.name,
+                                    'id': dialog.entity.id,
+                                    'type': 'supergroup'
+                                })
+                    except Exception:
+                        pass
+                
+                if cleanup_settings.get('owned_channels', False):
+                    try:
+                        if isinstance(dialog.entity, Channel) and not dialog.entity.megagroup:
+                            # Channel - check creator permissions
+                            permissions = await client.get_permissions(dialog.entity)
+                            if permissions.is_creator:
+                                preview['owned_channels'].append({
+                                    'name': dialog.name,
+                                    'id': dialog.entity.id
+                                })
+                    except Exception:
+                        pass
 
             # Get contacts count if needed
             if cleanup_settings.get('contacts', False):

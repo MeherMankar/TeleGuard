@@ -504,6 +504,11 @@ class MenuSystem:
                 await event.reply("❌ Error processing menu action")
         # Store handler reference for cleanup
         self._menu_text_handler = menu_text_handler
+        
+        # Handle cleanup selection text input
+        @self.bot.on(events.NewMessage(func=lambda e: e.is_private and hasattr(self.account_manager, 'pending_actions') and e.sender_id in self.account_manager.pending_actions and self.account_manager.pending_actions[e.sender_id].get('action') == 'cleanup_selection'))
+        async def cleanup_selection_handler(event):
+            await self._handle_cleanup_selection_callback(event, event.sender_id, event.text)
         @self.bot.on(events.CallbackQuery)
         async def callback_handler(event):
             try:
@@ -702,6 +707,8 @@ class MenuSystem:
                         await self._handle_dm_reply_callback(event, user_id, data)
                 elif data.startswith("cleanup:"):
                     await self._handle_cleanup_callback(event, user_id, data)
+                elif data.startswith("cleanup_selection:"):
+                    await self._handle_cleanup_selection_callback(event, user_id, data)
                 elif data.startswith("contacts:"):
                     try:
                         parts = data.split(":")
@@ -1262,11 +1269,21 @@ class MenuSystem:
         elif action == "select":
             account_id = parts[2] if len(parts) > 2 else None
             if account_id:
-                await self._send_cleanup_options(user_id, event.message_id, account_id)
+                await self._send_cleanup_selection(user_id, event.message_id, account_id)
+        elif action == "options":
+            account_id = parts[2] if len(parts) > 2 else None
+            cleanup_types = parts[3] if len(parts) > 3 else None
+            if account_id and cleanup_types:
+                await self._send_cleanup_confirmation(user_id, event.message_id, account_id, cleanup_types)
         elif action == "confirm":
             account_id = parts[2] if len(parts) > 2 else None
+            cleanup_types = parts[3] if len(parts) > 3 else None
+            if account_id and cleanup_types:
+                await self._execute_cleanup(event, user_id, account_id, cleanup_types)
+        elif action == "appeal":
+            account_id = parts[2] if len(parts) > 2 else None
             if account_id:
-                await self._execute_cleanup(event, user_id, account_id)
+                await self._handle_spam_appeal(event, user_id, account_id)
     
     async def _send_cleanup_menu(self, user_id: int, message_id: int):
         """Send account cleanup menu"""
@@ -1303,8 +1320,8 @@ class MenuSystem:
             logger.error(f"Error in cleanup menu: {e}")
             await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup menu", buttons=[[Button.inline("🔙 Back", "menu:main")]])
     
-    async def _send_cleanup_options(self, user_id: int, message_id: int, account_id: str):
-        """Send cleanup confirmation for selected account"""
+    async def _send_cleanup_selection(self, user_id: int, message_id: int, account_id: str):
+        """Send cleanup type selection for account"""
         try:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
@@ -1315,30 +1332,106 @@ class MenuSystem:
             display_name = format_display_name(account)
             
             text = (
-                f"🧹 **Account Cleanup Confirmation**\n\n"
+                f"🧹 **Cleanup Selection - {display_name}**\n\n"
+                f"📋 **What would you like to clean?**\n\n"
+                f"Select what to clean (you can choose multiple options):\n\n"
+                f"💬 **Personal chats** - Direct messages with users\n"
+                f"🤖 **Bot chats** - Conversations with bots\n"
+                f"📢 **Telegram official** - Telegram service chats\n"
+                f"🚫 **Spambot chats** - @spambot conversations\n"
+                f"🚪 **Exit channels** - Leave all channels\n"
+                f"👥 **Exit groups** - Leave all groups\n"
+                f"🗑️ **Delete owned groups** - Delete groups you own\n"
+                f"📺 **Delete owned channels** - Delete channels you own\n\n"
+                f"⚠️ **WARNING**: These actions cannot be undone!"
+            )
+            
+            if self.account_manager:
+                self.account_manager.pending_actions[user_id] = {
+                    "action": "cleanup_selection",
+                    "account_id": account_id
+                }
+            
+            await self.bot.edit_message(user_id, message_id, text)
+            await self.bot.send_message(
+                user_id,
+                "📝 **Reply with your selection:**\n\n"
+                "Type what you want to clean, separated by commas:\n\n"
+                "**Examples:**\n"
+                "• `personal,bots` - Clean personal chats and bot chats\n"
+                "• `channels,groups` - Exit all channels and groups\n"
+                "• `all` - Clean everything\n\n"
+                "**Available options:**\n"
+                "`personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup selection: {e}")
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup selection", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+    
+    async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
+        """Send cleanup confirmation with selected options"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await self.bot.edit_message(user_id, message_id, "❌ Account not found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+                return
+            
+            display_name = format_display_name(account)
+            
+            # Parse cleanup types
+            cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
+            if 'all' in cleanup_list:
+                cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
+            
+            # Create display text for selected options
+            selected_options = []
+            if 'personal' in cleanup_list:
+                selected_options.append("✅ 💬 Personal chats")
+            if 'bots' in cleanup_list:
+                selected_options.append("✅ 🤖 Bot chats")
+            if 'telegram' in cleanup_list:
+                selected_options.append("✅ 📢 Telegram official chats")
+            if 'spambot' in cleanup_list:
+                selected_options.append("✅ 🚫 Spambot chats")
+            if 'channels' in cleanup_list:
+                selected_options.append("✅ 🚪 Exit from channels")
+            if 'groups' in cleanup_list:
+                selected_options.append("✅ 👥 Exit from groups")
+            if 'owned_groups' in cleanup_list:
+                selected_options.append("✅ 🗑️ Delete owned groups")
+            if 'owned_channels' in cleanup_list:
+                selected_options.append("✅ 📺 Delete owned channels")
+            
+            if not selected_options:
+                await self.bot.send_message(user_id, "❌ No valid cleanup options selected. Please try again.")
+                return
+            
+            text = (
+                f"🧹 **Final Cleanup Confirmation**\n\n"
                 f"📱 Account: {display_name}\n\n"
-                f"**Will clean:**\n"
-                f"✅ 💬 Personal chats\n"
-                f"✅ 🤖 Bot chats\n"
-                f"✅ 📢 Telegram official chats\n"
-                f"✅ 🚫 Spambot chats\n\n"
-                f"⚠️ **WARNING**: This action cannot be undone!\n"
-                f"All selected chats and data will be permanently deleted."
+                f"**Selected cleanup actions:**\n"
+                + "\n".join(selected_options) + "\n\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
+                f"All selected chats and data will be permanently deleted.\n\n"
+                f"Are you absolutely sure you want to proceed?"
             )
             
             buttons = [
-                [Button.inline("🚀 Start Cleanup", f"cleanup:confirm:{account_id}")],
-                [Button.inline("🔙 Back to Accounts", "cleanup:menu")]
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")],
+                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
-            logger.error(f"Error in cleanup options: {e}")
-            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup options", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+            logger.error(f"Error in cleanup confirmation: {e}")
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup confirmation", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
     
-    async def _execute_cleanup(self, event, user_id: int, account_id: str):
-        """Execute account cleanup"""
+    async def _execute_cleanup(self, event, user_id: int, account_id: str, cleanup_types: str):
+        """Execute account cleanup with selected options"""
         try:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
@@ -1362,6 +1455,23 @@ class MenuSystem:
             
             display_name = format_display_name(account)
             
+            # Parse cleanup types
+            cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
+            if 'all' in cleanup_list:
+                cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
+            
+            # Map to cleanup settings
+            cleanup_settings = {
+                'personal_chats': 'personal' in cleanup_list,
+                'bot_chats': 'bots' in cleanup_list,
+                'telegram_chat': 'telegram' in cleanup_list,
+                'spambot_chat': 'spambot' in cleanup_list,
+                'channels': 'channels' in cleanup_list,
+                'groups': 'groups' in cleanup_list,
+                'owned_groups': 'owned_groups' in cleanup_list,
+                'owned_channels': 'owned_channels' in cleanup_list
+            }
+            
             await self.bot.edit_message(
                 user_id, event.message_id,
                 f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below",
@@ -1370,16 +1480,6 @@ class MenuSystem:
             
             from teleguard.core.account_cleaner import AccountCleaner
             cleaner = AccountCleaner()
-            
-            cleanup_settings = {
-                'personal_chats': True,
-                'bot_chats': True,
-                'groups': False,
-                'channels': False,
-                'contacts': False,
-                'telegram_chat': True,
-                'spambot_chat': True
-            }
             
             import time
             last_update_time = time.time()
@@ -1419,6 +1519,7 @@ class MenuSystem:
             
             await mongodb.add_audit_entry(account_id, {
                 "action": "cleanup_completed",
+                "cleanup_types": cleanup_types,
                 "timestamp": int(time.time()),
                 "result": "success"
             })
@@ -1438,6 +1539,148 @@ class MenuSystem:
                 await self.bot.edit_message(user_id, event.message_id, error_text, buttons=buttons)
             except Exception:
                 await self.bot.send_message(user_id, error_text, buttons=buttons)
+    
+    async def _handle_cleanup_selection_callback(self, event, user_id: int, data: str):
+        """Handle cleanup selection text input"""
+        try:
+            # Get pending action
+            if not hasattr(self.account_manager, 'pending_actions') or user_id not in self.account_manager.pending_actions:
+                await event.reply("❌ No pending cleanup action found.")
+                return
+            
+            action_data = self.account_manager.pending_actions[user_id]
+            if action_data.get('action') != 'cleanup_selection':
+                await event.reply("❌ Invalid action state.")
+                return
+            
+            account_id = action_data.get('account_id')
+            cleanup_types = data.strip().lower()
+            
+            # Clear pending action
+            del self.account_manager.pending_actions[user_id]
+            
+            # Process the cleanup confirmation
+            await self._send_cleanup_confirmation(user_id, None, account_id, cleanup_types)
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup selection callback: {e}")
+            await event.reply("❌ Error processing cleanup selection.")
+    
+    async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
+        """Send cleanup confirmation with selected options"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await self.bot.send_message(user_id, "❌ Account not found")
+                return
+            
+            display_name = format_display_name(account)
+            
+            # Parse cleanup types
+            cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
+            if 'all' in cleanup_list:
+                cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
+            
+            # Create display text for selected options
+            selected_options = []
+            if 'personal' in cleanup_list:
+                selected_options.append("✅ 💬 Personal chats")
+            if 'bots' in cleanup_list:
+                selected_options.append("✅ 🤖 Bot chats")
+            if 'telegram' in cleanup_list:
+                selected_options.append("✅ 📢 Telegram official chats")
+            if 'spambot' in cleanup_list:
+                selected_options.append("✅ 🚫 Spambot chats")
+            if 'channels' in cleanup_list:
+                selected_options.append("✅ 🚪 Exit from channels")
+            if 'groups' in cleanup_list:
+                selected_options.append("✅ 👥 Exit from groups")
+            if 'owned_groups' in cleanup_list:
+                selected_options.append("✅ 🗑️ Delete owned groups")
+            if 'owned_channels' in cleanup_list:
+                selected_options.append("✅ 📺 Delete owned channels")
+            
+            if not selected_options:
+                await self.bot.send_message(user_id, "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all")
+                return
+            
+            text = (
+                f"🧹 **Final Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
+                f"**Selected cleanup actions:**\n"
+                + "\n".join(selected_options) + "\n\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
+                f"All selected chats and data will be permanently deleted.\n\n"
+                f"Are you absolutely sure you want to proceed?"
+            )
+            
+            buttons = [
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")],
+                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
+            ]
+            
+            await self.bot.send_message(user_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup confirmation: {e}")
+            await self.bot.send_message(user_id, "❌ Error loading cleanup confirmation")
+    
+    async def _handle_spam_appeal(self, event, user_id: int, account_id: str):
+        """Handle spam appeal for account before cleanup"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            
+            display_name = format_display_name(account)
+            
+            # Check if spam appeal handler is available
+            if hasattr(self.account_manager, 'spam_appeal_handler'):
+                text = (
+                    f"📞 **Spam Appeal - {display_name}**\n\n"
+                    f"🤖 **Smart Appeal System**\n\n"
+                    f"Before cleaning your account, you can try appealing any spam restrictions.\n\n"
+                    f"**Features:**\n"
+                    f"• AI-powered message selection\n"
+                    f"• Automatic @spambot interaction\n"
+                    f"• Manual captcha verification\n"
+                    f"• Smart detection of restriction types\n\n"
+                    f"Would you like to start the appeal process?"
+                )
+                
+                buttons = [
+                    [Button.inline("🚀 Start Appeal", f"appeal_account_id:{account_id}")],
+                    [Button.inline("🧹 Skip to Cleanup", f"cleanup:select:{account_id}")],
+                    [Button.inline("🔙 Back to Menu", "cleanup:menu")]
+                ]
+                
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                text = (
+                    f"📞 **Manual Spam Appeal - {display_name}**\n\n"
+                    f"Spam appeal system is not available.\n\n"
+                    f"**Manual steps:**\n"
+                    f"1. Go to @spambot\n"
+                    f"2. Send /start\n"
+                    f"3. Follow the appeal process\n"
+                    f"4. Complete any captcha verification\n\n"
+                    f"After appealing, you can return to cleanup if needed."
+                )
+                
+                buttons = [
+                    [Button.inline("🧹 Continue to Cleanup", f"cleanup:select:{account_id}")],
+                    [Button.inline("🔙 Back to Menu", "cleanup:menu")]
+                ]
+                
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in spam appeal: {e}")
+            await event.answer("❌ Error loading spam appeal")
     async def _handle_help(self, event):
         """Handle Help menu"""
         user_id = event.sender_id
