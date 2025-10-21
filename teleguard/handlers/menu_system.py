@@ -79,16 +79,15 @@ class MenuSystem:
             logger.debug(f"Account row for unknown display -> {account}")
         return base
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
-        """Get persistent reply keyboard menu"""
+        """Get enhanced persistent reply keyboard menu"""
         keyboard = [
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
             [Button.text("👥 Contacts"), Button.text("🧹 Cleanup")],
-            [Button.text("❓ Help")],
-            [Button.text("🆘 Support")],
+            [Button.text("❓ Help"), Button.text("🆘 Support")],
         ]
         if user_id in ADMIN_IDS:
-            keyboard.append([Button.text("⚙️ Developer")])
+            keyboard.append([Button.text("⚙️ Developer Panel")])
         return keyboard
     
     async def send_main_menu(self, user_id: int) -> int:
@@ -218,10 +217,24 @@ class MenuSystem:
         """Send persistent reply keyboard menu"""
         try:
             keyboard = self.get_main_menu_keyboard(user_id)
+            
+            # Get user stats for personalized welcome
+            account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+            otp_enabled = await mongodb.db.accounts.count_documents({"user_id": user_id, "otp_destroyer_enabled": True})
+            
+            security_score = int((otp_enabled/max(account_count, 1))*100) if account_count > 0 else 0
+            status_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+            
             text = (
-                "🤖 **TeleGuard Account Manager**\n\n"
-                "🛡️ Professional Telegram security & automation\n\n"
-                "Use the menu buttons below to get started:"
+                "🤖 **TeleGuard - Professional Account Manager**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "🛡️ **Advanced Telegram Security & Automation Platform**\n\n"
+                f"📊 **Your Dashboard:**\n"
+                f"• 📱 Accounts: {account_count} configured\n"
+                f"• 🛡️ Protection: {otp_enabled}/{account_count} secured\n"
+                f"• {status_emoji} Security Score: {security_score}%\n\n"
+                "⚡ **Quick Actions:** Use the menu buttons below to get started\n\n"
+                "💡 **Tip:** Enable OTP Destroyer on all accounts for maximum security"
             )
             message = await self.bot.send_message(user_id, text, buttons=keyboard)
             # Store menu message ID in MongoDB
@@ -492,7 +505,7 @@ class MenuSystem:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
                     await self._handle_support(event)
-                elif text in ["⚙️ Developer", "Developer"]:
+                elif text in ["⚙️ Developer", "Developer", "⚙️ Developer Panel", "Developer Panel"]:
                     if user_id not in ADMIN_IDS:
                         await event.reply(
                             "❌ You don't have access to Developer tools."
@@ -1003,49 +1016,71 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "📱 **Account Management**\n\nNo accounts found. Add your first account to get started."
+                text = (
+                    "📱 **Account Management Center**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚀 **Welcome to TeleGuard!**\n\n"
+                    "No accounts found. Let's get you started with your first account.\n\n"
+                    "🎯 **Quick Setup:**\n"
+                    "1️⃣ Add your first account\n"
+                    "2️⃣ Enable OTP protection\n"
+                    "3️⃣ Explore advanced features\n\n"
+                    "Choose an option below to begin:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
-                    [Button.inline("🔐 Session Login", "session_login")],
-                    [Button.inline("📥 Import Sessions", "import_sessions")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("🔐 Session Login", "session_login"), Button.inline("📥 Import Sessions", "import_sessions")],
+                    [Button.inline("❓ Setup Guide", "help:guide")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
-                text = f"📱 **Account Management**\n\nYou have {len(accounts)} account(s):\n\n"
+                # Calculate statistics
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                protected_accounts = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled", False))
+                
+                text = (
+                    f"📱 **Account Management Center**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **Overview:**\n"
+                    f"• 📱 Total Accounts: {len(accounts)}\n"
+                    f"• 🟢 Active: {active_accounts}\n"
+                    f"• 🛡️ Protected: {protected_accounts}\n\n"
+                    "📋 **Your Accounts:**\n"
+                )
                 buttons = []
                 for i, account in enumerate(accounts, 1):
-                    status = "✅" if account.get("is_active", False) else "❌"
-                    destroyer_status = (
-                        "🛡️" if account.get("otp_destroyer_enabled", False) else "❌"
-                    )
+                    status = "🟢" if account.get("is_active", False) else "🔴"
+                    destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     account_phone = format_phone_number(account.get('phone', 'Unknown'))
-                    text += f"{i}. {status}{destroyer_status} {display_name} ({account_phone})\n"
+                    text += f"{i}. {status}{destroyer_status} **{display_name}** `{account_phone}`\n"
                     buttons.append(
                         [
                             Button.inline(
-                                f"⚙️ Manage {format_display_name(account)}",
+                                f"⚙️ {format_display_name(account)}",
                                 f"account:manage:{account['_id']}",
                             )
                         ]
                     )
-                buttons.extend(
+                
+                text += "\n🎛️ **Management Tools:**"
+                buttons.extend([
                     [
-                        [
-                            Button.inline("➕ Add Account", "account:add"),
-                            Button.inline("📋 List All", "account:list"),
-                        ],
-                        [
-                            Button.inline("🗑️ Remove Account", "account:remove"),
-                            Button.inline("🔄 Refresh", "account:refresh"),
-                        ],
-                        [
-                            Button.inline("🔐 Session Login", "session_login"),
-                            Button.inline("✨ Fresh Sessions", "export_sessions"),
-                        ],
-                        [Button.inline("🔙 Back to Main Menu", "menu:main")],
-                    ]
-                )
+                        Button.inline("➕ Add Account", "account:add"),
+                        Button.inline("🗑️ Remove Account", "account:remove"),
+                    ],
+                    [
+                        Button.inline("🔐 Session Tools", "session_login"),
+                        Button.inline("✨ Export Sessions", "export_sessions"),
+                    ],
+                    [
+                        Button.inline("🔄 Refresh Status", "account:refresh"),
+                        Button.inline("📋 Detailed List", "account:list"),
+                    ],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
+                ])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle account settings: {e}")
@@ -1058,9 +1093,20 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "🛡️ **OTP Manager**\n\nNo accounts found. Add accounts first to manage OTP settings."
+                text = (
+                    "🛡️ **OTP Security Manager**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts found!**\n\n"
+                    "You need to add accounts first before configuring OTP protection.\n\n"
+                    "🎯 **What is OTP Protection?**\n"
+                    "• 🛡️ **Destroyer** - Blocks unauthorized login attempts\n"
+                    "• 📤 **Forward** - Forwards OTP codes to you\n"
+                    "• ⏰ **Temp Pass** - 5-minute security bypass\n\n"
+                    "Add your first account to get started:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ Security Guide", "help:security")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
@@ -1068,13 +1114,22 @@ class MenuSystem:
                 destroyer_enabled = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled", False))
                 forward_enabled = sum(1 for acc in accounts if acc.get("otp_forward_enabled", False))
                 
+                # Count enabled/disabled accounts and calculate security metrics
+                temp_active = sum(1 for acc in accounts if acc.get("otp_temp_passthrough", False))
+                
+                security_score = int((destroyer_enabled/len(accounts))*100)
+                security_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+                
                 text = (
-                    "🛡️ **OTP Manager**\n\n"
-                    "Choose OTP protection settings:\n\n"
-                    f"📊 **Status Overview:**\n"
-                    f"• 🛡️ Destroyer: {destroyer_enabled}/{len(accounts)} accounts\n"
-                    f"• 📤 Forward: {forward_enabled}/{len(accounts)} accounts\n\n"
-                    "**Select action:**"
+                    "🛡️ **OTP Security Manager**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **Security Dashboard:**\n"
+                    f"• {security_emoji} **Security Score:** {security_score}%\n"
+                    f"• 🛡️ **Destroyer Active:** {destroyer_enabled}/{len(accounts)} accounts\n"
+                    f"• 📤 **Forward Active:** {forward_enabled}/{len(accounts)} accounts\n"
+                    f"• ⏰ **Temp Bypass:** {temp_active} active\n\n"
+                    "🎛️ **Protection Controls:**\n"
+                    "Choose your security configuration below:"
                 )
                 buttons = [
                     [
@@ -1082,15 +1137,18 @@ class MenuSystem:
                         Button.inline("📤 OTP Forward", "otp_setting:forward"),
                     ],
                     [
-                        Button.inline("⏰ Temp OTP", "otp_setting:temp"),
+                        Button.inline("⏰ Temp Bypass", "otp_setting:temp"),
                         Button.inline("📊 Statistics", "otp:stats"),
                     ],
                     [
-                        Button.inline("🛡️ Enable All Destroyers", "otp:enable_all"),
-                        Button.inline("🔴 Disable All", "otp:disable_all"),
+                        Button.inline("🟢 Enable All Protection", "otp:enable_all"),
+                        Button.inline("🔴 Disable All Protection", "otp:disable_all"),
                     ],
                     [
-                        Button.inline("📋 Audit Log", "otp:audit_all"),
+                        Button.inline("📋 Security Audit Log", "otp:audit_all"),
+                        Button.inline("❓ Security Guide", "help:security"),
+                    ],
+                    [
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ]
@@ -1106,38 +1164,55 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "💬 **Messaging**\n\nNo accounts found. Add accounts first to use messaging features."
+                text = (
+                    "💬 **Advanced Messaging Center**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts available!**\n\n"
+                    "You need active accounts to use messaging features.\n\n"
+                    "🎯 **Available Features:**\n"
+                    "• 📤 **Smart Messaging** - Send to users/groups\n"
+                    "• 📨 **Bulk Operations** - Mass messaging campaigns\n"
+                    "• 🤖 **Auto-Reply** - Intelligent response system\n"
+                    "• 📝 **Templates** - Reusable message templates\n"
+                    "• 📨 **DM Management** - Unified inbox system\n\n"
+                    "Add accounts to unlock these powerful features:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ Messaging Guide", "help:features")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
+                # Get messaging statistics
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                auto_reply_enabled = sum(1 for acc in accounts if acc.get("auto_reply_enabled", False))
+                
                 text = (
-                    "💬 **Messaging Center**\n\n"
-                    "Choose a messaging action:\n\n"
-                    "📤 Send messages to users/groups\n"
-                    "📨 Bulk messaging to multiple users\n"
-                    "🤖 Set up auto-reply rules\n"
-                    "📝 Create message templates\n"
-                    "📨 Unified DM management\n"
-                    "📊 View message statistics"
+                    "💬 **Advanced Messaging Center**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **System Status:**\n"
+                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"• 🤖 Auto-Reply: {auto_reply_enabled} enabled\n"
+                    f"• 🟢 System: Operational\n\n"
+                    "🚀 **Messaging Tools:**\n"
+                    "Choose your messaging action below:"
                 )
                 buttons = [
                     [
-                        Button.inline("📤 Send Message", "msg:send"),
-                        Button.inline("📨 Bulk Sender", "msg:bulk"),
+                        Button.inline("📤 Smart Messaging", "msg:send"),
+                        Button.inline("📨 Bulk Campaigns", "msg:bulk"),
                     ],
                     [
-                        Button.inline("🤖 Auto Reply", "auto_reply:main"),
-                        Button.inline("📝 Templates", "msg:templates"),
+                        Button.inline("🤖 Auto-Reply System", "auto_reply:main"),
+                        Button.inline("📝 Message Templates", "msg:templates"),
                     ],
                     [
-                        Button.inline("📨 DM Reply", "dm_reply:main"),
-                        Button.inline("📊 Statistics", "msg:stats"),
+                        Button.inline("📨 Unified DM Manager", "dm_reply:main"),
+                        Button.inline("📊 Analytics", "msg:stats"),
                     ],
                     [
-                        Button.inline("📋 History", "msg:history"),
-                        Button.inline("⚙️ Settings", "msg:settings"),
+                        Button.inline("📋 Message History", "msg:history"),
+                        Button.inline("⚙️ System Settings", "msg:settings"),
                     ],
                     [
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
@@ -1155,24 +1230,41 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "📢 **Channel Manager**\n\nNo accounts found. Add accounts first to manage channels."
+                text = (
+                    "📢 **Channel Management Hub**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts available!**\n\n"
+                    "You need active accounts to manage channels and groups.\n\n"
+                    "🎯 **Channel Features:**\n"
+                    "• 🔗 **Smart Join/Leave** - Bulk channel operations\n"
+                    "• 🆕 **Channel Creation** - Create channels & groups\n"
+                    "• 📋 **Management Tools** - List, organize, moderate\n"
+                    "• 🗑️ **Cleanup Tools** - Mass leave/delete operations\n"
+                    "• 📊 **Analytics** - Channel performance metrics\n\n"
+                    "Add accounts to unlock channel management:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ Channel Guide", "help:features")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                
                 text = (
-                    "📢 **Channel Manager**\n\n"
-                    "Select an account to manage channels:\n\n"
-                    "🔗 Join/leave channels\n"
-                    "🆕 Create new channels\n"
-                    "📋 List your channels\n"
-                    "🗑️ Delete channels"
+                    "📢 **Channel Management Hub**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **System Overview:**\n"
+                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"• 🟢 Management Tools: Ready\n\n"
+                    "🎛️ **Select Account for Channel Operations:**\n"
+                    "Choose an account to manage its channels and groups:"
                 )
                 buttons = []
                 for account in accounts[:8]:  # Limit to 8 accounts
-                    status = "✅" if account.get("is_active", False) else "❌"
-                    button_text = f"{status} {account['name']}"
+                    status = "🟢" if account.get("is_active", False) else "🔴"
+                    display_name = format_display_name(account)
+                    button_text = f"{status} {display_name}"
                     buttons.append(
                         [
                             Button.inline(
@@ -1180,15 +1272,15 @@ class MenuSystem:
                             )
                         ]
                     )
-                buttons.extend(
+                buttons.extend([
                     [
-                        [
-                            Button.inline("📊 Channel Statistics", "channel:stats"),
-                            Button.inline("🔍 Search Channels", "channel:search"),
-                        ],
-                        [Button.inline("🔙 Back to Main Menu", "menu:main")],
-                    ]
-                )
+                        Button.inline("📊 Global Statistics", "channel:stats"),
+                        Button.inline("🔍 Channel Discovery", "channel:search"),
+                    ],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
+                ])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle channels: {e}")
@@ -1199,9 +1291,22 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "👥 **Contact Management**\n\nNo accounts found. Add accounts first to manage contacts."
+                text = (
+                    "👥 **Advanced Contact Management**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts available!**\n\n"
+                    "You need active accounts to manage contacts.\n\n"
+                    "🎯 **Contact Features:**\n"
+                    "• 📱 **Smart Management** - Add, edit, organize contacts\n"
+                    "• 🏷️ **Advanced Tagging** - Categories and groups\n"
+                    "• 📤 **Export Tools** - CSV, JSON, Excel formats\n"
+                    "• 🔄 **Sync Engine** - Two-way Telegram sync\n"
+                    "• 🛡️ **Privacy Controls** - Blacklist/whitelist system\n\n"
+                    "Add accounts to unlock contact management:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ Contact Guide", "help:features")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
@@ -1209,22 +1314,35 @@ class MenuSystem:
                 for account in accounts:
                     count = await mongodb.db.contacts.count_documents({"managed_by_account": account['name']})
                     contact_count += count
+                # Calculate contact statistics
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                
                 text = (
-                    "👥 **Contact Management System**\n\n"
-                    f"📊 **Statistics:**\n"
-                    f"• Total Contacts: {contact_count}\n"
-                    f"• Managed Accounts: {len(accounts)}\n\n"
-                    "🚀 **Features:**\n"
-                    "• Add, edit, delete contacts\n"
-                    "• Organize with tags and groups\n"
-                    "• Import/export contact lists\n"
-                    "• Sync with Telegram contacts\n"
-                    "• Blacklist/whitelist management\n\n"
-                    "Click below to access the contact manager:"
+                    "👥 **Advanced Contact Management**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **System Statistics:**\n"
+                    f"• 👥 Total Contacts: {contact_count:,}\n"
+                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"• 🟢 System Status: Operational\n\n"
+                    "🚀 **Professional Features:**\n"
+                    "• 📱 Smart contact organization and management\n"
+                    "• 🏷️ Advanced tagging and categorization system\n"
+                    "• 📤 Multi-format export (CSV, JSON, Excel)\n"
+                    "• 🔄 Intelligent two-way Telegram synchronization\n"
+                    "• 🛡️ Privacy controls with blacklist/whitelist\n\n"
+                    "Access your contact management dashboard:"
                 )
                 buttons = [
-                    [Button.inline("👥 Open Contact Manager", "contacts:main")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                    [
+                        Button.inline("🎛️ Contact Dashboard", "contacts:main"),
+                    ],
+                    [
+                        Button.inline("📤 Quick Export", "contacts:export"),
+                        Button.inline("🔄 Sync Contacts", "contacts:sync"),
+                    ],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
                 ]
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
@@ -1237,25 +1355,42 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "🧹 **Account Cleanup**\n\nNo accounts found. Add accounts first to use cleanup features."
+                text = (
+                    "🧹 **Professional Account Cleanup**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts available!**\n\n"
+                    "You need active accounts to use cleanup features.\n\n"
+                    "🎯 **Cleanup Capabilities:**\n"
+                    "• 💬 **Smart Chat Cleanup** - Personal, bot, official chats\n"
+                    "• 🚫 **Spam Removal** - Spambot and unwanted chats\n"
+                    "• 🚪 **Mass Exit** - Leave channels and groups\n"
+                    "• 🗑️ **Ownership Cleanup** - Delete owned channels/groups\n"
+                    "• 📞 **Spam Appeals** - Automated appeal system\n\n"
+                    "⚠️ **Important:** All cleanup actions are irreversible!\n\n"
+                    "Add accounts to access cleanup tools:"
+                )
                 buttons = [
-                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ Cleanup Guide", "help:features")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                
                 text = (
-                    "🧹 **Account Cleanup**\n\n"
-                    "Select an account to clean:\n\n"
-                    "⚠️ **Warning**: Cleanup actions cannot be undone!\n"
-                    "📋 Available cleanup options:\n"
-                    "• 💬 Personal chats\n"
-                    "• 🤖 Bot chats\n"
-                    "• 📢 Telegram official chats\n"
-                    "• 🚫 Spambot chats\n"
-                    "• 🚪 Exit channels\n"
-                    "• 👥 Exit groups\n"
-                    "• 🗑️ Delete owned groups\n"
-                    "• 📺 Delete owned channels"
+                    "🧹 **Professional Account Cleanup**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **System Status:**\n"
+                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"• 🟢 Cleanup Tools: Ready\n\n"
+                    "⚠️ **CRITICAL WARNING:**\n"
+                    "All cleanup actions are **PERMANENT** and **IRREVERSIBLE**!\n\n"
+                    "🎯 **Available Cleanup Options:**\n"
+                    "• 💬 Personal chats • 🤖 Bot conversations\n"
+                    "• 📢 Telegram official • 🚫 Spambot chats\n"
+                    "• 🚪 Exit channels • 👥 Exit groups\n"
+                    "• 🗑️ Delete owned groups • 📺 Delete owned channels\n\n"
+                    "🎛️ **Select Account to Clean:**"
                 )
                 
                 buttons = []
@@ -1265,7 +1400,10 @@ class MenuSystem:
                     button_text = f"{status} {display_name}"
                     buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
                 
-                buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
+                buttons.extend([
+                    [Button.inline("📞 Spam Appeal Guide", "help:troubleshoot")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle cleanup: {e}")
@@ -1793,34 +1931,29 @@ class MenuSystem:
         account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
         otp_enabled = await mongodb.db.accounts.count_documents({"user_id": user_id, "otp_destroyer_enabled": True})
         
+        security_score = int((otp_enabled/max(account_count, 1))*100) if account_count > 0 else 0
+        status_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+        
         text = (
-            "❓ **TeleGuard Help Center**\n\n"
-            f"**📊 Your Status:**\n"
-            f"• Accounts: {account_count} added\n"
-            f"• OTP Protection: {otp_enabled}/{account_count} accounts protected\n\n"
-            "**🚀 Quick Start Guide:**\n"
-            "1️⃣ **Add Account** → Use '📱 Account Settings' → 'Add Account'\n"
-            "2️⃣ **Enable Security** → Use '🛡️ OTP Manager' → Select account → 'Enable Destroyer'\n"
-            "3️⃣ **Set Up Messaging** → Use '💬 Messaging' → Configure auto-replies\n"
-            "4️⃣ **Manage Channels** → Use '📢 Channels' → Join/create channels\n\n"
-            "**🎯 Core Features:**\n"
-            "• **Account Management** - Multi-account support (up to 10)\n"
-            "• **OTP Destroyer** - Real-time login attack protection\n"
-            "• **Unified Messaging** - Centralized DM management\n"
-            "• **Channel Tools** - Join, create, manage channels\n"
-            "• **Contact Export** - Export contacts to CSV\n"
-            "• **Session Management** - View/terminate active sessions\n\n"
-            "**🛡️ Security Suite:**\n"
-            "• **OTP Destroyer** - Blocks unauthorized login codes\n"
-            "• **2FA Management** - Set/change two-factor passwords\n"
-            "• **Session Monitoring** - Track active login sessions\n"
-            "• **Activity Simulation** - Human-like behavior patterns\n"
-            "• **Audit Logging** - Complete activity tracking\n\n"
-            "**💡 Pro Tips:**\n"
-            "• Keep OTP Destroyer enabled for maximum security\n"
-            "• Use 2FA passwords for critical accounts\n"
-            "• Monitor audit logs regularly for suspicious activity\n"
-            "• Set up DM Reply for centralized message management"
+            "❓ **TeleGuard Help & Support Center**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📊 **Your Dashboard:**\n"
+            f"• 📱 **Accounts:** {account_count} configured\n"
+            f"• 🛡️ **Protection:** {otp_enabled}/{account_count} secured\n"
+            f"• {status_emoji} **Security Score:** {security_score}%\n\n"
+            "🚀 **Quick Setup (2 minutes):**\n"
+            "1️⃣ **Add Account** → `📱 Account Settings` → `Add Account`\n"
+            "2️⃣ **Enable Security** → `🛡️ OTP Manager` → `Enable Destroyer`\n"
+            "3️⃣ **Configure Features** → Explore messaging & automation\n\n"
+            "🎯 **Feature Overview:**\n"
+            "• 🛡️ **Security** - OTP protection, 2FA, session monitoring\n"
+            "• 💬 **Messaging** - Auto-reply, templates, bulk sending\n"
+            "• 📱 **Management** - Profile updates, channel tools\n"
+            "• 📊 **Analytics** - Activity logs, performance insights\n\n"
+            "💡 **Pro Tips:**\n"
+            "• Enable OTP Destroyer on all accounts for maximum security\n"
+            "• Use DM Reply for centralized message management\n"
+            "• Monitor audit logs weekly for security insights"
         )
         buttons = [
             [
@@ -1853,19 +1986,22 @@ class MenuSystem:
     async def _handle_support(self, event):
         """Handle Support menu"""
         text = (
-            "🆘 **TeleGuard Support Center**\n\n"
-            "**👨💻 Meet the Developers:**\n"
-            "• @Meher_Mankar - Lead Developer\n"
-            "• @Gutkesh - Core Developer\n\n"
-            "**📞 Get Help:**\n"
-            "• 💬 Support Chat: @ContactXYZrobot\n"
-            "• 🐛 Bug Reports: GitHub Issues\n"
-            "• 📚 Documentation: Check README.md\n"
-            "• ⏰ Response Time: Usually within 24 hours\n\n"
-            "**🔧 Before Contacting Support:**\n"
-            "1️⃣ Check the Help section for common solutions\n"
-            "2️⃣ Try restarting the bot with /start\n"
-            "3️⃣ Ensure your accounts are properly added"
+            "🆘 **TeleGuard Support Center**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "👨💻 **Development Team:**\n"
+            "• **@Meher_Mankar** - Lead Developer & Founder\n"
+            "• **@Gutkesh** - Core Developer & Security Expert\n\n"
+            "🎯 **Get Instant Help:**\n"
+            "• 💬 **Live Support:** @ContactXYZrobot\n"
+            "• 🐛 **Bug Reports:** GitHub Issues Portal\n"
+            "• 📚 **Documentation:** Complete Wiki Guide\n"
+            "• ⚡ **Response Time:** < 6 hours (usually faster)\n\n"
+            "🔧 **Self-Help Checklist:**\n"
+            "✅ Check Help section for instant solutions\n"
+            "✅ Try `/start` to refresh the bot\n"
+            "✅ Verify accounts are properly connected\n"
+            "✅ Review troubleshooting guide first\n\n"
+            "🚨 **Emergency Support:** Contact developers directly for critical issues"
         )
         buttons = [
             [
@@ -1878,9 +2014,11 @@ class MenuSystem:
             ],
             [
                 Button.inline("📊 System Status", "support:status"),
-                Button.inline("🔄 Check Updates", "support:updates"),
+                Button.inline("🔄 Updates", "support:updates"),
             ],
-            [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            [
+                Button.inline("🔙 Back to Main Menu", "menu:main"),
+            ],
         ]
         await self.bot.send_message(event.sender_id, text, buttons=buttons)
     async def _handle_developer(self, event):
@@ -1890,36 +2028,48 @@ class MenuSystem:
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
             if user:
                 current_mode = user.get("developer_mode", False)
+                # Get system stats for dashboard
+                account_count = await mongodb.db.accounts.count_documents({})
+                user_count = await mongodb.db.users.count_documents({})
+                
                 text = (
-                    "⚙️ **Developer Tools**\n\n"
-                    f"Current Mode: {'🟢 Enabled' if current_mode else '🔴 Disabled'}\n\n"
-                    "**Available Tools:**\n"
-                    "• Toggle developer mode\n"
-                    "• View system information\n"
-                    "• Access debug logs\n"
-                    "• Database operations\n"
-                    "• Performance metrics"
+                    "⚙️ **Developer Control Panel**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🎛️ **Developer Mode:** {'🟢 **ACTIVE**' if current_mode else '🔴 **INACTIVE**'}\n\n"
+                    f"📊 **System Overview:**\n"
+                    f"• 👥 Total Users: {user_count:,}\n"
+                    f"• 📱 Total Accounts: {account_count:,}\n"
+                    f"• 🟢 System Status: Operational\n\n"
+                    "🛠️ **Administrative Tools:**\n"
+                    "• 🔧 **System Control** - Mode toggle, restart, maintenance\n"
+                    "• 📊 **Monitoring** - Real-time metrics & performance\n"
+                    "• 🐛 **Debugging** - Error logs & diagnostic tools\n"
+                    "• 🗄️ **Database** - Statistics & optimization tools\n"
+                    "• 🚀 **Deployment** - Configuration & startup management\n\n"
+                    "⚠️ **Administrator Access** - Advanced system operations only"
                 )
                 mode_text = (
-                    "🔴 Disable Dev Mode" if current_mode else "🟢 Enable Dev Mode"
+                    "🔴 Disable Developer Mode" if current_mode else "🟢 Enable Developer Mode"
                 )
                 buttons = [
-                    [Button.inline(mode_text, "dev:toggle")],
                     [
-                        Button.inline("📊 System Info", "dev:sysinfo"),
-                        Button.inline("📋 Debug Logs", "dev:logs"),
+                        Button.inline(mode_text, "dev:toggle"),
                     ],
                     [
-                        Button.inline("🗄️ Database Stats", "dev:dbstats"),
-                        Button.inline("⚡ Performance", "dev:perf"),
+                        Button.inline("📊 System Dashboard", "dev:sysinfo"),
+                        Button.inline("📋 System Logs", "dev:logs"),
                     ],
                     [
-                        Button.inline("🔧 Maintenance", "dev:maintenance"),
-                        Button.inline("🔄 Restart", "dev:restart"),
+                        Button.inline("🗄️ Database Tools", "dev:dbstats"),
+                        Button.inline("⚡ Performance Monitor", "dev:perf"),
+                    ],
+                    [
+                        Button.inline("🔧 Maintenance Tools", "dev:maintenance"),
+                        Button.inline("🔄 System Restart", "dev:restart"),
                     ],
                     [
                         Button.inline("🚀 Startup Config", "dev:startup"),
-                        Button.inline("📚 Commands", "dev:commands"),
+                        Button.inline("📚 Command Reference", "dev:commands"),
                     ],
                     [
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
@@ -1950,15 +2100,17 @@ class MenuSystem:
                     [Button.inline("❓ How to Setup", "dm_reply:help")],
                 ]
             text = (
-                f"📨 **Unified Messaging & DM Reply**\n\n"
-                f"**Auto-Topic Creation:** All private messages automatically create topics in your forum group.\n\n"
-                f"**Status:** {status_text}\n\n"
-                f"**Features:**\n"
-                f"• Automatic topic creation for ALL DMs\n"
-                f"• Each conversation gets its own persistent thread\n"
-                f"• Simply reply in topics - no buttons needed\n"
-                f"• Auto-reply and messaging integrated\n"
-                f"• Clean organized interface"
+                "📨 **Unified DM Management System**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "🎯 **Smart Topic Creation:** All DMs automatically become organized forum topics\n\n"
+                f"📊 **Current Status:** {status_text}\n\n"
+                "✨ **Professional Features:**\n"
+                "• 🔄 **Auto-Organization** - Every DM gets its own topic\n"
+                "• 💬 **Persistent Threads** - Conversations never get lost\n"
+                "• ⚡ **Instant Reply** - Just reply in topics, no buttons needed\n"
+                "• 🤖 **Smart Integration** - Works seamlessly with auto-reply\n"
+                "• 🎨 **Clean Interface** - Professional message management\n\n"
+                "🚀 **Perfect for managing multiple accounts from one centralized place!**"
             )
             buttons.append([Button.inline("🔙 Back to Messaging", "menu:messaging")])
             await self.bot.send_message(user_id, text, buttons=buttons)
