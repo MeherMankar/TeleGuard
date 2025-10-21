@@ -677,7 +677,7 @@ class BotManager:
             logger.error(f"Failed to add user account: {e}")
             return False
     async def remove_account_by_id(self, user_id: int, account_id: str):
-        """Remove account by ID"""
+        """Remove account by ID with proper session termination"""
         try:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({
@@ -697,26 +697,35 @@ class BotManager:
             except Exception as e:
                 logger.warning(f"Failed to remove 2FA password for {account_name}: {e}")
             
-            # Disconnect client
+            # Terminate Telegram session and disconnect client
             if user_id in self.user_clients:
                 for key in list(self.user_clients[user_id].keys()):
                     if key in [account.get('name'), account.get('phone'), account.get('display_name')]:
                         client = self.user_clients[user_id].pop(key, None)
                         if client and client.is_connected():
-                            await client.disconnect()
+                            try:
+                                # Terminate all active sessions for this account
+                                from telethon.tl.functions.auth import LogOutRequest
+                                await client(LogOutRequest())
+                                logger.info(f"Terminated Telegram session for {account_name}")
+                            except Exception as e:
+                                logger.warning(f"Failed to terminate session for {account_name}: {e}")
+                            finally:
+                                # Always disconnect the client
+                                await client.disconnect()
             
             # Remove from database
             await mongodb.db.accounts.delete_one({"_id": ObjectId(account_id)})
             
-            logger.info(f"Removed account {account_name} for user {user_id}")
-            return True, f"Account {account_name} removed successfully"
+            logger.info(f"Removed account {account_name} for user {user_id} with session termination")
+            return True, f"Account {account_name} removed successfully with session logout"
         except Exception as e:
             logger.error(f"Failed to remove account: {e}")
             return False, f"Failed to remove account: {str(e)}"
     
     async def remove_user_account(self, user_id: int, account_name: str) -> bool:
         """
-        Remove a user account.
+        Remove a user account with proper session termination.
         Args:
             user_id: User's Telegram ID
             account_name: Account name
@@ -743,11 +752,20 @@ class BotManager:
             if hasattr(self, 'session_monitor') and self.session_monitor:
                 self.session_monitor.remove_client_from_monitor(user_id, account_name)
             
-            # Disconnect client
+            # Terminate Telegram session and disconnect client
             if user_id in self.user_clients and account_name in self.user_clients[user_id]:
                 client = self.user_clients[user_id][account_name]
                 if client.is_connected():
-                    await client.disconnect()
+                    try:
+                        # Terminate all active sessions for this account
+                        from telethon.tl.functions.auth import LogOutRequest
+                        await client(LogOutRequest())
+                        logger.info(f"Terminated Telegram session for {account_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to terminate session for {account_name}: {e}")
+                    finally:
+                        # Always disconnect the client
+                        await client.disconnect()
                 del self.user_clients[user_id][account_name]
             
             await mongodb.db.accounts.delete_one({
@@ -755,7 +773,7 @@ class BotManager:
                 "name": account_name
             })
             logger.info(LogFormatter.format_user_action(
-                user_id, "account_removed", {"account_name": account_name}
+                user_id, "account_removed_with_logout", {"account_name": account_name}
             ))
             return True
         except Exception as e:
@@ -764,7 +782,7 @@ class BotManager:
 
     async def remove_account(self, account_id: str) -> bool:
         """
-        Remove account by ID (alias for compatibility).
+        Remove account by ID (alias for compatibility) with session termination.
         Args:
             account_id: Account ID from database
         Returns:

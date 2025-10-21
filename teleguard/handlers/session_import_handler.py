@@ -135,13 +135,15 @@ class SessionImportHandler:
             name = info.get("name")
             final_session = info.get("converted_session", session_string)
             
-            # Check for existing account
+            # Check for existing account and clean up automatically
             existing = await mongodb.db.accounts.find_one({
                 "user_id": user_id,
                 "phone": phone
             })
             if existing:
-                return False, f"❌ Account {phone} already exists"
+                # Always clean up existing account to allow re-import
+                await mongodb.db.accounts.delete_one({"_id": existing["_id"]})
+                logger.info(f"Cleaned up existing account {phone} for user {user_id} to allow re-import")
             
             # Store account with final session string
             account_data = {
@@ -163,7 +165,8 @@ class SessionImportHandler:
             await self.bot_manager.start_user_client(user_id, name, final_session)
             
             conversion_note = " (converted from Pyrogram)" if info.get("session_type") == "pyrogram_converted" else ""
-            return True, f"✅ Account {name} ({phone}) imported successfully{conversion_note}!"
+            cleanup_note = "\n\n🗑️ Previous account data cleaned up automatically" if existing else ""
+            return True, f"✅ Account {name} ({phone}) imported successfully{conversion_note}!{cleanup_note}"
             
         except Exception as e:
             logger.error(f"String session import error: {e}")

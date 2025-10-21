@@ -860,10 +860,12 @@ class MenuSystem:
                             "⚠️ **Confirm Account Removal**\n\n"
                             "Are you sure you want to remove this account?\n\n"
                             "This will:\n"
-                            "• Delete all account data\n"
-                            "• Terminate active sessions\n"
+                            "• **Logout from Telegram** (session terminated)\n"
+                            "• Delete all account data from TeleGuard\n"
                             "• Remove OTP protection\n"
-                            "• Cannot be undone\n\n"
+                            "• Remove stored 2FA password\n"
+                            "• **Cannot be undone**\n\n"
+                            "The account will be logged out from Telegram just like using the logout button in the official app.\n\n"
                             "Use the buttons below to confirm or cancel."
                         )
                         buttons = [
@@ -3022,7 +3024,7 @@ class MenuSystem:
                     await self.bot.edit_message(
                         user_id,
                         event.message_id,
-                        "✅ **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\n🔐 Stored 2FA password also removed for security.",
+                        "✅ **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\n🔐 Session terminated from Telegram\n🔐 Stored 2FA password also removed for security",
                         buttons=[[Button.inline("🔙 Back to Accounts", "menu:accounts")]],
                     )
                 else:
