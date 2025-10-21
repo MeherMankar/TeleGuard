@@ -61,6 +61,90 @@ class CommandHandlers:
                     "ℹ️ No operation to cancel. Use the menu buttons below."
                 )
         
+        # Toggle protection command
+        @self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))
+        async def toggle_protection_handler(event):
+            user_id = event.sender_id
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                if not accounts:
+                    await event.reply("❌ No active accounts found. Add an account first.")
+                    return
+                
+                if len(accounts) == 1:
+                    # Single account - toggle directly
+                    account = accounts[0]
+                    current_status = account.get('otp_destroyer_enabled', False)
+                    new_status = not current_status
+                    
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"otp_destroyer_enabled": new_status}}
+                    )
+                    
+                    status_text = "✅ Enabled" if new_status else "❌ Disabled"
+                    await event.reply(
+                        f"🛡️ **OTP Destroyer {status_text}**\n\n"
+                        f"Account: {account.get('name', 'Unknown')}\n"
+                        f"Status: {status_text}\n\n"
+                        f"{'Your account is now protected from unauthorized login attempts!' if new_status else 'OTP protection has been disabled.'}"
+                    )
+                else:
+                    # Multiple accounts - show selection
+                    from telethon import Button
+                    buttons = []
+                    for account in accounts[:8]:  # Limit to 8 accounts
+                        status = "✅" if account.get('otp_destroyer_enabled', False) else "❌"
+                        button_text = f"{status} {account.get('name', 'Unknown')}"
+                        buttons.append([Button.inline(button_text, f"toggle_otp:{account['_id']}")])
+                    
+                    await event.reply(
+                        "🛡️ **Toggle OTP Protection**\n\n"
+                        "Select an account to toggle OTP destroyer protection:\n\n"
+                        "✅ = Protection Enabled\n"
+                        "❌ = Protection Disabled",
+                        buttons=buttons
+                    )
+            except Exception as e:
+                await event.reply(f"❌ Error: {str(e)}")
+        
+        # Handle OTP toggle callback
+        @self.bot.on(events.CallbackQuery(pattern=r"^toggle_otp:(.+)$"))
+        async def toggle_otp_callback(event):
+            user_id = event.sender_id
+            account_id = event.pattern_match.group(1).decode()
+            
+            try:
+                from bson import ObjectId
+                account = await mongodb.db.accounts.find_one({
+                    "_id": ObjectId(account_id),
+                    "user_id": user_id
+                })
+                
+                if not account:
+                    await event.answer("❌ Account not found")
+                    return
+                
+                current_status = account.get('otp_destroyer_enabled', False)
+                new_status = not current_status
+                
+                await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(account_id)},
+                    {"$set": {"otp_destroyer_enabled": new_status}}
+                )
+                
+                status_text = "✅ Enabled" if new_status else "❌ Disabled"
+                await event.edit(
+                    f"🛡️ **OTP Destroyer {status_text}**\n\n"
+                    f"Account: {account.get('name', 'Unknown')}\n"
+                    f"Status: {status_text}\n\n"
+                    f"{'Your account is now protected from unauthorized login attempts!' if new_status else 'OTP protection has been disabled.'}"
+                )
+                
+            except Exception as e:
+                await event.answer(f"❌ Error: {str(e)}")
+        
+
         @self.bot.on(events.CallbackQuery(pattern=r"^messaging_stats$"))
         async def show_messaging_stats(event):
             """Show messaging statistics"""

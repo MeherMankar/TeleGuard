@@ -285,6 +285,8 @@ class AuthManager:
             # Don't clear pending auth for 2FA requirement
             if "Two-factor" in str(e):
                 logger.info(f"2FA required for user {user_id}, keeping auth pending")
+                # Don't log as error - this is expected behavior
+                raise
             else:
                 # Send user-friendly error for other ValueError cases
                 if self.bot_manager and self.bot_manager.bot:
@@ -293,8 +295,8 @@ class AuthManager:
                         self.bot_manager.bot, user_id, e, 
                         auth_info.get("data", {}).get("phone", ""), "authentication completion"
                     )
-            logger.error(f"Auth completion failed for user {user_id}: {e}")
-            raise
+                logger.error(f"Auth completion failed for user {user_id}: {e}")
+                raise
         except Exception as e:
             logger.error(f"Auth completion failed for user {user_id}: {e}")
             # Send user-friendly error message
@@ -450,17 +452,18 @@ class AuthManager:
                         pass
                     
                     # Ask if user wants to store 2FA password during login
-                    from telethon import Button
-                    await self.bot_manager.bot.send_message(
-                        user_id,
-                        f"🔐 **2FA Required**\n\n"
-                        f"Your account has 2FA enabled. Please send your 2FA password.\n\n"
-                        f"💡 **Tip:** After successful login, would you like us to securely store your 2FA password for future automatic logins?",
-                        buttons=[
-                            [Button.inline("✅ Yes, store after login", f"store_after_2fa:{user_id}")],
-                            [Button.inline("❌ No, manual each time", f"manual_2fa:{user_id}")]
-                        ]
-                    )
+                    if self.bot_manager and self.bot_manager.bot:
+                        from telethon import Button
+                        await self.bot_manager.bot.send_message(
+                            user_id,
+                            f"🔐 **2FA Password Required**\n\n"
+                            f"Your account has 2FA enabled. Please reply with your 2FA password.\n\n"
+                            f"💡 **Tip:** After successful login, would you like us to securely store your 2FA password for future automatic logins?",
+                            buttons=[
+                                [Button.inline("✅ Yes, store after login", f"store_after_2fa:{user_id}")],
+                                [Button.inline("❌ No, manual each time", f"manual_2fa:{user_id}")]
+                            ]
+                        )
                     
                     # Mark that user will be asked about 2FA storage
                     auth_info["ask_2fa_storage"] = True
