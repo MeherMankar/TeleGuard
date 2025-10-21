@@ -27,13 +27,13 @@ class DeviceHandler:
             ]
         else:
             text = (
-                "🕵️ **Device Snooper**\n\n"
-                "Monitor and track device information from your Telegram sessions:\n\n"
-                "🔍 **Scan Devices** - Get current device info\n"
-                "📱 **Device History** - View stored device data\n"
-                "⚠️ **Suspicious Devices** - Detect potential threats\n"
-                "🔒 **Terminate Sessions** - End suspicious sessions\n\n"
-                f"📊 **Status:** {len(accounts)} accounts available for monitoring"
+                "🕵️ **Android Device Snooper**\n\n"
+                "Monitor and track Android device information from your Telegram sessions:\n\n"
+                "🔍 **Scan Devices** - Get current Android device info\n"
+                "📱 **Device History** - View stored Android device data\n"
+                "⚠️ **Suspicious Devices** - Detect potential Android threats\n"
+                "🔒 **Terminate Sessions** - End suspicious Android sessions\n\n"
+                f"📊 **Status:** {len(accounts)} accounts available for Android monitoring"
             )
             buttons = [
                 [Button.inline("🔍 Scan Devices", "device:scan")],
@@ -169,14 +169,10 @@ class DeviceHandler:
             return client
         return None
     def _get_device_emoji(self, device_type: str) -> str:
-        """Get an emoji for a device type."""
+        """Get an emoji for Android device type."""
         emoji_map = {
             'Mobile': '📱',
             'Tablet': '📲',
-            'Laptop': '💻',
-            'Desktop': '🖥️',
-            'Web': '🌐',
-            'Computer': '🖱️',
             'Unknown': '❓'
         }
         return emoji_map.get(device_type, '❓')

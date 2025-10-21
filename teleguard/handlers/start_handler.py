@@ -19,8 +19,10 @@ class StartHandler:
             user_id = event.sender_id
             try:
                 user = await mongodb.get_user(user_id)
+                is_new_user = False
                 if not user:
                     await mongodb.create_user(user_id)
+                    is_new_user = True
                     logger.info(f"New user registered: {user_id}")
                     # Also save to GitHub database
                     try:
@@ -37,8 +39,21 @@ class StartHandler:
                             logger.info(f"User {user_id} saved to GitHub database")
                     except Exception as e:
                         logger.error(f"Failed to save user to GitHub: {e}")
-                # Send persistent menu
-                await self.menu_system.send_main_menu(user_id)
+                
+                # Check if user has any accounts
+                account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+                
+                if account_count == 0:
+                    # Redirect to account manager for users with no accounts
+                    await self.menu_system._handle_account_settings(
+                        type("Event", (), {
+                            "sender_id": user_id,
+                            "reply": lambda x, buttons=None: self.bot.send_message(user_id, x, buttons=buttons)
+                        })()
+                    )
+                else:
+                    # Send main menu for users with accounts
+                    await self.menu_system.send_main_menu(user_id)
             except Exception as e:
                 logger.error(f"Start command error: {e}")
                 await event.reply("❌ Error starting bot. Please try again.")
