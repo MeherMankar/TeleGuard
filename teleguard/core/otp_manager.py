@@ -25,6 +25,8 @@ class OTPManager:
         self.sent_notifications = set()
         # Track last cleanup time for periodic cleanup
         self.last_cleanup = time.time()
+        # Track processed message IDs to prevent duplicate handling
+        self._processed_messages = set()
     
     def _periodic_cleanup(self):
         """Periodically clean up tracking sets to prevent memory buildup"""
@@ -42,6 +44,16 @@ class OTPManager:
             logger.debug("Performed periodic cleanup of OTP tracking sets")
     def register_handlers(self):
         """Register OTP message handler for all user clients"""
+        # Clear existing handlers from clients first
+        for user_id, clients in self.user_clients.items():
+            for account_name, client in clients.items():
+                if client and hasattr(client, 'is_connected') and client.is_connected():
+                    try:
+                        # Remove all existing OTP handlers
+                        client.remove_event_handler(events.NewMessage(chats=[777000, 42777]))
+                    except Exception:
+                        pass  # Ignore if no handlers exist
+        
         # Clear existing registrations to prevent duplicates
         self.registered_handlers.clear()
         # Clear bot manager OTP registry if available
@@ -58,6 +70,19 @@ class OTPManager:
                 message_text = event.message.message
                 if not self._is_login_code(message_text):
                     return
+                
+                # Early deduplication check based on message ID and timestamp
+                message_key = f"{event.message.id}:{int(time.time()//2)}"
+                if hasattr(self, '_processed_messages'):
+                    if message_key in self._processed_messages:
+                        return
+                else:
+                    self._processed_messages = set()
+                self._processed_messages.add(message_key)
+                
+                # Keep only recent message keys
+                if len(self._processed_messages) > 50:
+                    self._processed_messages = set(list(self._processed_messages)[-25:])
                 # Find which account received this OTP
                 account_info = await self._find_account_for_message(event)
                 if not account_info:

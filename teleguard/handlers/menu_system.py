@@ -83,7 +83,8 @@ class MenuSystem:
         keyboard = [
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
-            [Button.text("👥 Contacts"), Button.text("❓ Help")],
+            [Button.text("👥 Contacts"), Button.text("🧹 Cleanup")],
+            [Button.text("❓ Help")],
             [Button.text("🆘 Support")],
         ]
         if user_id in ADMIN_IDS:
@@ -458,6 +459,8 @@ class MenuSystem:
                     "Channels",
                     "👥 Contacts",
                     "Contacts",
+                    "🧹 Cleanup",
+                    "Cleanup",
                     "❓ Help",
                     "Help",
                     "🆘 Support",
@@ -483,6 +486,8 @@ class MenuSystem:
                     await self._handle_channels(event)
                 elif text in ["👥 Contacts", "Contacts"]:
                     await self._handle_contacts(event)
+                elif text in ["🧹 Cleanup", "Cleanup"]:
+                    await self._handle_cleanup(event)
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -695,6 +700,8 @@ class MenuSystem:
                         )
                     else:
                         await self._handle_dm_reply_callback(event, user_id, data)
+                elif data.startswith("cleanup:"):
+                    await self._handle_cleanup_callback(event, user_id, data)
                 elif data.startswith("contacts:"):
                     try:
                         parts = data.split(":")
@@ -1212,6 +1219,225 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle contacts: {e}")
             await event.reply("❌ Error loading contact management")
+    
+    async def _handle_cleanup(self, event):
+        """Handle Cleanup menu"""
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = "🧹 **Account Cleanup**\n\nNo accounts found. Add accounts first to use cleanup features."
+                buttons = [
+                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                ]
+            else:
+                text = (
+                    "🧹 **Account Cleanup System**\n\n"
+                    "Clean up your Telegram accounts safely and efficiently.\n\n"
+                    "⚠️ **Warning**: Cleanup actions cannot be undone!\n\n"
+                    "📊 **Available Cleanup Options:**\n"
+                    "• 💬 Personal chats\n"
+                    "• 🤖 Bot chats\n"
+                    "• 📢 Telegram official chats\n"
+                    "• 🚫 Spambot chats\n\n"
+                    "Select an account to start cleanup:"
+                )
+                buttons = [
+                    [Button.inline("🧹 Start Cleanup", "cleanup:menu")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+            await self.bot.send_message(user_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Failed to handle cleanup: {e}")
+            await event.reply("❌ Error loading cleanup menu")
+    
+    async def _handle_cleanup_callback(self, event, user_id: int, data: str):
+        """Handle account cleanup callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "menu"
+        
+        if action == "menu":
+            await self._send_cleanup_menu(user_id, event.message_id)
+        elif action == "select":
+            account_id = parts[2] if len(parts) > 2 else None
+            if account_id:
+                await self._send_cleanup_options(user_id, event.message_id, account_id)
+        elif action == "confirm":
+            account_id = parts[2] if len(parts) > 2 else None
+            if account_id:
+                await self._execute_cleanup(event, user_id, account_id)
+    
+    async def _send_cleanup_menu(self, user_id: int, message_id: int):
+        """Send account cleanup menu"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = "🧹 **Account Cleanup**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            
+            text = (
+                "🧹 **Account Cleanup**\n\n"
+                "Select an account to clean:\n\n"
+                "⚠️ **Warning**: Cleanup actions cannot be undone!\n"
+                "📋 Available cleanup options:\n"
+                "• 💬 Personal chats\n"
+                "• 🤖 Bot chats\n"
+                "• 📢 Telegram official chats\n"
+                "• 🚫 Spambot chats"
+            )
+            
+            buttons = []
+            for account in accounts:
+                status = "🟢" if account.get("is_active", False) else "🔴"
+                display_name = format_display_name(account)
+                button_text = f"{status} {display_name}"
+                buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
+            
+            buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup menu: {e}")
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup menu", buttons=[[Button.inline("🔙 Back", "menu:main")]])
+    
+    async def _send_cleanup_options(self, user_id: int, message_id: int, account_id: str):
+        """Send cleanup confirmation for selected account"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await self.bot.edit_message(user_id, message_id, "❌ Account not found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+                return
+            
+            display_name = format_display_name(account)
+            
+            text = (
+                f"🧹 **Account Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
+                f"**Will clean:**\n"
+                f"✅ 💬 Personal chats\n"
+                f"✅ 🤖 Bot chats\n"
+                f"✅ 📢 Telegram official chats\n"
+                f"✅ 🚫 Spambot chats\n\n"
+                f"⚠️ **WARNING**: This action cannot be undone!\n"
+                f"All selected chats and data will be permanently deleted."
+            )
+            
+            buttons = [
+                [Button.inline("🚀 Start Cleanup", f"cleanup:confirm:{account_id}")],
+                [Button.inline("🔙 Back to Accounts", "cleanup:menu")]
+            ]
+            
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup options: {e}")
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup options", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+    
+    async def _execute_cleanup(self, event, user_id: int, account_id: str):
+        """Execute account cleanup"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            
+            if not self.account_manager:
+                await event.answer("❌ Service unavailable")
+                return
+            
+            # Get existing client from account manager
+            client = None
+            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
+                account_name = account.get('name')
+                client = self.account_manager.user_clients[user_id].get(account_name)
+            
+            if not client or not client.is_connected():
+                await event.answer("❌ Account not connected. Please ensure account is active.")
+                return
+            
+            display_name = format_display_name(account)
+            
+            await self.bot.edit_message(
+                user_id, event.message_id,
+                f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below",
+                buttons=None
+            )
+            
+            from teleguard.core.account_cleaner import AccountCleaner
+            cleaner = AccountCleaner()
+            
+            cleanup_settings = {
+                'personal_chats': True,
+                'bot_chats': True,
+                'groups': False,
+                'channels': False,
+                'contacts': False,
+                'telegram_chat': True,
+                'spambot_chat': True
+            }
+            
+            import time
+            last_update_time = time.time()
+            
+            async def progress_callback(text):
+                nonlocal last_update_time
+                current_time = time.time()
+                
+                if current_time - last_update_time < 2:
+                    return
+                
+                try:
+                    await self.bot.edit_message(
+                        user_id, event.message_id,
+                        f"🚀 **Cleaning {display_name}**\n\n{text}",
+                        buttons=None
+                    )
+                    last_update_time = current_time
+                except Exception as e:
+                    logger.debug(f"Progress update error: {e}")
+            
+            result = await cleaner.cleanup_account(client, cleanup_settings, progress_callback)
+            
+            result_text = (
+                f"✅ **Cleanup completed!**\n\n"
+                f"📱 Account: {display_name}\n\n"
+                f"📊 **Results:**\n{result}\n\n"
+                f"🔒 All operations completed securely"
+            )
+            
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+            
+            try:
+                await self.bot.edit_message(user_id, event.message_id, result_text, buttons=buttons)
+            except Exception:
+                await self.bot.send_message(user_id, result_text, buttons=buttons)
+            
+            await mongodb.add_audit_entry(account_id, {
+                "action": "cleanup_completed",
+                "timestamp": int(time.time()),
+                "result": "success"
+            })
+            
+        except Exception as e:
+            logger.error(f"Cleanup error for account {account_id}: {e}")
+            
+            error_text = (
+                f"❌ **Cleanup error!**\n\n"
+                f"🚫 Error: {str(e)}\n\n"
+                f"💡 Try again in a few minutes"
+            )
+            
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+            
+            try:
+                await self.bot.edit_message(user_id, event.message_id, error_text, buttons=buttons)
+            except Exception:
+                await self.bot.send_message(user_id, error_text, buttons=buttons)
     async def _handle_help(self, event):
         """Handle Help menu"""
         user_id = event.sender_id
