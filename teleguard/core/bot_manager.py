@@ -155,6 +155,8 @@ class BotManager:
             session_name = f"teleguard_bot_{int(time.time())}"
             self.bot = TelegramClient(session_name, config.telegram.api_id, config.telegram.api_hash)
             await self._start_bot_with_retry()
+            # Clear any existing handlers to prevent duplicates
+            self.bot.remove_event_handler()
             print("Bot authenticated")
             logger.info("Bot client initialized")
         except Exception as e:
