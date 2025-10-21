@@ -43,11 +43,15 @@ class SessionImportHandler:
                 "**Methods:**\n"
                 "• **String Session**: Paste session string\n"
                 "• **Session File**: Upload .session file\n\n"
+                "**Supported Formats:**\n"
+                "• 🔄 **Telethon** sessions (native)\n"
+                "• 🔄 **Pyrogram** sessions (auto-converted)\n"
+                "• 📁 **Session files** from any bot\n\n"
                 "**Benefits:**\n"
                 "• No OTP verification needed\n"
                 "• No 2FA password required\n"
                 "• Instant account addition\n"
-                "• Works with any Telethon session\n\n"
+                "• Automatic format detection & conversion\n\n"
                 "Choose import method:"
             )
             buttons = [
@@ -69,15 +73,16 @@ class SessionImportHandler:
             text = (
                 "📝 **Import String Session**\n\n"
                 "Reply with your session string:\n\n"
-                "**Format:**\n"
-                "```\n"
-                "1BVtsOHwAa7T...(long string)\n"
-                "```\n\n"
+                "**Supported Formats:**\n"
+                "• 🔄 **Telethon**: `1BVtsOHwAa7T...`\n"
+                "• 🔄 **Pyrogram**: `AgA-i3IAq9_u...`\n\n"
                 "**Where to get:**\n"
                 "• From another TeleGuard bot\n"
-                "• From Telethon scripts\n"
-                "• From session export tools\n\n"
-                "**Security:** Session strings are encrypted before storage."
+                "• From Telethon/Pyrogram scripts\n"
+                "• From session export tools\n"
+                "• From other Telegram bots\n\n"
+                "**Auto-Detection:** Bot automatically detects and converts formats\n"
+                "**Security:** All sessions are encrypted before storage"
             )
             await event.edit(text)
             await event.answer("📝 Reply with session string")
@@ -110,38 +115,56 @@ class SessionImportHandler:
             logger.error(f"Import session file error: {e}")
             await event.edit("❌ Error setting up file import.")
     async def process_string_session(self, user_id, session_string):
-        """Process string session import"""
+        """Process string session import with Pyrogram support"""
         try:
             if not session_string or len(session_string) < 50:
                 return False, "❌ Invalid session string format"
-            # Validate session using a safe helper that avoids leaking secrets
+            
+            # Validate and convert session if needed
             from ..core.config import API_ID, API_HASH
-            from ..utils.session_utils import validate_string_session
+            from ..utils.session_utils import validate_string_session, detect_session_type
+            
+            session_type = detect_session_type(session_string)
+            logger.info(f"Detected session type: {session_type}")
+            
             ok, info = await validate_string_session(session_string, API_ID, API_HASH)
             if not ok:
-                return False, f"❌ Session test failed: {info}"
+                return False, f"❌ Session validation failed: {info}"
+            
             phone = info.get("phone")
             name = info.get("name")
+            final_session = info.get("converted_session", session_string)
+            
+            # Check for existing account
             existing = await mongodb.db.accounts.find_one({
                 "user_id": user_id,
                 "phone": phone
             })
             if existing:
                 return False, f"❌ Account {phone} already exists"
+            
+            # Store account with final session string
             account_data = {
                 "user_id": user_id,
                 "phone": phone,
                 "name": name,
-                "session_string": session_string,
+                "session_string": final_session,
                 "is_active": True,
                 "added_via": "string_import",
+                "original_format": info.get("session_type", "unknown"),
                 "otp_destroyer_enabled": False,
                 "created_at": int(__import__("time").time())
             }
+            
             result = await mongodb.db.accounts.insert_one(account_data)
             account_id = str(result.inserted_id)
-            await self.bot_manager.start_user_client(user_id, name, session_string)
-            return True, f"✅ Account {name} ({phone}) imported successfully!"
+            
+            # Start client with final session
+            await self.bot_manager.start_user_client(user_id, name, final_session)
+            
+            conversion_note = " (converted from Pyrogram)" if info.get("session_type") == "pyrogram_converted" else ""
+            return True, f"✅ Account {name} ({phone}) imported successfully{conversion_note}!"
+            
         except Exception as e:
             logger.error(f"String session import error: {e}")
             return False, f"❌ Import failed: {str(e)}"
