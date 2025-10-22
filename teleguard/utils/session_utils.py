@@ -71,15 +71,27 @@ async def convert_pyrogram_to_telethon(pyrogram_session: str, api_id: int, api_h
         
         logger.info(f"Converted Pyrogram session to Telethon format")
         
-        # Return converted session with placeholder data
-        # The actual validation will happen when the session is used
+        # Test converted session to get real account info
         if telethon_session:
-            return telethon_session, {
-                "phone": "Unknown",
-                "name": f"User_{user_id}",
-                "user_id": user_id,
-                "username": None
-            }
+            try:
+                test_client = TelegramClient(StringSession(telethon_session), api_id, api_hash)
+                await test_client.connect()
+                
+                if await test_client.is_user_authorized():
+                    me = await test_client.get_me()
+                    await test_client.disconnect()
+                    
+                    return telethon_session, {
+                        "phone": f"+{me.phone}" if me.phone and not me.phone.startswith("+") else me.phone,
+                        "name": f"{me.first_name or ''} {me.last_name or ''}".strip() or f"User_{me.id}",
+                        "user_id": me.id,
+                        "username": me.username
+                    }
+                else:
+                    await test_client.disconnect()
+                    return None, "Converted session not authorized"
+            except Exception as e:
+                return None, f"Failed to validate converted session: {e}"
         else:
             return None, "Failed to create Telethon session"
             
@@ -107,7 +119,7 @@ async def validate_string_session(session_string: str, api_id: int, api_hash: st
             await client.disconnect()
             
             return True, {
-                "phone": me.phone,
+                "phone": f"+{me.phone}" if me.phone and not me.phone.startswith("+") else me.phone,
                 "name": f"{me.first_name or ''} {me.last_name or ''}".strip() or f"User_{me.id}",
                 "user_id": me.id,
                 "username": me.username,
