@@ -269,16 +269,35 @@ class BotManager:
                 string_session = StringSession(session_string)
             except ValueError as e:
                 if "Not a valid string" in str(e):
-                    # Check if this is a Pyrogram session
-                    from ..utils.session_utils import detect_session_type
+                    # Try to convert Pyrogram session
+                    from ..utils.session_utils import detect_session_type, convert_pyrogram_to_telethon
                     session_type = detect_session_type(session_string)
                     if session_type == "pyrogram":
-                        raise ValueError(
-                            "This appears to be a Pyrogram session. TeleGuard uses Telethon and cannot "
-                            "import Pyrogram sessions directly. Please use phone number login instead."
-                        )
-                logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
-                raise ValueError(f"Invalid session string format: {e}")
+                        logger.info(f"Converting Pyrogram session for {account_name}")
+                        try:
+                            converted_session, result = await convert_pyrogram_to_telethon(
+                                session_string, config.telegram.api_id, config.telegram.api_hash
+                            )
+                            if converted_session:
+                                # Update database with converted session
+                                await mongodb.db.accounts.update_one(
+                                    {"user_id": user_id, "name": account_name},
+                                    {"$set": {"session_string": converted_session}}
+                                )
+                                # Use converted session
+                                session_string = converted_session
+                                string_session = StringSession(session_string)
+                            else:
+                                raise ValueError(f"Pyrogram conversion failed: {result}")
+                        except Exception as conv_error:
+                            logger.error(f"Pyrogram conversion error: {conv_error}")
+                            raise ValueError(f"Failed to convert Pyrogram session: {conv_error}")
+                    else:
+                        logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
+                        raise ValueError(f"Invalid session string format: {e}")
+                else:
+                    logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
+                    raise ValueError(f"Invalid session string format: {e}")
             except Exception as e:
                 logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
                 raise ValueError(f"Invalid session string format: {e}")
