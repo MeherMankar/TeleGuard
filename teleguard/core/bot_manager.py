@@ -220,7 +220,13 @@ class BotManager:
                         
                         # Check if this is a session invalidation error
                         if any(phrase in error_msg for phrase in [
-                            "authorization key", "auth_key_unregistered", "session_revoked",
+                            "auth_key_unregistered", "auth_key_duplicated", "401", "406", 
+                            "authorization key", "session_revoked", "session expired"
+                        ]):
+                            print(f"Account '{account_name}' has session conflict (likely other bot/client)")
+                            # Handle session conflict
+                            await self._handle_session_conflict_db(account["_id"], account["user_id"], account_name, phone, str(e))
+                        elif any(phrase in error_msg for phrase in [
                             "user_deactivated", "failed to get valid user info", "duplicated",
                             "session_password_needed", "unauthorized", "invalid session"
                         ]):
@@ -259,6 +265,17 @@ class BotManager:
             # Additional validation
             if len(session_string) < 50:
                 raise ValueError("Session string too short")
+            
+            # Pre-validate session before creating client
+            try:
+                test_session = StringSession(session_string)
+                if not test_session.auth_key:
+                    logger.warning(f"Session for {account_name} has no auth_key, marking for reauth")
+                    await self._mark_account_for_reauth(user_id, account_name, "No auth_key in session")
+                    return
+            except Exception as e:
+                logger.warning(f"Session pre-validation failed for {account_name}: {e}")
+                # Continue with conversion attempt if it's a Pyrogram session
             
             # Create client with session string and device spoofing
             from .device_snooper import DeviceSnooper
@@ -318,9 +335,16 @@ class BotManager:
                 **device_params
             )
             
-            # Connect with timeout and better error handling
+            # Connect with timeout and comprehensive error handling
             try:
-                await asyncio.wait_for(client.connect(), timeout=5.0)
+                await asyncio.wait_for(client.connect(), timeout=8.0)
+                
+                # Test authorization before proceeding
+                if not await client.is_user_authorized():
+                    await client.disconnect()
+                    logger.warning(f"Session for {account_name} not authorized, likely due to session conflict")
+                    await self._handle_session_conflict(user_id, account_name, "Session not authorized - possible conflict with another bot/client")
+                    return
                 
                 # Test the connection by getting basic info
                 try:
@@ -329,18 +353,27 @@ class BotManager:
                     logger.debug(f"Successfully validated user info for {account_name}")
                 except Exception as e:
                     logger.error(f"Failed to get valid user info for {account_name}: {e}")
-                    raise ValueError(f"Failed to get valid user info for {account_name}")
+                    await client.disconnect()
+                    await self._mark_account_for_reauth(user_id, account_name, f"Failed to get user info: {e}")
+                    return
                 
             except Exception as e:
-                # Handle specific session errors
+                # Handle specific session errors with better recovery
                 error_msg = str(e).lower()
                 if any(phrase in error_msg for phrase in [
-                    "authorization key", "ip addresses", "session file", 
-                    "failed to get valid user info", "invalid session", "duplicated",
-                    "auth_key_unregistered", "session_revoked", "user_deactivated",
-                    "unauthorized", "session_password_needed"
+                    "auth_key_unregistered", "auth_key_duplicated", "401", "406", 
+                    "authorization key", "session_revoked", "session expired"
                 ]):
-                    # Handle account invalidation
+                    # Handle session conflicts (likely caused by other bots/clients)
+                    logger.warning(f"Session conflict detected for {account_name}: {e}")
+                    await self._handle_session_conflict(user_id, account_name, str(e))
+                    return
+                elif any(phrase in error_msg for phrase in [
+                    "ip addresses", "session file", "failed to get valid user info", 
+                    "invalid session", "user_deactivated", "unauthorized", 
+                    "session_password_needed"
+                ]):
+                    # Handle other session issues
                     phone = await self._get_phone_for_account(user_id, account_name)
                     asyncio.create_task(
                         self._handle_session_invalidation(user_id, account_name, phone, str(e))
@@ -1053,6 +1086,139 @@ class BotManager:
             except Exception as e:
                 logger.warning(f"Periodic cleanup error: {e}")
                 await asyncio.sleep(60)  # Wait 1 minute before retry
+    
+    async def _handle_session_conflict(self, user_id: int, account_name: str, error_reason: str):
+        """Handle session conflicts caused by other bots/clients"""
+        try:
+            # Update database with conflict status
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$set": {
+                        "session_conflict": True,
+                        "is_active": False, 
+                        "last_error": error_reason,
+                        "error_time": int(__import__("time").time()),
+                        "conflict_count": {"$inc": 1} if "conflict_count" in await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name}) or {} else 1
+                    }
+                }
+            )
+            
+            # Get phone for notification
+            phone = await self._get_phone_for_account(user_id, account_name)
+            
+            # Notify user about session conflict
+            await self._notify_user_session_conflict(user_id, account_name, phone, error_reason)
+            
+            logger.warning(f"Session conflict detected for {account_name}: {error_reason}")
+            
+        except Exception as e:
+            logger.error(f"Failed to handle session conflict: {e}")
+    
+    async def _handle_session_conflict_db(self, account_id, user_id: int, account_name: str, phone: str, error_reason: str):
+        """Handle session conflict with database ID"""
+        try:
+            await mongodb.db.accounts.update_one(
+                {"_id": account_id},
+                {
+                    "$set": {
+                        "session_conflict": True,
+                        "is_active": False, 
+                        "last_error": error_reason,
+                        "error_time": int(__import__("time").time())
+                    },
+                    "$inc": {"conflict_count": 1}
+                }
+            )
+            
+            # Notify user about session conflict
+            asyncio.create_task(
+                self._notify_user_session_conflict(user_id, account_name, phone, error_reason)
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle session conflict in DB: {e}")
+    
+    async def _mark_account_for_reauth(self, user_id: int, account_name: str, error_reason: str):
+        """Mark account for re-authentication and notify user"""
+        try:
+            # Update database
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$set": {
+                        "needs_reauth": True, 
+                        "is_active": False, 
+                        "last_error": error_reason,
+                        "error_time": int(__import__("time").time())
+                    }
+                }
+            )
+            
+            # Get phone for notification
+            phone = await self._get_phone_for_account(user_id, account_name)
+            
+            # Notify user
+            await self._notify_user_reauth_needed(user_id, account_name, phone, error_reason)
+            
+            logger.info(f"Marked account {account_name} for reauth: {error_reason}")
+            
+        except Exception as e:
+            logger.error(f"Failed to mark account for reauth: {e}")
+    
+    async def _notify_user_session_conflict(self, user_id: int, account_name: str, phone: str, error_reason: str = ""):
+        """Notify user about session conflicts caused by other bots/clients"""
+        try:
+            error_type = "AUTH_KEY_UNREGISTERED (401)" if "401" in error_reason or "unregistered" in error_reason.lower() else \
+                        "AUTH_KEY_DUPLICATED (406)" if "406" in error_reason or "duplicated" in error_reason.lower() else \
+                        "Session Conflict"
+            
+            message = (
+                f"⚠️ **Session Conflict Detected**\n\n"
+                f"📱 **Account:** {account_name} ({phone})\n"
+                f"🔴 **Error:** {error_type}\n\n"
+                f"**🤖 Likely Cause: Another Bot/Client**\n"
+                f"• This account is being used by another bot or Telegram client\n"
+                f"• Telegram only allows one active session per account\n"
+                f"• When multiple bots use the same account, sessions get invalidated\n\n"
+                f"**🔧 Solutions:**\n"
+                f"1. **Stop other bots** using this account\n"
+                f"2. **Use different accounts** for different bots\n"
+                f"3. **Re-add account** after stopping conflicts\n"
+                f"4. **Check for duplicate logins** on other devices\n\n"
+                f"🚨 **Important:** Multiple bots on same account = constant session conflicts\n\n"
+                f"💡 **Tip:** Use /start → Account Settings to manage accounts"
+            )
+            await self.bot.send_message(user_id, message)
+            logger.info(f"Notified user {user_id} about session conflict for {account_name}")
+        except Exception as e:
+            logger.error(f"Failed to notify user about session conflict: {e}")
+    
+    async def _notify_user_reauth_needed(self, user_id: int, account_name: str, phone: str, error_reason: str = ""):
+        """Notify user that account needs re-authentication"""
+        try:
+            error_type = "AUTH_KEY_UNREGISTERED" if "401" in error_reason or "unregistered" in error_reason.lower() else \
+                        "AUTH_KEY_DUPLICATED" if "406" in error_reason or "duplicated" in error_reason.lower() else \
+                        "Session Error"
+            
+            message = (
+                f"🔄 **Account Re-authentication Required**\n\n"
+                f"📱 **Account:** {account_name} ({phone})\n"
+                f"❌ **Error:** {error_type}\n\n"
+                f"**What happened:**\n"
+                f"• Your session has been invalidated by Telegram\n"
+                f"• This can happen due to security checks, session expiry, or duplicate logins\n\n"
+                f"**To fix this:**\n"
+                f"1. Go to Account Settings\n"
+                f"2. Remove the affected account\n"
+                f"3. Add it again using phone number login\n"
+                f"4. Or import a fresh session string\n\n"
+                f"💡 **Tip:** Use /start → Account Settings to manage accounts"
+            )
+            await self.bot.send_message(user_id, message)
+            logger.info(f"Notified user {user_id} about reauth needed for {account_name}")
+        except Exception as e:
+            logger.error(f"Failed to notify user about reauth: {e}")
     
     async def _handle_session_invalidation(self, user_id: int, account_name: str, phone: str, error_message: str):
         """Handle session invalidation by removing account and notifying user"""
