@@ -4,7 +4,6 @@ Prevents AUTH_KEY_UNREGISTERED and implements comprehensive safety measures.
 """
 
 import asyncio
-import fcntl
 import json
 import logging
 import os
@@ -21,10 +20,15 @@ import threading
 from dataclasses import dataclass, asdict
 
 # Platform-specific imports
-if platform.system() == "Windows":
-    import msvcrt
-else:
-    import fcntl
+try:
+    if platform.system() == "Windows":
+        import msvcrt
+    else:
+        import fcntl
+except ImportError:
+    # Cloud platforms may not have fcntl
+    fcntl = None
+    msvcrt = None
 
 logger = logging.getLogger(__name__)
 
@@ -82,20 +86,23 @@ class SessionLock:
         try:
             self.lock_file = open(self.lock_path, 'w')
             
-            if platform.system() == "Windows":
+            if platform.system() == "Windows" and msvcrt:
                 # Windows file locking
                 try:
                     msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_NBLCK, 1)
                     self.locked = True
                 except OSError:
                     return False
-            else:
+            elif fcntl:
                 # Unix file locking
                 try:
                     fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     self.locked = True
                 except OSError:
                     return False
+            else:
+                # Fallback for cloud platforms without file locking
+                self.locked = True
             
             # Write process info to lock file
             lock_info = {
@@ -121,9 +128,9 @@ class SessionLock:
         """Release session lock"""
         if self.locked and self.lock_file:
             try:
-                if platform.system() == "Windows":
+                if platform.system() == "Windows" and msvcrt:
                     msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
+                elif fcntl:
                     fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
                 
                 self.lock_file.close()
@@ -167,8 +174,7 @@ class SessionGuardian:
         # Setup logging
         self._setup_logging()
         
-        # Initialize IP monitoring
-        asyncio.create_task(self._start_ip_monitoring())
+        # IP monitoring will be started separately
     
     def _init_rate_limiters(self):
         """Initialize rate limiters for different operations"""
@@ -656,11 +662,6 @@ def init_guardian(config: Dict[str, Any]) -> SessionGuardian:
     """Initialize global session guardian"""
     global guardian
     guardian = SessionGuardian(config)
-    
-    # Start IP monitoring task
-    if config.get('ip_monitoring', {}).get('enabled', True):
-        asyncio.create_task(guardian._start_ip_monitoring())
-    
     return guardian
 
     async def _start_ip_monitoring(self):
