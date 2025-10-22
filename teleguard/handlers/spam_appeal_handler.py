@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from telethon import events
 from telethon.tl.custom import Button
+from ..utils.session_protection import session_protection
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +208,18 @@ class SpamAppealHandler:
             # Setup spambot message handler for this client
             await self.setup_client_handler(user_id, client)
             
+            # SESSION PROTECTION: Check if sending message is safe
+            session_id = f"{user_id}_{account_name}"
+            if not await session_protection.check_message_safety(session_id, "/start", "spambot"):
+                await self._notify_user(user_id, f"⚠️ Session protection prevented message to avoid account restrictions")
+                return
+            
             # Send /start with human-like typing simulation
             await self._simulate_human_message_composition(client, "spambot", "/start")
             await client.send_message("spambot", "/start")
+            
+            # Record message for protection tracking
+            await session_protection.record_message_sent(session_id)
             
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
             await self._notify_user(
@@ -505,10 +515,19 @@ class SpamAppealHandler:
             # Use intelligent message selection
             appeal_message = await self._select_smart_appeal_message(context)
             
+            # SESSION PROTECTION: Check if sending appeal message is safe
+            session_id = f"{user_id}_{account_name}"
+            if not await session_protection.check_message_safety(session_id, appeal_message, "spambot"):
+                await self._notify_user(user_id, f"⚠️ Session protection prevented appeal submission to avoid account restrictions")
+                return
+            
             # Simulate realistic message composition behavior
             await self._simulate_human_message_composition(client, "spambot", appeal_message)
             
             await client.send_message("spambot", appeal_message)
+            
+            # Record message for protection tracking
+            await session_protection.record_message_sent(session_id)
             
             self.active_appeals[user_id]['state'] = 'final_submitted'
             

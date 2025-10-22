@@ -218,14 +218,30 @@ async def health_check(request):
     return web.json_response(response_data)
 
 
+async def ip_status(request):
+    """IP status endpoint for monitoring"""
+    from teleguard.core.session_guardian import get_guardian
+    guardian = get_guardian()
+    
+    if guardian:
+        return web.json_response({
+            "current_ip": guardian.current_ip,
+            "ip_changes": guardian.ip_change_count,
+            "stability": "high" if guardian.ip_change_count < 3 else "medium" if guardian.ip_change_count < 10 else "low",
+            "last_check": guardian.last_ip_check
+        })
+    
+    return web.json_response({"status": "guardian_not_initialized"})
+
 async def start_web_server():
-    """Start web server for cloud platform health checks"""
-    logger.info("🌐 Setting up health check web server...")
+    """Start enhanced web server with IP monitoring"""
+    logger.info("🌐 Setting up enhanced health check server...")
     
     app = web.Application()
     app.router.add_get("/health", health_check)
-    app.router.add_get("/", health_check)  # Root endpoint
-    logger.debug("🔗 Health check routes configured")
+    app.router.add_get("/ip", ip_status)
+    app.router.add_get("/", health_check)
+    logger.debug("🔗 Enhanced routes configured")
     
     port = int(os.getenv("PORT", 8000))
     logger.info("🔌 Attempting to start web server on port %d", port)
@@ -323,6 +339,20 @@ async def main() -> None:
         logger.info("🌐 Starting health check web server...")
         web_runner = await start_web_server()
         logger.info("✅ Web server started successfully")
+        
+        # Initialize Koyeb optimization
+        if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true':
+            logger.info("🚀 Starting Koyeb optimization...")
+            from teleguard.utils.koyeb_optimizer import koyeb_optimizer
+            await koyeb_optimizer.start_optimization()
+        
+        # Initialize session guardian with IP monitoring
+        logger.info("🔡 Initializing session guardian with IP monitoring...")
+        from teleguard.core.session_guardian import init_guardian
+        from teleguard.utils.guardian_config import load_guardian_config
+        guardian_config = load_guardian_config()
+        init_guardian(guardian_config)
+        logger.info("✅ Session guardian with IP monitoring active")
 
         print("\n" + "="*50)
         logger.info("🤖 Initializing TeleGuard bot...")
@@ -331,7 +361,8 @@ async def main() -> None:
             # Start the full bot normally
             async with AccountManager() as bot:
                 startup_elapsed = time.time() - startup_time
-                print("\nTeleGuard is ready!")
+                koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
+                print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
                 logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
                 
                 # Keep bot running with proper error handling

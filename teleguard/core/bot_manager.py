@@ -17,6 +17,7 @@ from .exceptions import TeleGuardError, ConfigurationError
 from .mongo_database import init_db, mongodb
 from ..utils.response_formatter import LogFormatter
 from ..utils.account_invalidation import init_account_invalidation_handler
+from ..utils.session_protection import session_protection
 logger = logging.getLogger(__name__)
 class ComponentManager:
     """Manages bot components and their lifecycle"""
@@ -390,6 +391,10 @@ class BotManager:
                 self.user_clients[user_id] = {}
             self.user_clients[user_id][account_name] = client
             
+            # Register session for protection
+            session_id = f"{user_id}_{account_name}"
+            session_protection.register_session(session_id, account_name)
+            
             # Add to session monitor if available
             if hasattr(self, 'session_monitor') and self.session_monitor:
                 self.session_monitor.add_client_to_monitor(user_id, account_name, client)
@@ -632,6 +637,54 @@ class BotManager:
                 logger.error(f"OTP fix error: {e}")
         
         # Add cleanup command
+        @self.bot.on(events.NewMessage(pattern=r'/session_health'))
+        async def session_health_handler(event):
+            """Check session health and protection status"""
+            user_id = event.sender_id
+            
+            try:
+                user_clients = self.user_clients.get(user_id, {})
+                if not user_clients:
+                    await event.reply("❌ No active sessions found")
+                    return
+                
+                health_report = "🛡️ **Session Health Report**\n\n"
+                
+                for account_name, client in user_clients.items():
+                    session_id = f"{user_id}_{account_name}"
+                    health = session_protection.get_session_health(session_id)
+                    
+                    # Health indicator
+                    if health['health_score'] > 80:
+                        indicator = "🟢"
+                    elif health['health_score'] > 60:
+                        indicator = "🟡"
+                    else:
+                        indicator = "🔴"
+                    
+                    health_report += (
+                        f"{indicator} **{account_name}**\n"
+                        f"  Health: {health['health_score']}/100\n"
+                        f"  Risk: {health['risk_level'].title()}\n"
+                        f"  Protection: {health['protection_level'].title()}\n"
+                        f"  Messages Today: {health['messages_today']}\n"
+                        f"  Joins Today: {health['joins_today']}\n\n"
+                    )
+                
+                health_report += (
+                    "**Legend:**\n"
+                    "🟢 Healthy (80-100)\n"
+                    "🟡 At Risk (60-79)\n"
+                    "🔴 Critical (<60)\n\n"
+                    "💡 **Tip:** Lower activity = better session health"
+                )
+                
+                await event.reply(health_report)
+                
+            except Exception as e:
+                await event.reply(f"Health check error: {e}")
+                logger.error(f"Session health check error: {e}")
+        
         @self.bot.on(events.NewMessage(pattern=r'/cleanup_accounts'))
         async def cleanup_accounts_handler(event):
             """Cleanup inactive accounts"""
