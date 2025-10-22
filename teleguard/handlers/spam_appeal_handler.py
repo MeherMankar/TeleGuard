@@ -171,7 +171,7 @@ class SpamAppealHandler:
                 await event.respond("❌ Error processing captcha verification.")
 
     async def _start_appeal_process(self, user_id: int):
-        """Start the automated appeal process"""
+        """Start the automated appeal process with session protection"""
         try:
             # Get account name for better tracking
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
@@ -191,23 +191,36 @@ class SpamAppealHandler:
             except Exception as e:
                 logger.error(f"Failed to verify client: {e}")
             
+            # SESSION PROTECTION: Add significant delays to appear more human
+            await self._notify_user(
+                user_id, 
+                f"🛡️ **Starting Appeal for {account_name}**\n\n"
+                f"⚠️ **Session Protection Active**\n"
+                f"Using slow, human-like behavior to prevent session issues.\n\n"
+                f"⏳ This may take 2-3 minutes..."
+            )
+            
+            # Much longer initial delay (like a human thinking)
+            initial_hesitation = random.uniform(15.0, 30.0)
+            await asyncio.sleep(initial_hesitation)
+            
             # Setup spambot message handler for this client
             await self.setup_client_handler(user_id, client)
             
-            # Realistic human behavior: brief moment before starting
-            initial_hesitation = random.uniform(0.8, 2.5)
-            await asyncio.sleep(initial_hesitation)
-            
+            # Send /start with human-like typing simulation
+            await self._simulate_human_message_composition(client, "spambot", "/start")
             await client.send_message("spambot", "/start")
+            
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
             await self._notify_user(
                 user_id, 
-                f"🔍 **Checking {account_name}...**\n\n"
-                f"⏳ Please wait..."
+                f"✅ **Contacted @spambot**\n\n"
+                f"📱 Account: {account_name}\n"
+                f"⏳ Waiting for response..."
             )
             
-            # Set timeout for the appeal process
-            asyncio.create_task(self._appeal_timeout(user_id, 300))
+            # Longer timeout for safer process
+            asyncio.create_task(self._appeal_timeout(user_id, 600))  # 10 minutes
             
         except Exception as e:
             logger.error(f"Failed to start appeal process: {e}")
@@ -356,31 +369,33 @@ class SpamAppealHandler:
             return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
 
     async def _click_button(self, event, button_text: str):
-        """Click specific button with extremely human-like behavior"""
+        """Click specific button with extremely human-like behavior and session protection"""
         try:
-            # Realistic human behavior: read message first
+            # ENHANCED SESSION PROTECTION: Much longer delays
             message_length = len(event.message.text or "")
-            reading_time = max(2.0, message_length * 0.05)  # Read at human speed
-            reading_time += random.uniform(1.0, 3.0)  # Add thinking time
+            reading_time = max(8.0, message_length * 0.15)  # Slower reading
+            reading_time += random.uniform(5.0, 12.0)  # More thinking time
             await asyncio.sleep(reading_time)
             
-            # Sometimes hesitate before clicking (like real humans)
-            if random.random() < 0.4:  # 40% chance to hesitate
-                await asyncio.sleep(random.uniform(0.5, 2.0))
+            # Always hesitate before clicking (session protection)
+            hesitation_time = random.uniform(3.0, 8.0)
+            await asyncio.sleep(hesitation_time)
             
-            # Look for the button (scanning behavior)
-            scan_delay = random.uniform(0.3, 1.2)
+            # Look for the button (longer scanning behavior)
+            scan_delay = random.uniform(2.0, 5.0)
             await asyncio.sleep(scan_delay)
             
             for row in event.message.buttons:
                 for button in row:
                     if button_text.lower() in button.text.lower():
-                        # Small delay before clicking (cursor movement)
-                        await asyncio.sleep(random.uniform(0.1, 0.5))
+                        # Longer delay before clicking (session protection)
+                        pre_click_delay = random.uniform(1.0, 3.0)
+                        await asyncio.sleep(pre_click_delay)
+                        
                         await button.click()
                         
-                        # Post-click delay (processing/waiting for response)
-                        post_click_delay = random.uniform(0.8, 2.5)
+                        # Much longer post-click delay (session protection)
+                        post_click_delay = random.uniform(8.0, 15.0)
                         await asyncio.sleep(post_click_delay)
                         return True
             return False
@@ -629,47 +644,57 @@ class SpamAppealHandler:
             await event.respond("❌ Error starting appeal process.")
     
     async def _simulate_human_message_composition(self, client, target, message: str):
-        """Simulate extremely realistic human message composition"""
-        # Start typing indicator
-        from telethon.tl.functions.messages import SetTypingRequest
-        from telethon.tl.types import SendMessageTypingAction
-        await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
-        
-        # Realistic composition behavior
-        words = message.split()
-        word_count = len(words)
-        
-        # Simulate thinking and composing (like writing an appeal)
-        base_composition_time = word_count * random.uniform(0.8, 1.5)  # Slower for appeals
-        
-        # Add pauses for thinking about what to write
-        thinking_pauses = random.randint(2, 4)
-        for _ in range(thinking_pauses):
-            pause_duration = random.uniform(1.0, 4.0)
-            base_composition_time += pause_duration
-        
-        # Break composition into segments (like real writing)
-        segments = max(2, word_count // 8)
-        segment_time = base_composition_time / segments
-        
-        for i in range(segments):
-            # Compose segment
-            await asyncio.sleep(segment_time * random.uniform(0.6, 1.4))
-            
-            # Occasional longer pauses (thinking, rephrasing)
-            if random.random() < 0.5:  # 50% chance
-                thinking_pause = random.uniform(1.5, 5.0)
-                await asyncio.sleep(thinking_pause)
-            
-            # Refresh typing indicator (like real typing)
-            if i < segments - 1:
+        """Simulate extremely realistic human message composition with session protection"""
+        try:
+            # SESSION PROTECTION: Only use typing for longer messages
+            if len(message) > 20:
                 from telethon.tl.functions.messages import SetTypingRequest
                 from telethon.tl.types import SendMessageTypingAction
                 await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
-        
-        # Final review pause before sending
-        review_time = random.uniform(2.0, 6.0)
-        await asyncio.sleep(review_time)
+            
+            # ENHANCED SESSION PROTECTION: Much slower composition
+            words = message.split()
+            word_count = len(words)
+            
+            # Much slower composition (like careful appeal writing)
+            base_composition_time = word_count * random.uniform(2.0, 4.0)  # Much slower
+            
+            # More thinking pauses for session protection
+            thinking_pauses = random.randint(4, 8)
+            for _ in range(thinking_pauses):
+                pause_duration = random.uniform(3.0, 8.0)  # Longer pauses
+                base_composition_time += pause_duration
+            
+            # Break composition into more segments (more human-like)
+            segments = max(3, word_count // 5)
+            segment_time = base_composition_time / segments
+            
+            for i in range(segments):
+                # Compose segment with longer delays
+                await asyncio.sleep(segment_time * random.uniform(1.0, 2.0))
+                
+                # More frequent longer pauses (session protection)
+                if random.random() < 0.8:  # 80% chance for longer pause
+                    thinking_pause = random.uniform(4.0, 10.0)
+                    await asyncio.sleep(thinking_pause)
+                
+                # Refresh typing indicator less frequently (session protection)
+                if i < segments - 1 and len(message) > 50 and random.random() < 0.3:
+                    try:
+                        from telethon.tl.functions.messages import SetTypingRequest
+                        from telethon.tl.types import SendMessageTypingAction
+                        await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
+                    except:
+                        pass  # Ignore typing errors for session protection
+            
+            # Much longer final review pause (session protection)
+            review_time = random.uniform(8.0, 20.0)
+            await asyncio.sleep(review_time)
+            
+        except Exception as e:
+            logger.warning(f"Composition simulation error (continuing): {e}")
+            # Fallback delay for session protection
+            await asyncio.sleep(random.uniform(10.0, 25.0))
 
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""
