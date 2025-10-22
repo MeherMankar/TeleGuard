@@ -631,7 +631,9 @@ class SpamAppealHandler:
     async def _simulate_human_message_composition(self, client, target, message: str):
         """Simulate extremely realistic human message composition"""
         # Start typing indicator
-        await client.send_typing(target)
+        from telethon.tl.functions.messages import SetTypingRequest
+        from telethon.tl.types import SendMessageTypingAction
+        await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
         
         # Realistic composition behavior
         words = message.split()
@@ -661,7 +663,9 @@ class SpamAppealHandler:
             
             # Refresh typing indicator (like real typing)
             if i < segments - 1:
-                await client.send_typing(target)
+                from telethon.tl.functions.messages import SetTypingRequest
+                from telethon.tl.types import SendMessageTypingAction
+                await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
         
         # Final review pause before sending
         review_time = random.uniform(2.0, 6.0)
