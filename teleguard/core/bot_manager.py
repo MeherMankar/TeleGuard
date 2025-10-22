@@ -252,9 +252,9 @@ class BotManager:
             if not session_string or not isinstance(session_string, str):
                 raise ValueError("Invalid session string format")
             
-            # Decode HTML entities if present
+            # Decode HTML entities if present (multiple times to handle double encoding)
             import html
-            session_string = html.unescape(session_string)
+            session_string = html.unescape(html.unescape(session_string))
             
             # Additional validation
             if len(session_string) < 50:

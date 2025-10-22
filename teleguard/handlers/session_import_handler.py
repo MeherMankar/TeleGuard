@@ -133,7 +133,12 @@ class SessionImportHandler:
             
             phone = info.get("phone")
             name = info.get("name")
+            # Use converted session if available, otherwise original
             final_session = info.get("converted_session", session_string)
+            
+            # Decode HTML entities from session string
+            import html
+            final_session = html.unescape(final_session)
             
             # Check for existing account and clean up automatically
             existing = await mongodb.db.accounts.find_one({
