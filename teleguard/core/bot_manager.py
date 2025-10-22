@@ -288,7 +288,13 @@ class BotManager:
                                 session_string = converted_session
                                 string_session = StringSession(session_string)
                             else:
-                                raise ValueError(f"Pyrogram conversion failed: {result}")
+                                # Mark account as needing reauth instead of failing
+                                logger.warning(f"Pyrogram session for {account_name} expired, marking for reauth")
+                                await mongodb.db.accounts.update_one(
+                                    {"user_id": user_id, "name": account_name},
+                                    {"$set": {"needs_reauth": True, "is_active": False}}
+                                )
+                                raise ValueError(f"Session expired - marked for reauth: {result}")
                         except Exception as conv_error:
                             logger.error(f"Pyrogram conversion error: {conv_error}")
                             raise ValueError(f"Failed to convert Pyrogram session: {conv_error}")
