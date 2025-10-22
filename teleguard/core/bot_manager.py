@@ -248,16 +248,43 @@ class BotManager:
 
     async def _start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:
         try:
-            # Validate session string format before creating client
+            # Validate and clean session string format before creating client
             if not session_string or not isinstance(session_string, str):
                 raise ValueError("Invalid session string format")
+            
+            # Decode HTML entities if present
+            import html
+            session_string = html.unescape(session_string)
+            
+            # Additional validation
+            if len(session_string) < 50:
+                raise ValueError("Session string too short")
             
             # Create client with session string and device spoofing
             from .device_snooper import DeviceSnooper
             device_params = DeviceSnooper.get_spoofed_device_params()
             
+            # Create StringSession with better error handling
+            try:
+                string_session = StringSession(session_string)
+            except ValueError as e:
+                if "Not a valid string" in str(e):
+                    # Check if this is a Pyrogram session
+                    from ..utils.session_utils import detect_session_type
+                    session_type = detect_session_type(session_string)
+                    if session_type == "pyrogram":
+                        raise ValueError(
+                            "This appears to be a Pyrogram session. TeleGuard uses Telethon and cannot "
+                            "import Pyrogram sessions directly. Please use phone number login instead."
+                        )
+                logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
+                raise ValueError(f"Invalid session string format: {e}")
+            except Exception as e:
+                logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
+                raise ValueError(f"Invalid session string format: {e}")
+            
             client = TelegramClient(
-                StringSession(session_string), 
+                string_session, 
                 config.telegram.api_id, 
                 config.telegram.api_hash,
                 connection_retries=2,

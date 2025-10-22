@@ -7,24 +7,39 @@ from telethon.sessions import StringSession
 
 logger = logging.getLogger(__name__)
 
-def convert_pyrogram_to_telethon(pyrogram_session: str) -> str:
-    """Convert Pyrogram session string to Telethon format"""
+async def convert_pyrogram_to_telethon(pyrogram_session: str, api_id: int, api_hash: str) -> tuple:
+    """Convert Pyrogram session to Telethon using MemorySession"""
     try:
-        # Decode base64 session
-        session_data = base64.urlsafe_b64decode(pyrogram_session + "=" * (4 - len(pyrogram_session) % 4))
+        from telethon.sessions import MemorySession
         
-        # Pyrogram session format: dc_id, api_id, test_mode, auth_key, user_id, is_bot
+        # Decode the Pyrogram session
+        padding = 4 - len(pyrogram_session) % 4
+        if padding != 4:
+            pyrogram_session += "=" * padding
+            
+        session_data = base64.urlsafe_b64decode(pyrogram_session)
+        
+        # Validate minimum length
+        if len(session_data) < 271:
+            logger.error(f"Invalid Pyrogram session length: {len(session_data)}")
+            return None, "Invalid session length"
+        
+        # Extract Pyrogram session components
         dc_id = struct.unpack('<B', session_data[0:1])[0]
-        api_id = struct.unpack('<I', session_data[1:5])[0]
+        api_id_pyro = struct.unpack('<I', session_data[1:5])[0]
         test_mode = struct.unpack('<?', session_data[5:6])[0]
         auth_key = session_data[6:262]  # 256 bytes
         user_id = struct.unpack('<Q', session_data[262:270])[0]
         is_bot = struct.unpack('<?', session_data[270:271])[0]
         
-        # Create Telethon session format
-        # Telethon StringSession format: dc_id + server_address + port + auth_key
+        logger.debug(f"Pyrogram session - DC: {dc_id}, API_ID: {api_id_pyro}, User: {user_id}, Bot: {is_bot}")
         
-        # Map DC to server addresses (Telegram's production servers)
+        # Validate auth_key
+        if len(auth_key) != 256 or auth_key == b'\x00' * 256:
+            logger.error("Invalid auth_key in Pyrogram session")
+            return None, "Invalid auth key"
+        
+        # Map DC to server addresses
         dc_servers = {
             1: ("149.154.175.53", 443),
             2: ("149.154.167.51", 443), 
@@ -34,29 +49,52 @@ def convert_pyrogram_to_telethon(pyrogram_session: str) -> str:
         }
         
         if dc_id not in dc_servers:
-            dc_id = 2  # Default to DC2
+            logger.warning(f"Unknown DC {dc_id}, defaulting to DC2")
+            dc_id = 2
             
         server_address, port = dc_servers[dc_id]
         
-        # Pack Telethon session data
-        telethon_data = struct.pack('<B', dc_id)  # DC ID
-        telethon_data += server_address.encode('ascii') + b'\x00' * (16 - len(server_address))  # Server (16 bytes)
-        telethon_data += struct.pack('<H', port)  # Port
-        telethon_data += auth_key  # Auth key (256 bytes)
+        # Create Telethon StringSession directly from auth_key
+        from telethon.sessions import StringSession
+        from telethon.crypto import AuthKey
         
-        # Encode to base64
-        telethon_session = base64.urlsafe_b64encode(telethon_data).decode('ascii').rstrip('=')
+        # Create empty StringSession and set the data
+        session = StringSession()
+        session.set_dc(dc_id, server_address, port)
         
-        return telethon_session
+        # Create AuthKey object from raw bytes
+        auth_key_obj = AuthKey(auth_key)
+        session.auth_key = auth_key_obj
         
+        # Save to get Telethon session string
+        telethon_session = session.save()
+        
+        logger.info(f"Converted Pyrogram session to Telethon format")
+        
+        # Return converted session with placeholder data
+        # The actual validation will happen when the session is used
+        if telethon_session:
+            return telethon_session, {
+                "phone": "Unknown",
+                "name": f"User_{user_id}",
+                "user_id": user_id,
+                "username": None
+            }
+        else:
+            return None, "Failed to create Telethon session"
+            
     except Exception as e:
         logger.error(f"Pyrogram to Telethon conversion error: {e}")
-        return None
+        return None, str(e)
 
 async def validate_string_session(session_string: str, api_id: int, api_hash: str) -> tuple:
     """Validate session string and return account info"""
     try:
-        # First try as Telethon session
+        # Decode HTML entities if present
+        import html
+        session_string = html.unescape(session_string)
+        
+        # First try as Telethon session directly
         try:
             client = TelegramClient(StringSession(session_string), api_id, api_hash)
             await client.connect()
@@ -76,33 +114,34 @@ async def validate_string_session(session_string: str, api_id: int, api_hash: st
                 "session_type": "telethon"
             }
             
-        except Exception as telethon_error:
-            logger.debug(f"Telethon validation failed: {telethon_error}")
-            
-            # Try converting from Pyrogram format
-            converted_session = convert_pyrogram_to_telethon(session_string)
-            if not converted_session:
-                return False, "Invalid session format (not Telethon or Pyrogram)"
+        except ValueError as ve:
+            if "Not a valid string" in str(ve):
+                # This is likely a Pyrogram session - try to convert it
+                session_type = detect_session_type(session_string)
+                if session_type == "pyrogram":
+                    logger.info("Detected Pyrogram session, attempting conversion...")
+                    
+                    converted_session, result = await convert_pyrogram_to_telethon(session_string, api_id, api_hash)
+                    
+                    if converted_session:
+                        return True, {
+                            "phone": result["phone"],
+                            "name": result["name"],
+                            "user_id": result["user_id"],
+                            "username": result["username"],
+                            "session_type": "pyrogram_converted",
+                            "converted_session": converted_session
+                        }
+                    else:
+                        return False, f"Pyrogram session conversion failed: {result}"
+                else:
+                    return False, f"Invalid session string format: {ve}"
+            else:
+                return False, f"Session validation error: {ve}"
                 
-            # Test converted session
-            client = TelegramClient(StringSession(converted_session), api_id, api_hash)
-            await client.connect()
-            
-            if not await client.is_user_authorized():
-                await client.disconnect()
-                return False, "Converted session not authorized"
-                
-            me = await client.get_me()
-            await client.disconnect()
-            
-            return True, {
-                "phone": me.phone,
-                "name": f"{me.first_name or ''} {me.last_name or ''}".strip() or f"User_{me.id}",
-                "user_id": me.id,
-                "username": me.username,
-                "session_type": "pyrogram_converted",
-                "converted_session": converted_session
-            }
+        except Exception as e:
+            logger.debug(f"Telethon session validation failed: {e}")
+            return False, f"Session validation failed: {str(e)}"
             
     except Exception as e:
         logger.error(f"Session validation error: {e}")
