@@ -89,7 +89,8 @@ async def convert_pyrogram_to_telethon(pyrogram_session: str, api_id: int, api_h
                     }
                 else:
                     await test_client.disconnect()
-                    return None, "Converted session not authorized"
+                    logger.warning("Session expired - marking for reauth")
+                    return None, "Session expired - marked for reauth"
             except Exception as e:
                 return None, f"Failed to validate converted session: {e}"
         else:

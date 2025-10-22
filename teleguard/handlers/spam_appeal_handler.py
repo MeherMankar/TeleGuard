@@ -667,9 +667,16 @@ class SpamAppealHandler:
         try:
             # SESSION PROTECTION: Only use typing for longer messages
             if len(message) > 20:
-                from telethon.tl.functions.messages import SetTypingRequest
-                from telethon.tl.types import SendMessageTypingAction
-                await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
+                try:
+                    from telethon.tl.functions.messages import SetTypingRequest
+                    from telethon.tl.types import SendMessageTypingAction
+                    await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
+                except AttributeError:
+                    # Fallback for older Telethon versions
+                    if hasattr(client, 'action'):
+                        await client.action(target, 'typing')
+                except Exception:
+                    pass  # Skip typing if not supported
             
             # ENHANCED SESSION PROTECTION: Much slower composition
             words = message.split()
@@ -703,7 +710,11 @@ class SpamAppealHandler:
                         from telethon.tl.functions.messages import SetTypingRequest
                         from telethon.tl.types import SendMessageTypingAction
                         await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
-                    except:
+                    except AttributeError:
+                        # Fallback for older Telethon versions
+                        if hasattr(client, 'action'):
+                            await client.action(target, 'typing')
+                    except Exception:
                         pass  # Ignore typing errors for session protection
             
             # Much longer final review pause (session protection)
