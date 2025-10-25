@@ -16,9 +16,12 @@ License: MIT
 Version: 2.0.0
 """
 
+# Set UTF-8 encoding for Windows compatibility
+import os
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 import asyncio
 import logging
-import os
 import signal
 import sys
 import time
@@ -72,34 +75,61 @@ file_handler = RotatingFileHandler(
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(detailed_formatter)
 
-# Console handler for errors only
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.ERROR)
-console_handler.setFormatter(simple_formatter)
-
-# Set UTF-8 encoding for console output
+# Console handler with UTF-8 encoding support
 try:
+    # Try to set UTF-8 encoding for console
     import sys
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8')
+    
+    console_handler = logging.StreamHandler()
 except Exception:
-    pass  # Ignore encoding setup errors
+    # Fallback for systems that don't support UTF-8 reconfiguration
+    import io
+    console_handler = logging.StreamHandler(io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace'))
+
+console_handler.setLevel(logging.ERROR)
+console_handler.setFormatter(simple_formatter)
 
 # Add handlers to root logger
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
-# Configure specific loggers
+# Configure specific loggers with UTF-8 safe formatting
+class SafeFormatter(logging.Formatter):
+    def format(self, record):
+        try:
+            return super().format(record)
+        except UnicodeEncodeError:
+            # Replace problematic characters with safe alternatives
+            record.msg = str(record.msg).encode('ascii', 'replace').decode('ascii')
+            if record.args:
+                safe_args = []
+                for arg in record.args:
+                    if isinstance(arg, str):
+                        safe_args.append(arg.encode('ascii', 'replace').decode('ascii'))
+                    else:
+                        safe_args.append(arg)
+                record.args = tuple(safe_args)
+            return super().format(record)
+
+# Update console handler with safe formatter
+console_handler.setFormatter(SafeFormatter('%(levelname)s: %(message)s'))
+
 logging.getLogger("teleguard").setLevel(logging.INFO)
 logging.getLogger("teleguard.core").setLevel(logging.INFO)
 logging.getLogger("teleguard.handlers").setLevel(logging.INFO)
 logging.getLogger("teleguard.utils").setLevel(logging.INFO)
 
-# Silence noisy external modules
+# Silence noisy external modules and set safe handlers
 for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "urllib3", "aiohttp"]:
-    logging.getLogger(mod).setLevel(logging.ERROR)
+    mod_logger = logging.getLogger(mod)
+    mod_logger.setLevel(logging.ERROR)
+    # Remove any existing handlers that might cause encoding issues
+    for handler in mod_logger.handlers[:]:
+        mod_logger.removeHandler(handler)
 
 logger = get_logger(__name__)
 

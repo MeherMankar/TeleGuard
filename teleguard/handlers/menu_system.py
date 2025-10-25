@@ -1072,8 +1072,8 @@ class MenuSystem:
                         Button.inline("🗑️ Remove Account", "account:remove"),
                     ],
                     [
-                        Button.inline("🔐 Session Tools", "session_login"),
-                        Button.inline("✨ Export Sessions", "export_sessions"),
+                        Button.inline("🔐 Login via Session", "session_login"),
+                        Button.inline("✨ Create Session", "export_sessions"),
                     ],
                     [
                         Button.inline("🔄 Refresh Status", "account:refresh"),
@@ -1148,7 +1148,7 @@ class MenuSystem:
                     ],
                     [
                         Button.inline("📋 Security Audit Log", "otp:audit_all"),
-                        Button.inline("❓ Security Guide", "help:security"),
+                        # Button.inline("❓ Security Guide", "help:security"),
                     ],
                     [
                         Button.inline("🔙 Back to Main Menu", "menu:main"),

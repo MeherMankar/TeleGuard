@@ -33,30 +33,36 @@ class SessionImportHandler:
         async def import_session_file(event):
             user_id = event.sender_id
             await self._import_session_file(event, user_id)
+        
+        @self.bot.on(events.CallbackQuery(pattern=r"^import_formats$"))
+        async def show_supported_formats(event):
+            await self._show_supported_formats(event)
     async def _show_import_menu(self, event, user_id):
         """Show session import menu"""
         try:
             from telethon import Button
+            from ..utils.session_utils import get_supported_formats
+            formats = get_supported_formats()
+            
             text = (
-                "📥 **Import Session**\n\n"
-                "Add accounts using existing session data:\n\n"
-                "**Methods:**\n"
-                "• **String Session**: Paste session string\n"
-                "• **Session File**: Upload .session file\n\n"
-                "**Supported Formats:**\n"
-                "• 🔄 **Telethon** sessions (native)\n"
-                "• 🔄 **Pyrogram** sessions (auto-converted)\n"
-                "• 📁 **Session files** from any bot\n\n"
-                "**Benefits:**\n"
+                "📥 **Universal Session Import**\n\n"
+                "Import accounts from **any** Telegram library:\n\n"
+                "**📱 Supported Formats:**\n"
+                "• **Telethon**: StringSession, .session files\n"
+                "• **Pyrogram**: Session strings, .session files\n"
+                "• **TDLib**: JSON session data\n"
+                "• **Raw JSON**: Custom session formats\n\n"
+                "**✨ Benefits:**\n"
                 "• No OTP verification needed\n"
                 "• No 2FA password required\n"
                 "• Instant account addition\n"
-                "• Automatic format detection & conversion\n\n"
+                "• Auto-detects session format\n\n"
                 "Choose import method:"
             )
             buttons = [
-                [Button.inline("📝 Import String Session", "import_string")],
+                [Button.inline("📝 Import Session String", "import_string")],
                 [Button.inline("📁 Import Session File", "import_file")],
+                [Button.inline("📊 View Supported Formats", "import_formats")],
                 [Button.inline("🔙 Back to Account Settings", "menu:accounts")]
             ]
             await event.edit(text, buttons=buttons)
@@ -71,21 +77,18 @@ class SessionImportHandler:
                     "action": "import_string_session"
                 }
             text = (
-                "📝 **Import String Session**\n\n"
-                "Reply with your session string:\n\n"
-                "**Supported Formats:**\n"
-                "• 🔄 **Telethon**: `1BVtsOHwAa7T...`\n"
-                "• 🔄 **Pyrogram**: `AgA-i3IAq9_u...`\n\n"
-                "**Where to get:**\n"
-                "• From another TeleGuard bot\n"
-                "• From Telethon/Pyrogram scripts\n"
-                "• From session export tools\n"
-                "• From other Telegram bots\n\n"
-                "**Auto-Detection:** Bot automatically detects and converts formats\n"
-                "**Security:** All sessions are encrypted before storage"
+                "📝 **Universal Session String Import**\n\n"
+                "Reply with your session string from **any** library:\n\n"
+                "**📱 Supported Formats:**\n"
+                "• **Telethon**: `1BVtsOHwAa7T...` (long base64)\n"
+                "• **Pyrogram**: `BQABcd1...` (shorter base64)\n"
+                "• **JSON**: `{\"dc_id\": 2, \"auth_key\": ...}`\n\n"
+                "**🔍 Auto-Detection:**\n"
+                "Bot automatically detects your session format\n\n"
+                "**🔒 Security:** All sessions encrypted before storage"
             )
             await event.edit(text)
-            await event.answer("📝 Reply with session string")
+            await event.answer("📝 Send any session format")
         except Exception as e:
             logger.error(f"Import string session error: {e}")
             await event.edit("❌ Error setting up string import.")
@@ -97,145 +100,132 @@ class SessionImportHandler:
                     "action": "import_session_file"
                 }
             text = (
-                "📁 **Import Session File**\n\n"
-                "Send your .session file:\n\n"
-                "**Supported files:**\n"
-                "• .session files from Telethon\n"
-                "• .session files from other bots\n"
-                "• SQLite session databases\n\n"
-                "**How to send:**\n"
-                "1. Send the file as document\n"
-                "2. Bot will extract session data\n"
-                "3. Account will be added automatically\n\n"
-                "**Security:** Files are deleted after processing."
+                "📁 **Universal Session File Import**\n\n"
+                "Send your session file from **any** library:\n\n"
+                "**📱 Supported Files:**\n"
+                "• **Telethon**: `.session` (SQLite database)\n"
+                "• **Pyrogram**: `.session` (SQLite database)\n"
+                "• **JSON**: `.json` (TDLib, custom formats)\n"
+                "• **Text**: `.txt` (session strings)\n\n"
+                "**🔍 Process:**\n"
+                "1. Send file as document\n"
+                "2. Auto-detect format & extract\n"
+                "3. Convert to Telethon format\n"
+                "4. Add account instantly\n\n"
+                "**🔒 Security:** Files deleted after processing"
             )
             await event.edit(text)
-            await event.answer("📁 Send session file")
+            await event.answer("📁 Send any session file")
         except Exception as e:
             logger.error(f"Import session file error: {e}")
             await event.edit("❌ Error setting up file import.")
+    
+    async def _show_supported_formats(self, event):
+        """Show detailed list of supported session formats"""
+        try:
+            from telethon import Button
+            from ..utils.session_utils import get_supported_formats
+            
+            formats = get_supported_formats()
+            
+            text = (
+                "📊 **Supported Session Formats**\n\n"
+                "**📱 Telethon Library:**\n"
+                "• StringSession (base64 encoded)\n"
+                "• .session files (SQLite database)\n\n"
+                "**🔥 Pyrogram Library:**\n"
+                "• Session strings (shorter base64)\n"
+                "• .session files (SQLite database)\n"
+                "• JSON session format\n\n"
+                "**📊 TDLib (python-telegram):**\n"
+                "• JSON session data\n"
+                "• Custom JSON formats\n\n"
+                "**🔧 Raw/Custom Formats:**\n"
+                "• JSON with dc_id, auth_key\n"
+                "• Custom session structures\n\n"
+                "**🔍 Detection:**\n"
+                "Bot automatically detects format and converts to Telethon"
+            )
+            
+            buttons = [
+                [Button.inline("🔙 Back to Import Menu", "import_sessions")]
+            ]
+            
+            await event.edit(text, buttons=buttons)
+        
+        except Exception as e:
+            logger.error(f"Show formats error: {e}")
+            await event.edit("❌ Error loading format information.")
     async def process_string_session(self, user_id, session_string):
-        """Process string session import with Pyrogram support"""
+        """Process string session import"""
         try:
             if not session_string or len(session_string) < 50:
                 return False, "❌ Invalid session string format"
+            # Validate session using universal validator
+            from ..core.config import config
+            from ..utils.session_utils import validate_session, detect_session_type
             
-            # Validate and convert session if needed
-            from ..core.config import API_ID, API_HASH
-            from ..utils.session_utils import validate_string_session, detect_session_type
+            API_ID = config.telegram.api_id
+            API_HASH = config.telegram.api_hash
             
             session_type = detect_session_type(session_string)
-            logger.info(f"Detected session type: {session_type}")
-            
-            ok, info = await validate_string_session(session_string, API_ID, API_HASH)
+            ok, info = await validate_session(session_string, API_ID, API_HASH)
             if not ok:
-                return False, f"❌ Session validation failed: {info}"
-            
+                return False, f"❌ Session test failed: {info}"
             phone = info.get("phone")
             name = info.get("name")
-            # Use converted session if available, otherwise original
-            final_session = info.get("converted_session", session_string)
-            
-            # Decode HTML entities from session string
-            import html
-            final_session = html.unescape(final_session)
-            
-            # Check for existing account and clean up automatically
+            detected_type = info.get("session_type", "unknown")
+            telethon_session = info.get("telethon_session", session_string)
             existing = await mongodb.db.accounts.find_one({
                 "user_id": user_id,
                 "phone": phone
             })
             if existing:
-                # Always clean up existing account to allow re-import
-                await mongodb.db.accounts.delete_one({"_id": existing["_id"]})
-                logger.info(f"Cleaned up existing account {phone} for user {user_id} to allow re-import")
-            
-            # Store account with final session string
+                return False, f"❌ Account {phone} already exists"
             account_data = {
                 "user_id": user_id,
                 "phone": phone,
                 "name": name,
-                "session_string": final_session,
+                "session_string": telethon_session,
                 "is_active": True,
                 "added_via": "string_import",
-                "original_format": info.get("session_type", "unknown"),
+                "original_format": detected_type,
                 "otp_destroyer_enabled": False,
                 "created_at": int(__import__("time").time())
             }
-            
             result = await mongodb.db.accounts.insert_one(account_data)
             account_id = str(result.inserted_id)
-            
-            # Start client with final session
-            await self.bot_manager.start_user_client(user_id, name, final_session)
-            
-            conversion_note = " (converted from Pyrogram)" if info.get("session_type") == "pyrogram_converted" else ""
-            cleanup_note = "\n\n🗑️ Previous account data cleaned up automatically" if existing else ""
-            return True, f"✅ Account {name} ({phone}) imported successfully{conversion_note}!{cleanup_note}"
-            
+            await self.bot_manager.start_user_client(user_id, name, telethon_session)
+            return True, f"✅ Account {name} ({phone}) imported successfully!\n📱 Original Format: {detected_type.replace('_', ' ').title()}"
         except Exception as e:
             logger.error(f"String session import error: {e}")
             return False, f"❌ Import failed: {str(e)}"
     async def process_session_file(self, user_id, file_path):
         """Process session file import"""
         try:
-            # Validate file path to prevent path traversal
-            import os.path
-            safe_dir = os.path.join(os.getcwd(), 'temp_sessions')
-            os.makedirs(safe_dir, exist_ok=True)
-            
-            # Ensure file is within safe directory
-            abs_file_path = os.path.abspath(file_path)
-            abs_safe_dir = os.path.abspath(safe_dir)
-            
-            if not abs_file_path.startswith(abs_safe_dir):
-                return False, "❌ Invalid file path"
-                
-            if not os.path.exists(abs_file_path):
+            if not os.path.exists(file_path):
                 return False, "❌ Session file not found"
-                
-            # Extract session string from file
-            session_string = await self._extract_session_from_file(abs_file_path)
-            if not session_string:
-                return False, "❌ Could not extract session from file"
+            # Extract session string from file using universal extractor
+            from ..core.config import config
+            from ..utils.session_utils import extract_session_from_file
+            
+            API_ID = config.telegram.api_id
+            API_HASH = config.telegram.api_hash
+            
+            success, session_string, format_info = await extract_session_from_file(file_path, API_ID, API_HASH)
+            if not success:
+                return False, f"❌ Could not extract session: {format_info}"
             # Clean up file
             try:
-                os.remove(abs_file_path)
+                os.remove(file_path)
             except:
                 pass
-            return await self.process_string_session(user_id, session_string)
+            # Process the extracted session
+            result_success, result_message = await self.process_string_session(user_id, session_string)
+            if result_success:
+                return True, f"{result_message}\n📁 Source: {format_info}"
+            return False, result_message
         except Exception as e:
             logger.error(f"Session file import error: {e}")
             return False, f"❌ File import failed: {str(e)}"
-    async def _extract_session_from_file(self, file_path):
-        """Extract session string from .session file"""
-        try:
-            from ..core.config import API_ID, API_HASH
-            # Try to instantiate a file-backed client and call session.save() without performing network operations.
-            session_name = file_path.replace('.session', '')
-            temp_client = TelegramClient(session_name, API_ID, API_HASH)
-            # Try to call save() directly; Telethon's session implementations persist auth info to file
-            try:
-                session_string = temp_client.session.save()
-                # If save() returned something meaningful, return it
-                if session_string and isinstance(session_string, str) and len(session_string) > 10:
-                    return session_string
-            except Exception:
-                # session.save may require internal state; fallback to connecting briefly
-                pass
-            # Fallback: connect briefly to let Telethon populate session state and save
-            try:
-                await temp_client.connect()
-                session_string = temp_client.session.save()
-                await temp_client.disconnect()
-                return session_string
-            except Exception as e:
-                logger.error(f"Session extraction error (connect fallback): {e}")
-                try:
-                    await temp_client.disconnect()
-                except Exception:
-                    pass
-                return None
-        except Exception as e:
-            logger.error(f"File extraction error: {e}")
-            return None
+

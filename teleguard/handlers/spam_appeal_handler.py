@@ -25,11 +25,18 @@ class SpamAppealHandler:
         """Load appeal message templates from file"""
         try:
             messages_file = Path(__file__).parent.parent / "data" / "appeal_messages.txt"
+            logger.info(f"Attempting to load appeal messages from: {messages_file}")
+            
             if messages_file.exists():
                 content = messages_file.read_text(encoding='utf-8')
                 # Split by double newlines and filter out empty messages
                 messages = [msg.strip() for msg in content.split('\n\n') if msg.strip() and len(msg.strip()) > 50]
-                logger.info(f"Loaded {len(messages)} appeal messages from file")
+                logger.info(f"Successfully loaded {len(messages)} appeal messages from file")
+                
+                # Log first few messages for verification
+                for i, msg in enumerate(messages[:3]):
+                    logger.debug(f"Appeal message {i+1} preview: {msg[:100]}...")
+                
                 return messages
             else:
                 logger.warning(f"Appeal messages file not found: {messages_file}")
@@ -37,11 +44,13 @@ class SpamAppealHandler:
             logger.error(f"Failed to load appeal messages: {e}")
         
         # Return default messages if file loading fails
-        return [
+        default_messages = [
             "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. I use Telegram for personal communication with friends and family. Please review my account and remove any restrictions. Thank you for your time and consideration.",
             "I am writing to appeal the spam restrictions placed on my account. I have been using Telegram responsibly for legitimate purposes only. I believe this restriction was applied in error. I would appreciate if you could review my case and restore my account to normal status.",
             "Dear Telegram Support, my account has been flagged as spam, but I assure you this is a mistake. I only use Telegram to communicate with close contacts and have never engaged in spam activities. Please investigate and lift the restrictions on my account."
         ]
+        logger.info(f"Using {len(default_messages)} default appeal messages")
+        return default_messages
 
     def register_handlers(self):
         """Register appeal handlers with smart detection"""
@@ -66,6 +75,38 @@ class SpamAppealHandler:
             except Exception as e:
                 logger.error(f"Spam stats command error: {e}")
                 await event.reply("❌ Error getting spam statistics")
+        
+        @self.bot.on(events.NewMessage(pattern=r"^/test_appeal_messages$"))
+        async def test_appeal_messages_command(event):
+            """Test appeal message loading and selection"""
+            user_id = event.sender_id
+            try:
+                # Check if user is admin
+                from ..core.config import config
+                if user_id not in config.security.admin_ids:
+                    await event.reply("❌ Admin access required")
+                    return
+                
+                # Test message loading
+                message_count = len(self.appeal_messages)
+                
+                # Test message selection
+                test_message = await self._select_smart_appeal_message("test context")
+                
+                response = (
+                    f"🧪 **Appeal Messages Test**\n\n"
+                    f"📁 **Loaded Messages:** {message_count}\n"
+                    f"📄 **Test Selection Length:** {len(test_message)} chars\n\n"
+                    f"**Sample Message Preview:**\n"
+                    f"```\n{test_message[:200]}...\n```\n\n"
+                    f"✅ Appeal message system is working!"
+                )
+                
+                await event.reply(response)
+                
+            except Exception as e:
+                logger.error(f"Test appeal messages error: {e}")
+                await event.reply(f"❌ Test failed: {str(e)}")
         
         @self.bot.on(events.NewMessage(pattern=r"^/appeal(?:\s+(.+))?$"))
         async def appeal_command(event):
@@ -318,6 +359,7 @@ class SpamAppealHandler:
             await self._complete_appeal(user_id, True)
         
         elif "write me some details" in message_text or "why do you think" in message_text:
+            logger.info(f"SpamBot requested appeal details for user {user_id}, account {account_name}")
             await self._submit_appeal_message(user_id)
         
         elif "already submitted a complaint" in message_text or "supervisors will check" in message_text:
@@ -330,23 +372,29 @@ class SpamAppealHandler:
         try:
             # Always use messages from appeal_messages.txt file only
             if not self.appeal_messages:
-                logger.error("No appeal messages loaded from file")
+                logger.error("No appeal messages loaded from file - using emergency fallback")
                 return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+            
+            logger.info(f"Selecting appeal message from {len(self.appeal_messages)} available messages")
             
             # Try AI selection from loaded messages if spam detector available
             if hasattr(self.bot_manager, 'spam_detector'):
                 detector = self.bot_manager.spam_detector
+                logger.debug("Spam detector available, attempting intelligent selection")
                 
                 try:
                     # Analyze spambot response to detect spam limit type
                     analysis = detector.analyze_spambot_response(context)
                     spam_limit_type = analysis.get('spam_limit_type')
+                    logger.debug(f"Detected spam limit type: {spam_limit_type}")
                     
                     # Get account age for better message selection
                     account_age_days = await self._get_account_age_days()
+                    logger.debug(f"Account age: {account_age_days} days")
                     
                     # Use AI to select best message from loaded appeal messages
                     if hasattr(detector, 'ai_select_from_messages'):
+                        logger.debug("Attempting AI message selection")
                         selected_message = await detector.ai_select_from_messages(
                             self.appeal_messages, spam_limit_type, context, account_age_days
                         )
@@ -356,6 +404,7 @@ class SpamAppealHandler:
                     
                     # Fallback: use rule-based selection from loaded messages
                     if hasattr(detector, 'select_from_messages'):
+                        logger.debug("Attempting rule-based message selection")
                         selected_message = detector.select_from_messages(
                             self.appeal_messages, spam_limit_type, account_age_days
                         )
@@ -364,19 +413,28 @@ class SpamAppealHandler:
                             return selected_message
                             
                 except Exception as e:
-                    logger.warning(f"AI/Rule-based selection failed: {e}")
+                    logger.warning(f"AI/Rule-based selection failed, falling back to random: {e}")
+            else:
+                logger.debug("No spam detector available, using random selection")
             
             # Final fallback: random selection from loaded messages
             selected = random.choice(self.appeal_messages)
             logger.info(f"Random selection from file: {len(selected)} chars")
+            logger.debug(f"Selected message preview: {selected[:100]}...")
             return selected
             
         except Exception as e:
             logger.error(f"Error in smart message selection: {e}")
             # Emergency fallback if everything fails
             if self.appeal_messages:
-                return random.choice(self.appeal_messages)
-            return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+                emergency_message = random.choice(self.appeal_messages)
+                logger.warning(f"Using emergency fallback message: {len(emergency_message)} chars")
+                return emergency_message
+            
+            # Last resort fallback
+            fallback_message = "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+            logger.error("Using last resort fallback message")
+            return fallback_message
 
     async def _click_button(self, event, button_text: str):
         """Click specific button with extremely human-like behavior and session protection"""
@@ -515,16 +573,32 @@ class SpamAppealHandler:
             # Use intelligent message selection
             appeal_message = await self._select_smart_appeal_message(context)
             
+            # Log the selected message for debugging
+            logger.info(f"Selected appeal message for {account_name}: {len(appeal_message)} chars")
+            logger.debug(f"Appeal message preview: {appeal_message[:100]}...")
+            
             # SESSION PROTECTION: Check if sending appeal message is safe
             session_id = f"{user_id}_{account_name}"
             if not await session_protection.check_message_safety(session_id, appeal_message, "spambot"):
                 await self._notify_user(user_id, f"⚠️ Session protection prevented appeal submission to avoid account restrictions")
                 return
             
+            # Notify user that message is being sent
+            await self._notify_user(
+                user_id,
+                f"📝 **Sending Appeal Message**\n\n"
+                f"📱 Account: {account_name}\n"
+                f"📄 Message Length: {len(appeal_message)} characters\n"
+                f"⏳ Composing message with human-like behavior..."
+            )
+            
             # Simulate realistic message composition behavior
             await self._simulate_human_message_composition(client, "spambot", appeal_message)
             
+            # Send the appeal message
+            logger.info(f"Sending appeal message to spambot for account {account_name}")
             await client.send_message("spambot", appeal_message)
+            logger.info(f"Appeal message sent successfully for account {account_name}")
             
             # Record message for protection tracking
             await session_protection.record_message_sent(session_id)
@@ -540,17 +614,18 @@ class SpamAppealHandler:
                 user_id,
                 f"🤖 **Smart Appeal Submitted**\n\n"
                 f"📱 **Account:** {account_name}\n"
-                f"Detected Type: {spam_type_name}\n"
-                f"Message Length: {len(appeal_message)} characters\n"
-                f"Strategy: Auto-optimized for spam type\n\n"
-                f"✅ Appeal process completed!"
+                f"📄 **Message Sent:** {len(appeal_message)} characters\n"
+                f"🎯 **Detected Type:** {spam_type_name}\n"
+                f"🔧 **Strategy:** Auto-optimized for spam type\n\n"
+                f"✅ **Appeal message successfully sent to @spambot!**\n\n"
+                f"📧 You should receive a response within 24-48 hours."
             )
             
             await self._complete_appeal(user_id, True)
             
         except Exception as e:
-            logger.error(f"Error submitting appeal: {e}")
-            await self._notify_user(user_id, "❌ Failed to submit appeal message.")
+            logger.error(f"Error submitting appeal message for {account_name}: {e}")
+            await self._notify_user(user_id, f"❌ Failed to submit appeal message: {str(e)}")
 
     async def _complete_appeal(self, user_id: int, success: bool):
         """Complete the appeal process"""

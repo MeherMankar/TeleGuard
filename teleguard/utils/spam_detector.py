@@ -232,6 +232,31 @@ Respond with only the type name (e.g., "spamblock"):"""
         # Select random message from candidates
         return random.choice(candidate_messages) if candidate_messages else random.choice(self.appeal_messages)
     
+    def select_from_messages(
+        self,
+        messages: List[str],
+        spam_limit_type: SpamLimitType,
+        account_age_days: int = 365
+    ) -> str:
+        """Select message from provided list using spam detector logic"""
+        if not messages:
+            return None
+        
+        # Use the provided messages as our candidate pool
+        candidate_messages = messages
+        
+        # Filter by account age if relevant
+        account_age_category = self.get_account_age_category(account_age_days)
+        age_filtered_messages = self._filter_by_account_age(
+            candidate_messages, account_age_category
+        )
+        
+        if age_filtered_messages:
+            candidate_messages = age_filtered_messages
+        
+        # Select random message from candidates
+        return random.choice(candidate_messages) if candidate_messages else random.choice(messages)
+    
     def _filter_by_account_age(self, messages: List[str], age_category: str) -> List[str]:
         """Filter messages based on account age"""
         filtered = []
@@ -376,7 +401,7 @@ Respond with only the type name (e.g., "spamblock"):"""
             
             prompt = f"""You are helping select the best Telegram spam appeal message.
 
-Spam Type: {spam_type.value}
+Spam Type: {spam_type.value if spam_type else 'general'}
 Account Age: {account_age_days} days
 SpamBot Context: "{context}"
 
@@ -395,6 +420,43 @@ Respond with only the message number:"""
                 message_num = int(response.text.strip()) - 1
                 if 0 <= message_num < len(self.appeal_messages):
                     return self.appeal_messages[message_num]
+            except ValueError:
+                pass
+            
+        except Exception as e:
+            logger.warning(f"AI message selection failed: {e}")
+        
+        return None
+    
+    async def ai_select_from_messages(self, messages: List[str], spam_type: SpamLimitType, context: str, account_age_days: int) -> Optional[str]:
+        """Use AI to select best message from provided list"""
+        if not self.ai_model or not messages:
+            return None
+        
+        try:
+            messages_text = "\n\n---\n\n".join([f"Message {i+1}:\n{msg}" for i, msg in enumerate(messages)])
+            
+            prompt = f"""You are helping select the best Telegram spam appeal message.
+
+Spam Type: {spam_type.value if spam_type else 'general'}
+Account Age: {account_age_days} days
+SpamBot Context: "{context}"
+
+Available Messages:
+{messages_text}
+
+Select the most effective message number (1-{len(messages)}) that:
+1. Best matches the spam type
+2. Is appropriate for account age
+3. Has the highest chance of success
+
+Respond with only the message number:"""
+            
+            response = await asyncio.to_thread(self.ai_model.generate_content, prompt)
+            try:
+                message_num = int(response.text.strip()) - 1
+                if 0 <= message_num < len(messages):
+                    return messages[message_num]
             except ValueError:
                 pass
             

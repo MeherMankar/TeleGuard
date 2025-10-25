@@ -6,7 +6,9 @@ import time
 from datetime import datetime
 from telethon import events
 from telethon.sessions import StringSession
+from telethon import TelegramClient
 from ..core.mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
 class SessionExportHandler:
     def __init__(self, bot_manager):
@@ -59,132 +61,75 @@ class SessionExportHandler:
             for account in accounts:
                 account_name = account.get('name') or account.get('phone', 'Unknown')
                 buttons.append([Button.inline(f"📱 {account_name}", f"export_session:{account_name}")])
-            buttons.append([Button.inline("📦 Export All Sessions", "export_all_sessions")])
+            buttons.append([Button.inline("📦 Bulk Session Info", "export_all_sessions")])
             buttons.append([Button.inline("🔙 Back", "main_menu")])
             await event.edit(
-                "🔄 **Session Export**\n\n"
-                "Select account to export session data:\n"
+                "🔄 **Fresh Session Creation**\n\n"
+                "Select account to create fresh session:\n"
                 "• String session for Telethon\n"
                 "• .session file download\n"
-                "• No re-authentication required",
+                "• Requires OTP re-authentication for security",
                 buttons=buttons
             )
         except Exception:
             await event.edit("❌ Error loading export menu.")
     async def _export_account_session(self, event, user_id, account_name):
-        """Show export options for specific account"""
+        """Show fresh session creation options for specific account"""
         try:
-            user_clients = self.user_clients.get(user_id, {})
-            client = user_clients.get(account_name)
-            if not client or not client.is_connected():
-                await event.edit(f"❌ Account {account_name} is not connected.")
-                return
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-            phone = account.get('phone', 'Unknown') if account else 'Unknown'
+            if not account:
+                await event.edit(f"❌ Account {account_name} not found.")
+                return
+            phone = account.get('phone', 'Unknown')
             from telethon import Button
             message = (
-                f"🔄 **Session Export - {account_name}**\n\n"
+                f"🔄 **Fresh Session Creation - {account_name}**\n\n"
                 f"📱 **Account:** {account_name}\n"
                 f"📞 **Phone:** {phone}\n\n"
-                f"**Choose export format:**\n"
+                f"**Choose session format:**\n"
                 f"• **String Session** - Text format for code\n"
                 f"• **Session File** - .session file download\n\n"
+                f"🔐 **Fresh Authentication Required:**\n"
+                f"You will need to enter OTP code to create a new session.\n\n"
                 f"⚠️ **Security Warning:**\n"
                 f"Session data grants full account access. Keep secure!"
             )
             buttons = [
-                [Button.inline("📝 Get String Session", f"export_string:{account_name}")],
-                [Button.inline("📁 Get Session File", f"export_file:{account_name}")],
+                [Button.inline("📝 Create String Session", f"export_string:{account_name}")],
+                [Button.inline("📁 Create Session File", f"export_file:{account_name}")],
                 [Button.inline("🔙 Back to Export Menu", "export_sessions")]
             ]
             await event.edit(message, buttons=buttons)
         except Exception:
             await event.edit(f"❌ Error showing export options for {account_name}")
     async def _export_all_sessions(self, event, user_id):
-        """Export all sessions for user"""
+        """Show bulk fresh session creation info"""
         try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.edit("❌ No active accounts found.")
+                await event.edit("❌ No accounts found.")
                 return
-            await event.edit("🔄 Exporting all sessions... Please wait.")
-            user_clients = self.user_clients.get(user_id, {})
-            exported_sessions = []
-            session_files = []
-            for account in accounts:
-                account_name = account.get('name') or account.get('phone', 'Unknown')
-                client = user_clients.get(account_name)
-                if client and client.is_connected():
-                    try:
-                        session_string = client.session.save()
-                        phone = account.get('phone', 'Unknown')
-                        exported_sessions.append({
-                            'name': account_name,
-                            'phone': phone,
-                            'session': session_string
-                        })
-                        # Generate .session file
-                        temp_session_path = f"temp_{account_name}_{user_id}.session"
-                        try:
-                            from telethon import TelegramClient
-                            from telethon.sessions import StringSession
-                            from ..core.config import config
-                            API_ID = config.telegram.api_id
-                            API_HASH = config.telegram.api_hash
-                            string_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-                            await string_client.connect()
-                            file_client = TelegramClient(temp_session_path, API_ID, API_HASH)
-                            file_client.session.set_dc(
-                                string_client.session.dc_id,
-                                string_client.session.server_address,
-                                string_client.session.port
-                            )
-                            file_client.session.auth_key = string_client.session.auth_key
-                            file_client.session.save()
-                            await string_client.disconnect()
-                            if os.path.exists(temp_session_path):
-                                with open(temp_session_path, 'rb') as f:
-                                    session_files.append({
-                                        'name': f"{account_name}.session",
-                                        'data': f.read()
-                                    })
-                                os.remove(temp_session_path)
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-            if not exported_sessions:
-                await event.edit("❌ No sessions could be exported.")
-                return
-            message = f"🔄 **All Sessions Export - {len(exported_sessions)} accounts**\n\n"
-            for i, session_data in enumerate(exported_sessions, 1):
-                message += f"**{i}. {session_data['name']}**\n"
-                message += f"📞 {session_data['phone']}\n"
-                message += f"```\n{session_data['session']}\n```\n\n"
-            message += "**Python Usage:**\n"
-            message += "```python\n"
-            message += "from telethon import TelegramClient\n"
-            message += "from telethon.sessions import StringSession\n\n"
-            message += "# Replace with your session string\n"
-            message += "client = TelegramClient(StringSession('your_session_here'), api_id, api_hash)\n"
-            message += "await client.start()\n"
-            message += "```"
+            
             from telethon import Button
-            buttons = [[Button.inline("🔙 Back to Export Menu", "export_sessions")]]
+            message = (
+                f"📦 **Bulk Fresh Session Creation**\n\n"
+                f"📊 **Available Accounts:** {len(accounts)}\n\n"
+                f"🔐 **Security Notice:**\n"
+                f"Bulk session creation requires individual OTP authentication for each account.\n\n"
+                f"⚠️ **Important:**\n"
+                f"Each account will need separate OTP verification.\n"
+                f"This ensures maximum security for all sessions.\n\n"
+                f"**Recommendation:**\n"
+                f"Create sessions individually for better control."
+            )
+            
+            buttons = [
+                [Button.inline("📱 Create Individual Sessions", "export_sessions")],
+                [Button.inline("🔙 Back to Export Menu", "export_sessions")]
+            ]
             await event.edit(message, buttons=buttons)
-            # Send .session files
-            for session_file in session_files:
-                try:
-                    from telethon.tl.types import DocumentAttributeFilename
-                    await event.respond(
-                        f"📁 **{session_file['name']}**",
-                        file=session_file['data'],
-                        attributes=[DocumentAttributeFilename(session_file['name'])]
-                    )
-                except Exception:
-                    pass
         except Exception:
-            await event.edit("❌ Error exporting sessions")
+            await event.edit("❌ Error loading bulk export info")
     async def _send_string_session(self, event, user_id, account_name):
         """Send string session format"""
         try:
@@ -724,22 +669,33 @@ class SessionExportHandler:
                     if not fresh_session or fresh_session in ['None', '', 'null']:
                         await self.bot.send_message(user_id, f"❌ Failed to generate valid session string for {account_name}")
                     else:
+                        # Get DC information for display
+                        dc_info = "Unknown"
+                        try:
+                            if client and client.is_connected():
+                                dc_info = f"DC{client.session.dc_id}"
+                        except Exception:
+                            pass
+                        
                         message = (
-                            f"✅ **Fresh Session String - {account_name}**\n\n"
-                            f"📞 **Phone:** {phone}\n\n"
-                            f"**Fresh Session String:**\n"
-                            f"```\n{fresh_session}\n```\n\n"
-                            f"**Python Usage:**\n"
+                            f"📝 **Session Export - {dc_info}**\n\n"
+                            f"📱 **Account:** {account_name}\n"
+                            f"📞 **Phone:** {phone}\n"
+                            f"🌐 **Data Center:** {dc_info}\n\n"
+                            f"**Session String:**\n\n"
+                            f"{fresh_session}\n\n\n"
+                            f"**Usage Example:**\n"
                             f"```python\n"
                             f"from telethon import TelegramClient\n"
                             f"from telethon.sessions import StringSession\n\n"
+                            f"# {dc_info} Session\n"
                             f"client = TelegramClient(\n"
                             f"    StringSession('{fresh_session}'),\n"
                             f"    api_id, api_hash\n"
                             f")\n"
                             f"await client.start()\n"
                             f"```\n\n"
-                            f"⚠️ **This is a completely fresh session!**"
+                            f"⚠️ **Keep this {dc_info} session secure!**"
                         )
                         await self.bot.send_message(user_id, message)
                 if format_type == 'file' or format_type == 'both':
@@ -932,15 +888,26 @@ class SessionExportHandler:
                 format_type = session_data.get('format_type', 'both')
                 # Send based on requested format
                 if format_type == 'string' or format_type == 'both':
+                    # Get DC information for display
+                    dc_info = "Unknown"
+                    try:
+                        if client and client.is_connected():
+                            dc_info = f"DC{client.session.dc_id}"
+                    except Exception:
+                        pass
+                    
                     message = (
-                        f"✅ **Fresh Session String - {account_name}**\n\n"
-                        f"📞 **Phone:** {phone}\n\n"
-                        f"**Fresh Session String:**\n"
-                        f"```\n{fresh_session}\n```\n\n"
-                        f"**Python Usage:**\n"
+                        f"📝 **Session Export - {dc_info}**\n\n"
+                        f"📱 **Account:** {account_name}\n"
+                        f"📞 **Phone:** {phone}\n"
+                        f"🌐 **Data Center:** {dc_info}\n\n"
+                        f"**Session String:**\n\n"
+                        f"{fresh_session}\n\n\n"
+                        f"**Usage Example:**\n"
                         f"```python\n"
                         f"from telethon import TelegramClient\n"
                         f"from telethon.sessions import StringSession\n\n"
+                        f"# {dc_info} Session\n"
                         f"client = TelegramClient(\n"
                         f"    StringSession('{fresh_session}'),\n"
                         f"    api_id, api_hash\n"
@@ -948,7 +915,7 @@ class SessionExportHandler:
                         f"await client.start()\n"
                         f"```\n\n"
                         f"🔐 **2FA password securely stored for future use!**\n"
-                        f"⚠️ **This is a completely fresh session!**"
+                        f"⚠️ **Keep this {dc_info} session secure!**"
                     )
                     await self.bot.send_message(user_id, message)
                 if format_type == 'file' or format_type == 'both':
