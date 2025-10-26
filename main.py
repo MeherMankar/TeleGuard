@@ -389,14 +389,15 @@ async def main() -> None:
         logger.info("🤖 Initializing TeleGuard bot...")
 
         # Start bot without timeout on cloud platforms
-        async with AccountManager() as bot:
-            startup_elapsed = time.time() - startup_time
-            koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
-            print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
-            logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
-            
-            logger.info("🏃 Starting bot main loop...")
-            await bot.run()
+        try:
+            async with AccountManager() as bot:
+                startup_elapsed = time.time() - startup_time
+                koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
+                print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
+                logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
+                
+                logger.info("🏃 Starting bot main loop...")
+                await bot.run()
         except Exception as e:
             # Handle rate limits and other startup errors
             logger.error("🚨 Bot startup error: %s", str(e))
