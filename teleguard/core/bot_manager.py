@@ -189,12 +189,18 @@ class BotManager:
         raise TeleGuardError("Bot startup failed after retries")
     async def _load_existing_sessions(self) -> None:
         try:
+            # Skip session loading on cloud for faster startup
+            if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true':
+                print("Skipping session pre-load for faster startup")
+                logger.info("Session loading skipped - accounts will load on demand")
+                return
+            
             print("Loading user accounts...")
             logger.info("Loading existing user sessions...")
             
             # Auto-cleanup orphaned accounts first with timeout
             try:
-                await asyncio.wait_for(self._auto_cleanup_accounts(), timeout=3.0)
+                await asyncio.wait_for(self._auto_cleanup_accounts(), timeout=2.0)
             except asyncio.TimeoutError:
                 logger.warning("Auto-cleanup timed out, continuing...")
             except Exception as e:
@@ -204,7 +210,7 @@ class BotManager:
             try:
                 accounts = await asyncio.wait_for(
                     mongodb.db.accounts.find({"is_active": True}).to_list(length=None),
-                    timeout=3.0
+                    timeout=2.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("Database query timed out, starting without accounts")
@@ -445,10 +451,10 @@ class BotManager:
         try:
             print("Initializing features...")
             logger.info("Initializing components...")
-            await asyncio.wait_for(self._initialize_core_components(), timeout=20.0)
-            await asyncio.wait_for(self._initialize_handlers(), timeout=20.0)
-            await asyncio.wait_for(self._initialize_services(), timeout=10.0)
-            await asyncio.wait_for(self._initialize_workers(), timeout=5.0)
+            await asyncio.wait_for(self._initialize_core_components(), timeout=15.0)
+            await asyncio.wait_for(self._initialize_handlers(), timeout=15.0)
+            await asyncio.wait_for(self._initialize_services(), timeout=8.0)
+            await asyncio.wait_for(self._initialize_workers(), timeout=3.0)
             
             # Initialize auto backup system
             try:

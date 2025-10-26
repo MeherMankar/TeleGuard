@@ -389,7 +389,7 @@ async def main() -> None:
         logger.info("🤖 Initializing TeleGuard bot...")
 
         try:
-            async with asyncio.timeout(60.0):
+            async with asyncio.timeout(120.0):
                 async with AccountManager() as bot:
                     startup_elapsed = time.time() - startup_time
                     koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
@@ -406,7 +406,7 @@ async def main() -> None:
                         while True:
                             await asyncio.sleep(60)
         except asyncio.TimeoutError:
-            logger.error("🚨 Bot startup timed out after 60 seconds")
+            logger.error("🚨 Bot startup timed out after 120 seconds")
             print("\nBot startup timed out - keeping health server running")
             print("The bot may still be initializing in the background")
             print("Health checks will continue to work")
