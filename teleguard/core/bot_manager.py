@@ -192,15 +192,32 @@ class BotManager:
             print("Loading user accounts...")
             logger.info("Loading existing user sessions...")
             
-            # Auto-cleanup orphaned accounts first
-            await self._auto_cleanup_accounts()
+            # Auto-cleanup orphaned accounts first with timeout
+            try:
+                await asyncio.wait_for(self._auto_cleanup_accounts(), timeout=3.0)
+            except asyncio.TimeoutError:
+                logger.warning("Auto-cleanup timed out, continuing...")
+            except Exception as e:
+                logger.warning(f"Auto-cleanup failed: {e}")
             
-            accounts = await asyncio.wait_for(
-                mongodb.db.accounts.find({"is_active": True}).to_list(length=None),
-                timeout=5.0
-            )
+            # Get accounts with shorter timeout
+            try:
+                accounts = await asyncio.wait_for(
+                    mongodb.db.accounts.find({"is_active": True}).to_list(length=None),
+                    timeout=3.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Database query timed out, starting without accounts")
+                print("No user accounts found (database timeout)")
+                return
+            except Exception as e:
+                logger.error(f"Database error: {e}")
+                print("No user accounts found (database error)")
+                return
+            
             loaded_count = 0
-            for account in accounts[:5]:  # Limit to 5 accounts for faster startup
+            # Limit to 3 accounts and shorter timeout for faster startup
+            for account in accounts[:3]:
                 if account.get("session_string"):
                     try:
                         await asyncio.wait_for(
@@ -209,7 +226,7 @@ class BotManager:
                                 account.get('name', 'Unknown'),
                                 account["session_string"]
                             ),
-                            timeout=3.0
+                            timeout=2.0  # Reduced timeout
                         )
                         loaded_count += 1
                     except asyncio.TimeoutError:
@@ -251,6 +268,7 @@ class BotManager:
             print("Session loading timed out - bot will start without pre-loaded accounts")
         except Exception as e:
             logger.error(f"Failed to load existing sessions: {e}")
+            print("Failed to load accounts - bot will start without pre-loaded accounts")
         
 
     async def _start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:
@@ -336,9 +354,9 @@ class BotManager:
                 **device_params
             )
             
-            # Connect with timeout and comprehensive error handling
+            # Connect with shorter timeout and comprehensive error handling
             try:
-                await asyncio.wait_for(client.connect(), timeout=8.0)
+                await asyncio.wait_for(client.connect(), timeout=5.0)
                 
                 # Test authorization before proceeding
                 if not await client.is_user_authorized():
@@ -427,10 +445,10 @@ class BotManager:
         try:
             print("Initializing features...")
             logger.info("Initializing components...")
-            await asyncio.wait_for(self._initialize_core_components(), timeout=30.0)
-            await asyncio.wait_for(self._initialize_handlers(), timeout=30.0)
-            await asyncio.wait_for(self._initialize_services(), timeout=15.0)
-            await asyncio.wait_for(self._initialize_workers(), timeout=10.0)
+            await asyncio.wait_for(self._initialize_core_components(), timeout=20.0)
+            await asyncio.wait_for(self._initialize_handlers(), timeout=20.0)
+            await asyncio.wait_for(self._initialize_services(), timeout=10.0)
+            await asyncio.wait_for(self._initialize_workers(), timeout=5.0)
             
             # Initialize auto backup system
             try:
@@ -1097,25 +1115,39 @@ class BotManager:
     async def _auto_cleanup_accounts(self):
         """Automatically cleanup orphaned accounts during startup"""
         try:
-            # Count accounts to cleanup
-            inactive = await mongodb.db.accounts.count_documents({"is_active": False})
-            reauth = await mongodb.db.accounts.count_documents({"needs_reauth": True})
-            no_session = await mongodb.db.accounts.count_documents({"session_string": {"$exists": False}})
+            # Count accounts to cleanup with timeout
+            inactive = await asyncio.wait_for(
+                mongodb.db.accounts.count_documents({"is_active": False}), timeout=1.0
+            )
+            reauth = await asyncio.wait_for(
+                mongodb.db.accounts.count_documents({"needs_reauth": True}), timeout=1.0
+            )
+            no_session = await asyncio.wait_for(
+                mongodb.db.accounts.count_documents({"session_string": {"$exists": False}}), timeout=1.0
+            )
             
             total_cleanup = inactive + reauth + no_session
             
             if total_cleanup > 0:
                 print(f"Cleaning up {total_cleanup} orphaned accounts...")
                 
-                # Delete orphaned accounts
-                result1 = await mongodb.db.accounts.delete_many({"is_active": False})
-                result2 = await mongodb.db.accounts.delete_many({"needs_reauth": True})
-                result3 = await mongodb.db.accounts.delete_many({"session_string": {"$exists": False}})
+                # Delete orphaned accounts with timeout
+                result1 = await asyncio.wait_for(
+                    mongodb.db.accounts.delete_many({"is_active": False}), timeout=1.0
+                )
+                result2 = await asyncio.wait_for(
+                    mongodb.db.accounts.delete_many({"needs_reauth": True}), timeout=1.0
+                )
+                result3 = await asyncio.wait_for(
+                    mongodb.db.accounts.delete_many({"session_string": {"$exists": False}}), timeout=1.0
+                )
                 
                 total_deleted = result1.deleted_count + result2.deleted_count + result3.deleted_count
                 print(f"Removed {total_deleted} orphaned accounts")
                 logger.info(f"Auto-cleanup removed {total_deleted} orphaned accounts")
             
+        except asyncio.TimeoutError:
+            logger.warning("Auto-cleanup timed out")
         except Exception as e:
             logger.warning(f"Auto-cleanup failed: {e}")
     
