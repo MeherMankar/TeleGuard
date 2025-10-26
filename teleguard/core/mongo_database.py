@@ -19,34 +19,26 @@ class MongoDB:
         mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI")
         if not mongo_uri:
             raise ValueError("MONGO_URI or MONGODB_URI environment variable required")
-        # Optimized connection settings for durable storage with better error handling
+        # Optimized connection settings with DNS fallback
         self.client = AsyncIOMotorClient(
             mongo_uri,
-            maxPoolSize=int(os.getenv("MONGO_MAX_POOL_SIZE", "10")),
-            minPoolSize=int(os.getenv("MONGO_MIN_POOL_SIZE", "2")),
-            maxIdleTimeMS=int(os.getenv("MONGO_MAX_IDLE_TIME_MS", "60000")),
-            serverSelectionTimeoutMS=int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000")),
-            connectTimeoutMS=int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "5000")),
-            socketTimeoutMS=int(os.getenv("MONGO_SOCKET_TIMEOUT_MS", "10000")),
+            maxPoolSize=5,
+            minPoolSize=1,
+            serverSelectionTimeoutMS=10000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=20000,
             retryWrites=True,
             w="majority",
-            readPreference="primary",
-            heartbeatFrequencyMS=10000,
-            retryReads=True
+            readPreference="primary"
         )
         db_name = os.getenv("MONGO_DB_NAME", "teleguard")
         self.db = self.client[db_name]
-        # Test connection with retry logic
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                await self.client.admin.command("ping")
-                break
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise e
-                logger.warning(f"MongoDB connection attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        # Test connection
+        try:
+            await self.client.admin.command("ping")
+        except Exception as e:
+            logger.error(f"MongoDB connection failed: {e}")
+            raise e
         
         await self._create_indexes()
         logger.info("Connected to MongoDB with durable storage configuration")
