@@ -1243,6 +1243,10 @@ class MenuSystem:
                     "• 📋 **Management Tools** - List, organize, moderate\n"
                     "• 🗑️ **Cleanup Tools** - Mass leave/delete operations\n"
                     "• 📊 **Analytics** - Channel performance metrics\n\n"
+                    "Add accounts to unlock channel management:"hannel Creation** - Create channels & groups\n"
+                    "• 📋 **Management Tools** - List, organize, moderate\n"
+                    "• 🗑️ **Cleanup Tools** - Mass leave/delete operations\n"
+                    "• 📊 **Analytics** - Channel performance metrics\n\n"
                     "Add accounts to unlock channel management:"
                 )
                 buttons = [

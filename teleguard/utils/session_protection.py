@@ -49,6 +49,10 @@ class SessionProtection:
     
     async def check_message_safety(self, session_id: str, message_content: str = "", target: str = "") -> bool:
         """Check if sending a message is safe"""
+        # Check if protection is bypassed for appeals
+        if await self._is_protection_bypassed(session_id):
+            return True
+            
         if session_id not in self.activity_tracker:
             return False
             
@@ -105,6 +109,10 @@ class SessionProtection:
     
     async def check_join_safety(self, session_id: str, chat_info: str = "") -> bool:
         """Check if joining a chat/channel is safe"""
+        # Check if protection is bypassed for appeals
+        if await self._is_protection_bypassed(session_id):
+            return True
+            
         if session_id not in self.activity_tracker:
             return False
             
@@ -248,6 +256,29 @@ class SessionProtection:
         
         # If more than 2 suspicious patterns, consider it risky
         return suspicious_count > 2
+    
+    async def _is_protection_bypassed(self, session_id: str) -> bool:
+        """Check if session protection is bypassed (e.g., for appeals)"""
+        try:
+            # Extract user_id from session_id (format: user_id_account_name)
+            parts = session_id.split('_')
+            if len(parts) < 2:
+                return False
+            
+            user_id = int(parts[0])
+            
+            # Check database for bypass flag
+            from ..core.mongo_database import mongodb
+            account = await mongodb.db.accounts.find_one({
+                "user_id": user_id,
+                "session_protection_disabled": True,
+                "protection_bypass_until": {"$gt": time.time()}
+            })
+            
+            return account is not None
+        except Exception as e:
+            logger.error(f"Error checking protection bypass: {e}")
+            return False
 
 # Global session protection instance
 session_protection = SessionProtection()

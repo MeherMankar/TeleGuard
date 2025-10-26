@@ -112,8 +112,24 @@ class SpamAppealHandler:
         async def appeal_command(event):
             user_id = event.sender_id
             try:
-                # Get accounts from database to show proper names
+                # Automatically disable session protection for appeal process
                 from ..core.mongo_database import mongodb
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {
+                        '$set': {
+                            'session_protection_disabled': True,
+                            'protection_bypass_until': int(asyncio.get_event_loop().time()) + 1800  # 30 minutes
+                        },
+                        '$unset': {
+                            'session_protection_active': '',
+                            'protection_cooldown': '',
+                            'last_protection_trigger': ''
+                        }
+                    }
+                )
+                
+                # Get accounts from database to show proper names
                 accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
                 
                 if not accounts:
@@ -213,128 +229,93 @@ class SpamAppealHandler:
                 await event.respond("❌ Error processing captcha verification.")
 
     async def _start_appeal_process(self, user_id: int):
-        """Start the automated appeal process with session protection"""
-        try:
-            # Get account name for better tracking
-            account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
+        """Start the automated appeal process"""
+        # Prevent duplicate appeals
+        if user_id in self.active_appeals and self.active_appeals[user_id].get('state') != 'new':
+            return
             
-            # Get the specific client for this account
+        try:
+            account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
             client = self._get_user_client(user_id, account_name)
+            
             if not client:
-                await self._notify_user(user_id, f"❌ Account '{account_name}' client not found or not connected.")
+                await self._notify_user(user_id, f"❌ Account '{account_name}' not connected.")
                 self.active_appeals.pop(user_id, None)
                 return
             
-            # Verify we have the right client
-            try:
-                me = await client.get_me()
-                actual_name = me.first_name or 'Unknown'
-                logger.info(f"Using client for account: {actual_name} (requested: {account_name})")
-            except Exception as e:
-                logger.error(f"Failed to verify client: {e}")
+            await self._notify_user(user_id, f"🛡️ **Starting Appeal for {account_name}**\n\n⏳ This may take 30 seconds to 1 minute...")
             
-            # SESSION PROTECTION: Add significant delays to appear more human
-            await self._notify_user(
-                user_id, 
-                f"🛡️ **Starting Appeal for {account_name}**\n\n"
-                f"⚠️ **Session Protection Active**\n"
-                f"Using slow, human-like behavior to prevent session issues.\n\n"
-                f"⏳ This may take 2-3 minutes..."
-            )
-            
-            # Much longer initial delay (like a human thinking)
-            initial_hesitation = random.uniform(15.0, 30.0)
-            await asyncio.sleep(initial_hesitation)
-            
-            # Setup spambot message handler for this client
+            # Setup handler first
             await self.setup_client_handler(user_id, client)
             
-            # SESSION PROTECTION: Check if sending message is safe
-            session_id = f"{user_id}_{account_name}"
-            if not await session_protection.check_message_safety(session_id, "/start", "spambot"):
-                await self._notify_user(user_id, f"⚠️ Session protection prevented message to avoid account restrictions")
-                return
-            
-            # Send /start with human-like typing simulation
-            await self._simulate_human_message_composition(client, "spambot", "/start")
+            # Short delay then send /start
+            await asyncio.sleep(random.uniform(2.0, 5.0))
             await client.send_message("spambot", "/start")
             
-            # Record message for protection tracking
-            await session_protection.record_message_sent(session_id)
-            
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
-            await self._notify_user(
-                user_id, 
-                f"✅ **Contacted @spambot**\n\n"
-                f"📱 Account: {account_name}\n"
-                f"⏳ Waiting for response..."
-            )
-            
-            # Longer timeout for safer process
-            asyncio.create_task(self._appeal_timeout(user_id, 600))  # 10 minutes
             
         except Exception as e:
-            logger.error(f"Failed to start appeal process: {e}")
-            await self._notify_user(user_id, f"❌ Failed to contact @spambot: {str(e)}")
+            logger.error(f"Appeal process error: {e}")
             self.active_appeals.pop(user_id, None)
 
     async def _process_spambot_response(self, user_id: int, event):
-        """Process response from spambot with intelligent analysis"""
+        """Process response from spambot"""
         if user_id not in self.active_appeals:
             return
             
         state = self.active_appeals[user_id]
         message_text = event.message.text.lower()
-        
-        # Analyze the spambot response using AI-enhanced spam detector
-        try:
-            if hasattr(self.bot_manager, 'spam_detector'):
-                analysis = self.bot_manager.spam_detector.analyze_spambot_response(event.message.text)
-                
-                # Try AI button strategy analysis
-                ai_strategy = None
-                if hasattr(self.bot_manager.spam_detector, 'ai_analyze_button_strategy'):
-                    try:
-                        ai_strategy = await self.bot_manager.spam_detector.ai_analyze_button_strategy(event.message.text)
-                    except Exception as e:
-                        logger.warning(f"AI button strategy failed: {e}")
-                
-                # Store analysis in state for later use
-                state['spam_analysis'] = analysis
-                state['ai_strategy'] = ai_strategy
-                
-                # Skip analysis message for cleaner output
-                # Store analysis in state for later use only
-                pass
-            
-        except Exception as e:
-            logger.error(f"Error analyzing spambot response: {e}")
-        
-        # Get account name for status messages
         account_name = state.get('account_name', 'Unknown Account')
         
-        # Check if account has no restrictions (cancel appeal)
-        if "good news, no limits are currently applied" in message_text or "you're free as a bird" in message_text:
-            await self._notify_user(
-                user_id,
-                f"🎉 **{account_name}: No Restrictions!**\n\n"
-                f"✅ Your account is unrestricted. No appeal needed."
-            )
-            self.active_appeals.pop(user_id, None)
+        # Prevent processing same message multiple times
+        if state.get('last_processed_msg') == event.message.id:
+            return
+        state['last_processed_msg'] = event.message.id
+        
+        # No restrictions - complete
+        if "good news, no limits are currently applied" in message_text:
+            await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found!")
+            await self._complete_appeal(user_id, True)
             return
         
-        # Step 1: Initial response - click "This is a mistake"
-        if (("hello" in message_text or "very sorry" in message_text or "anti-spam systems" in message_text) 
-            and event.message.buttons):
+        # Step 1: Click "This is a mistake"
+        if ("hello" in message_text or "anti-spam" in message_text) and event.message.buttons:
             await self._click_button(event, "this is a mistake")
-            state['state'] = 'clicked_mistake'
-            await self._notify_user(user_id, f"✅ **{account_name}:** Clicked 'This is a mistake'")
+            return
         
-        # Step 2: Complaint confirmation - click "Yes"
+        # Step 2: Click "Yes" to submit complaint
         elif "submit a complaint" in message_text and event.message.buttons:
             await self._click_button(event, "yes")
-            state['state'] = 'clicked_yes'
-            await self._notify_user(user_id, f"✅ **{account_name}:** Clicked 'Yes' to submit complaint")
+            return
+        
+        # Step 3: Click "No! Never did that!"
+        elif "never sent this to strangers" in message_text and event.message.buttons:
+            await self._click_button(event, "no! never did that!")
+            return
+        
+        # Step 4: Handle captcha
+        elif "verify you are a human" in message_text or "telegram.org/captcha" in event.message.text:
+            urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', event.message.text)
+            if urls:
+                await self._handle_manual_captcha(user_id, urls[0])
+            return
+        
+        # Step 5: Click "Done"
+        elif "done" in message_text and event.message.buttons:
+            await self._click_button(event, "done")
+            await self._complete_appeal(user_id, True)
+            return
+        
+        # Appeal message request
+        elif "write me some details" in message_text:
+            await self._submit_appeal_message(user_id)
+            return
+        
+        # Already submitted
+        elif "already submitted" in message_text:
+            await self._notify_user(user_id, f"ℹ️ **{account_name}**: Appeal already exists.")
+            await self._complete_appeal(user_id, True)
+            returncount_name}:** Clicked 'Yes' to submit complaint")
         
         # Step 3: Never did spam - click "No! Never did that!"
         elif "never sent this to strangers" in message_text and event.message.buttons:
@@ -437,34 +418,15 @@ class SpamAppealHandler:
             return fallback_message
 
     async def _click_button(self, event, button_text: str):
-        """Click specific button with extremely human-like behavior and session protection"""
+        """Click specific button with minimal delay"""
         try:
-            # ENHANCED SESSION PROTECTION: Much longer delays
-            message_length = len(event.message.text or "")
-            reading_time = max(8.0, message_length * 0.15)  # Slower reading
-            reading_time += random.uniform(5.0, 12.0)  # More thinking time
-            await asyncio.sleep(reading_time)
-            
-            # Always hesitate before clicking (session protection)
-            hesitation_time = random.uniform(3.0, 8.0)
-            await asyncio.sleep(hesitation_time)
-            
-            # Look for the button (longer scanning behavior)
-            scan_delay = random.uniform(2.0, 5.0)
-            await asyncio.sleep(scan_delay)
+            await asyncio.sleep(random.uniform(1.0, 3.0))
             
             for row in event.message.buttons:
                 for button in row:
                     if button_text.lower() in button.text.lower():
-                        # Longer delay before clicking (session protection)
-                        pre_click_delay = random.uniform(1.0, 3.0)
-                        await asyncio.sleep(pre_click_delay)
-                        
                         await button.click()
-                        
-                        # Much longer post-click delay (session protection)
-                        post_click_delay = random.uniform(8.0, 15.0)
-                        await asyncio.sleep(post_click_delay)
+                        await asyncio.sleep(random.uniform(2.0, 4.0))
                         return True
             return False
         except Exception as e:
@@ -577,11 +539,9 @@ class SpamAppealHandler:
             logger.info(f"Selected appeal message for {account_name}: {len(appeal_message)} chars")
             logger.debug(f"Appeal message preview: {appeal_message[:100]}...")
             
-            # SESSION PROTECTION: Check if sending appeal message is safe
+            # Check if sending appeal message is safe
             session_id = f"{user_id}_{account_name}"
-            if not await session_protection.check_message_safety(session_id, appeal_message, "spambot"):
-                await self._notify_user(user_id, f"⚠️ Session protection prevented appeal submission to avoid account restrictions")
-                return
+            await session_protection.check_message_safety(session_id, appeal_message, "spambot")
             
             # Notify user that message is being sent
             await self._notify_user(
@@ -631,6 +591,21 @@ class SpamAppealHandler:
         """Complete the appeal process"""
         state = self.active_appeals.get(user_id, {})
         mode = state.get('mode', 'auto')
+        
+        # Re-enable session protection after appeal completion
+        try:
+            from ..core.mongo_database import mongodb
+            await mongodb.db.accounts.update_many(
+                {"user_id": user_id},
+                {
+                    '$unset': {
+                        'session_protection_disabled': '',
+                        'protection_bypass_until': ''
+                    }
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error re-enabling session protection: {e}")
         
         if success:
             mode_text = "🤖 Automatic" if mode == "auto" else "👤 Manual"
@@ -803,6 +778,9 @@ class SpamAppealHandler:
 
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""
+        # Remove existing handlers to prevent duplicates
+        client.remove_event_handler(lambda e: True, events.NewMessage)
+        
         @client.on(events.NewMessage(from_users='spambot'))
         async def handle_spambot_message(event):
             if user_id in self.active_appeals:
