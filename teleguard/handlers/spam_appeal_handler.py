@@ -315,7 +315,7 @@ class SpamAppealHandler:
         elif "already submitted" in message_text:
             await self._notify_user(user_id, f"ℹ️ **{account_name}**: Appeal already exists.")
             await self._complete_appeal(user_id, True)
-            returncount_name}:** Clicked 'Yes' to submit complaint")
+            return
         
         # Step 3: Never did spam - click "No! Never did that!"
         elif "never sent this to strangers" in message_text and event.message.buttons:
