@@ -230,11 +230,18 @@ class SpamAppealHandler:
 
     async def _start_appeal_process(self, user_id: int):
         """Start the automated appeal process"""
-        # Prevent duplicate appeals
-        if user_id in self.active_appeals and self.active_appeals[user_id].get('state') != 'new':
-            return
-            
         try:
+            # Check if appeal exists
+            if user_id not in self.active_appeals:
+                logger.error(f"No active appeal found for user {user_id}")
+                return
+            
+            # Prevent duplicate appeals (but allow 'new' state to proceed)
+            current_state = self.active_appeals[user_id].get('state')
+            if current_state and current_state not in ['new', 'starting']:
+                logger.info(f"Appeal already in progress for user {user_id}, state: {current_state}")
+                return
+            
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
             client = self._get_user_client(user_id, account_name)
             
@@ -243,19 +250,29 @@ class SpamAppealHandler:
                 self.active_appeals.pop(user_id, None)
                 return
             
+            if not client.is_connected():
+                await self._notify_user(user_id, f"❌ Account '{account_name}' not connected.")
+                self.active_appeals.pop(user_id, None)
+                return
+            
+            self.active_appeals[user_id]['state'] = 'starting'
             await self._notify_user(user_id, f"🛡️ **Starting Appeal for {account_name}**\n\n⏳ This may take 30 seconds to 1 minute...")
             
             # Setup handler first
             await self.setup_client_handler(user_id, client)
+            logger.info(f"Handler setup complete for {account_name}")
             
             # Short delay then send /start
             await asyncio.sleep(random.uniform(2.0, 5.0))
+            logger.info(f"Sending /start to spambot for {account_name}")
             await client.send_message("spambot", "/start")
+            logger.info(f"Sent /start to spambot for {account_name}")
             
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
             
         except Exception as e:
             logger.error(f"Appeal process error: {e}")
+            await self._notify_user(user_id, f"❌ Appeal process failed: {str(e)}")
             self.active_appeals.pop(user_id, None)
 
     async def _process_spambot_response(self, user_id: int, event):
@@ -704,6 +721,7 @@ class SpamAppealHandler:
                 self.active_appeals[user_id] = {}
             self.active_appeals[user_id]['account_name'] = account_name
             self.active_appeals[user_id]['context'] = context
+            self.active_appeals[user_id]['state'] = 'new'
             
             # Load account client if not already loaded
             client = self._get_user_client(user_id, account_name)
@@ -720,6 +738,11 @@ class SpamAppealHandler:
                 try:
                     await self.bot_manager.start_user_client(user_id, account_name, account['session_string'])
                     await event.respond("✅ Account loaded successfully!")
+                    # Get the newly loaded client
+                    client = self._get_user_client(user_id, account_name)
+                    if not client:
+                        await event.respond("❌ Failed to get loaded client.")
+                        return
                 except Exception as e:
                     logger.error(f"Failed to load account {account_name}: {e}")
                     await event.respond(f"❌ Failed to load account: {str(e)}")
