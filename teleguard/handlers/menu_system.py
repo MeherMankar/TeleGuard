@@ -2039,24 +2039,38 @@ class MenuSystem:
         ]
         await self.bot.send_message(event.sender_id, text, buttons=buttons)
     async def _get_account_age_info(self, user_id: int, account_name: str, account_data: dict = None) -> str:
-        """Get account age information using ID-based estimation"""
+        """Get account age information"""
         try:
             from ..utils.account_age_estimator import AccountAgeEstimator
+            from datetime import timezone, datetime
             
-            # Get user ID from account data or try to fetch it
-            telegram_user_id = None
-            if account_data:
-                telegram_user_id = account_data.get('user_id')
+            # Check if we have cached age data
+            if account_data and account_data.get('age_days') is not None:
+                age_days = account_data.get('age_days')
+                return f"Age: {AccountAgeEstimator.format_age(age_days)}"
             
-            # If no user ID in cache, try to get it from client
+            # Get Telegram user ID (ensure it's unique per account)
+            telegram_user_id = account_data.get('telegram_user_id') if account_data else None
+            
+            # If no cached ID, fetch from client
             if not telegram_user_id:
                 telegram_user_id = await self._get_telegram_user_id(user_id, account_name)
             
             if telegram_user_id:
-                # Estimate creation date from user ID
-                creation_date, method = AccountAgeEstimator.estimate_creation_date(telegram_user_id)
+                # Ensure int for proper comparison
+                telegram_user_id = int(telegram_user_id)
+                
+                # ID-based estimation (per-account, never reused)
+                creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
+                
                 if creation_date:
-                    age_days = AccountAgeEstimator.calculate_age_days(creation_date)
+                    now = datetime.now(timezone.utc)
+                    if creation_date.tzinfo is None:
+                        creation_date = creation_date.replace(tzinfo=timezone.utc)
+                    age_days = max(0, (now - creation_date).days)
+                    
+                    # Debug log
+                    logger.debug(f"Age for {account_name} (ID={telegram_user_id}): {age_days} days via {method}")
                     
                     # Update cache
                     await self._update_account_age_cache(user_id, account_name, creation_date, age_days, telegram_user_id)
@@ -2096,7 +2110,7 @@ class MenuSystem:
             update_data = {
                 'creation_date': creation_date,
                 'age_days': age_days,
-                'user_id': telegram_user_id,
+                'telegram_user_id': telegram_user_id,
                 'last_age_update': datetime.now(timezone.utc)
             }
             
@@ -2106,6 +2120,48 @@ class MenuSystem:
             )
         except Exception as e:
             logger.debug(f"Error updating age cache for {account_name}: {e}")
+    
+    async def _update_single_account_age(self, user_id: int, account: dict):
+        """Update age for a single account"""
+        try:
+            from ..utils.account_age_estimator import AccountAgeEstimator
+            from datetime import datetime, timezone
+            
+            account_name = account.get('name')
+            phone = account.get('phone')
+            
+            if not account_name:
+                return
+            
+            # Try to get client
+            client = None
+            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
+                user_clients = self.account_manager.user_clients[user_id]
+                client = user_clients.get(account_name) or user_clients.get(phone)
+            
+            if client and hasattr(client, 'is_connected') and client.is_connected():
+                me = await client.get_me()
+                telegram_user_id = int(me.id)
+                
+                creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
+                
+                if creation_date:
+                    now = datetime.now(timezone.utc)
+                    if creation_date.tzinfo is None:
+                        creation_date = creation_date.replace(tzinfo=timezone.utc)
+                    age_days = max(0, (now - creation_date).days)
+                    
+                    await mongodb.db.accounts.update_one(
+                        {'_id': account['_id']},
+                        {'$set': {
+                            'creation_date': creation_date,
+                            'age_days': age_days,
+                            'telegram_user_id': telegram_user_id,
+                            'last_age_update': datetime.now(timezone.utc)
+                        }}
+                    )
+        except Exception as e:
+            logger.debug(f"Error updating age for {account.get('name')}: {e}")
     
 
 

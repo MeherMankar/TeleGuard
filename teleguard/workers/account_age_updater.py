@@ -66,6 +66,8 @@ class AccountAgeUpdater:
             accounts = await mongodb.db.accounts.find({}).to_list(length=None)
             updated_count = 0
             
+            logger.info(f"Starting age update for {len(accounts)} accounts")
+            
             for account in accounts:
                 try:
                     user_id = account.get('user_id')
@@ -74,13 +76,13 @@ class AccountAgeUpdater:
                     if not user_id or not account_name:
                         continue
                     
-                    # Get client for this account - try multiple identifiers
+                    # Get client for THIS SPECIFIC account
                     client = None
                     if (hasattr(self.account_manager, 'user_clients') and 
                         user_id in self.account_manager.user_clients):
                         user_clients = self.account_manager.user_clients[user_id]
                         
-                        # Try account name
+                        # Try account name (most reliable)
                         client = user_clients.get(account_name)
                         
                         # Try phone number
@@ -91,34 +93,45 @@ class AccountAgeUpdater:
                         if not client and account.get('display_name'):
                             client = user_clients.get(account['display_name'])
                         
-                        # Try any connected client as fallback
+                        # DO NOT use fallback - skip if client not found for THIS account
                         if not client:
-                            for c in user_clients.values():
-                                if c and hasattr(c, 'is_connected') and c.is_connected():
-                                    client = c
-                                    break
+                            logger.warning(f"No client found for account {account_name}, skipping")
+                            continue
                         
                         if client and hasattr(client, 'is_connected') and client.is_connected():
                             try:
+                                from datetime import timezone
+                                from ..utils.account_age_estimator import AccountAgeEstimator
+                                
                                 me = await client.get_me()
-                                if hasattr(me, 'date') and me.date:
-                                    creation_date = me.date
-                                    age_days = (datetime.now() - creation_date).days
+                                telegram_user_id = int(me.id)  # Ensure int for precision
+                                
+                                # Use ID-based estimation (per-account, never cached globally)
+                                creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
+                                
+                                if creation_date:
+                                    now = datetime.now(timezone.utc)
+                                    if creation_date.tzinfo is None:
+                                        creation_date = creation_date.replace(tzinfo=timezone.utc)
+                                    age_days = max(0, (now - creation_date).days)
                                     
-                                    # Update account with age info
+                                    # Debug log per account
+                                    logger.info(f"Account {account_name} (ID={telegram_user_id}): {creation_date.isoformat()} via {method} -> {age_days} days")
+                                    
                                     await mongodb.db.accounts.update_one(
                                         {"_id": account["_id"]},
                                         {
                                             "$set": {
                                                 "creation_date": creation_date,
                                                 "age_days": age_days,
-                                                "last_age_update": datetime.now()
+                                                "telegram_user_id": telegram_user_id,
+                                                "last_age_update": datetime.now(timezone.utc)
                                             }
                                         }
                                     )
                                     updated_count += 1
                             except Exception as e:
-                                logger.debug(f"Failed to get user info for {account_name}: {e}")
+                                logger.error(f"Failed to get user info for {account_name}: {e}")
                                 continue
                                 
                 except Exception as e:

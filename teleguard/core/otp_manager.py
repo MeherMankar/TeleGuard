@@ -377,28 +377,17 @@ class OTPManager:
             for user_id, clients in self.user_clients.items():
                 for account_name, user_client in clients.items():
                     if user_client == client:
-                        account = None
+                        # Single optimized query with $or operator
                         account = await mongodb.db.accounts.find_one({
                             "user_id": int(user_id),
-                            "name": str(account_name)
+                            "$or": [{"name": str(account_name)}, {"phone": str(account_name)}]
                         })
-                        if not account:
-                            account = await mongodb.db.accounts.find_one({
-                                "user_id": int(user_id),
-                                "phone": str(account_name)
-                            })
-                        if not account:
-                            accounts = await mongodb.db.accounts.find({"user_id": int(user_id)}).to_list(None)
-                            if accounts:
-                                account = accounts[0]
                         if account:
                             return user_id, account_name, account
-            destroyer_accounts = await mongodb.db.accounts.find({"otp_destroyer_enabled": True}).to_list(None)
-            if destroyer_accounts:
-                account = destroyer_accounts[0]
-                user_id = account.get('user_id')
-                account_name = account.get('name')
-                return user_id, account_name, account
+            # Fallback: find any account with destroyer enabled
+            account = await mongodb.db.accounts.find_one({"otp_destroyer_enabled": True})
+            if account:
+                return account.get('user_id'), account.get('name'), account
             return None
         except Exception as e:
             logger.error(f"Error finding account for message: {e}")
@@ -430,19 +419,15 @@ class OTPManager:
             logger.error(f"Error forwarding OTP: {e}")
     def _is_temp_passthrough_active(self, user_id: int, account_name: str) -> bool:
         """Check if temporary OTP is active for account"""
-        if user_id not in self.temp_passthrough:
-            return False
         temp_key = f"{account_name}_temp_otp"
-        if temp_key not in self.temp_passthrough[user_id]:
+        temp_data = self.temp_passthrough.get(user_id, {}).get(temp_key)
+        if not temp_data:
             return False
-        temp_data = self.temp_passthrough[user_id][temp_key]
-        if isinstance(temp_data, dict):
-            expiry = temp_data.get("expiry", 0)
-        else:
-            expiry = temp_data
+        
+        expiry = temp_data.get("expiry", temp_data) if isinstance(temp_data, dict) else temp_data
         if time.time() > expiry:
-            del self.temp_passthrough[user_id][temp_key]
-            if not self.temp_passthrough[user_id]:
+            self.temp_passthrough.get(user_id, {}).pop(temp_key, None)
+            if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
                 del self.temp_passthrough[user_id]
             return False
         return True
@@ -452,97 +437,17 @@ class OTPManager:
         """Clean up expired temporary passthrough"""
         try:
             await asyncio.sleep(300)
-            if (
-                user_id in self.temp_passthrough
-                and account_name in self.temp_passthrough[user_id]
-                and self.temp_passthrough[user_id][account_name] == expiry_time
-            ):
-                del self.temp_passthrough[user_id][account_name]
-                if not self.temp_passthrough[user_id]:
-                    del self.temp_passthrough[user_id]
+            if self.temp_passthrough.get(user_id, {}).get(account_name) == expiry_time:
+                self.temp_passthrough[user_id].pop(account_name, None)
+                if not self.temp_passthrough.get(user_id):
+                    self.temp_passthrough.pop(user_id, None)
         except Exception as e:
             logger.error(f"Error cleaning up temp passthrough: {e}")
-    async def _update_account_audit(self, account):
-        """Update account audit log in database - deprecated, using direct MongoDB updates"""
-        pass
+
     async def setup_handler_for_new_client(self, user_id: int, account_name: str, client):
         """Setup OTP handler for newly added client"""
         logger.info(f"Setting up OTP handler for new client: {user_id}:{account_name}")
-        self.register_handler_for_client(user_id, account_name, client)
-        
-        # Re-register the main handler to ensure the new client is included
-        try:
-            handler_key = f"{user_id}:{account_name}"
-            if handler_key not in self.registered_handlers and client and client.is_connected():
-                # Use the main otp_handler from register_handlers method
-                async def otp_handler(event):
-                    """Handle OTP messages from Telegram official account"""
-                    try:
-                        message_text = event.message.message
-                        if not self._is_login_code(message_text):
-                            return
-                        # Find which account received this OTP
-                        account_info = await self._find_account_for_message(event)
-                        if not account_info:
-                            return
-                        found_user_id, found_account_name, account = account_info
-                        
-                        # Only process if this is the correct client
-                        if found_user_id != user_id or found_account_name != account_name:
-                            return
-                            
-                        # Extract the OTP code first
-                        otp_code = self._extract_otp_code(message_text)
-                        
-                        # Enhanced OTP deduplication with timestamp window
-                        otp_key = f"{user_id}:{account_name}:{otp_code}:{int(time.time()//5)}"
-                        if otp_key in self.processed_otps:
-                            logger.debug(f"Duplicate OTP processing prevented for {otp_key}")
-                            await event.delete()
-                            return
-                        self.processed_otps.add(otp_key)
-                        
-                        if account.get("otp_destroyer_enabled", False):
-                            try:
-                                from telethon import functions
-                                result = await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
-                                await event.delete()
-                                
-                                await mongodb.db.accounts.update_one(
-                                    {"user_id": int(user_id), "name": str(account_name)},
-                                    {"$push": {"audit_log": {
-                                        "action": "otp_destroyed",
-                                        "code": otp_code,
-                                        "message": message_text[:50],
-                                        "timestamp": int(time.time())
-                                    }}}
-                                )
-                                
-                                # Enhanced notification deduplication
-                                notification_key = f"{user_id}:{account_name}:{otp_code}:{int(time.time()//10)}"
-                                if notification_key not in self.sent_notifications:
-                                    self.sent_notifications.add(notification_key)
-                                    await self.bot.send_message(
-                                        user_id,
-                                        f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-                                        f"🔒 **Account Protected:** {account_name}\n"
-                                        f"🚫 **Login Code Destroyed:** {otp_code}\n"
-                                        f"⚡ **Unauthorized Access Blocked**\n\n"
-                                        f"✅ **Security Status:** Login codes permanently invalidated\n"
-                                        f"❌ **Attacker Impact:** Will receive 'Invalid/Expired Code' error\n"
-                                        f"🛡️ **Your Account:** Remains fully secure",
-                                    )
-                            except Exception as destroy_error:
-                                logger.error(f"Failed to invalidate OTP: {destroy_error}")
-                                await event.delete()
-                    except Exception as e:
-                        logger.error(f"OTP handler error: {e}")
-                
-                client.add_event_handler(otp_handler, events.NewMessage(chats=[777000, 42777]))
-                self.registered_handlers.add(handler_key)
-                logger.info(f"Successfully registered OTP handler for new client: {handler_key}")
-        except Exception as e:
-            logger.error(f"Failed to setup OTP handler for new client: {e}")
+        self.register_handlers()
 
     async def toggle_destroyer(
         self, user_id: int, account_id: str, enabled: bool, disable_password: str = None
@@ -556,36 +461,29 @@ class OTPManager:
             if not account:
                 return False, "Account not found"
             
+            timestamp = int(time.time())
             if enabled:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
-                    {"$set": {
-                        "otp_destroyer_enabled": True,
-                        "otp_forward_enabled": False
-                    },
-                    "$push": {"audit_log": {
-                        "action": "destroyer_enabled",
-                        "forwarding_disabled": True,
-                        "timestamp": int(time.time())
-                    }}}
+                    {
+                        "$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False},
+                        "$push": {"audit_log": {
+                            "action": "destroyer_enabled",
+                            "forwarding_disabled": True,
+                            "timestamp": timestamp
+                        }}
+                    }
                 )
-                
-                # Re-register handlers to ensure OTP destroyer is active
-                try:
-                    self.register_handlers()
-                    logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
-                except Exception as handler_error:
-                    logger.warning(f"Failed to re-register handlers: {handler_error}")
-                
+                self.register_handlers()
+                logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
-                    {"$set": {"otp_destroyer_enabled": False},
-                    "$push": {"audit_log": {
-                        "action": "destroyer_disabled",
-                        "timestamp": int(time.time())
-                    }}}
+                    {
+                        "$set": {"otp_destroyer_enabled": False},
+                        "$push": {"audit_log": {"action": "destroyer_disabled", "timestamp": timestamp}}
+                    }
                 )
                 message = "❌ OTP Destroyer disabled"
             
@@ -605,6 +503,7 @@ class OTPManager:
             if not account:
                 return False, "Account not found"
             
+            timestamp = int(time.time())
             if enabled:
                 if account.get("otp_destroyer_enabled", False):
                     return (
@@ -614,29 +513,21 @@ class OTPManager:
                 
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
-                    {"$set": {"otp_forward_enabled": True},
-                    "$push": {"audit_log": {
-                        "action": "forwarding_enabled",
-                        "timestamp": int(time.time())
-                    }}}
+                    {
+                        "$set": {"otp_forward_enabled": True},
+                        "$push": {"audit_log": {"action": "forwarding_enabled", "timestamp": timestamp}}
+                    }
                 )
-                
-                # Re-register handlers to ensure OTP forwarding is active
-                try:
-                    self.register_handlers()
-                    logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
-                except Exception as handler_error:
-                    logger.warning(f"Failed to re-register handlers: {handler_error}")
-                
+                self.register_handlers()
+                logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
                 message = "✅ OTP Forwarding enabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
-                    {"$set": {"otp_forward_enabled": False},
-                    "$push": {"audit_log": {
-                        "action": "forwarding_disabled",
-                        "timestamp": int(time.time())
-                    }}}
+                    {
+                        "$set": {"otp_forward_enabled": False},
+                        "$push": {"audit_log": {"action": "forwarding_disabled", "timestamp": timestamp}}
+                    }
                 )
                 message = "❌ OTP Forwarding disabled"
             
@@ -657,12 +548,10 @@ class OTPManager:
                 return False, "Account not found"
             if not account.get("otp_destroyer_enabled", False):
                 return False, "⚠️ OTP Destroyer is not enabled"
+            
             expiry_time = time.time() + 300
-            if user_id not in self.temp_passthrough:
-                self.temp_passthrough[user_id] = {}
-            self.temp_passthrough[user_id][
-                f"{account['name']}_destroyer_disabled"
-            ] = expiry_time
+            self.temp_passthrough.setdefault(user_id, {})[f"{account['name']}_destroyer_disabled"] = expiry_time
+            
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},
                 {"$push": {"audit_log": {
@@ -671,24 +560,20 @@ class OTPManager:
                     "timestamp": int(time.time())
                 }}}
             )
-            return (
-                True,
-                "⏰ OTP Destroyer paused for 5 minutes\n🔓 You can now receive OTPs",
-            )
+            return True, "⏰ OTP Destroyer paused for 5 minutes\n🔓 You can now receive OTPs"
         except Exception as e:
             logger.error(f"Error disabling destroyer temp: {e}")
             return False, f"Error: {str(e)}"
     def _is_destroyer_temp_disabled(self, user_id: int, account_name: str) -> bool:
         """Check if destroyer is temporarily disabled"""
-        if user_id not in self.temp_passthrough:
-            return False
         key = f"{account_name}_destroyer_disabled"
-        if key not in self.temp_passthrough[user_id]:
+        expiry = self.temp_passthrough.get(user_id, {}).get(key)
+        if not expiry:
             return False
-        expiry = self.temp_passthrough[user_id][key]
+        
         if time.time() > expiry:
-            del self.temp_passthrough[user_id][key]
-            if not self.temp_passthrough[user_id]:
+            self.temp_passthrough.get(user_id, {}).pop(key, None)
+            if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
                 del self.temp_passthrough[user_id]
             return False
         return True

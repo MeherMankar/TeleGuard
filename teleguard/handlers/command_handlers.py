@@ -61,6 +61,65 @@ class CommandHandlers:
                     "ℹ️ No operation to cancel. Use the menu buttons below."
                 )
         
+        # Add account command
+        @self.bot.on(events.NewMessage(pattern=r"/add"))
+        async def add_handler(event):
+            user_id = event.sender_id
+            
+            try:
+                account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+                if account_count >= MAX_ACCOUNTS:
+                    await event.reply(f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached")
+                    return
+                
+                self.pending_actions[user_id] = {"action": "add_account"}
+                await event.reply(
+                    "➕ **Add New Account**\n\n"
+                    "Reply with phone number (include country code):\n\n"
+                    "📱 Example: +1234567890\n"
+                    "💡 Tip: Enter OTP as 1-2-3-4-5 (with hyphens)"
+                )
+            except Exception as e:
+                await event.reply(f"❌ Error: {str(e)}")
+        
+        # Reconnect handler for reconnecting all user accounts
+        @self.bot.on(events.NewMessage(pattern=r"/reconnect"))
+        async def reconnect_handler(event):
+            user_id = event.sender_id
+            await event.reply("🔄 Reconnecting all your accounts...")
+            
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                
+                if not accounts:
+                    await event.reply("❌ No active accounts found to reconnect.")
+                    return
+                
+                success = 0
+                failed = []
+                
+                for account in accounts:
+                    account_name = account.get('name')
+                    session_string = account.get('session_string')
+                    
+                    if not session_string:
+                        failed.append(f"{account_name}: No session")
+                        continue
+                    
+                    try:
+                        await self.bot_manager.start_user_client(user_id, account_name, session_string)
+                        success += 1
+                    except Exception as e:
+                        failed.append(f"{account_name}: {str(e)[:50]}")
+                        logger.error(f"Failed to reconnect {account_name}: {e}")
+                
+                msg = f"✅ Reconnected {success}/{len(accounts)} accounts."
+                if failed:
+                    msg += f"\n\n❌ Failed:\n" + "\n".join(f"• {f}" for f in failed[:5])
+                await event.reply(msg)
+            except Exception as e:
+                await event.reply(f"❌ Reconnection failed: {str(e)}")
+        
         # Toggle protection command
         @self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))
         async def toggle_protection_handler(event):
