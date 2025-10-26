@@ -388,31 +388,15 @@ async def main() -> None:
         print("\n" + "="*50)
         logger.info("🤖 Initializing TeleGuard bot...")
 
-        try:
-            async with asyncio.timeout(120.0):
-                async with AccountManager() as bot:
-                    startup_elapsed = time.time() - startup_time
-                    koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
-                    print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
-                    logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
-                    
-                    try:
-                        logger.info("🏃 Starting bot main loop...")
-                        await bot.run()
-                    except Exception as e:
-                        logger.error("💥 Bot runtime error: %s", str(e))
-                        logger.debug("Bot error details:", exc_info=True)
-                        logger.info("🔄 Keeping health server alive despite bot error...")
-                        while True:
-                            await asyncio.sleep(60)
-        except asyncio.TimeoutError:
-            logger.error("🚨 Bot startup timed out after 120 seconds")
-            print("\nBot startup timed out - keeping health server running")
-            print("The bot may still be initializing in the background")
-            print("Health checks will continue to work")
-            # Keep health server running
-            while True:
-                await asyncio.sleep(60)
+        # Start bot without timeout on cloud platforms
+        async with AccountManager() as bot:
+            startup_elapsed = time.time() - startup_time
+            koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
+            print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
+            logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
+            
+            logger.info("🏃 Starting bot main loop...")
+            await bot.run()
         except Exception as e:
             # Handle rate limits and other startup errors
             logger.error("🚨 Bot startup error: %s", str(e))
