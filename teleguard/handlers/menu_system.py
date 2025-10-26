@@ -1050,12 +1050,27 @@ class MenuSystem:
                     "📋 **Your Accounts:**\n"
                 )
                 buttons = []
+                # Update all account ages first
+                for account in accounts:
+                    try:
+                        await self._update_single_account_age(user_id, account)
+                    except Exception as e:
+                        logger.debug(f"Failed to update age for {account.get('name')}: {e}")
+                
+                # Refresh accounts data after age updates
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+                
                 for i, account in enumerate(accounts, 1):
                     status = "🟢" if account.get("is_active", False) else "🔴"
                     destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     account_phone = format_phone_number(account.get('phone', 'Unknown'))
+                    
+                    # Get account age info
+                    age_info = await self._get_account_age_info(user_id, account.get('name'), account)
+                    
                     text += f"{i}. {status}{destroyer_status} **{display_name}** `{account_phone}`\n"
+                    text += f"   📅 {age_info}\n"
                     buttons.append(
                         [
                             Button.inline(
@@ -2023,6 +2038,78 @@ class MenuSystem:
             ],
         ]
         await self.bot.send_message(event.sender_id, text, buttons=buttons)
+    async def _get_account_age_info(self, user_id: int, account_name: str, account_data: dict = None) -> str:
+        """Get account age information using ID-based estimation"""
+        try:
+            from ..utils.account_age_estimator import AccountAgeEstimator
+            
+            # Get user ID from account data or try to fetch it
+            telegram_user_id = None
+            if account_data:
+                telegram_user_id = account_data.get('user_id')
+            
+            # If no user ID in cache, try to get it from client
+            if not telegram_user_id:
+                telegram_user_id = await self._get_telegram_user_id(user_id, account_name)
+            
+            if telegram_user_id:
+                # Estimate creation date from user ID
+                creation_date, method = AccountAgeEstimator.estimate_creation_date(telegram_user_id)
+                if creation_date:
+                    age_days = AccountAgeEstimator.calculate_age_days(creation_date)
+                    
+                    # Update cache
+                    await self._update_account_age_cache(user_id, account_name, creation_date, age_days, telegram_user_id)
+                    
+                    return f"Age: {AccountAgeEstimator.format_age(age_days)}"
+            
+            return "Age: Unknown"
+        except Exception as e:
+            logger.debug(f"Error getting account age for {account_name}: {e}")
+            return "Age: Unknown"
+    
+    async def _get_telegram_user_id(self, user_id: int, account_name: str) -> Optional[int]:
+        """Get Telegram user ID from connected client"""
+        try:
+            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
+                user_clients = self.account_manager.user_clients[user_id]
+                
+                # Try to find client by account name
+                client = user_clients.get(account_name)
+                if client and hasattr(client, 'is_connected'):
+                    try:
+                        if client.is_connected():
+                            me = await client.get_me()
+                            return me.id
+                    except:
+                        pass
+            
+            return None
+        except Exception:
+            return None
+    
+    async def _update_account_age_cache(self, user_id: int, account_name: str, creation_date, age_days: int, telegram_user_id: int):
+        """Update account age cache in database"""
+        try:
+            from datetime import datetime, timezone
+            
+            update_data = {
+                'creation_date': creation_date,
+                'age_days': age_days,
+                'user_id': telegram_user_id,
+                'last_age_update': datetime.now(timezone.utc)
+            }
+            
+            await mongodb.db.accounts.update_one(
+                {'user_id': user_id, 'name': account_name},
+                {'$set': update_data}
+            )
+        except Exception as e:
+            logger.debug(f"Error updating age cache for {account_name}: {e}")
+    
+
+
+
     async def _handle_developer(self, event):
         """Handle Developer menu"""
         user_id = event.sender_id

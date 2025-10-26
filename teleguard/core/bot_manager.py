@@ -808,6 +808,8 @@ class BotManager:
         from ..utils.account_invalidation import init_account_invalidation_handler
         self.account_invalidation_handler = init_account_invalidation_handler(self)
         
+
+        
         # Start periodic cleanup task
         asyncio.create_task(self._periodic_cleanup_task())
     async def start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:
@@ -1019,6 +1021,8 @@ class BotManager:
                     await self.session_monitor.stop_monitoring()
                 except Exception as e:
                     logger.warning(f"Session monitor cleanup failed: {e}")
+            
+
             
             # Stop auto backup system
             try:

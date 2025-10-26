@@ -289,10 +289,11 @@ class SpamAppealHandler:
             return
         state['last_processed_msg'] = event.message.id
         
-        # No restrictions - complete
+        # No restrictions - complete silently
         if "good news, no limits are currently applied" in message_text:
-            await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found!")
-            await self._complete_appeal(user_id, True)
+            await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found! Your account is clean.")
+            # Complete without the full appeal completion message
+            self.active_appeals.pop(user_id, None)
             return
         
         # Step 1: Click "This is a mistake"
@@ -365,74 +366,77 @@ class SpamAppealHandler:
             await self._notify_user(user_id, f"ℹ️ **{account_name}:** Appeal already exists. Supervisors will review it soon.")
             await self._complete_appeal(user_id, True)
 
-    async def _select_smart_appeal_message(self, context: str) -> str:
-        """AI-powered appeal message selection from loaded appeal messages only"""
+    async def _select_smart_appeal_message(self, context: str, user_id: int = None, account_name: str = None) -> str:
+        """AI-powered appeal message selection based on account age"""
         try:
-            # Always use messages from appeal_messages.txt file only
             if not self.appeal_messages:
                 logger.error("No appeal messages loaded from file - using emergency fallback")
                 return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
             
-            logger.info(f"Selecting appeal message from {len(self.appeal_messages)} available messages")
+            # Get specific account age
+            account_age_days = await self._get_account_age_days(user_id, account_name)
+            logger.info(f"Account age: {account_age_days} days - filtering messages accordingly")
             
-            # Try AI selection from loaded messages if spam detector available
+            # Filter messages based on account age
+            age_appropriate_messages = []
+            
+            for message in self.appeal_messages:
+                message_lower = message.lower()
+                
+                # For old accounts (365+ days), use messages with "old", "long-time", "years", etc.
+                if account_age_days >= 365:
+                    old_keywords = ['old', 'long-time', 'years', 'longtime', 'established', 'veteran', 'experienced', 'since', 'for years', 'long time']
+                    if any(keyword in message_lower for keyword in old_keywords):
+                        age_appropriate_messages.append(message)
+                        logger.debug(f"Added old account message: {message[:50]}...")
+                
+                # For newer accounts (< 365 days), avoid "old" messages
+                else:
+                    old_keywords = ['old', 'long-time', 'years', 'longtime', 'established', 'veteran', 'experienced', 'since', 'for years', 'long time']
+                    if not any(keyword in message_lower for keyword in old_keywords):
+                        age_appropriate_messages.append(message)
+                        logger.debug(f"Added new account message: {message[:50]}...")
+            
+            # Use age-appropriate messages if found, otherwise fallback to all messages
+            messages_to_use = age_appropriate_messages if age_appropriate_messages else self.appeal_messages
+            logger.info(f"Using {len(messages_to_use)} age-appropriate messages (account age: {account_age_days} days)")
+            
+            # Try AI selection from filtered messages if spam detector available
             if hasattr(self.bot_manager, 'spam_detector'):
                 detector = self.bot_manager.spam_detector
-                logger.debug("Spam detector available, attempting intelligent selection")
-                
                 try:
-                    # Analyze spambot response to detect spam limit type
                     analysis = detector.analyze_spambot_response(context)
                     spam_limit_type = analysis.get('spam_limit_type')
-                    logger.debug(f"Detected spam limit type: {spam_limit_type}")
                     
-                    # Get account age for better message selection
-                    account_age_days = await self._get_account_age_days()
-                    logger.debug(f"Account age: {account_age_days} days")
-                    
-                    # Use AI to select best message from loaded appeal messages
                     if hasattr(detector, 'ai_select_from_messages'):
-                        logger.debug("Attempting AI message selection")
                         selected_message = await detector.ai_select_from_messages(
-                            self.appeal_messages, spam_limit_type, context, account_age_days
+                            messages_to_use, spam_limit_type, context, account_age_days
                         )
                         if selected_message:
-                            logger.info(f"AI selected message from file: {len(selected_message)} chars")
+                            logger.info(f"AI selected age-appropriate message: {len(selected_message)} chars")
                             return selected_message
                     
-                    # Fallback: use rule-based selection from loaded messages
                     if hasattr(detector, 'select_from_messages'):
-                        logger.debug("Attempting rule-based message selection")
                         selected_message = detector.select_from_messages(
-                            self.appeal_messages, spam_limit_type, account_age_days
+                            messages_to_use, spam_limit_type, account_age_days
                         )
                         if selected_message:
-                            logger.info(f"Rule-based selection from file: {len(selected_message)} chars")
+                            logger.info(f"Rule-based selected age-appropriate message: {len(selected_message)} chars")
                             return selected_message
                             
                 except Exception as e:
-                    logger.warning(f"AI/Rule-based selection failed, falling back to random: {e}")
-            else:
-                logger.debug("No spam detector available, using random selection")
+                    logger.warning(f"AI/Rule-based selection failed: {e}")
             
-            # Final fallback: random selection from loaded messages
-            selected = random.choice(self.appeal_messages)
-            logger.info(f"Random selection from file: {len(selected)} chars")
-            logger.debug(f"Selected message preview: {selected[:100]}...")
+            # Random selection from age-appropriate messages
+            selected = random.choice(messages_to_use)
+            logger.info(f"Random age-appropriate selection: {len(selected)} chars")
             return selected
             
         except Exception as e:
             logger.error(f"Error in smart message selection: {e}")
-            # Emergency fallback if everything fails
             if self.appeal_messages:
-                emergency_message = random.choice(self.appeal_messages)
-                logger.warning(f"Using emergency fallback message: {len(emergency_message)} chars")
-                return emergency_message
-            
-            # Last resort fallback
-            fallback_message = "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
-            logger.error("Using last resort fallback message")
-            return fallback_message
+                return random.choice(self.appeal_messages)
+            return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
 
     async def _click_button(self, event, button_text: str):
         """Click specific button with minimal delay"""
@@ -549,8 +553,23 @@ class SpamAppealHandler:
             reading_context_time = len(context) * 0.08 + random.uniform(5.0, 12.0)
             await asyncio.sleep(reading_context_time)
             
-            # Use intelligent message selection
-            appeal_message = await self._select_smart_appeal_message(context)
+            # Get account age for display
+            account_age_days = await self._get_account_age_days(user_id, account_name)
+            age_years = account_age_days // 365
+            age_months = (account_age_days % 365) // 30
+            
+            # Format age display
+            if age_years > 0:
+                age_display = f"{age_years} year{'s' if age_years != 1 else ''}"
+                if age_months > 0:
+                    age_display += f", {age_months} month{'s' if age_months != 1 else ''}"
+            elif age_months > 0:
+                age_display = f"{age_months} month{'s' if age_months != 1 else ''}"
+            else:
+                age_display = f"{account_age_days} day{'s' if account_age_days != 1 else ''}"
+            
+            # Use intelligent message selection with account age filtering
+            appeal_message = await self._select_smart_appeal_message(context, user_id, account_name)
             
             # Log the selected message for debugging
             logger.info(f"Selected appeal message for {account_name}: {len(appeal_message)} chars")
@@ -560,11 +579,12 @@ class SpamAppealHandler:
             session_id = f"{user_id}_{account_name}"
             await session_protection.check_message_safety(session_id, appeal_message, "spambot")
             
-            # Notify user that message is being sent
+            # Notify user that message is being sent with account age
             await self._notify_user(
                 user_id,
                 f"📝 **Sending Appeal Message**\n\n"
                 f"📱 Account: {account_name}\n"
+                f"📅 Account Age: {age_display} ({account_age_days} days)\n"
                 f"📄 Message Length: {len(appeal_message)} characters\n"
                 f"⏳ Composing message with human-like behavior..."
             )
@@ -668,10 +688,23 @@ class SpamAppealHandler:
             )
             self.active_appeals.pop(user_id, None)
 
-    async def _get_account_age_days(self) -> int:
-        """Get account creation age in days"""
+    async def _get_account_age_days(self, user_id: int = None, account_name: str = None) -> int:
+        """Get specific account creation age in days"""
         try:
-            for user_id, clients in self.bot_manager.user_clients.items():
+            # Get specific client if provided
+            if user_id and account_name:
+                client = self._get_user_client(user_id, account_name)
+                if client and client.is_connected():
+                    me = await client.get_me()
+                    if hasattr(me, 'date') and me.date:
+                        from datetime import datetime
+                        creation_date = me.date
+                        age_days = (datetime.now() - creation_date).days
+                        logger.info(f"Account {account_name} age: {age_days} days")
+                        return age_days
+            
+            # Fallback to any available client
+            for uid, clients in self.bot_manager.user_clients.items():
                 for client in clients.values():
                     if client and client.is_connected():
                         me = await client.get_me()
@@ -756,68 +789,77 @@ class SpamAppealHandler:
             await event.respond("❌ Error starting appeal process.")
     
     async def _simulate_human_message_composition(self, client, target, message: str):
-        """Simulate extremely realistic human message composition with session protection"""
+        """Simulate realistic human message composition with word complexity analysis"""
         try:
-            # SESSION PROTECTION: Only use typing for longer messages
+            # Show typing indicator
             if len(message) > 20:
                 try:
                     from telethon.tl.functions.messages import SetTypingRequest
                     from telethon.tl.types import SendMessageTypingAction
                     await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
-                except AttributeError:
-                    # Fallback for older Telethon versions
-                    if hasattr(client, 'action'):
-                        await client.action(target, 'typing')
                 except Exception:
-                    pass  # Skip typing if not supported
+                    pass
             
-            # ENHANCED SESSION PROTECTION: Much slower composition
+            # Analyze words and calculate realistic typing time
             words = message.split()
-            word_count = len(words)
+            total_typing_time = 0
             
-            # Much slower composition (like careful appeal writing)
-            base_composition_time = word_count * random.uniform(2.0, 4.0)  # Much slower
+            for word in words:
+                # Base time for 37 WPM (1.62 seconds per word)
+                base_time = 1.62
+                
+                # Adjust for word complexity
+                word_lower = word.lower().strip('.,!?;:')
+                
+                # Longer words take more time
+                if len(word_lower) > 8:
+                    base_time *= 1.4  # 40% slower for long words
+                elif len(word_lower) > 5:
+                    base_time *= 1.2  # 20% slower for medium words
+                
+                # Complex/uncommon words take longer
+                complex_words = ['restricted', 'legitimate', 'violation', 'communication', 'investigation', 
+                               'unauthorized', 'verification', 'circumstances', 'misunderstanding', 'reconsider']
+                if word_lower in complex_words:
+                    base_time *= 1.3
+                
+                # Technical terms slower
+                if word_lower in ['telegram', 'spambot', 'account', 'restrictions', 'appeal']:
+                    base_time *= 1.1
+                
+                # Common words faster
+                common_words = ['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use']
+                if word_lower in common_words:
+                    base_time *= 0.8  # 20% faster for common words
+                
+                total_typing_time += base_time
             
-            # More thinking pauses for session protection
-            thinking_pauses = random.randint(4, 8)
-            for _ in range(thinking_pauses):
-                pause_duration = random.uniform(3.0, 8.0)  # Longer pauses
-                base_composition_time += pause_duration
+            # Add thinking pauses for appeal composition
+            thinking_time = random.uniform(3.0, 6.0)
+            total_time = total_typing_time + thinking_time
             
-            # Break composition into more segments (more human-like)
-            segments = max(3, word_count // 5)
-            segment_time = base_composition_time / segments
+            # Split into realistic segments with natural pauses
+            segments = max(2, min(5, len(words) // 12))
+            segment_time = total_time / segments
             
             for i in range(segments):
-                # Compose segment with longer delays
-                await asyncio.sleep(segment_time * random.uniform(1.0, 2.0))
+                await asyncio.sleep(segment_time)
                 
-                # More frequent longer pauses (session protection)
-                if random.random() < 0.8:  # 80% chance for longer pause
-                    thinking_pause = random.uniform(4.0, 10.0)
-                    await asyncio.sleep(thinking_pause)
-                
-                # Refresh typing indicator less frequently (session protection)
-                if i < segments - 1 and len(message) > 50 and random.random() < 0.3:
+                # Refresh typing indicator
+                if i < segments - 1 and len(message) > 80:
                     try:
                         from telethon.tl.functions.messages import SetTypingRequest
                         from telethon.tl.types import SendMessageTypingAction
                         await client(SetTypingRequest(peer=target, action=SendMessageTypingAction()))
-                    except AttributeError:
-                        # Fallback for older Telethon versions
-                        if hasattr(client, 'action'):
-                            await client.action(target, 'typing')
                     except Exception:
-                        pass  # Ignore typing errors for session protection
+                        pass
             
-            # Much longer final review pause (session protection)
-            review_time = random.uniform(8.0, 20.0)
-            await asyncio.sleep(review_time)
+            # Final review pause
+            await asyncio.sleep(random.uniform(2.0, 4.0))
             
         except Exception as e:
-            logger.warning(f"Composition simulation error (continuing): {e}")
-            # Fallback delay for session protection
-            await asyncio.sleep(random.uniform(10.0, 25.0))
+            logger.warning(f"Composition simulation error: {e}")
+            await asyncio.sleep(random.uniform(8.0, 15.0))
 
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""
