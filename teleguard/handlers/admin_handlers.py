@@ -183,7 +183,8 @@ class AdminHandlers:
                         account_count += 1
                 await event.reply(f"✅ Migration completed!\n\n📊 **Results:**\n• Users migrated: {user_count}\n• Accounts migrated: {account_count}\n\n🔒 All user data is now encrypted")
             except Exception as e:
-                await event.reply(f"❌ Migration failed: {e}")
+                await event.reply(f"❌ Migration failed: {str(e)}")
+                logger.error(f"Data encryption migration failed: {e}", exc_info=True)
 
         # Cache Admin Commands
         @self.bot.on(events.NewMessage(pattern=r"/cache_stats"))

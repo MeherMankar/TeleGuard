@@ -44,23 +44,16 @@ class OTPManager:
             logger.debug("Performed periodic cleanup of OTP tracking sets")
     def register_handlers(self):
         """Register OTP message handler for all user clients"""
-        # Clear existing handlers from clients first
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if client and hasattr(client, 'is_connected') and client.is_connected():
-                    try:
-                        # Remove all existing OTP handlers
-                        client.remove_event_handler(events.NewMessage(chats=[777000, 42777]))
-                    except Exception:
-                        pass  # Ignore if no handlers exist
+        logger.info("🛡️ Starting OTP handler registration...")
         
-        # Clear existing registrations to prevent duplicates
-        self.registered_handlers.clear()
+        # Don't clear existing handlers - just check if they exist
+        # Clearing can cause issues with active handlers
+        
         # Clear bot manager OTP registry if available
         if hasattr(self.bot_manager, 'registered_handlers'):
             self.bot_manager.registered_handlers["otp"].clear()
         
-        logger.info("🛡️ Registering OTP handlers for all active clients...")
+        logger.info(f"Current user_clients: {len(self.user_clients)} users")
         async def otp_handler(event):
             """Handle OTP messages from Telegram official account"""
             try:
@@ -288,24 +281,43 @@ class OTPManager:
                 logger.error(f"OTP handler error: {e}")
         handler_count = 0
         for user_id, clients in self.user_clients.items():
+            logger.debug(f"Processing user {user_id} with {len(clients)} clients")
             for account_name, client in clients.items():
-                if client and hasattr(client, 'is_connected') and client.is_connected():
-                    handler_key = f"{user_id}:{account_name}"
-                    if handler_key not in self.registered_handlers:
-                        try:
-                            # Register handler for Telegram service messages (777000) and login codes (42777)
-                            client.add_event_handler(
-                                otp_handler, events.NewMessage(chats=[777000, 42777])
-                            )
-                            self.registered_handlers.add(handler_key)
-                            handler_count += 1
-                            logger.info(f"✅ Registered OTP handler for {handler_key}")
-                        except Exception as e:
-                            logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
-                    else:
-                        logger.debug(f"OTP handler already exists for {handler_key}")
+                handler_key = f"{user_id}:{account_name}"
+                
+                # Check if client is valid and connected
+                if not client:
+                    logger.warning(f"⚠️ Client is None for {handler_key}")
+                    continue
+                
+                if not hasattr(client, 'is_connected'):
+                    logger.warning(f"⚠️ Client has no is_connected method for {handler_key}")
+                    continue
+                
+                try:
+                    is_connected = client.is_connected()
+                except Exception as e:
+                    logger.warning(f"⚠️ Error checking connection for {handler_key}: {e}")
+                    continue
+                
+                if not is_connected:
+                    logger.warning(f"⚠️ Client not connected for {handler_key}")
+                    continue
+                
+                # Register handler if not already registered
+                if handler_key not in self.registered_handlers:
+                    try:
+                        # Register handler for Telegram service messages (777000) and login codes (42777)
+                        client.add_event_handler(
+                            otp_handler, events.NewMessage(chats=[777000, 42777])
+                        )
+                        self.registered_handlers.add(handler_key)
+                        handler_count += 1
+                        logger.info(f"✅ Registered OTP handler for {handler_key}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
                 else:
-                    logger.warning(f"⚠️ Client not connected for {user_id}:{account_name}, skipping OTP handler")
+                    logger.debug(f"OTP handler already exists for {handler_key}")
         if handler_count > 0:
             logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
             print(f"  OTP handlers registered for {handler_count} accounts")

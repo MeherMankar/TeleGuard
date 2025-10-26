@@ -190,9 +190,11 @@ class BotManager:
         raise TeleGuardError("Bot startup failed after retries")
     async def _load_existing_sessions(self) -> None:
         try:
-            # Skip session loading on cloud for faster startup
-            if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true':
-                print("Skipping session pre-load for faster startup")
+            # Skip session loading ONLY on cloud platforms for faster startup
+            # Check for actual cloud environment variables
+            is_cloud = os.getenv('DYNO') or os.getenv('KOYEB_DEPLOYMENT_ID') or os.getenv('RAILWAY_ENVIRONMENT')
+            if is_cloud and os.getenv('SKIP_SESSION_LOAD', 'false').lower() == 'true':
+                print("Skipping session pre-load for faster startup (cloud mode)")
                 logger.info("Session loading skipped - accounts will load on demand")
                 return
             
