@@ -339,6 +339,7 @@ def print_startup_banner() -> None:
 
 async def main() -> None:
     """Main application entry point with comprehensive error handling."""
+    # Force rebuild - fixed indentation issue
     startup_time = time.time()
     logger.info("🚀 TeleGuard application starting up...")
     
@@ -388,22 +389,19 @@ async def main() -> None:
         logger.info("🤖 Initializing TeleGuard bot...")
 
         try:
-            # Start the full bot with timeout to prevent hanging
-            async with asyncio.timeout(60.0):  # 60 second startup timeout
+            async with asyncio.timeout(60.0):
                 async with AccountManager() as bot:
                     startup_elapsed = time.time() - startup_time
                     koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
                     print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
                     logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
                     
-                    # Keep bot running with proper error handling
                     try:
                         logger.info("🏃 Starting bot main loop...")
                         await bot.run()
                     except Exception as e:
                         logger.error("💥 Bot runtime error: %s", str(e))
                         logger.debug("Bot error details:", exc_info=True)
-                        # Keep health server running even if bot has issues
                         logger.info("🔄 Keeping health server alive despite bot error...")
                         while True:
                             await asyncio.sleep(60)
