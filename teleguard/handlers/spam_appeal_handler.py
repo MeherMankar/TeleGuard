@@ -705,6 +705,26 @@ class SpamAppealHandler:
             self.active_appeals[user_id]['account_name'] = account_name
             self.active_appeals[user_id]['context'] = context
             
+            # Load account client if not already loaded
+            client = self._get_user_client(user_id, account_name)
+            if not client:
+                await event.respond("⏳ Loading account client...")
+                # Get account from database
+                from ..core.mongo_database import mongodb
+                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if not account or not account.get('session_string'):
+                    await event.respond("❌ Account not found or no session available.")
+                    return
+                
+                # Load the client
+                try:
+                    await self.bot_manager.start_user_client(user_id, account_name, account['session_string'])
+                    await event.respond("✅ Account loaded successfully!")
+                except Exception as e:
+                    logger.error(f"Failed to load account {account_name}: {e}")
+                    await event.respond(f"❌ Failed to load account: {str(e)}")
+                    return
+            
             # Start the appeal process directly
             await self._start_appeal_process(user_id)
             

@@ -453,6 +453,7 @@ async def main() -> None:
         logger.info("⌨️ Keyboard interrupt received")
         print("\nShutting down TeleGuard...")
         await graceful_shutdown()
+        sys.exit(0)
 
     except ImportError as e:
         logger.error("📦 Missing dependencies: %s", str(e))
@@ -478,12 +479,9 @@ async def main() -> None:
             await graceful_shutdown()
         except Exception as shutdown_error:
             logger.error("💥 Shutdown error: %s", str(shutdown_error))
-        sys.exit(1)
-
-    finally:
-        total_runtime = time.time() - startup_time
-        logger.info("🏁 TeleGuard shutdown complete - Total runtime: %.2f seconds", total_runtime)
-        print("TeleGuard shutdown complete")
+        # Keep health server running
+        while True:
+            await asyncio.sleep(60)
 
 
 if __name__ == "__main__":
