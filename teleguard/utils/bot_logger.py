@@ -10,20 +10,48 @@ class BotLogger:
     """Send all user actions to logs bot"""
     
     _bot = None
+    _logs_bot = None
     _log_chat_id = None
     
     @classmethod
-    def init(cls, bot):
+    async def init(cls, bot):
         """Initialize with bot instance"""
         cls._bot = bot
+        
+        # Check for separate logs bot
+        logs_bot_token = os.getenv('LOGS_BOT_TOKEN')
+        if logs_bot_token:
+            try:
+                from telethon import TelegramClient
+                from ..core.config import config
+                cls._logs_bot = TelegramClient('logs_bot', config.telegram.api_id, config.telegram.api_hash)
+                await cls._logs_bot.start(bot_token=logs_bot_token)
+                logger.info("Separate logs bot initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize logs bot: {e}")
+                cls._logs_bot = bot
+        else:
+            cls._logs_bot = bot
+        
         log_chat_id = os.getenv('LOG_CHAT_ID')
         if log_chat_id:
-            cls._log_chat_id = int(log_chat_id)
+            try:
+                cls._log_chat_id = int(log_chat_id)
+                logger.info(f"BotLogger initialized with LOG_CHAT_ID: {cls._log_chat_id}")
+            except ValueError:
+                logger.error(f"Invalid LOG_CHAT_ID: {log_chat_id}")
+        else:
+            logger.warning("LOG_CHAT_ID not set - logs will not be sent")
     
     @classmethod
     async def log(cls, user_id: int, action: str, details: str = "", username: Optional[str] = None):
         """Send log to logs bot"""
-        if not cls._bot or not cls._log_chat_id:
+        if not cls._logs_bot:
+            logger.debug("BotLogger: Logs bot not initialized")
+            return
+        
+        if not cls._log_chat_id:
+            logger.debug("BotLogger: LOG_CHAT_ID not set")
             return
         
         try:
@@ -33,9 +61,10 @@ class BotLogger:
             if details:
                 message += f"\n📝 {details}"
             
-            await cls._bot.send_message(cls._log_chat_id, message)
+            await cls._logs_bot.send_message(cls._log_chat_id, message)
+            logger.info(f"Log sent to {cls._log_chat_id}: {action}")
         except Exception as e:
-            logger.debug(f"Failed to send log: {e}")
+            logger.error(f"Failed to send log to {cls._log_chat_id}: {e}")
     
     @classmethod
     async def log_account_added(cls, user_id: int, phone: str, username: Optional[str] = None):

@@ -441,7 +441,7 @@ class AuthManager:
                     await client.disconnect()
             raise
 
-    def cancel_auth(self, user_id: int) -> bool:
+    async def cancel_auth(self, user_id: int) -> bool:
         """Cancel pending authentication and cleanup resources"""
         if user_id not in self._pending_auths:
             return False
@@ -450,12 +450,12 @@ class AuthManager:
             if auth_info["type"] == "normal":
                 client = auth_info["data"].get("client")
                 if client:
-                    asyncio.create_task(client.disconnect())
+                    await client.disconnect()
             else:  # destroy_mode
                 client = auth_info["data"].get("client")
                 session_file = auth_info["data"].get("session_file")
                 if client:
-                    asyncio.create_task(client.disconnect())
+                    await client.disconnect()
                 if session_file and os.path.exists(session_file):
                     try:
                         os.unlink(session_file)

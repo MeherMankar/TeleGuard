@@ -340,6 +340,19 @@ class MessageHandlers:
             
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
+            
+            # Log to logs bot
+            try:
+                from ..utils.bot_logger import BotLogger
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_account_added(user_id, phone, username)
+            except Exception as log_error:
+                logger.error(f"Failed to log account addition: {log_error}")
+            
             await event.reply(
                 f"✅ Account {phone} added successfully!\nUse /toggle_protection to enable OTP destroyer."
             )
@@ -407,24 +420,35 @@ class MessageHandlers:
             
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
+            
+            # Log to logs bot
+            try:
+                from ..utils.bot_logger import BotLogger
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_account_added(user_id, phone, username)
+            except Exception as log_error:
+                logger.error(f"Failed to log account addition: {log_error}")
+            
             await event.reply(
                 f"✅ Account {phone} added successfully!\nUse /toggle_protection to enable OTP destroyer."
             )
-        except (ValueError, ConnectionError, TimeoutError) as e:
+        except Exception as e:
             error_msg = str(e)
+            logger.error(f"2FA error for user {user_id}: {error_msg}")
             if "attempts left" in error_msg or "Try again in" in error_msg:
                 # Password retry case - keep pending action for retry
                 await event.reply(f"❌ {error_msg}")
-                logger.info(f"2FA retry for user {user_id}: {error_msg}")
                 return  # Don't clear pending actions
             elif "Too many incorrect attempts" in error_msg:
                 # Terminal failure - clear everything
                 await event.reply(f"❌ {error_msg}")
-                logger.error(f"2FA terminal failure for user {user_id}: {error_msg}")
             else:
-                # Other errors
-                await event.reply(f"❌ 2FA failed: {error_msg}")
-                logger.error(f"2FA failed: {error_msg}")
+                # Other errors - show full error message
+                await event.reply(f"❌ 2FA failed: {error_msg if error_msg else 'Unknown error'}")
         # Cleanup pending actions after 2FA processing (except for retries)
         if user_id in self.pending_actions:
             self.pending_actions.pop(user_id, None)

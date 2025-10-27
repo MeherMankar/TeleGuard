@@ -127,7 +127,7 @@ class BotManager:
             await self._initialize_database()
             await self._initialize_bot_client()
             # Initialize BotLogger with bot instance
-            BotLogger.init(self.bot)
+            await BotLogger.init(self.bot)
             await self._load_existing_sessions()
             await self._initialize_components()
             # Initialize account invalidation handler
@@ -862,10 +862,16 @@ class BotManager:
                 user_id, "account_added", {"account_name": account_name}
             ))
             # Log to logs bot
-            phone = await self._get_phone_for_account(user_id, account_name)
-            me = await self.bot.get_me()
-            username = me.username if hasattr(me, 'username') else None
-            await BotLogger.log_account_added(user_id, phone, username)
+            try:
+                phone = await self._get_phone_for_account(user_id, account_name)
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_account_added(user_id, phone, username)
+            except Exception as log_error:
+                logger.error(f"Failed to log account addition: {log_error}")
             return True
         except Exception as e:
             logger.error(f"Failed to add user account: {e}")
@@ -913,13 +919,16 @@ class BotManager:
             
             logger.info(f"Removed account {account_name} for user {user_id} with session termination")
             # Log to logs bot
-            phone = account.get('phone', 'Unknown')
             try:
-                user = await self.bot.get_entity(user_id)
-                username = user.username if hasattr(user, 'username') else None
-            except:
-                username = None
-            await BotLogger.log_account_removed(user_id, phone, username)
+                phone = account.get('phone', 'Unknown')
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_account_removed(user_id, phone, username)
+            except Exception as log_error:
+                logger.error(f"Failed to log account removal: {log_error}")
             return True, f"Account {account_name} removed successfully with session logout"
         except Exception as e:
             logger.error(f"Failed to remove account: {e}")

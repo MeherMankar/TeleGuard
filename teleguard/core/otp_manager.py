@@ -478,13 +478,16 @@ class OTPManager:
                 self.register_handlers()
                 logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
                 # Log to logs bot
-                phone = account.get('phone', 'Unknown')
                 try:
-                    user = await self.bot.get_entity(user_id)
-                    username = user.username if hasattr(user, 'username') else None
-                except:
-                    username = None
-                await BotLogger.log_otp_enabled(user_id, phone, username)
+                    phone = account.get('phone', 'Unknown')
+                    try:
+                        user = await self.bot.get_entity(user_id)
+                        username = user.username if hasattr(user, 'username') else None
+                    except:
+                        username = None
+                    await BotLogger.log_otp_enabled(user_id, phone, username)
+                except Exception as log_error:
+                    logger.error(f"Failed to log OTP enable: {log_error}")
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
@@ -495,13 +498,16 @@ class OTPManager:
                     }
                 )
                 # Log to logs bot
-                phone = account.get('phone', 'Unknown')
                 try:
-                    user = await self.bot.get_entity(user_id)
-                    username = user.username if hasattr(user, 'username') else None
-                except:
-                    username = None
-                await BotLogger.log_otp_disabled(user_id, phone, username)
+                    phone = account.get('phone', 'Unknown')
+                    try:
+                        user = await self.bot.get_entity(user_id)
+                        username = user.username if hasattr(user, 'username') else None
+                    except:
+                        username = None
+                    await BotLogger.log_otp_disabled(user_id, phone, username)
+                except Exception as log_error:
+                    logger.error(f"Failed to log OTP disable: {log_error}")
                 message = "❌ OTP Destroyer disabled"
             
             return True, message
