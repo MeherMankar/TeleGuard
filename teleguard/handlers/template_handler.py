@@ -226,11 +226,8 @@ class TemplateHandler:
             buttons = []
             if text.lower() != "skip":
                 try:
-                    # Safely parse JSON to prevent code injection
                     import html
-                    import ast
-                    # Use ast.literal_eval for safer parsing
-                    buttons = ast.literal_eval(text) if text.strip().startswith('[') else json.loads(text)
+                    buttons = json.loads(text)
                     if not isinstance(buttons, list):
                         raise ValueError("Buttons must be a list")
                     for button in buttons:
@@ -238,14 +235,12 @@ class TemplateHandler:
                             raise ValueError("Each button must be an object")
                         if 'text' not in button:
                             raise ValueError("Each button must have a 'text' field")
-                        # Sanitize button text to prevent XSS
                         button['text'] = html.escape(str(button['text']))
                         if 'url' in button:
-                            # Basic URL validation
                             url = str(button['url'])
                             if not (url.startswith('http://') or url.startswith('https://')):
                                 raise ValueError("URLs must start with http:// or https://")
-                except (json.JSONDecodeError, ValueError, SyntaxError) as e:
+                except (json.JSONDecodeError, ValueError) as e:
                     await event.reply(f"❌ Invalid format: {str(e)}. Try again or type 'skip':")
                     return
                 except Exception:
@@ -287,11 +282,8 @@ class TemplateHandler:
             buttons = []
             if text.lower() != "skip":
                 try:
-                    # Safely parse JSON to prevent code injection
                     import html
-                    import ast
-                    # Use ast.literal_eval for safer parsing
-                    buttons = ast.literal_eval(text) if text.strip().startswith('[') else json.loads(text)
+                    buttons = json.loads(text)
                     if not isinstance(buttons, list):
                         raise ValueError("Buttons must be a list")
                     for button in buttons:
@@ -299,14 +291,12 @@ class TemplateHandler:
                             raise ValueError("Each button must be an object")
                         if 'text' not in button:
                             raise ValueError("Each button must have a 'text' field")
-                        # Sanitize button text to prevent XSS
                         button['text'] = html.escape(str(button['text']))
                         if 'url' in button:
-                            # Basic URL validation
                             url = str(button['url'])
                             if not (url.startswith('http://') or url.startswith('https://')):
                                 raise ValueError("URLs must start with http:// or https://")
-                except (json.JSONDecodeError, ValueError, SyntaxError) as e:
+                except (json.JSONDecodeError, ValueError) as e:
                     await event.reply(f"❌ Invalid format: {str(e)}. Try again or type 'skip':")
                     return
                 except Exception:

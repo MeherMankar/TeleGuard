@@ -146,9 +146,10 @@ class MessagingManager:
                 "{username}": f"@{safe_target_info.get('username')}" if safe_target_info.get("username") else "Friend",
                 "{full_name}": f"{safe_target_info.get('first_name', '')} {safe_target_info.get('last_name', '')}".strip() or "Friend"
             }
-            # Replace variables safely
+            # Replace variables safely using string formatting
             for var, value in replacements.items():
                 if var in content:
+                    # Use safe string replacement
                     content = content.replace(var, str(value))
             return content
         except Exception as e:

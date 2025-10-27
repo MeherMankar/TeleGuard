@@ -114,9 +114,9 @@ class ConfigKeys:
     # Database
     MONGO_URI = "MONGO_URI"
     REDIS_URL = "REDIS_URL"
-    # Security
-    ENCRYPTION_KEY = "ENCRYPTION_KEY"
-    ADMIN_IDS = "ADMIN_IDS"
+    # Security - Load from environment only
+    ENCRYPTION_KEY = "ENCRYPTION_KEY"  # Must be set in environment
+    ADMIN_IDS = "ADMIN_IDS"  # Must be set in environment
     # Features
     MAX_ACCOUNTS = "MAX_ACCOUNTS"
     RATE_LIMIT_ENABLED = "RATE_LIMIT_ENABLED"

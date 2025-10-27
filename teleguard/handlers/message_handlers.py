@@ -60,10 +60,10 @@ class MessageHandlers:
                     if client:
                         import os
                         import tempfile
-                        # Use secure temporary directory
-                        temp_dir = tempfile.gettempdir()
-                        photo_path = await event.download_media(file=temp_dir)
-                        if not photo_path or not os.path.realpath(photo_path).startswith(os.path.realpath(temp_dir)):
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+                            photo_path = tmp.name
+                        photo_path = await event.download_media(file=photo_path)
+                        if not photo_path or not os.path.exists(photo_path):
                             await event.reply("❌ Invalid file path")
                             return
                         from telethon import functions
@@ -73,7 +73,6 @@ class MessageHandlers:
                                 file=uploaded_file
                             )
                         )
-                        import os
                         if os.path.exists(photo_path):
                             os.remove(photo_path)
                         await event.reply("✅ Profile photo updated successfully!")
@@ -102,12 +101,12 @@ class MessageHandlers:
                             filename = attr.file_name
                             break
                     if filename and filename.endswith('.session'):
-                        # Download the file
                         import tempfile
                         import os
-                        temp_dir = tempfile.gettempdir()
-                        file_path = await event.download_media(file=temp_dir)
-                        if file_path and os.path.realpath(file_path).startswith(os.path.realpath(temp_dir)):
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.session') as tmp:
+                            file_path = tmp.name
+                        file_path = await event.download_media(file=file_path)
+                        if file_path and os.path.exists(file_path):
                             if hasattr(self.bot_manager, 'session_login_handler'):
                                 success, msg = await self.bot_manager.session_login_handler.process_session_file(user_id, file_path)
                                 await event.reply(msg)

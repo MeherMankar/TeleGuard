@@ -56,9 +56,11 @@ async def get_old_telegram_messages(older_than_timestamp):
     """Get old Telegram backup messages for cleanup"""
     if not db:
         return []
+    if not isinstance(older_than_timestamp, (int, float)):
+        return []
     cursor = db.backups_meta.find({
         "type": "telegram_snapshot",
-        "timestamp": {"$lt": older_than_timestamp}
+        "timestamp": {"$lt": int(older_than_timestamp)}
     })
     return await cursor.to_list(length=None)
 async def delete_backup_meta(message_id):
