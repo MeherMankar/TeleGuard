@@ -1050,27 +1050,14 @@ class MenuSystem:
                     "📋 **Your Accounts:**\n"
                 )
                 buttons = []
-                # Update all account ages first
-                for account in accounts:
-                    try:
-                        await self._update_single_account_age(user_id, account)
-                    except Exception as e:
-                        logger.debug(f"Failed to update age for {account.get('name')}: {e}")
-                
-                # Refresh accounts data after age updates
-                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-                
+
                 for i, account in enumerate(accounts, 1):
                     status = "🟢" if account.get("is_active", False) else "🔴"
                     destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     account_phone = format_phone_number(account.get('phone', 'Unknown'))
                     
-                    # Get account age info
-                    age_info = await self._get_account_age_info(user_id, account.get('name'), account)
-                    
                     text += f"{i}. {status}{destroyer_status} **{display_name}** `{account_phone}`\n"
-                    text += f"   📅 {age_info}\n"
                     buttons.append(
                         [
                             Button.inline(
@@ -2039,28 +2026,26 @@ class MenuSystem:
         ]
         await self.bot.send_message(event.sender_id, text, buttons=buttons)
     async def _get_account_age_info(self, user_id: int, account_name: str, account_data: dict = None) -> str:
-        """Get account age information"""
+        """Get account age information using ID-based estimation"""
         try:
             from ..utils.account_age_estimator import AccountAgeEstimator
             from datetime import timezone, datetime
             
-            # Check if we have cached age data
-            if account_data and account_data.get('age_days') is not None:
-                age_days = account_data.get('age_days')
-                return f"Age: {AccountAgeEstimator.format_age(age_days)}"
+            # Skip invalid cached data
+            cached_age = account_data.get('age_days') if account_data else None
+            if cached_age and cached_age > 0:
+                years = cached_age // 365
+                months = (cached_age % 365) // 30
+                days = (cached_age % 365) % 30
+                return f"Age: {years}y {months}m {days}d ({cached_age} days)"
             
-            # Get Telegram user ID (ensure it's unique per account)
+            # Get Telegram user ID
             telegram_user_id = account_data.get('telegram_user_id') if account_data else None
-            
-            # If no cached ID, fetch from client
             if not telegram_user_id:
                 telegram_user_id = await self._get_telegram_user_id(user_id, account_name)
             
             if telegram_user_id:
-                # Ensure int for proper comparison
                 telegram_user_id = int(telegram_user_id)
-                
-                # ID-based estimation (per-account, never reused)
                 creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
                 
                 if creation_date:
@@ -2069,17 +2054,16 @@ class MenuSystem:
                         creation_date = creation_date.replace(tzinfo=timezone.utc)
                     age_days = max(0, (now - creation_date).days)
                     
-                    # Debug log
-                    logger.debug(f"Age for {account_name} (ID={telegram_user_id}): {age_days} days via {method}")
-                    
-                    # Update cache
                     await self._update_account_age_cache(user_id, account_name, creation_date, age_days, telegram_user_id)
                     
-                    return f"Age: {AccountAgeEstimator.format_age(age_days)}"
+                    years = age_days // 365
+                    months = (age_days % 365) // 30
+                    days = (age_days % 365) % 30
+                    return f"Age: {years}y {months}m {days}d ({age_days} days)"
             
             return "Age: Unknown"
         except Exception as e:
-            logger.debug(f"Error getting account age for {account_name}: {e}")
+            logger.error(f"Error getting account age for {account_name}: {e}")
             return "Age: Unknown"
     
     async def _get_telegram_user_id(self, user_id: int, account_name: str) -> Optional[int]:
@@ -2088,16 +2072,18 @@ class MenuSystem:
             if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
                 user_clients = self.account_manager.user_clients[user_id]
                 
-                # Try to find client by account name
-                client = user_clients.get(account_name)
-                if client and hasattr(client, 'is_connected'):
-                    try:
-                        if client.is_connected():
+                # Try all possible client keys
+                for key in [account_name] + list(user_clients.keys()):
+                    client = user_clients.get(key)
+                    if client:
+                        try:
+                            if not client.is_connected():
+                                await client.connect()
                             me = await client.get_me()
-                            return me.id
-                    except:
-                        pass
-            
+                            if me:
+                                return me.id
+                        except:
+                            continue
             return None
         except Exception:
             return None

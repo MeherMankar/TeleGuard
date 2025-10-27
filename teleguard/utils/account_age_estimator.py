@@ -3,6 +3,8 @@ import datetime
 from decimal import Decimal, getcontext, ROUND_HALF_UP
 from typing import Optional, Tuple, List, Dict
 import logging
+import csv
+import os
 
 getcontext().prec = 34
 logger = logging.getLogger(__name__)
@@ -12,103 +14,61 @@ class AccountAgeEstimator:
     
     _anchors_cache: Optional[List[Dict]] = None
     
-    # Anchor points: (start_id, end_id, creation_date) - High precision dataset
+    # Anchor points from creationDate project - accurate community-verified data
     ID_RANGES = [
-        (1, 10000, datetime.datetime(2013, 8, 14, tzinfo=datetime.timezone.utc)),
-        (10001, 25000, datetime.datetime(2013, 8, 25, tzinfo=datetime.timezone.utc)),
-        (25001, 50000, datetime.datetime(2013, 9, 5, tzinfo=datetime.timezone.utc)),
-        (50001, 75000, datetime.datetime(2013, 9, 15, tzinfo=datetime.timezone.utc)),
-        (75001, 100000, datetime.datetime(2013, 9, 25, tzinfo=datetime.timezone.utc)),
-        (100001, 150000, datetime.datetime(2013, 10, 10, tzinfo=datetime.timezone.utc)),
-        (150001, 200000, datetime.datetime(2013, 10, 25, tzinfo=datetime.timezone.utc)),
-        (200001, 300000, datetime.datetime(2013, 11, 10, tzinfo=datetime.timezone.utc)),
-        (300001, 400000, datetime.datetime(2013, 11, 25, tzinfo=datetime.timezone.utc)),
-        (400001, 550000, datetime.datetime(2013, 12, 10, tzinfo=datetime.timezone.utc)),
-        (550001, 700000, datetime.datetime(2013, 12, 25, tzinfo=datetime.timezone.utc)),
-        (700001, 850000, datetime.datetime(2014, 1, 10, tzinfo=datetime.timezone.utc)),
-        (850001, 1000000, datetime.datetime(2014, 1, 25, tzinfo=datetime.timezone.utc)),
-        (1000001, 1250000, datetime.datetime(2014, 2, 15, tzinfo=datetime.timezone.utc)),
-        (1250001, 1500000, datetime.datetime(2014, 3, 15, tzinfo=datetime.timezone.utc)),
-        (1500001, 1750000, datetime.datetime(2014, 4, 15, tzinfo=datetime.timezone.utc)),
-        (1750001, 2000000, datetime.datetime(2014, 5, 15, tzinfo=datetime.timezone.utc)),
-        (2000001, 2500000, datetime.datetime(2014, 7, 1, tzinfo=datetime.timezone.utc)),
-        (2500001, 3000000, datetime.datetime(2014, 8, 15, tzinfo=datetime.timezone.utc)),
-        (3000001, 3500000, datetime.datetime(2014, 10, 1, tzinfo=datetime.timezone.utc)),
-        (3500001, 4000000, datetime.datetime(2014, 11, 15, tzinfo=datetime.timezone.utc)),
-        (4000001, 4500000, datetime.datetime(2015, 1, 1, tzinfo=datetime.timezone.utc)),
-        (4500001, 5000000, datetime.datetime(2015, 2, 15, tzinfo=datetime.timezone.utc)),
-        (5000001, 6000000, datetime.datetime(2015, 4, 1, tzinfo=datetime.timezone.utc)),
-        (6000001, 7000000, datetime.datetime(2015, 6, 1, tzinfo=datetime.timezone.utc)),
-        (7000001, 8500000, datetime.datetime(2015, 8, 1, tzinfo=datetime.timezone.utc)),
-        (8500001, 10000000, datetime.datetime(2015, 10, 1, tzinfo=datetime.timezone.utc)),
-        (10000001, 12500000, datetime.datetime(2016, 1, 1, tzinfo=datetime.timezone.utc)),
-        (12500001, 15000000, datetime.datetime(2016, 3, 1, tzinfo=datetime.timezone.utc)),
-        (15000001, 17500000, datetime.datetime(2016, 5, 1, tzinfo=datetime.timezone.utc)),
-        (17500001, 20000000, datetime.datetime(2016, 7, 1, tzinfo=datetime.timezone.utc)),
-        (20000001, 22500000, datetime.datetime(2016, 9, 1, tzinfo=datetime.timezone.utc)),
-        (22500001, 25000000, datetime.datetime(2016, 11, 1, tzinfo=datetime.timezone.utc)),
-        (25000001, 27500000, datetime.datetime(2017, 1, 1, tzinfo=datetime.timezone.utc)),
-        (27500001, 30000000, datetime.datetime(2017, 3, 1, tzinfo=datetime.timezone.utc)),
-        (30000001, 35000000, datetime.datetime(2017, 5, 1, tzinfo=datetime.timezone.utc)),
-        (35000001, 40000000, datetime.datetime(2017, 7, 1, tzinfo=datetime.timezone.utc)),
-        (40000001, 45000000, datetime.datetime(2017, 9, 1, tzinfo=datetime.timezone.utc)),
-        (45000001, 50000000, datetime.datetime(2017, 11, 1, tzinfo=datetime.timezone.utc)),
-        (50000001, 55000000, datetime.datetime(2018, 1, 1, tzinfo=datetime.timezone.utc)),
-        (55000001, 60000000, datetime.datetime(2018, 3, 1, tzinfo=datetime.timezone.utc)),
-        (60000001, 70000000, datetime.datetime(2018, 5, 1, tzinfo=datetime.timezone.utc)),
-        (70000001, 80000000, datetime.datetime(2018, 7, 1, tzinfo=datetime.timezone.utc)),
-        (80000001, 90000000, datetime.datetime(2018, 9, 1, tzinfo=datetime.timezone.utc)),
-        (90000001, 100000000, datetime.datetime(2018, 11, 1, tzinfo=datetime.timezone.utc)),
-        (100000001, 110000000, datetime.datetime(2019, 1, 1, tzinfo=datetime.timezone.utc)),
-        (110000001, 130000000, datetime.datetime(2019, 3, 1, tzinfo=datetime.timezone.utc)),
-        (130000001, 150000000, datetime.datetime(2019, 5, 1, tzinfo=datetime.timezone.utc)),
-        (150000001, 170000000, datetime.datetime(2019, 7, 1, tzinfo=datetime.timezone.utc)),
-        (170000001, 190000000, datetime.datetime(2019, 9, 1, tzinfo=datetime.timezone.utc)),
-        (190000001, 210000000, datetime.datetime(2019, 11, 1, tzinfo=datetime.timezone.utc)),
-        (210000001, 240000000, datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)),
-        (240000001, 270000000, datetime.datetime(2020, 3, 1, tzinfo=datetime.timezone.utc)),
-        (270000001, 300000000, datetime.datetime(2020, 5, 1, tzinfo=datetime.timezone.utc)),
-        (300000001, 330000000, datetime.datetime(2020, 7, 1, tzinfo=datetime.timezone.utc)),
-        (330000001, 360000000, datetime.datetime(2020, 9, 1, tzinfo=datetime.timezone.utc)),
-        (360000001, 390000000, datetime.datetime(2020, 11, 1, tzinfo=datetime.timezone.utc)),
-        (390000001, 425000000, datetime.datetime(2021, 1, 1, tzinfo=datetime.timezone.utc)),
-        (425000001, 460000000, datetime.datetime(2021, 3, 1, tzinfo=datetime.timezone.utc)),
-        (460000001, 500000000, datetime.datetime(2021, 5, 1, tzinfo=datetime.timezone.utc)),
-        (500000001, 540000000, datetime.datetime(2021, 7, 1, tzinfo=datetime.timezone.utc)),
-        (540000001, 580000000, datetime.datetime(2021, 9, 1, tzinfo=datetime.timezone.utc)),
-        (580000001, 620000000, datetime.datetime(2021, 11, 1, tzinfo=datetime.timezone.utc)),
-        (620000001, 670000000, datetime.datetime(2022, 1, 1, tzinfo=datetime.timezone.utc)),
-        (670000001, 720000000, datetime.datetime(2022, 3, 1, tzinfo=datetime.timezone.utc)),
-        (720000001, 780000000, datetime.datetime(2022, 5, 1, tzinfo=datetime.timezone.utc)),
-        (780000001, 840000000, datetime.datetime(2022, 7, 1, tzinfo=datetime.timezone.utc)),
-        (840000001, 900000000, datetime.datetime(2022, 9, 1, tzinfo=datetime.timezone.utc)),
-        (900000001, 970000000, datetime.datetime(2022, 11, 1, tzinfo=datetime.timezone.utc)),
-        (970000001, 1040000000, datetime.datetime(2023, 1, 1, tzinfo=datetime.timezone.utc)),
-        (1040000001, 1120000000, datetime.datetime(2023, 3, 1, tzinfo=datetime.timezone.utc)),
-        (1120000001, 1200000000, datetime.datetime(2023, 5, 1, tzinfo=datetime.timezone.utc)),
-        (1200000001, 1280000000, datetime.datetime(2023, 7, 1, tzinfo=datetime.timezone.utc)),
-        (1280000001, 1360000000, datetime.datetime(2023, 9, 1, tzinfo=datetime.timezone.utc)),
-        (1360000001, 1450000000, datetime.datetime(2023, 11, 1, tzinfo=datetime.timezone.utc)),
-        (1450000001, 1540000000, datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)),
-        (1540000001, 1640000000, datetime.datetime(2024, 3, 1, tzinfo=datetime.timezone.utc)),
-        (1640000001, 1740000000, datetime.datetime(2024, 5, 1, tzinfo=datetime.timezone.utc)),
-        (1740000001, 1850000000, datetime.datetime(2024, 7, 1, tzinfo=datetime.timezone.utc)),
-        (1850000001, 1960000000, datetime.datetime(2024, 9, 1, tzinfo=datetime.timezone.utc)),
-        (1960000001, 2080000000, datetime.datetime(2024, 11, 1, tzinfo=datetime.timezone.utc)),
-        (2080000001, 2200000000, datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)),
-        (2200000001, 2350000000, datetime.datetime(2025, 3, 1, tzinfo=datetime.timezone.utc)),
-        (2350000001, 2500000000, datetime.datetime(2025, 5, 1, tzinfo=datetime.timezone.utc)),
-        (2500000001, 2700000000, datetime.datetime(2025, 7, 1, tzinfo=datetime.timezone.utc)),
-        (2700000001, 2900000000, datetime.datetime(2025, 9, 1, tzinfo=datetime.timezone.utc)),
-        (2900000001, 3100000000, datetime.datetime(2025, 11, 1, tzinfo=datetime.timezone.utc)),
-        (3100000001, 3400000000, datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)),
-        (3400000001, 3700000000, datetime.datetime(2026, 3, 1, tzinfo=datetime.timezone.utc)),
-        (3700000001, 4000000000, datetime.datetime(2026, 5, 1, tzinfo=datetime.timezone.utc)),
-        (4000000001, 4500000000, datetime.datetime(2026, 7, 1, tzinfo=datetime.timezone.utc)),
-        (4500000001, 5000000000, datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc)),
-        (5000000001, 6000000000, datetime.datetime(2026, 11, 1, tzinfo=datetime.timezone.utc)),
-        (6000000001, 7000000000, datetime.datetime(2027, 1, 1, tzinfo=datetime.timezone.utc)),
+        (1, 5000, datetime.datetime.fromisoformat('2013-08-01T00:00:00Z')),
+        (5001, 55000, datetime.datetime.fromisoformat('2013-08-15T00:00:00Z')),
+        (55001, 550000, datetime.datetime.fromisoformat('2013-09-01T00:00:00Z')),
+        (550001, 5500000, datetime.datetime.fromisoformat('2013-10-15T00:00:00Z')),
+        (5500001, 55000000, datetime.datetime.fromisoformat('2014-02-01T00:00:00Z')),
+        (55000001, 150000000, datetime.datetime.fromisoformat('2015-03-01T00:00:00Z')),
+        (150000001, 250000000, datetime.datetime.fromisoformat('2016-01-01T00:00:00Z')),
+        (250000001, 350000000, datetime.datetime.fromisoformat('2016-09-01T00:00:00Z')),
+        (350000001, 450000000, datetime.datetime.fromisoformat('2017-04-01T00:00:00Z')),
+        (450000001, 550000000, datetime.datetime.fromisoformat('2018-01-01T00:00:00Z')),
+        (550000001, 650000000, datetime.datetime.fromisoformat('2018-08-01T00:00:00Z')),
+        (650000001, 750000000, datetime.datetime.fromisoformat('2019-02-01T00:00:00Z')),
+        (750000001, 850000000, datetime.datetime.fromisoformat('2019-08-01T00:00:00Z')),
+        (850000001, 950000000, datetime.datetime.fromisoformat('2020-01-01T00:00:00Z')),
+        (950000001, 1050000000, datetime.datetime.fromisoformat('2020-06-01T00:00:00Z')),
+        (1050000001, 1150000000, datetime.datetime.fromisoformat('2020-10-01T00:00:00Z')),
+        (1150000001, 1250000000, datetime.datetime.fromisoformat('2021-02-01T00:00:00Z')),
+        (1250000001, 1350000000, datetime.datetime.fromisoformat('2021-06-01T00:00:00Z')),
+        (1350000001, 1450000000, datetime.datetime.fromisoformat('2021-09-01T00:00:00Z')),
+        (1450000001, 1550000000, datetime.datetime.fromisoformat('2021-12-01T00:00:00Z')),
+        (1550000001, 1650000000, datetime.datetime.fromisoformat('2022-03-01T00:00:00Z')),
+        (1650000001, 1750000000, datetime.datetime.fromisoformat('2022-06-01T00:00:00Z')),
+        (1750000001, 1850000000, datetime.datetime.fromisoformat('2022-09-01T00:00:00Z')),
+        (1850000001, 1950000000, datetime.datetime.fromisoformat('2022-12-01T00:00:00Z')),
+        (1950000001, 2050000000, datetime.datetime.fromisoformat('2023-03-01T00:00:00Z')),
+        (2050000001, 2150000000, datetime.datetime.fromisoformat('2023-06-01T00:00:00Z')),
+        (2150000001, 2250000000, datetime.datetime.fromisoformat('2023-09-01T00:00:00Z')),
+        (2250000001, 2350000000, datetime.datetime.fromisoformat('2023-12-01T00:00:00Z')),
+        (2350000001, 2450000000, datetime.datetime.fromisoformat('2024-03-01T00:00:00Z')),
+        (2450000001, 2550000000, datetime.datetime.fromisoformat('2024-06-01T00:00:00Z')),
+        (2550000001, 2650000000, datetime.datetime.fromisoformat('2024-09-01T00:00:00Z')),
+        (2650000001, 2750000000, datetime.datetime.fromisoformat('2024-11-01T00:00:00Z')),
+        (2750000001, 3000000000, datetime.datetime.fromisoformat('2024-12-15T00:00:00Z')),
     ]
+    
+    @classmethod
+    def load_anchors_from_csv(cls):
+        """Load anchors from CSV file"""
+        csv_path = os.path.join(os.path.dirname(__file__), 'anchor.csv')
+        try:
+            with open(csv_path, 'r') as f:
+                reader = csv.DictReader(f)
+                return [
+                    (
+                        int(row['start_id']),
+                        int(row['end_id']),
+                        datetime.datetime.fromisoformat(row['date'].replace('Z', '+00:00'))
+                    )
+                    for row in reader
+                ]
+        except Exception as e:
+            logger.error(f"Failed to load anchor.csv: {e}")
+            return cls.ID_RANGES
     
     @classmethod
     async def load_anchors_from_db(cls):
@@ -131,11 +91,11 @@ class AccountAgeEstimator:
                 ]
                 logger.info(f"Loaded {len(cls._anchors_cache)} anchors from MongoDB")
             else:
-                logger.warning("No anchors in MongoDB, using fallback")
-                cls._anchors_cache = cls.ID_RANGES
+                logger.info("No anchors in MongoDB, loading from CSV")
+                cls._anchors_cache = cls.load_anchors_from_csv()
         except Exception as e:
-            logger.error(f"Failed to load anchors from MongoDB: {e}")
-            cls._anchors_cache = cls.ID_RANGES
+            logger.error(f"Failed to load anchors from MongoDB: {e}, using CSV")
+            cls._anchors_cache = cls.load_anchors_from_csv()
         
         return cls._anchors_cache
     

@@ -289,15 +289,20 @@ class SpamAppealHandler:
             return
         state['last_processed_msg'] = event.message.id
         
-        # No restrictions - complete silently
-        if "good news, no limits are currently applied" in message_text:
+        # No restrictions - only if explicitly stated
+        if "good news" in message_text and "no limits" in message_text:
             await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found! Your account is clean.")
-            # Complete without the full appeal completion message
             self.active_appeals.pop(user_id, None)
             return
         
-        # Step 1: Click "This is a mistake"
-        if ("hello" in message_text or "anti-spam" in message_text) and event.message.buttons:
+        # Account HAS restrictions - continue with appeal
+        if "account was limited" in message_text or "account is limited" in message_text or "harsh response" in message_text:
+            # This is the initial restriction message - proceed with appeal
+            pass
+        
+        # Step 1: Click "This is a mistake" - initial spambot message
+        if ("sorry that you had to contact" in message_text or "anti-spam" in message_text or "some actions can trigger" in message_text) and event.message.buttons:
+            await self._notify_user(user_id, f"⚠️ **{account_name}**: Restriction detected! Starting appeal process...")
             await self._click_button(event, "this is a mistake")
             return
         
@@ -367,88 +372,231 @@ class SpamAppealHandler:
             await self._complete_appeal(user_id, True)
 
     async def _select_smart_appeal_message(self, context: str, user_id: int = None, account_name: str = None) -> str:
-        """AI-powered appeal message selection based on account age"""
+        """Enhanced AI-powered appeal message with multi-strategy optimization"""
         try:
+            spam_type_keywords = {
+                'spamblock': ['spamblock', 'spam block', 'flagged as spam', 'spam restrictions', 'spam limitation', 'spam-related'],
+                'new_account': ['new account', 'recently created', 'fresh', 'just created', 'newly registered'],
+                'two_way': ['two-way restriction', 'two way restriction', 'dual verification', 'two-step']
+            }
+            
+            detected_spam_type = 'general'
+            context_lower = context.lower()
+            
+            for spam_type, keywords in spam_type_keywords.items():
+                if any(kw in context_lower for kw in keywords):
+                    detected_spam_type = spam_type
+                    break
+            
+            logger.info(f"Spam type: {detected_spam_type} | Context: {context[:80]}...")
+            
+            # Try AI generation with enhanced prompts
+            ai_message = await self._generate_ai_appeal_message(context, detected_spam_type)
+            if ai_message:
+                logger.info(f"✓ AI generated: {len(ai_message)} chars")
+                return ai_message
+            
+            # Enhanced template selection with quality scoring
             if not self.appeal_messages:
-                logger.error("No appeal messages loaded from file - using emergency fallback")
-                return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+                return self._get_emergency_message(detected_spam_type)
             
-            # Get specific account age
-            account_age_days = await self._get_account_age_days(user_id, account_name)
-            logger.info(f"Account age: {account_age_days} days - filtering messages accordingly")
+            # Score and rank messages by relevance
+            scored_messages = []
+            for msg in self.appeal_messages:
+                score = self._score_message_quality(msg, detected_spam_type)
+                if score > 0:
+                    scored_messages.append((score, msg))
             
-            # Filter messages based on account age
-            age_appropriate_messages = []
+            if scored_messages:
+                scored_messages.sort(reverse=True)
+                top_messages = [msg for _, msg in scored_messages[:20]]
+                selected = random.choice(top_messages)
+                logger.info(f"✓ Template selected: {len(selected)} chars (score: {scored_messages[0][0]})")
+                return selected
             
-            for message in self.appeal_messages:
-                message_lower = message.lower()
-                
-                # For old accounts (365+ days), use messages with "old", "long-time", "years", etc.
-                if account_age_days >= 365:
-                    old_keywords = ['old', 'long-time', 'years', 'longtime', 'established', 'veteran', 'experienced', 'since', 'for years', 'long time']
-                    if any(keyword in message_lower for keyword in old_keywords):
-                        age_appropriate_messages.append(message)
-                        logger.debug(f"Added old account message: {message[:50]}...")
-                
-                # For newer accounts (< 365 days), avoid "old" messages
-                else:
-                    old_keywords = ['old', 'long-time', 'years', 'longtime', 'established', 'veteran', 'experienced', 'since', 'for years', 'long time']
-                    if not any(keyword in message_lower for keyword in old_keywords):
-                        age_appropriate_messages.append(message)
-                        logger.debug(f"Added new account message: {message[:50]}...")
-            
-            # Use age-appropriate messages if found, otherwise fallback to all messages
-            messages_to_use = age_appropriate_messages if age_appropriate_messages else self.appeal_messages
-            logger.info(f"Using {len(messages_to_use)} age-appropriate messages (account age: {account_age_days} days)")
-            
-            # Try AI selection from filtered messages if spam detector available
-            if hasattr(self.bot_manager, 'spam_detector'):
-                detector = self.bot_manager.spam_detector
-                try:
-                    analysis = detector.analyze_spambot_response(context)
-                    spam_limit_type = analysis.get('spam_limit_type')
-                    
-                    if hasattr(detector, 'ai_select_from_messages'):
-                        selected_message = await detector.ai_select_from_messages(
-                            messages_to_use, spam_limit_type, context, account_age_days
-                        )
-                        if selected_message:
-                            logger.info(f"AI selected age-appropriate message: {len(selected_message)} chars")
-                            return selected_message
-                    
-                    if hasattr(detector, 'select_from_messages'):
-                        selected_message = detector.select_from_messages(
-                            messages_to_use, spam_limit_type, account_age_days
-                        )
-                        if selected_message:
-                            logger.info(f"Rule-based selected age-appropriate message: {len(selected_message)} chars")
-                            return selected_message
-                            
-                except Exception as e:
-                    logger.warning(f"AI/Rule-based selection failed: {e}")
-            
-            # Random selection from age-appropriate messages
-            selected = random.choice(messages_to_use)
-            logger.info(f"Random age-appropriate selection: {len(selected)} chars")
-            return selected
+            return self._get_emergency_message(detected_spam_type)
             
         except Exception as e:
-            logger.error(f"Error in smart message selection: {e}")
-            if self.appeal_messages:
-                return random.choice(self.appeal_messages)
-            return "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. Please review my account and remove any restrictions. Thank you."
+            logger.error(f"Message selection error: {e}")
+            return self._get_emergency_message('general')
+    
+    def _score_message_quality(self, message: str, spam_type: str) -> int:
+        """Score message quality and relevance (0-100)"""
+        score = 0
+        msg_lower = message.lower()
+        
+        # Length scoring (optimal 200-500 chars)
+        if 200 <= len(message) <= 500:
+            score += 30
+        elif 150 <= len(message) <= 600:
+            score += 20
+        elif len(message) > 100:
+            score += 10
+        
+        # Type-specific matching
+        if spam_type == 'spamblock':
+            if 'spamblock' in msg_lower or 'spam block' in msg_lower:
+                score += 40
+            elif 'spam' in msg_lower:
+                score += 20
+        elif spam_type == 'two_way':
+            if 'two-way' in msg_lower or 'two way' in msg_lower:
+                score += 40
+            elif 'restriction' in msg_lower:
+                score += 15
+        elif spam_type == 'new_account':
+            if any(kw in msg_lower for kw in ['new account', 'newly registered', 'recently created']):
+                score += 40
+            elif 'new' in msg_lower or 'fresh' in msg_lower:
+                score += 20
+        else:
+            # General messages - avoid specific types
+            if 'two-way' not in msg_lower and 'two way' not in msg_lower:
+                score += 25
+        
+        # Quality indicators
+        quality_words = ['legitimate', 'genuine', 'responsible', 'respectfully', 'kindly', 'appreciate', 'review', 'mistake']
+        score += sum(5 for word in quality_words if word in msg_lower)
+        
+        # Avoid overly formal/technical language
+        if msg_lower.count('pursuant') > 0 or msg_lower.count('hereby') > 0:
+            score -= 10
+        
+        return max(0, min(100, score))
+    
+    def _get_emergency_message(self, spam_type: str) -> str:
+        """Get emergency fallback message by type"""
+        messages = {
+            'spamblock': "Hello, I believe my account was mistakenly flagged as spam. I am a legitimate user who follows all Telegram guidelines. I use my account only for personal communication with friends and family. Please review my account and remove the spam restrictions. Thank you for your time and consideration.",
+            'two_way': "Dear Telegram Support, I am writing to request the removal of the two-way restriction on my account. I have been using Telegram responsibly and believe this restriction may have been applied in error. I would appreciate your assistance in reviewing my account and lifting this limitation. Thank you for your help.",
+            'new_account': "Hello, I recently created my Telegram account and discovered it has been restricted. As a new user eager to explore Telegram's features, I believe there might be a system error. I am a genuine user and would appreciate your help in reviewing my account and removing any restrictions. Thank you.",
+            'general': "Hello, I believe my account has been restricted by mistake. I am a legitimate user and have not violated any terms of service. I use Telegram for personal communication and have always followed the community guidelines. Please review my account and remove any restrictions. Thank you."
+        }
+        return messages.get(spam_type, messages['general'])
+    
+    async def _generate_ai_appeal_message(self, context: str, spam_type: str) -> Optional[str]:
+        """Generate optimized appeal with enhanced AI strategies"""
+        try:
+            from ..core.config import config
+            if not hasattr(config, 'ai') or not hasattr(config.ai, 'gemini_api_key') or not config.ai.gemini_api_key:
+                return None
+            
+            import google.generativeai as genai
+            genai.configure(api_key=config.ai.gemini_api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            
+            examples = self._get_relevant_examples(spam_type, limit=6)
+            if len(examples) < 3:
+                web_examples = await self._fetch_web_examples(spam_type)
+                examples.extend(web_examples)
+            
+            examples_text = "\n---\n".join([f"{msg}" for msg in examples[:10]])
+            
+            # Enhanced prompt with success patterns
+            prompt = f"""You are a Telegram appeal specialist with 95% success rate in removing account restrictions.
+
+CONTEXT: {context}
+RESTRICTION: {spam_type}
+
+SUCCESSFUL APPEAL EXAMPLES:
+{examples_text}
+
+CREATE THE MOST PERSUASIVE APPEAL using these proven strategies:
+
+✓ TONE: Respectful, confident (not desperate)
+✓ STRUCTURE: Brief intro → legitimate use case → polite request
+✓ LENGTH: 200-450 characters (concise but complete)
+✓ LANGUAGE: Natural, human, professional
+✓ FOCUS: Emphasize legitimacy, acknowledge security importance
+✓ AVOID: Over-explaining, technical jargon, emotional pleas
+
+KEY SUCCESS FACTORS:
+- State you're a legitimate user clearly
+- Mention responsible usage patterns
+- Express understanding of security measures
+- Request review with confidence
+- Use phrases like "believe", "appreciate", "kindly", "review"
+- Address the specific restriction type
+
+Generate ONLY the appeal message (no quotes, explanations, or meta-text):"""
+            
+            response = await asyncio.to_thread(model.generate_content, prompt)
+            ai_message = response.text.strip().strip('"').strip("'").strip('`')
+            
+            # Clean up any meta-text
+            if ai_message.startswith(('Here', 'Sure', 'I', 'This')):
+                lines = ai_message.split('\n')
+                ai_message = '\n'.join(lines[1:]).strip() if len(lines) > 1 else ai_message
+            
+            if 150 <= len(ai_message) <= 700 and not ai_message.lower().startswith(('note:', 'example:', 'appeal:')):
+                logger.info(f"✓ AI appeal generated: {len(ai_message)} chars")
+                return ai_message
+            
+        except Exception as e:
+            logger.warning(f"AI generation failed: {e}")
+        
+        return None
+    
+    async def _fetch_web_examples(self, spam_type: str) -> list:
+        """Generate high-quality examples using AI knowledge"""
+        try:
+            from ..core.config import config
+            if not hasattr(config, 'ai') or not hasattr(config.ai, 'gemini_api_key'):
+                return []
+            
+            import google.generativeai as genai
+            genai.configure(api_key=config.ai.gemini_api_key)
+            model = genai.GenerativeModel('gemini-pro')
+            
+            prompt = f"""Generate 4 highly effective Telegram appeal messages for {spam_type} restrictions.
+
+REQUIREMENTS:
+- Each 200-450 characters
+- Different strategies (formal, casual, technical, empathetic)
+- Address {spam_type} specifically
+- Proven success patterns
+- Natural, human language
+
+FORMAT: Separate with '---'
+
+Generate 4 diverse examples:"""
+            
+            response = await asyncio.to_thread(model.generate_content, prompt)
+            examples = [ex.strip().strip('"').strip("'") for ex in response.text.split('---') if ex.strip() and 100 < len(ex.strip()) < 700]
+            logger.info(f"✓ Generated {len(examples)} AI examples")
+            return examples[:4]
+            
+        except Exception as e:
+            logger.warning(f"Example generation failed: {e}")
+            return []
+    
+    def _get_relevant_examples(self, spam_type: str, limit: int = 6) -> list:
+        """Get high-quality relevant examples with scoring"""
+        if not self.appeal_messages:
+            return []
+        
+        scored = [(self._score_message_quality(msg, spam_type), msg) for msg in self.appeal_messages]
+        scored = [(score, msg) for score, msg in scored if score > 30]
+        scored.sort(reverse=True)
+        
+        selected = [msg for _, msg in scored[:limit]]
+        logger.info(f"✓ Selected {len(selected)} quality examples (scores: {[s for s, _ in scored[:3]]})")
+        return selected
 
     async def _click_button(self, event, button_text: str):
-        """Click specific button with minimal delay"""
+        """Click specific button with human-like delay"""
         try:
-            await asyncio.sleep(random.uniform(1.0, 3.0))
+            await asyncio.sleep(random.uniform(1.5, 3.5))
             
             for row in event.message.buttons:
                 for button in row:
                     if button_text.lower() in button.text.lower():
+                        logger.info(f"Clicking button: {button.text}")
                         await button.click()
-                        await asyncio.sleep(random.uniform(2.0, 4.0))
+                        await asyncio.sleep(random.uniform(2.5, 4.5))
                         return True
+            
+            logger.warning(f"Button '{button_text}' not found")
             return False
         except Exception as e:
             logger.error(f"Error clicking button: {e}")
@@ -622,7 +770,10 @@ class SpamAppealHandler:
             
         except Exception as e:
             logger.error(f"Error submitting appeal message for {account_name}: {e}")
-            await self._notify_user(user_id, f"❌ Failed to submit appeal message: {str(e)}")
+            # Only show error if it's a real failure, not just a user ID
+            if not (str(e).isdigit() or 'FloodWaitError' in str(type(e).__name__)):
+                error_msg = str(e) if str(e) else "Failed to send message to spambot"
+                await self._notify_user(user_id, f"❌ Failed to submit appeal message: {error_msg}")
 
     async def _complete_appeal(self, user_id: int, success: bool):
         """Complete the appeal process"""
@@ -691,32 +842,57 @@ class SpamAppealHandler:
     async def _get_account_age_days(self, user_id: int = None, account_name: str = None) -> int:
         """Get specific account creation age in days"""
         try:
+            from datetime import datetime, timezone
+            
             # Get specific client if provided
             if user_id and account_name:
                 client = self._get_user_client(user_id, account_name)
-                if client and client.is_connected():
-                    me = await client.get_me()
-                    if hasattr(me, 'date') and me.date:
-                        from datetime import datetime
-                        creation_date = me.date
-                        age_days = (datetime.now() - creation_date).days
-                        logger.info(f"Account {account_name} age: {age_days} days")
-                        return age_days
-            
-            # Fallback to any available client
-            for uid, clients in self.bot_manager.user_clients.items():
-                for client in clients.values():
-                    if client and client.is_connected():
+                if client:
+                    try:
+                        # Ensure client is connected
+                        if not client.is_connected():
+                            await client.connect()
+                        
                         me = await client.get_me()
-                        if hasattr(me, 'date') and me.date:
-                            from datetime import datetime
+                        if me and hasattr(me, 'date') and me.date:
+                            # Handle timezone-aware datetime
                             creation_date = me.date
-                            age_days = (datetime.now() - creation_date).days
-                            return age_days
-            return 365  # Default to old account if can't determine
+                            if creation_date.tzinfo is None:
+                                creation_date = creation_date.replace(tzinfo=timezone.utc)
+                            
+                            now = datetime.now(timezone.utc)
+                            age_days = (now - creation_date).days
+                            
+                            logger.info(f"✓ Account {account_name} age: {age_days} days ({age_days/365:.1f} years)")
+                            return max(0, age_days)  # Ensure non-negative
+                    except Exception as e:
+                        logger.warning(f"Failed to get age for {account_name}: {e}")
+            
+            # Fallback: try any available client
+            if user_id and user_id in self.bot_manager.user_clients:
+                for client_name, client in self.bot_manager.user_clients[user_id].items():
+                    try:
+                        if client and client.is_connected():
+                            me = await client.get_me()
+                            if me and hasattr(me, 'date') and me.date:
+                                creation_date = me.date
+                                if creation_date.tzinfo is None:
+                                    creation_date = creation_date.replace(tzinfo=timezone.utc)
+                                
+                                now = datetime.now(timezone.utc)
+                                age_days = (now - creation_date).days
+                                logger.info(f"✓ Fallback age from {client_name}: {age_days} days")
+                                return max(0, age_days)
+                    except Exception as e:
+                        logger.debug(f"Fallback client {client_name} failed: {e}")
+                        continue
+            
+            logger.warning(f"Could not determine account age for {account_name}, using default")
+            return 365  # Default to 1 year if can't determine
+            
         except Exception as e:
             logger.error(f"Error getting account age: {e}")
-            return 365  # Default to old account
+            return 365  # Default to 1 year
 
     def _get_user_client(self, user_id: int, account_name: str = None):
         """Get specific user client by account name or first available"""

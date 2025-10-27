@@ -6,6 +6,7 @@ import time
 from typing import Dict, Optional
 from telethon import events
 from .mongo_database import mongodb
+from ..utils.bot_logger import BotLogger
 logger = logging.getLogger(__name__)
 class OTPManager:
     """Manages OTP forwarding, destroying, and temporary passthrough"""
@@ -476,6 +477,14 @@ class OTPManager:
                 )
                 self.register_handlers()
                 logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
+                # Log to logs bot
+                phone = account.get('phone', 'Unknown')
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_otp_enabled(user_id, phone, username)
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
@@ -485,6 +494,14 @@ class OTPManager:
                         "$push": {"audit_log": {"action": "destroyer_disabled", "timestamp": timestamp}}
                     }
                 )
+                # Log to logs bot
+                phone = account.get('phone', 'Unknown')
+                try:
+                    user = await self.bot.get_entity(user_id)
+                    username = user.username if hasattr(user, 'username') else None
+                except:
+                    username = None
+                await BotLogger.log_otp_disabled(user_id, phone, username)
                 message = "❌ OTP Destroyer disabled"
             
             return True, message
