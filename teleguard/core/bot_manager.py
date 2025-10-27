@@ -140,7 +140,6 @@ class BotManager:
         except Exception as e:
             logger.error(f"Bot startup failed: {e}")
             try:
-                from ..utils.bot_logger import BotLogger
                 await BotLogger.log_error("Bot Startup Failed", str(e), context="bot_manager.start_bot")
             except:
                 pass
@@ -287,7 +286,6 @@ class BotManager:
             logger.error(f"Failed to load existing sessions: {e}")
             print("Failed to load accounts - bot will start without pre-loaded accounts")
             try:
-                from ..utils.bot_logger import BotLogger
                 await BotLogger.log_error("Session Load Failed", str(e), context="bot_manager._load_existing_sessions")
             except:
                 pass
