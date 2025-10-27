@@ -580,7 +580,14 @@ class MessageHandlers:
             )
             if account:
                 account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                client = self.user_clients.get(user_id, {}).get(account_name)
+                # Try multiple keys to find the client
+                client = None
+                user_clients_dict = self.user_clients.get(user_id, {})
+                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
+                    if key and key in user_clients_dict:
+                        client = user_clients_dict[key]
+                        if client and client.is_connected():
+                            break
                 if client:
                     try:
                         from telethon import functions
@@ -606,7 +613,14 @@ class MessageHandlers:
             )
             if account:
                 account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                client = self.user_clients.get(user_id, {}).get(account_name)
+                # Try multiple keys to find the client
+                client = None
+                user_clients_dict = self.user_clients.get(user_id, {})
+                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
+                    if key and key in user_clients_dict:
+                        client = user_clients_dict[key]
+                        if client and client.is_connected():
+                            break
                 if client:
                     try:
                         from telethon import functions
@@ -627,7 +641,14 @@ class MessageHandlers:
             )
             if account:
                 account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                client = self.user_clients.get(user_id, {}).get(account_name)
+                # Try multiple keys to find the client
+                client = None
+                user_clients_dict = self.user_clients.get(user_id, {})
+                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
+                    if key and key in user_clients_dict:
+                        client = user_clients_dict[key]
+                        if client and client.is_connected():
+                            break
                 if client:
                     try:
                         from telethon import functions

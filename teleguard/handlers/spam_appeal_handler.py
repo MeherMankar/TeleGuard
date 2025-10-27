@@ -243,7 +243,7 @@ class SpamAppealHandler:
                 return
             
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
-            client = self._get_user_client(user_id, account_name)
+            client = await self._get_user_client(user_id, account_name)
             
             if not client:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' not connected.")
@@ -641,7 +641,7 @@ Generate 4 diverse examples:"""
         try:
             # Get account name and specific client
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
-            client = self._get_user_client(user_id, account_name)
+            client = await self._get_user_client(user_id, account_name)
             if not client:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' client not found.")
                 return
@@ -684,7 +684,7 @@ Generate 4 diverse examples:"""
         try:
             # Get account name and specific client
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
-            client = self._get_user_client(user_id, account_name)
+            client = await self._get_user_client(user_id, account_name)
             if not client:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' client not found.")
                 return
@@ -894,7 +894,7 @@ Generate 4 diverse examples:"""
             logger.error(f"Error getting account age: {e}")
             return 365  # Default to 1 year
 
-    def _get_user_client(self, user_id: int, account_name: str = None):
+    async def _get_user_client(self, user_id: int, account_name: str = None):
         """Get specific user client by account name or first available"""
         try:
             user_clients = self.bot_manager.user_clients.get(user_id, {})
@@ -909,11 +909,8 @@ Generate 4 diverse examples:"""
                 
                 # Try to find by checking all stored names for this account
                 from ..core.mongo_database import mongodb
-                import asyncio
                 try:
-                    account = asyncio.get_event_loop().run_until_complete(
-                        mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                    )
+                    account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
                     if account:
                         # Try phone, display_name, and other variations
                         for key in ['phone', 'display_name', 'first_name']:
