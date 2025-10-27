@@ -156,7 +156,7 @@ class OTPMetrics:
             stats["top_accounts"] = top_accounts
             
             # Get recent activity sparkline (last 7 days)
-            sparkline = await OTPMetrics.get_activity_sparkline(days=7)
+            sparkline = await OTPMetrics.get_activity_sparkline(7)
             stats["sparkline"] = sparkline
             
             return stats
@@ -265,7 +265,7 @@ class OTPMetrics:
             return []
     
     @staticmethod
-    async def get_activity_sparkline(days: int = 7) -> str:
+    async def get_activity_sparkline(days: int) -> str:
         """
         Generate ASCII sparkline for recent activity
         

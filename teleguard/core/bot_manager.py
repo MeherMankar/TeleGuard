@@ -860,11 +860,18 @@ class BotManager:
         """
         try:
             await self._start_user_client(user_id, account_name, session_string)
-            if self.otp_manager:
-                client = self.user_clients[user_id][account_name]
+            
+            # Get the client that was just added
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            
+            # Setup OTP handler for the new client
+            if self.otp_manager and client:
                 await self.otp_manager.setup_handler_for_new_client(user_id, account_name, client)
-            if self.dm_reply_handler:
-                client = self.user_clients[user_id][account_name]
+                logger.info(f"OTP handler setup completed for {account_name}")
+            else:
+                logger.warning(f"Could not setup OTP handler - manager: {bool(self.otp_manager)}, client: {bool(client)}")
+            # Setup DM reply handler
+            if self.dm_reply_handler and client:
                 await self.dm_reply_handler.setup_new_client_handler(user_id, account_name, client)
             logger.info(LogFormatter.format_user_action(
                 user_id, "account_added", {"account_name": account_name}

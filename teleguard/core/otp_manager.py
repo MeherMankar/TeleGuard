@@ -447,8 +447,126 @@ class OTPManager:
 
     async def setup_handler_for_new_client(self, user_id: int, account_name: str, client):
         """Setup OTP handler for newly added client"""
-        logger.info(f"Setting up OTP handler for new client: {user_id}:{account_name}")
-        self.register_handlers()
+        if not client or not client.is_connected():
+            logger.warning(f"Cannot setup OTP handler - client not connected for {account_name}")
+            return
+        
+        handler_key = f"{user_id}:{account_name}"
+        
+        # Skip if already registered
+        if handler_key in self.registered_handlers:
+            logger.debug(f"OTP handler already registered for {handler_key}")
+            return
+        
+        logger.info(f"Setting up OTP handler for new client: {handler_key}")
+        
+        # Define the handler inline to avoid scope issues
+        async def otp_handler(event):
+            """Handle OTP messages from Telegram official account"""
+            try:
+                self._periodic_cleanup()
+                
+                message_text = event.message.message
+                if not self._is_login_code(message_text):
+                    return
+                
+                message_key = f"{event.message.id}:{int(time.time()//2)}"
+                if hasattr(self, '_processed_messages'):
+                    if message_key in self._processed_messages:
+                        return
+                else:
+                    self._processed_messages = set()
+                self._processed_messages.add(message_key)
+                
+                if len(self._processed_messages) > 50:
+                    self._processed_messages = set(list(self._processed_messages)[-25:])
+                
+                account_info = await self._find_account_for_message(event)
+                if not account_info:
+                    return
+                
+                msg_user_id, msg_account_name, account = account_info
+                otp_code = self._extract_otp_code(message_text)
+                
+                # Check fresh session
+                fresh_session_key = f"{account.get('phone')}:{otp_code}"
+                if fresh_session_key in self.fresh_session_otps:
+                    await event.delete()
+                    return
+                
+                # Check temp passthrough
+                if self._is_temp_passthrough_active(msg_user_id, msg_account_name):
+                    await self._forward_otp(msg_user_id, msg_account_name, otp_code, message_text, temp=True)
+                    await event.delete()
+                    return
+                
+                # Check destroyer
+                if account.get("otp_destroyer_enabled", False):
+                    otp_key = f"{msg_user_id}:{msg_account_name}:{otp_code}:{int(time.time()//5)}"
+                    if otp_key in self.processed_otps:
+                        await event.delete()
+                        return
+                    self.processed_otps.add(otp_key)
+                    
+                    if len(self.processed_otps) > 200:
+                        self.processed_otps = set(list(self.processed_otps)[-100:])
+                    
+                    try:
+                        from telethon import functions
+                        result = await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
+                        await event.delete()
+                        
+                        await mongodb.db.accounts.update_one(
+                            {"user_id": int(msg_user_id), "name": str(msg_account_name)},
+                            {"$push": {"audit_log": {
+                                "action": "otp_destroyed",
+                                "code": otp_code,
+                                "message": message_text[:50],
+                                "timestamp": int(time.time())
+                            }}}
+                        )
+                        
+                        notification_key = f"{msg_user_id}:{msg_account_name}:{otp_code}:{int(time.time()//10)}"
+                        if notification_key not in self.sent_notifications:
+                            self.sent_notifications.add(notification_key)
+                            if len(self.sent_notifications) > 100:
+                                self.sent_notifications = set(list(self.sent_notifications)[-50:])
+                            
+                            await self.bot.send_message(
+                                msg_user_id,
+                                f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
+                                f"🔒 **Account Protected:** {msg_account_name}\n"
+                                f"🚫 **Login Code Destroyed:** {otp_code}\n"
+                                f"⚡ **Unauthorized Access Blocked**\n\n"
+                                f"✅ **Security Status:** Login codes permanently invalidated\n"
+                                f"❌ **Attacker Impact:** Will receive 'Invalid/Expired Code' error\n"
+                                f"🛡️ **Your Account:** Remains fully secure",
+                            )
+                    except Exception as destroy_error:
+                        logger.error(f"Failed to invalidate OTP: {destroy_error}")
+                        await event.delete()
+                    return
+                
+                # Check forwarding
+                if account.get("otp_forward_enabled", False):
+                    await self._forward_otp(msg_user_id, msg_account_name, otp_code, message_text)
+                    await event.delete()
+                    return
+                    
+            except Exception as e:
+                logger.error(f"OTP handler error: {e}")
+        
+        # Register the handler
+        try:
+            client.add_event_handler(otp_handler, events.NewMessage(chats=[777000, 42777]))
+            self.registered_handlers.add(handler_key)
+            
+            if hasattr(self.bot_manager, 'registered_handlers'):
+                self.bot_manager.registered_handlers["otp"].add(handler_key)
+            
+            logger.info(f"✅ OTP handler registered for new client: {handler_key}")
+        except Exception as e:
+            logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
 
     async def toggle_destroyer(
         self, user_id: int, account_id: str, enabled: bool, disable_password: str = None
