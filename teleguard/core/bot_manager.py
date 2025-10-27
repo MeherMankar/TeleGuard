@@ -139,6 +139,11 @@ class BotManager:
             logger.info("TeleGuard Bot started successfully")
         except Exception as e:
             logger.error(f"Bot startup failed: {e}")
+            try:
+                from ..utils.bot_logger import BotLogger
+                await BotLogger.log_error("Bot Startup Failed", str(e), context="bot_manager.start_bot")
+            except:
+                pass
             await self.cleanup()
             raise TeleGuardError("Bot startup failed", details={'error': str(e)})
     def _validate_configuration(self) -> None:
@@ -281,6 +286,11 @@ class BotManager:
         except Exception as e:
             logger.error(f"Failed to load existing sessions: {e}")
             print("Failed to load accounts - bot will start without pre-loaded accounts")
+            try:
+                from ..utils.bot_logger import BotLogger
+                await BotLogger.log_error("Session Load Failed", str(e), context="bot_manager._load_existing_sessions")
+            except:
+                pass
         
 
     async def _start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:

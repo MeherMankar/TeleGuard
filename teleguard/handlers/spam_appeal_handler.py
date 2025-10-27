@@ -904,11 +904,31 @@ Generate 4 diverse examples:"""
                 # Try exact match first
                 client = user_clients.get(account_name)
                 if client and client.is_connected():
+                    logger.info(f"Found client by exact name: {account_name}")
                     return client
+                
+                # Try to find by checking all stored names for this account
+                from ..core.mongo_database import mongodb
+                import asyncio
+                try:
+                    account = asyncio.get_event_loop().run_until_complete(
+                        mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    )
+                    if account:
+                        # Try phone, display_name, and other variations
+                        for key in ['phone', 'display_name', 'first_name']:
+                            if key in account and account[key]:
+                                client = user_clients.get(account[key])
+                                if client and client.is_connected():
+                                    logger.info(f"Found client by {key}: {account[key]}")
+                                    return client
+                except Exception as e:
+                    logger.debug(f"Could not check database for account variations: {e}")
             
             # Fallback to first available client
-            for client in user_clients.values():
+            for name, client in user_clients.items():
                 if client and client.is_connected():
+                    logger.warning(f"Using fallback client: {name}")
                     return client
             return None
         except Exception as e:

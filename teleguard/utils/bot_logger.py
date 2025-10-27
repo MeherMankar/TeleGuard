@@ -137,3 +137,21 @@ class BotLogger:
     async def log_contacts_exported(cls, user_id: int, phone: str, count: int, username: Optional[str] = None):
         """Log contacts export"""
         await cls.log(user_id, "Contacts Exported", f"📱 Phone: {phone}\n📊 Count: {count}", username)
+    
+    @classmethod
+    async def log_error(cls, error_type: str, error_msg: str, user_id: Optional[int] = None, context: str = ""):
+        """Log errors to logs bot"""
+        if not cls._logs_bot or not cls._log_chat_id:
+            return
+        
+        try:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            user_info = f"User ID: {user_id}" if user_id else "System"
+            message = f"🚨 **Error Log**\n🕐 {timestamp}\n👤 {user_info}\n❌ **{error_type}**\n📝 {error_msg}"
+            if context:
+                message += f"\n🔍 Context: {context}"
+            
+            await cls._logs_bot.send_message(cls._log_chat_id, message)
+            logger.info(f"Error log sent: {error_type}")
+        except Exception as e:
+            logger.error(f"Failed to send error log: {e}")

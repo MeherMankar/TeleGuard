@@ -33,9 +33,14 @@ class MessageHandlers:
             except Exception as e:
                 logger.error(f"Unhandled exception in reply_handler: {e}")
                 try:
+                    from ..utils.bot_logger import BotLogger
+                    await BotLogger.log_error("Message Handler Error", str(e), user_id=event.sender_id, context="reply_handler")
+                except:
+                    pass
+                try:
                     await event.reply("❌ An error occurred. Please try again or contact support.")
                 except Exception:
-                    pass  # Ignore if we can't send error message
+                    pass
     async def _handle_photo_upload(self, event):
         """Handle photo uploads for profile changes"""
         user_id = event.sender_id
