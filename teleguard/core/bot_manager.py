@@ -555,6 +555,8 @@ class BotManager:
         from ..handlers.session_login_handler import SessionLoginHandler
         from ..handlers.dm_reply_commands import DMReplyCommands
         from ..handlers.dm_reply_handler import DMReplyHandler
+        from ..handlers.contact_handler import ContactHandler
+        from ..handlers.contact_export_handler import ContactExportHandler
 
         
         self.command_handlers = await self.component_manager.initialize_component(
@@ -577,6 +579,12 @@ class BotManager:
         )
         self.dm_reply_handler = await self.component_manager.initialize_component(
             "dm_reply_handler", DMReplyHandler, self
+        )
+        self.contact_handler = await self.component_manager.initialize_component(
+            "contact_handler", ContactHandler, self
+        )
+        self.contact_export_handler = await self.component_manager.initialize_component(
+            "contact_export_handler", ContactExportHandler, self
         )
         
         from ..handlers.admin_handlers import AdminHandlers

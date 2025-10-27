@@ -93,9 +93,34 @@ TELEGRAM_BACKUP_CHANNEL=-1001234567890
 | 📨 **DM Reply Manager** | Centralized DM management with topic creation | ✅ Active |
 | 📢 **Channel Manager** | Join, leave, create, manage channels | ✅ Active |
 | 👥 **Contact Export** | Export Telegram contacts to CSV format | ✅ Active |
+| 👥 **Contact Management** | Add, search, and organize contacts | ✅ Active |
+| 🏷️ **Contact Tags** | Tag and categorize contacts | ✅ Active |
+| 📁 **Contact Groups** | Create and manage contact groups | ✅ Active |
+| 📥 **Contact Import** | Import contacts from external sources | ✅ Active |
+| 🔄 **Contact Sync** | Two-way Telegram contact synchronization | ✅ Active |
 | 🤖 **Bot Message Handling** | Direct bot notifications without topics | ✅ Active |
 | 💾 **Expanded Backups** | User settings, IDs, and sessions to Telegram | ✅ Active |
 | ☁️ **Cloud Ready** | Deploy on Heroku, Koyeb, Docker | ✅ Active |
+
+### 🔮 Coming Soon Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| 🔐 **OTP Password Protection** | Set password to disable OTP Destroyer | 🔨 In Development |
+| 📤 **Session Export** | Export session strings and files | 🔨 In Development |
+| 📥 **Session Import** | Import existing session files | 🔨 In Development |
+| 🔍 **Session Validator** | Validate session strings and check DC info | 🔨 In Development |
+| 📊 **Messaging Statistics** | Detailed messaging analytics and insights | 📋 Planned |
+| 📋 **Message History** | Complete message history tracking | 📋 Planned |
+| ⚙️ **Messaging Settings** | Advanced messaging configuration | 📋 Planned |
+| 🔍 **Channel Discovery** | Search and discover new channels | 📋 Planned |
+| 📊 **Channel Statistics** | Global channel performance metrics | 📋 Planned |
+| 📊 **System Dashboard** | Real-time system monitoring and metrics | 📋 Planned |
+| 📋 **System Logs** | Comprehensive system logging | 📋 Planned |
+| ⚡ **Performance Monitor** | System performance analytics | 📋 Planned |
+| 🔧 **Maintenance Tools** | Advanced system maintenance utilities | 📋 Planned |
+| 📚 **Video Tutorials** | Step-by-step video guides | 📋 Planned |
+| 📨 **TData Import** | Import TData session format | 🔮 Future |
 
 ### 🛡️ OTP Destroyer Protection
 - **Real-time Protection**: Automatically invalidates unauthorized login codes
