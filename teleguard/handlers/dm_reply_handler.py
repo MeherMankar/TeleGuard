@@ -178,47 +178,50 @@ class DMReplyHandler:
         @self.bot.on(events.NewMessage())
         async def handle_topic_reply(event):
             try:
-                # Check if message is in a forum group
+                # Only process group messages
                 if not event.is_group:
                     return
                 
-                # Get topic ID from the message
-                reply_to = getattr(event.message, 'reply_to', None)
-                topic_id = None
-                
-                if reply_to:
-                    # Try reply_to_top_id first (forum topics)
-                    topic_id = getattr(reply_to, 'reply_to_top_id', None)
-                    # If not found, try reply_to_msg_id
-                    if not topic_id:
-                        topic_id = getattr(reply_to, 'reply_to_msg_id', None)
-                    # Also check forum_topic attribute
-                    if not topic_id and hasattr(reply_to, 'forum_topic') and reply_to.forum_topic:
-                        topic_id = getattr(reply_to, 'reply_to_msg_id', None)
-                
-                # If still no topic_id, check if message itself is in a topic thread
-                if not topic_id and hasattr(event.message, 'reply_to_msg_id'):
-                    topic_id = event.message.reply_to_msg_id
-                
-                if not topic_id:
-                    return
-                    
+                # Check if this is from a user with DM reply enabled
                 user = await mongodb.db.users.find_one({"dm_reply_group_id": event.chat_id})
                 if not user or event.sender_id != user["telegram_id"]:
                     return
                 
+                # Skip if no text
+                if not event.text:
+                    return
+                
+                # Get topic ID - check multiple attributes
+                topic_id = None
+                reply_to = getattr(event.message, 'reply_to', None)
+                
+                if reply_to:
+                    # Forum topics use reply_to_top_id
+                    topic_id = getattr(reply_to, 'reply_to_top_id', None)
+                    if not topic_id:
+                        topic_id = getattr(reply_to, 'reply_to_msg_id', None)
+                
+                # If no reply_to, check if message is directly in a topic
+                if not topic_id and hasattr(event.message, 'reply_to_msg_id'):
+                    topic_id = event.message.reply_to_msg_id
+                
+                logger.info(f"Topic reply detected: topic_id={topic_id}, chat={event.chat_id}, text={event.text[:50]}")
+                
+                if not topic_id:
+                    logger.debug("No topic_id found, skipping")
+                    return
+                
+                # Find topic mapping
                 topic_mapping = await mongodb.db.dm_topics.find_one({
                     "group_id": event.chat_id,
                     "topic_id": topic_id
                 })
                 
                 if not topic_mapping:
-                    logger.debug(f"No topic mapping found for topic_id {topic_id} in group {event.chat_id}")
-                    return
-                
-                # Check if message has text
-                if not event.text:
-                    logger.debug("Message has no text, skipping")
+                    logger.warning(f"No mapping found for topic {topic_id} in group {event.chat_id}")
+                    # List all mappings for debugging
+                    all_mappings = await mongodb.db.dm_topics.find({"group_id": event.chat_id}).to_list(None)
+                    logger.info(f"Available mappings: {[(m['topic_id'], m.get('topic_title')) for m in all_mappings]}")
                     return
                 
                 sender_id = topic_mapping["sender_id"]
@@ -226,22 +229,26 @@ class DMReplyHandler:
                 
                 managed_client = await self._get_client_by_account_id(account_id)
                 if not managed_client:
-                    await event.reply(f"❌ Account client not found")
-                    logger.error(f"No client found for account_id {account_id}")
+                    error_msg = f"❌ Account client not found (ID: {account_id})"
+                    await event.reply(error_msg)
+                    logger.error(error_msg)
                     return
                 
-                # AI-enhance reply if enabled
                 reply_text = event.text
+                logger.info(f"Sending reply from account {account_id} to user {sender_id}")
+                
+                # AI-enhance reply if enabled
                 if self.ai_model and await self._is_ai_enhancement_enabled(user["telegram_id"]):
                     enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, managed_client)
                     if enhanced_reply:
                         reply_text = enhanced_reply
                 
-                # Extremely realistic human reply behavior
+                # Simulate human typing
                 await self._simulate_human_reply_behavior(managed_client, sender_id, reply_text)
                 
+                # Send the message
                 await managed_client.send_message(sender_id, reply_text)
-                logger.info(f"Reply sent from account {account_id} to {sender_id}: {reply_text[:50]}")
+                logger.info(f"✅ Reply sent: {reply_text[:50]}")
                 await event.reply("✅ Reply sent successfully!")
                 
             except Exception as e:

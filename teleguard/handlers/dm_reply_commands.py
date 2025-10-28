@@ -136,3 +136,41 @@ class DMReplyCommands:
         except Exception as e:
             logger.error(f"Error setting DM group: {e}")
             await event.reply("❌ An error occurred. Please try again.")
+        
+        @self.bot.on(events.NewMessage(pattern=r'^/debug_topics$'))
+        async def debug_topics_command(event):
+            """Debug command to check topic mappings"""
+            if not event.is_private:
+                return
+            
+            user_id = event.sender_id
+            from ..core.mongo_database import mongodb
+            
+            try:
+                # Get user's DM group
+                user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                if not user or not user.get("dm_reply_group_id"):
+                    await event.reply("❌ No DM reply group configured. Use /set_dm_group first.")
+                    return
+                
+                group_id = user["dm_reply_group_id"]
+                
+                # Get all topic mappings
+                mappings = await mongodb.db.dm_topics.find({"group_id": group_id}).to_list(None)
+                
+                if not mappings:
+                    await event.reply(f"📊 **Topic Mappings**\n\nNo topics found for group {group_id}")
+                    return
+                
+                msg = f"📊 **Topic Mappings** ({len(mappings)} topics)\n\n"
+                for m in mappings:
+                    msg += f"📌 **{m.get('topic_title', 'Unknown')}**\n"
+                    msg += f"  Topic ID: `{m['topic_id']}`\n"
+                    msg += f"  Sender: `{m['sender_id']}`\n"
+                    msg += f"  Account: `{m['account_id']}`\n\n"
+                
+                await event.reply(msg)
+                
+            except Exception as e:
+                logger.error(f"Debug topics error: {e}")
+                await event.reply(f"❌ Error: {e}")
