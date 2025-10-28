@@ -174,7 +174,15 @@ class UnifiedMessagingSystem:
                     return None
             except Exception as e:
                 return None
-            topic_title = self._get_topic_title(sender)
+            # Get account info for topic title
+            account_client = await self._get_client_by_id(account_id)
+            account_info = None
+            if account_client:
+                try:
+                    account_info = await account_client.get_me()
+                except Exception:
+                    pass
+            topic_title = self._get_topic_title(sender, account_info)
             try:
                 result = await self.bot(functions.channels.CreateForumTopicRequest(
                     channel=admin_group_id,
@@ -221,16 +229,30 @@ class UnifiedMessagingSystem:
         except Exception as e:
             logger.error(f"Failed to find existing topic: {e}")
             return None
-    def _get_topic_title(self, sender) -> str:
-        """Generate topic title from sender info"""
+    def _get_topic_title(self, sender, account_info=None) -> str:
+        """Generate topic title from sender and account info"""
+        # Get sender name
         if hasattr(sender, 'first_name') and sender.first_name:
-            title = sender.first_name
+            sender_name = sender.first_name
             if hasattr(sender, 'last_name') and sender.last_name:
-                title += f" {sender.last_name}"
+                sender_name += f" {sender.last_name}"
         elif hasattr(sender, 'username') and sender.username:
-            title = f"@{sender.username}"
+            sender_name = f"@{sender.username}"
         else:
-            title = f"User {sender.id}"
+            sender_name = f"User {sender.id}"
+        
+        # Get account name
+        if account_info:
+            if hasattr(account_info, 'username') and account_info.username:
+                account_name = f"@{account_info.username}"
+            elif hasattr(account_info, 'first_name') and account_info.first_name:
+                account_name = account_info.first_name
+            else:
+                account_name = f"Account {account_info.id}"
+        else:
+            account_name = "Account"
+        
+        title = f"{sender_name} → {account_name}"
         return title[:100]  # Telegram limit
     async def _store_topic_mapping(self, admin_group_id: int, topic_id: int, sender_id: int, account_id: int):
         """Store topic mapping in database"""
