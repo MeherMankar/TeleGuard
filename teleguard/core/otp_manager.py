@@ -416,6 +416,7 @@ class OTPManager:
                 f"📝 **Full Message:**\n{full_text}{footer}"
             )
             await self.bot.send_message(user_id, formatted_message)
+            logger.info(f"OTP forwarded to user {user_id} for account {account_name}: {otp_code}")
         except Exception as e:
             logger.error(f"Error forwarding OTP: {e}")
     def _is_temp_passthrough_active(self, user_id: int, account_name: str) -> bool:
@@ -718,5 +719,38 @@ class OTPManager:
                 del self.temp_passthrough[user_id]
             return False
         return True
+    
+    async def enable_temp_passthrough(self, user_id: int, account_id: str, password: str = None) -> tuple[bool, str]:
+        """Enable temporary OTP passthrough for 5 minutes (disables destroyer, enables forwarding)"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                return False, "Account not found"
+            
+            if not account.get("otp_destroyer_enabled", False):
+                return False, "⚠️ OTP Destroyer is not enabled. Use regular OTP forwarding instead."
+            
+            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+            expiry_time = time.time() + 300  # 5 minutes
+            
+            # Set temp passthrough key
+            temp_key = f"{account_name}_temp_otp"
+            self.temp_passthrough.setdefault(user_id, {})[temp_key] = {"expiry": expiry_time}
+            
+            # Log the action
+            await mongodb.db.accounts.update_one(
+                {"_id": ObjectId(account_id)},
+                {"$push": {"audit_log": {
+                    "action": "temp_otp_enabled",
+                    "duration": "5_minutes",
+                    "timestamp": int(time.time())
+                }}}
+            )
+            
+            return True, f"⏰ **Temp OTP Enabled!**\n\n🔓 OTP Destroyer paused for 5 minutes\n📨 OTP codes will be forwarded to you\n\n⏱️ Expires in 5 minutes"
+        except Exception as e:
+            logger.error(f"Error enabling temp passthrough: {e}")
+            return False, f"Error: {str(e)}"
 
 

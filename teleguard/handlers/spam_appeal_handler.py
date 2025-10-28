@@ -595,6 +595,14 @@ Generate 4 diverse examples:"""
         try:
             await asyncio.sleep(random.uniform(1.5, 3.5))
             
+            # Log available buttons for debugging
+            available_buttons = []
+            for row in event.message.buttons:
+                for button in row:
+                    available_buttons.append(button.text)
+            logger.info(f"Available buttons: {available_buttons}")
+            logger.info(f"Looking for button containing: '{button_text}'")
+            
             for row in event.message.buttons:
                 for button in row:
                     if button_text.lower() in button.text.lower():
@@ -603,7 +611,7 @@ Generate 4 diverse examples:"""
                         await asyncio.sleep(random.uniform(2.5, 4.5))
                         return True
             
-            logger.warning(f"Button '{button_text}' not found")
+            logger.warning(f"Button '{button_text}' not found. Available: {available_buttons}")
             return False
         except Exception as e:
             logger.error(f"Error clicking button: {e}")
