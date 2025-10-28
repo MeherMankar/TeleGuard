@@ -66,7 +66,7 @@ class BotLogger:
             await cls._logs_bot.send_message(cls._log_chat_id, message)
             logger.info(f"Log sent to {cls._log_chat_id}: {action}")
         except Exception as e:
-            logger.error(f"Failed to send log to {cls._log_chat_id}: {e}")
+            logger.debug(f"Failed to send log to {cls._log_chat_id}: {e}")
     
     @classmethod
     async def log_account_added(cls, user_id: int, phone: str, username: Optional[str] = None):
@@ -156,7 +156,7 @@ class BotLogger:
             await cls._logs_bot.send_message(cls._log_chat_id, message)
             logger.info(f"Error log sent: {error_type}")
         except Exception as e:
-            logger.error(f"Failed to send error log: {e}")
+            logger.debug(f"Failed to send error log: {e}")
     
     @classmethod
     def setup_global_error_handler(cls):
