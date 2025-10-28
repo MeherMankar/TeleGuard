@@ -18,6 +18,7 @@ class SpamAppealHandler:
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
         self.spam_bot_username = "spambot"
+        self.spam_info_bot_username = "SpamBot"  # Alternative spam bot
         self.active_appeals: Dict[int, Dict] = {}  # user_id -> appeal_state
         self.appeal_messages = self._load_appeal_messages()
 
@@ -264,9 +265,18 @@ class SpamAppealHandler:
             
             # Short delay then send /start
             await asyncio.sleep(random.uniform(2.0, 5.0))
-            logger.info(f"Sending /start to spambot for {account_name}")
-            await client.send_message("spambot", "/start")
-            logger.info(f"Sent /start to spambot for {account_name}")
+            
+            # Try both bot usernames
+            bot_username = "spambot"
+            try:
+                logger.info(f"Sending /start to {bot_username} for {account_name}")
+                await client.send_message(bot_username, "/start")
+                logger.info(f"Sent /start to {bot_username} for {account_name}")
+            except Exception as e:
+                logger.warning(f"Failed with {bot_username}, trying SpamBot: {e}")
+                bot_username = "SpamBot"
+                await client.send_message(bot_username, "/start")
+                logger.info(f"Sent /start to {bot_username} for {account_name}")
             
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
             
@@ -276,7 +286,7 @@ class SpamAppealHandler:
             self.active_appeals.pop(user_id, None)
 
     async def _process_spambot_response(self, user_id: int, event):
-        """Process response from spambot"""
+        """Process response from spambot or spam info bot"""
         if user_id not in self.active_appeals:
             return
             
@@ -289,87 +299,84 @@ class SpamAppealHandler:
             return
         state['last_processed_msg'] = event.message.id
         
+        # Detect bot type from message patterns
+        is_spam_info_bot = ("harsh response from our anti-spam systems" in message_text or 
+                           "subscribe to telegram premium" in message_text)
+        
+        if is_spam_info_bot:
+            state['bot_type'] = 'spam_info_bot'
+        
         # No restrictions - only if explicitly stated
         if "good news" in message_text and "no limits" in message_text:
             await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found! Your account is clean.")
             self.active_appeals.pop(user_id, None)
             return
         
-        # Account HAS restrictions - continue with appeal
-        if "account was limited" in message_text or "account is limited" in message_text or "harsh response" in message_text:
-            # This is the initial restriction message - proceed with appeal
-            pass
+        # Spam Info Bot Flow (no captcha required)
+        if state.get('bot_type') == 'spam_info_bot':
+            # Step 1: Initial message with "Submit a complaint" button
+            if "harsh response from our anti-spam systems" in message_text and event.message.buttons:
+                await self._notify_user(user_id, f"⚠️ **{account_name}**: Spam Info Bot detected! Starting appeal...")
+                await self._click_button(event, "submit a complaint")
+                return
+            
+            # Step 2: Confirmation about not sending spam
+            elif "never send this to strangers" in message_text and event.message.buttons:
+                await self._click_button(event, "no, i'll never do any of this")
+                return
+            
+            # Step 3: Request for appeal details (no captcha)
+            elif "write me some details" in message_text or "why do you think your account was limited" in message_text:
+                await self._submit_appeal_message(user_id)
+                return
+            
+            # Already submitted
+            elif "already submitted" in message_text or "supervisors will check" in message_text:
+                await self._notify_user(user_id, f"ℹ️ **{account_name}**: Appeal submitted! Supervisors will review.")
+                await self._complete_appeal(user_id, True)
+                return
         
-        # Step 1: Click "This is a mistake" - initial spambot message
-        if ("sorry that you had to contact" in message_text or "anti-spam" in message_text or "some actions can trigger" in message_text) and event.message.buttons:
-            await self._notify_user(user_id, f"⚠️ **{account_name}**: Restriction detected! Starting appeal process...")
-            await self._click_button(event, "this is a mistake")
-            return
-        
-        # Step 2: Click "Yes" to submit complaint
-        elif "submit a complaint" in message_text and event.message.buttons:
-            await self._click_button(event, "yes")
-            return
-        
-        # Step 3: Click "No! Never did that!"
-        elif "never sent this to strangers" in message_text and event.message.buttons:
-            await self._click_button(event, "no! never did that!")
-            return
-        
-        # Step 4: Handle captcha
-        elif "verify you are a human" in message_text or "telegram.org/captcha" in event.message.text:
-            urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', event.message.text)
-            if urls:
-                await self._handle_manual_captcha(user_id, urls[0])
-            return
-        
-        # Step 5: Click "Done"
-        elif "done" in message_text and event.message.buttons:
-            await self._click_button(event, "done")
-            await self._complete_appeal(user_id, True)
-            return
-        
-        # Appeal message request
-        elif "write me some details" in message_text:
-            await self._submit_appeal_message(user_id)
-            return
-        
-        # Already submitted
-        elif "already submitted" in message_text:
-            await self._notify_user(user_id, f"ℹ️ **{account_name}**: Appeal already exists.")
-            await self._complete_appeal(user_id, True)
-            return
-        
-        # Step 3: Never did spam - click "No! Never did that!"
-        elif "never sent this to strangers" in message_text and event.message.buttons:
-            await self._click_button(event, "no! never did that!")
-            state['state'] = 'clicked_never'
-            await self._notify_user(user_id, f"✅ **{account_name}:** Clicked 'No! Never did that!'")
-        
-        # Step 4: Captcha verification
-        elif ("verify you are a human" in message_text or "telegram.org/captcha" in event.message.text):
-            urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', event.message.text)
-            if urls:
-                captcha_url = urls[0]
-                state['captcha_url'] = captcha_url
-                state['state'] = 'captcha_detected'
-                await self._handle_manual_captcha(user_id, captcha_url)
-        
-        # Step 5: Final submission - click "Done"
-        elif "done" in message_text and event.message.buttons:
-            await self._click_button(event, "done")
-            state['state'] = 'appeal_submitted'
-            await self._notify_user(user_id, f"✅ **{account_name}:** Clicked 'Done' - Appeal submitted!")
-            await self._complete_appeal(user_id, True)
-        
-        elif "write me some details" in message_text or "why do you think" in message_text:
-            logger.info(f"SpamBot requested appeal details for user {user_id}, account {account_name}")
-            await self._submit_appeal_message(user_id)
-        
-        elif "already submitted a complaint" in message_text or "supervisors will check" in message_text:
-            state['state'] = 'already_submitted'
-            await self._notify_user(user_id, f"ℹ️ **{account_name}:** Appeal already exists. Supervisors will review it soon.")
-            await self._complete_appeal(user_id, True)
+        # Regular @spambot Flow (with captcha)
+        else:
+            # Step 1: Click "This is a mistake" - initial spambot message
+            if ("sorry that you had to contact" in message_text or "anti-spam" in message_text or "some actions can trigger" in message_text) and event.message.buttons:
+                await self._notify_user(user_id, f"⚠️ **{account_name}**: Restriction detected! Starting appeal process...")
+                await self._click_button(event, "this is a mistake")
+                return
+            
+            # Step 2: Click "Yes" to submit complaint
+            elif "submit a complaint" in message_text and event.message.buttons:
+                await self._click_button(event, "yes")
+                return
+            
+            # Step 3: Click "No! Never did that!"
+            elif "never sent this to strangers" in message_text and event.message.buttons:
+                await self._click_button(event, "no! never did that!")
+                return
+            
+            # Step 4: Handle captcha
+            elif "verify you are a human" in message_text or "telegram.org/captcha" in event.message.text:
+                urls = re.findall(r'https://telegram\.org/captcha[^\s\)]+', event.message.text)
+                if urls:
+                    await self._handle_manual_captcha(user_id, urls[0])
+                return
+            
+            # Step 5: Click "Done"
+            elif "done" in message_text and event.message.buttons:
+                await self._click_button(event, "done")
+                await self._complete_appeal(user_id, True)
+                return
+            
+            # Appeal message request
+            elif "write me some details" in message_text:
+                await self._submit_appeal_message(user_id)
+                return
+            
+            # Already submitted
+            elif "already submitted" in message_text:
+                await self._notify_user(user_id, f"ℹ️ **{account_name}**: Appeal already exists.")
+                await self._complete_appeal(user_id, True)
+                return
 
     async def _select_smart_appeal_message(self, context: str, user_id: int = None, account_name: str = None) -> str:
         """Enhanced AI-powered appeal message with multi-strategy optimization"""
@@ -1059,7 +1066,7 @@ Generate 4 diverse examples:"""
         # Remove existing handlers to prevent duplicates
         client.remove_event_handler(lambda e: True, events.NewMessage)
         
-        @client.on(events.NewMessage(from_users='spambot'))
+        @client.on(events.NewMessage(from_users=['spambot', 'SpamBot']))
         async def handle_spambot_message(event):
             if user_id in self.active_appeals:
                 try:

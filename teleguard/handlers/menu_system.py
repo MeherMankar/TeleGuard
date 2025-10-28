@@ -1405,7 +1405,8 @@ class MenuSystem:
                     buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
                 
                 buttons.extend([
-                    [Button.inline("📞 Spam Appeal Guide", "help:troubleshoot")],
+                    [Button.inline("📞 Submit Spam Appeal", "cleanup:spam_appeal_select")],
+                    [Button.inline("❓ Spam Appeal Guide", "help:troubleshoot")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")]
                 ])
             await self.bot.send_message(user_id, text, buttons=buttons)
@@ -1447,6 +1448,8 @@ class MenuSystem:
             account_id = parts[2] if len(parts) > 2 else None
             if account_id:
                 await self._handle_spam_appeal(event, user_id, account_id)
+        elif action == "spam_appeal_select":
+            await self._handle_spam_appeal_select(event, user_id)
     
 
     
