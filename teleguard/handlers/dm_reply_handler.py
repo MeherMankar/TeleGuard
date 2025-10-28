@@ -183,9 +183,22 @@ class DMReplyHandler:
                     return
                 
                 # Get topic ID from the message
-                topic_id = getattr(event.message, 'reply_to', None)
-                if topic_id:
-                    topic_id = getattr(topic_id, 'reply_to_top_id', None) or getattr(topic_id, 'reply_to_msg_id', None)
+                reply_to = getattr(event.message, 'reply_to', None)
+                topic_id = None
+                
+                if reply_to:
+                    # Try reply_to_top_id first (forum topics)
+                    topic_id = getattr(reply_to, 'reply_to_top_id', None)
+                    # If not found, try reply_to_msg_id
+                    if not topic_id:
+                        topic_id = getattr(reply_to, 'reply_to_msg_id', None)
+                    # Also check forum_topic attribute
+                    if not topic_id and hasattr(reply_to, 'forum_topic') and reply_to.forum_topic:
+                        topic_id = getattr(reply_to, 'reply_to_msg_id', None)
+                
+                # If still no topic_id, check if message itself is in a topic thread
+                if not topic_id and hasattr(event.message, 'reply_to_msg_id'):
+                    topic_id = event.message.reply_to_msg_id
                 
                 if not topic_id:
                     return
@@ -200,6 +213,12 @@ class DMReplyHandler:
                 })
                 
                 if not topic_mapping:
+                    logger.debug(f"No topic mapping found for topic_id {topic_id} in group {event.chat_id}")
+                    return
+                
+                # Check if message has text
+                if not event.text:
+                    logger.debug("Message has no text, skipping")
                     return
                 
                 sender_id = topic_mapping["sender_id"]
@@ -208,6 +227,7 @@ class DMReplyHandler:
                 managed_client = await self._get_client_by_account_id(account_id)
                 if not managed_client:
                     await event.reply(f"❌ Account client not found")
+                    logger.error(f"No client found for account_id {account_id}")
                     return
                 
                 # AI-enhance reply if enabled
@@ -221,6 +241,7 @@ class DMReplyHandler:
                 await self._simulate_human_reply_behavior(managed_client, sender_id, reply_text)
                 
                 await managed_client.send_message(sender_id, reply_text)
+                logger.info(f"Reply sent from account {account_id} to {sender_id}: {reply_text[:50]}")
                 await event.reply("✅ Reply sent successfully!")
                 
             except Exception as e:
