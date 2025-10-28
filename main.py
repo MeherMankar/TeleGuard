@@ -466,7 +466,6 @@ async def main() -> None:
         print("🆘 Need help? Contact: https://t.me/ContactXYZrobot")
         
         try:
-            from teleguard.utils.bot_logger import BotLogger
             await BotLogger.log_error("Fatal Error", str(e), context=f"main.py after {total_runtime:.2f}s")
         except:
             pass
