@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from telethon import events, Button
 from ..core.mongo_database import mongodb
+from ..utils.bot_logger import BotLogger
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,8 @@ class DMReplyHandler:
                     
                     admin_group_id = await self.get_admin_group(user_id)
                     if admin_group_id:
-                        topic_title = f"{sender_name} to {account_display_name}"
+                        # Create unique topic for each sender-account pair
+                        topic_title = f"{sender_name} → {account_display_name}"
                         topic_id = await self._get_or_create_topic(admin_group_id, topic_title, sender.id, me.id)
                         
                         timestamp = datetime.now().strftime("%d-%m-%Y %I:%M %p")
@@ -133,9 +135,17 @@ class DMReplyHandler:
                             
                 except Exception as e:
                     logger.error(f"DM handler error: {e}", exc_info=True)
+                    try:
+                        await BotLogger.log_error("DM Handler Error", str(e)[:500], user_id, f"Account: {account_name}")
+                    except:
+                        pass
                     
         except Exception as e:
             logger.error(f"Failed to set up DM handler for {account_name}: {e}")
+            try:
+                await BotLogger.log_error("DM Setup Error", str(e)[:500], user_id, f"Account: {account_name}")
+            except:
+                pass
             
         # Setup AI automation if enabled
         if self.ai_model:
@@ -168,7 +178,16 @@ class DMReplyHandler:
         @self.bot.on(events.NewMessage())
         async def handle_topic_reply(event):
             try:
-                if not event.reply_to_msg_id:
+                # Check if message is in a forum group
+                if not event.is_group:
+                    return
+                
+                # Get topic ID from the message
+                topic_id = getattr(event.message, 'reply_to', None)
+                if topic_id:
+                    topic_id = getattr(topic_id, 'reply_to_top_id', None) or getattr(topic_id, 'reply_to_msg_id', None)
+                
+                if not topic_id:
                     return
                     
                 user = await mongodb.db.users.find_one({"dm_reply_group_id": event.chat_id})
@@ -177,7 +196,7 @@ class DMReplyHandler:
                 
                 topic_mapping = await mongodb.db.dm_topics.find_one({
                     "group_id": event.chat_id,
-                    "topic_id": event.reply_to_msg_id
+                    "topic_id": topic_id
                 })
                 
                 if not topic_mapping:
@@ -206,6 +225,10 @@ class DMReplyHandler:
                 
             except Exception as e:
                 logger.error(f"Failed to handle topic reply: {e}")
+                try:
+                    await BotLogger.log_error("Topic Reply Error", str(e)[:500], event.sender_id, "Topic reply handler")
+                except:
+                    pass
 
     async def _get_client_by_account_id(self, account_id: int):
         """Get managed client by account Telegram ID"""

@@ -1,13 +1,15 @@
-"""Centralized logging to logs bot for all user actions"""
+"""Centralized logging to logs bot for all user actions and errors"""
 import os
 import logging
+import sys
+import traceback
 from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class BotLogger:
-    """Send all user actions to logs bot"""
+    """Send all user actions and errors to logs bot"""
     
     _bot = None
     _logs_bot = None
@@ -155,3 +157,35 @@ class BotLogger:
             logger.info(f"Error log sent: {error_type}")
         except Exception as e:
             logger.error(f"Failed to send error log: {e}")
+    
+    @classmethod
+    def setup_global_error_handler(cls):
+        """Setup global exception handler to catch all errors"""
+        def handle_exception(exc_type, exc_value, exc_traceback):
+            if issubclass(exc_type, KeyboardInterrupt):
+                sys.__excepthook__(exc_type, exc_value, exc_traceback)
+                return
+            
+            error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+            logger.error(f"Uncaught exception: {error_msg}")
+            
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(cls.log_error(
+                        f"{exc_type.__name__}",
+                        str(exc_value)[:500],
+                        context="Global handler"
+                    ))
+            except:
+                pass
+        
+        sys.excepthook = handle_exception
+        logger.info("Global error handler configured")
+    
+    @classmethod
+    async def log_handler_error(cls, handler_name: str, error: Exception, user_id: Optional[int] = None):
+        """Log handler-specific errors"""
+        error_msg = f"{type(error).__name__}: {str(error)}"
+        await cls.log_error(handler_name, error_msg[:500], user_id, f"Handler: {handler_name}")

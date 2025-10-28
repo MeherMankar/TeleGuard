@@ -38,6 +38,7 @@ try:
     from teleguard.core.database_manager import init_database_manager, db_manager
     from teleguard.utils.health_server import health_checker
     from teleguard.utils.logger import get_logger
+    from teleguard.utils.bot_logger import BotLogger
 except ImportError as e:
     print(f"Failed to import TeleGuard modules: {e}")
     print(
@@ -351,6 +352,10 @@ async def main() -> None:
         # Setup signal handlers
         setup_signal_handlers()
         logger.info("📶 Signal handlers configured")
+        
+        # Setup global error handler
+        BotLogger.setup_global_error_handler()
+        logger.info("🚨 Global error handler configured")
 
         # Database initialization
         logger.info("💾 Initializing database connections...")

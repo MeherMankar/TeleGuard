@@ -786,7 +786,7 @@ Generate 4 diverse examples:"""
                 f"📧 You should receive a response within 24-48 hours."
             )
             
-            await self._complete_appeal(user_id, True)
+            # Don't call _complete_appeal here - let the confirmation message trigger it
             
         except Exception as e:
             logger.error(f"Error submitting appeal message for {account_name}: {e}")
