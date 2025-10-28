@@ -229,19 +229,31 @@ class DMReplyHandler:
                 
                 managed_client = await self._get_client_by_account_id(account_id)
                 if not managed_client:
-                    error_msg = f"❌ Account client not found (ID: {account_id})"
+                    error_msg = f"❌ Account not connected (ID: {account_id}). Please reconnect the account."
                     await event.reply(error_msg)
-                    logger.error(error_msg)
+                    logger.error(f"Account client not found for ID {account_id}")
                     return
                 
                 reply_text = event.text
                 logger.info(f"Sending reply from account {account_id} to user {sender_id}")
                 
+                # Resolve entity first to ensure we can send to this user
+                try:
+                    target_entity = await managed_client.get_entity(sender_id)
+                except Exception as entity_error:
+                    error_msg = f"❌ Cannot send message - user not found. They may have blocked the account or deleted their profile."
+                    await event.reply(error_msg)
+                    logger.error(f"Entity resolution failed for user {sender_id}: {entity_error}")
+                    return
+                
                 # AI-enhance reply if enabled
                 if self.ai_model and await self._is_ai_enhancement_enabled(user["telegram_id"]):
-                    enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, managed_client)
-                    if enhanced_reply:
-                        reply_text = enhanced_reply
+                    try:
+                        enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, managed_client)
+                        if enhanced_reply:
+                            reply_text = enhanced_reply
+                    except Exception as ai_error:
+                        logger.debug(f"AI enhancement failed: {ai_error}")
                 
                 # Simulate human typing
                 await self._simulate_human_reply_behavior(managed_client, sender_id, reply_text)
