@@ -321,8 +321,13 @@ class SpamAppealHandler:
                 return
             
             # Step 2: Confirmation about not sending spam
-            elif "never send this to strangers" in message_text and event.message.buttons:
-                await self._click_button(event, "no, i'll never do any of this")
+            elif "never send this to strangers" in message_text:
+                await self._notify_user(user_id, f"🔘 **{account_name}**: Sending confirmation response...")
+                client = await self._get_user_client(user_id, account_name)
+                if client:
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    await client.send_message("spambot", "No, I'll never do any of this!")
+                    await self._notify_user(user_id, f"✅ **{account_name}**: Confirmation sent!")
                 return
             
             # Step 3: Request for appeal details (no captcha)
