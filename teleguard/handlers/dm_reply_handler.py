@@ -229,10 +229,68 @@ class DMReplyHandler:
                 
                 managed_client = await self._get_client_by_account_id(account_id)
                 if not managed_client:
-                    error_msg = f"❌ Account not connected (ID: {account_id}). Please reconnect the account."
-                    await event.reply(error_msg)
-                    logger.error(f"Account client not found for ID {account_id}")
-                    return
+                    # Account not loaded - try to load it now
+                    logger.info(f"Account {account_id} not loaded, attempting to load...")
+                    await event.reply("⚠️ Account not loaded. Loading now...")
+                    
+                    # Find account in database
+                    accounts = await mongodb.db.accounts.find({"is_active": True}).to_list(None)
+                    target_account = None
+                    
+                    for acc in accounts:
+                        # Match by account's telegram_id stored in DB or by checking session
+                        if acc.get('session_string'):
+                            # We need to check if this account matches the account_id
+                            # The account_id in topic mapping is the Telegram user ID of the account
+                            # We can try to load and check
+                            try:
+                                from telethon import TelegramClient
+                                from telethon.sessions import StringSession
+                                from ..core.config import config
+                                
+                                temp_client = TelegramClient(
+                                    StringSession(acc['session_string']),
+                                    config.telegram.api_id,
+                                    config.telegram.api_hash
+                                )
+                                await temp_client.connect()
+                                me = await temp_client.get_me()
+                                await temp_client.disconnect()
+                                
+                                if me.id == account_id:
+                                    target_account = acc
+                                    break
+                            except:
+                                continue
+                    
+                    if target_account:
+                        try:
+                            # Load the account
+                            await self.bot_manager.start_user_client(
+                                target_account['user_id'],
+                                target_account['name'],
+                                target_account['session_string']
+                            )
+                            
+                            # Setup DM handler for newly loaded account
+                            managed_client = await self._get_client_by_account_id(account_id)
+                            if managed_client:
+                                await self.setup_new_client_handler(
+                                    target_account['user_id'],
+                                    target_account['name'],
+                                    managed_client
+                                )
+                                await event.reply("✅ Account loaded successfully!")
+                            else:
+                                await event.reply("❌ Failed to load account. Please try again.")
+                                return
+                        except Exception as load_error:
+                            logger.error(f"Failed to load account: {load_error}")
+                            await event.reply(f"❌ Failed to load account: {str(load_error)[:100]}")
+                            return
+                    else:
+                        await event.reply("❌ Account not found. Please re-add the account.")
+                        return
                 
                 reply_text = event.text
                 logger.info(f"Sending reply from account {account_id} to user {sender_id}")

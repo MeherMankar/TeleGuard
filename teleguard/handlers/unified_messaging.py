@@ -243,7 +243,16 @@ class UnifiedMessagingSystem:
                 "account_id": account_id,
                 "created_at": int(time.time())
             }
-            result = await mongodb.db.topic_mappings.insert_one(mapping)
+            # Use upsert to prevent duplicates
+            await mongodb.db.topic_mappings.update_one(
+                {
+                    "admin_group_id": admin_group_id,
+                    "sender_id": sender_id,
+                    "account_id": account_id
+                },
+                {"$set": mapping},
+                upsert=True
+            )
         except Exception as e:
             logger.error(f"Failed to store topic mapping: {e}")
     async def _create_system_message(self, admin_group_id: int, topic_id: int, 
