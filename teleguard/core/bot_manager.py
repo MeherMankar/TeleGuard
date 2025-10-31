@@ -799,6 +799,11 @@ class BotManager:
             "spam_appeal_handler", SpamAppealHandler, self
         )
         
+        from ..handlers.topic_actions_handler import TopicActionsHandler
+        self.topic_actions_handler = await self.component_manager.initialize_component(
+            "topic_actions_handler", TopicActionsHandler, self
+        )
+        
 
         
         # Initialize spam detector
