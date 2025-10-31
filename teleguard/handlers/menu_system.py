@@ -83,8 +83,9 @@ class MenuSystem:
         keyboard = [
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
-            [Button.text("👥 Contacts"), Button.text("🧹 Cleanup")],
-            [Button.text("❓ Help"), Button.text("🆘 Support")],
+            [Button.text("👥 Contacts"), Button.text("🎯 SpamMaster")],
+            [Button.text("🧹 Cleanup"), Button.text("❓ Help")],
+            [Button.text("🆘 Support")],
         ]
         if user_id in ADMIN_IDS:
             keyboard.append([Button.text("⚙️ Developer Panel")])
@@ -474,6 +475,8 @@ class MenuSystem:
                     "Contacts",
                     "🧹 Cleanup",
                     "Cleanup",
+                    "🎯 SpamMaster",
+                    "SpamMaster",
                     "❓ Help",
                     "Help",
                     "🆘 Support",
@@ -501,6 +504,8 @@ class MenuSystem:
                     await self._handle_contacts(event)
                 elif text in ["🧹 Cleanup", "Cleanup"]:
                     await self._handle_cleanup(event)
+                elif text in ["🎯 SpamMaster", "SpamMaster"]:
+                    await self._handle_spam_master(event)
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -1352,6 +1357,69 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle contacts: {e}")
             await event.reply("❌ Error loading contact management")
+    
+    async def _handle_spam_master(self, event):
+        """Handle SpamMaster menu"""
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = (
+                    "🎯 **SpamMaster - Bulk Messaging System**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    "🚨 **No accounts available!**\n\n"
+                    "You need active accounts to use SpamMaster features.\n\n"
+                    "🎯 **Powerful Features:**\n"
+                    "• 📊 **User Gathering** - Collect users from groups/channels\n"
+                    "• 📤 **Bulk Messaging** - Send to thousands of users\n"
+                    "• 🤖 **Smart Auto-Reply** - Automated response system\n"
+                    "• 📈 **Campaign Analytics** - Track performance metrics\n"
+                    "• 🎭 **Human-Like Behavior** - Realistic delays & patterns\n\n"
+                    "Add accounts to unlock SpamMaster:"
+                )
+                buttons = [
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("❓ SpamMaster Guide", "help:features")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                ]
+            else:
+                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+                gathered_users = await mongodb.db.spam_users.count_documents({"owner_id": user_id})
+                active_campaigns = await mongodb.db.spam_campaigns.count_documents({"user_id": user_id, "sent": {"$lt": "$total"}})
+                
+                text = (
+                    "🎯 **SpamMaster - Professional Bulk Messaging**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **System Status:**\n"
+                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"• 👥 Gathered Users: {gathered_users:,}\n"
+                    f"• 🚀 Active Campaigns: {active_campaigns}\n"
+                    f"• 🟢 System: Operational\n\n"
+                    "⚡ **Professional Tools:**\n"
+                    "• Gather users from any group/channel\n"
+                    "• Send bulk messages with media support\n"
+                    "• Automated reply system with templates\n"
+                    "• Real-time campaign tracking & analytics\n"
+                    "• Smart delays to avoid spam detection\n\n"
+                    "Choose your action below:"
+                )
+                buttons = [
+                    [
+                        Button.inline("📊 Gather Users", "spam_gather"),
+                        Button.inline("📤 Bulk Send", "spam_send"),
+                    ],
+                    [
+                        Button.inline("🤖 Auto Reply", "spam_reply"),
+                        Button.inline("📈 Campaign Stats", "spam_stats"),
+                    ],
+                    [
+                        Button.inline("🔙 Back to Main Menu", "menu:main"),
+                    ],
+                ]
+            await self.bot.send_message(user_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Failed to handle SpamMaster menu: {e}")
+            await event.reply("❌ Error loading SpamMaster menu")
     
     async def _handle_cleanup(self, event):
         """Handle Cleanup menu"""

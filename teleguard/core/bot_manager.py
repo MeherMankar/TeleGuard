@@ -837,6 +837,11 @@ class BotManager:
             "topic_actions_handler", TopicActionsHandler, self
         )
         
+        from ..handlers.spam_master_handler import SpamMasterHandler
+        self.spam_master_handler = await self.component_manager.initialize_component(
+            "spam_master_handler", SpamMasterHandler, self
+        )
+        
 
         
         # Initialize spam detector
