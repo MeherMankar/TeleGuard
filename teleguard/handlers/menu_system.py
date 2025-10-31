@@ -988,6 +988,38 @@ class MenuSystem:
                         text = "🔍 **Session String Validator**\n\nReply with a session string to validate and see DC information (DC1, DC2, DC3, DC4, or DC5):"
                         await self.bot.send_message(user_id, text)
                         await event.answer("🔍 Send session string to validate")
+                elif data.startswith("spam_"):
+                    parts = data.split("_", 1)
+                    action = parts[1] if len(parts) > 1 else "main"
+                    if action == "gather":
+                        text = "📊 **Gather Users**\n\nUser gathering feature coming soon!"
+                    elif action == "send":
+                        text = "📤 **Bulk Send**\n\nBulk sending feature coming soon!"
+                    elif action == "reply":
+                        text = "🤖 **Auto Reply**\n\nSpam auto-reply feature coming soon!"
+                    elif action == "stats":
+                        text = "📈 **Campaign Stats**\n\nCampaign statistics coming soon!"
+                    else:
+                        text = "🎯 **SpamMaster**\n\nFeature coming soon!"
+                    buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                    await event.answer("🎯 SpamMaster feature")
+                elif data == "session_login":
+                    text = "🔐 **Session Login**\n\nLogin via session string:\n\nReply with your session string to import an existing account."
+                    buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                    await event.answer("🔐 Session login")
+                elif data == "import_sessions":
+                    text = "📥 **Import Sessions**\n\nBulk import multiple sessions:\n\nReply with session strings (one per line) to import multiple accounts at once."
+                    buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                    await event.answer("📥 Import sessions")
+                elif data.startswith("appeal_account_id:"):
+                    account_id = data.split(":", 1)[1]
+                    text = "📞 **Spam Appeal**\n\nStarting spam appeal process..."
+                    buttons = [[Button.inline("🔙 Back", "cleanup:menu")]]
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                    await event.answer("📞 Spam appeal started")
                 else:
                     await event.answer("Action processed", alert=False)
             except Exception as e:
@@ -1943,6 +1975,34 @@ class MenuSystem:
                     await self.bot.send_message(user_id, error_msg)
             else:
                 await self.bot.send_message(user_id, error_msg)
+    
+    async def _handle_spam_appeal_select(self, event, user_id: int):
+        """Handle spam appeal account selection"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = "📞 **Spam Appeal**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back", "cleanup:menu")]]
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                return
+            
+            text = (
+                "📞 **Spam Appeal**\n\n"
+                "Select account to submit spam appeal:"
+            )
+            buttons = []
+            for account in accounts:
+                status = "🟢" if account.get("is_active", False) else "🔴"
+                display_name = format_display_name(account)
+                button_text = f"{status} {display_name}"
+                buttons.append([Button.inline(button_text, f"appeal_account_id:{account['_id']}")])
+            
+            buttons.append([Button.inline("🔙 Back", "cleanup:menu")])
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            
+        except Exception as e:
+            logger.error(f"Error in spam appeal select: {e}")
+            await event.answer("❌ Error loading spam appeal")
     
     async def _handle_spam_appeal(self, event, user_id: int, account_id: str):
         """Handle spam appeal for account before cleanup"""
