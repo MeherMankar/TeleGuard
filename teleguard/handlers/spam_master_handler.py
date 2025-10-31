@@ -20,6 +20,7 @@ class SpamMasterHandler:
             buttons = [
                 [Button.inline("📊 Gather Users", b"spam_gather")],
                 [Button.inline("📤 Bulk Send", b"spam_send")],
+                [Button.inline("💬 Group Spam", b"group_spam")],
                 [Button.inline("🤖 Auto Reply", b"spam_reply")],
                 [Button.inline("📈 Campaign Stats", b"spam_stats")],
                 [Button.inline("🔙 Back", b"main_menu")]
@@ -93,9 +94,126 @@ class SpamMasterHandler:
                 await event.answer("❌ No accounts found", alert=True)
                 return
             
+            buttons = [
+                [Button.inline("🔄 Multi-Account (Rotate)", b"send_multi")],
+                [Button.inline("📱 Single Account", b"send_single")],
+                [Button.inline("🔙 Back", b"spam_master")]
+            ]
+            await event.edit(
+                f"📤 **Bulk Send Mode**\n\n"
+                f"Available Accounts: **{len(accounts)}**\n\n"
+                f"🔄 Multi-Account: Rotate between accounts (prevents limits)\n"
+                f"📱 Single Account: Use one account only",
+                buttons=buttons
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"send_single"))
+        async def send_single(event):
+            user_id = event.sender_id
+            accounts = await self._get_user_accounts(user_id)
+            
             buttons = [[Button.inline(f"📱 {acc['name']}", f"send_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
-            buttons.append([Button.inline("🔙 Back", b"spam_master")])
-            await event.edit("Select account for bulk send:", buttons=buttons)
+            buttons.append([Button.inline("🔙 Back", b"spam_send")])
+            await event.edit("Select account:", buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"send_multi"))
+        async def send_multi(event):
+            user_id = event.sender_id
+            accounts = await self._get_user_accounts(user_id)
+            
+            if len(accounts) < 2:
+                await event.answer("❌ Need at least 2 accounts for rotation", alert=True)
+                return
+            
+            # Show account selection with checkboxes
+            text = "🔄 **Select Accounts to Rotate**\n\nChoose which accounts to use:"
+            buttons = []
+            for acc in accounts[:10]:
+                buttons.append([Button.inline(f"☐ {acc['name']}", f"toggle_acc:{acc['phone']}".encode())])
+            buttons.append([Button.inline("✅ Confirm Selection", b"confirm_multi")])
+            buttons.append([Button.inline("🔙 Back", b"spam_send")])
+            
+            # Store selection state
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "multi_select"},
+                {"$set": {"selected": [], "all_accounts": [a['phone'] for a in accounts]}},
+                upsert=True
+            )
+            
+            await event.edit(text, buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"toggle_acc:(.+)"))
+        async def toggle_account(event):
+            user_id = event.sender_id
+            phone = event.data.decode().split(":", 1)[1]
+            
+            # Get current selection
+            data = await mongodb.db.temp_data.find_one({"user_id": user_id, "type": "multi_select"})
+            selected = data.get("selected", [])
+            
+            # Toggle selection
+            if phone in selected:
+                selected.remove(phone)
+            else:
+                selected.append(phone)
+            
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "multi_select"},
+                {"$set": {"selected": selected}}
+            )
+            
+            # Update display
+            accounts = await self._get_user_accounts(user_id)
+            text = f"🔄 **Select Accounts to Rotate**\n\nSelected: **{len(selected)}** accounts\n\nChoose which accounts to use:"
+            buttons = []
+            for acc in accounts[:10]:
+                check = "☑" if acc['phone'] in selected else "☐"
+                buttons.append([Button.inline(f"{check} {acc['name']}", f"toggle_acc:{acc['phone']}".encode())])
+            buttons.append([Button.inline("✅ Confirm Selection", b"confirm_multi")])
+            buttons.append([Button.inline("🔙 Back", b"spam_send")])
+            
+            await event.edit(text, buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"confirm_multi"))
+        async def confirm_multi(event):
+            user_id = event.sender_id
+            
+            data = await mongodb.db.temp_data.find_one({"user_id": user_id, "type": "multi_select"})
+            selected = data.get("selected", [])
+            
+            if len(selected) < 2:
+                await event.answer("❌ Select at least 2 accounts", alert=True)
+                return
+            
+            users = await self._get_gathered_users(user_id)
+            if not users:
+                await event.answer("❌ No users gathered yet", alert=True)
+                return
+            
+            await event.edit(
+                f"📤 **Multi-Account Setup**\n\n"
+                f"Accounts: **{len(selected)}**\n"
+                f"Users: **{len(users)}**\n\n"
+                f"Send your message (text/media):"
+            )
+            
+            @self.bot.on(events.NewMessage(from_users=user_id))
+            async def handle_multi_message(msg_event):
+                self.bot.remove_event_handler(handle_multi_message)
+                
+                buttons = [[Button.inline("🛑 Stop Campaign", b"stop_temp")]]
+                progress_msg = await msg_event.reply(
+                    f"🚀 **Multi-Account Campaign**\n\n"
+                    f"Accounts: **{len(selected)}**\n"
+                    f"Total Users: **{len(users)}**\n"
+                    f"Sent: **0/{len(users)}**\n"
+                    f"Progress: □□□□□□□□□□ 0%",
+                    buttons=buttons
+                )
+                
+                campaign_id = await self._start_multi_campaign(
+                    user_id, selected, users, msg_event, progress_msg
+                )
         
         @self.bot.on(events.CallbackQuery(pattern=rb"send_acc:(.+)"))
         async def send_account(event):
@@ -188,7 +306,36 @@ class SpamMasterHandler:
             await event.answer("✅ All spam data cleared", alert=True)
             await reply_menu(event)
         
-
+        @self.bot.on(events.CallbackQuery(pattern=b"group_spam"))
+        async def group_spam_menu(event):
+            user_id = event.sender_id
+            accounts = await self._get_user_accounts(user_id)
+            if not accounts:
+                await event.answer("❌ No accounts found", alert=True)
+                return
+            
+            buttons = [[Button.inline(f"📱 {acc['name']}", f"grp_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons.append([Button.inline("🔙 Back", b"spam_master")])
+            await event.edit("💬 **Group Spam**\n\nSelect account:", buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"grp_acc:(.+)"))
+        async def group_spam_account(event):
+            account_name = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await event.edit(
+                f"💬 **Group Spam Setup**\n\n"
+                f"Account: **{account_name}**\n\n"
+                f"Send your message (text/media):"
+            )
+            
+            @self.bot.on(events.NewMessage(from_users=user_id))
+            async def handle_group_message(msg_event):
+                self.bot.remove_event_handler(handle_group_message)
+                
+                await msg_event.reply("⏳ Starting group spam...")
+                count = await self._spam_all_groups(user_id, account_name, msg_event)
+                await msg_event.reply(f"✅ Sent to {count} groups")
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_stats"))
         async def show_stats(event):
@@ -338,6 +485,110 @@ class SpamMasterHandler:
         asyncio.create_task(self._run_campaign(campaign_id, user_id, account_name, users, msg_event, progress_msg))
         return campaign_id
     
+    async def _start_multi_campaign(self, user_id: int, account_phones: List[str], users: List, msg_event, progress_msg) -> str:
+        """Start multi-account campaign with rotation"""
+        campaign = {
+            "user_id": user_id,
+            "accounts": account_phones,
+            "total": len(users),
+            "sent": 0,
+            "replies": 0,
+            "message": msg_event.text,
+            "multi": True
+        }
+        
+        result = await mongodb.db.spam_campaigns.insert_one(campaign)
+        campaign_id = str(result.inserted_id)
+        
+        asyncio.create_task(self._run_multi_campaign(campaign_id, user_id, account_phones, users, msg_event, progress_msg))
+        return campaign_id
+    
+    async def _run_multi_campaign(self, campaign_id: str, user_id: int, account_phones: List[str], users: List, msg_event, progress_msg):
+        """Execute multi-account campaign with rotation"""
+        try:
+            self.active_campaigns[campaign_id] = False
+            total = len(users)
+            sent = 0
+            account_idx = 0
+            
+            for idx, user in enumerate(users, 1):
+                if self.active_campaigns.get(campaign_id):
+                    await progress_msg.edit(
+                        f"🛑 **Campaign Stopped**\n\n"
+                        f"Accounts: **{len(account_phones)}**\n"
+                        f"Total Users: **{total}**\n"
+                        f"Sent: **{sent}/{total}**\n"
+                        f"Status: Stopped by user"
+                    )
+                    break
+                
+                # Rotate accounts
+                current_phone = account_phones[account_idx]
+                client = self.user_clients[user_id][current_phone]
+                me = await client.get_me()
+                
+                # Skip self
+                if user["user_id"] == me.id:
+                    continue
+                
+                try:
+                    if msg_event.photo:
+                        await client.send_file(user["user_id"], msg_event.photo, caption=msg_event.text)
+                    elif msg_event.video:
+                        await client.send_file(user["user_id"], msg_event.video, caption=msg_event.text)
+                    elif msg_event.document:
+                        await client.send_file(user["user_id"], msg_event.document, caption=msg_event.text)
+                    else:
+                        await client.send_message(user["user_id"], msg_event.text)
+                    
+                    asyncio.create_task(self._listen_for_reply(client, user["user_id"], user["_id"]))
+                    sent += 1
+                    
+                    await mongodb.db.spam_users.update_one(
+                        {"_id": user["_id"]},
+                        {"$set": {"status": "sent", "account": current_phone}}
+                    )
+                    
+                    from bson import ObjectId
+                    await mongodb.db.spam_campaigns.update_one(
+                        {"_id": ObjectId(campaign_id)},
+                        {"$inc": {"sent": 1}}
+                    )
+                    
+                    # Rotate to next account
+                    account_idx = (account_idx + 1) % len(account_phones)
+                    
+                    if idx % 5 == 0 or idx == total:
+                        percent = int((sent / total) * 100)
+                        filled = int(percent / 10)
+                        bar = "■" * filled + "□" * (10 - filled)
+                        buttons = [[Button.inline("🛑 Stop", f"stop_camp:{campaign_id}".encode())]]
+                        await progress_msg.edit(
+                            f"🚀 **Multi-Account Campaign**\n\n"
+                            f"Accounts: **{len(account_phones)}**\n"
+                            f"Total Users: **{total}**\n"
+                            f"Sent: **{sent}/{total}**\n"
+                            f"Progress: {bar} {percent}%",
+                            buttons=buttons
+                        )
+                    
+                    await asyncio.sleep(random.uniform(30, 45))
+                except Exception:
+                    await asyncio.sleep(5)
+            
+            if not self.active_campaigns.get(campaign_id):
+                await progress_msg.edit(
+                    f"✅ **Campaign Completed**\n\n"
+                    f"Accounts: **{len(account_phones)}**\n"
+                    f"Total Users: **{total}**\n"
+                    f"Sent: **{sent}/{total}**\n"
+                    f"Progress: ■■■■■■■■■■ 100%"
+                )
+        except Exception as e:
+            logger.error(f"Multi-campaign failed: {e}")
+        finally:
+            self.active_campaigns.pop(campaign_id, None)
+    
     async def _run_campaign(self, campaign_id: str, user_id: int, account_name: str, users: List, msg_event, progress_msg):
         """Execute bulk send campaign"""
         try:
@@ -476,3 +727,31 @@ class SpamMasterHandler:
                 pass
         except Exception as e:
             logger.error(f"Reply listener setup error: {e}")
+    
+    async def _spam_all_groups(self, user_id: int, account_name: str, msg_event) -> int:
+        """Send message to all groups"""
+        try:
+            client = self.user_clients[user_id][account_name]
+            count = 0
+            
+            async for dialog in client.iter_dialogs():
+                if dialog.is_group and not getattr(dialog.entity, 'forum', False):
+                    try:
+                        if msg_event.photo:
+                            await client.send_file(dialog.id, msg_event.photo, caption=msg_event.text)
+                        elif msg_event.video:
+                            await client.send_file(dialog.id, msg_event.video, caption=msg_event.text)
+                        elif msg_event.document:
+                            await client.send_file(dialog.id, msg_event.document, caption=msg_event.text)
+                        else:
+                            await client.send_message(dialog.id, msg_event.text)
+                        
+                        count += 1
+                        await asyncio.sleep(random.uniform(5, 10))
+                    except Exception:
+                        await asyncio.sleep(2)
+            
+            return count
+        except Exception as e:
+            logger.error(f"Group spam failed: {e}")
+            return 0
