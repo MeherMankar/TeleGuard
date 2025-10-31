@@ -5880,3 +5880,454 @@ class MenuSystem:
             text = "❌ System settings is unavailable"
             buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _show_messaging_statistics(self, user_id: int, message_id: int):
+        """Show messaging statistics"""
+        try:
+            if hasattr(self.account_manager, 'unified_messaging'):
+                stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
+                text = (
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 Active Accounts: {stats.get('active_accounts', 0)}\n"
+                    f"📨 DM Topics Created: {stats.get('dm_topics_created', 0)}\n\n"
+                    "Use messaging features to see more detailed statistics."
+                )
+            else:
+                text = "📊 **Messaging Analytics**\n\n❌ Statistics service unavailable."
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error showing messaging statistics: {e}")
+            text = "❌ Error loading statistics"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+    
+    async def _show_message_history(self, user_id: int, message_id: int):
+        """Show message history"""
+        try:
+            text = (
+                "📋 **Message History**\n\n"
+                "View your recent messaging activity:\n\n"
+                "• Sent messages\n"
+                "• Received messages\n"
+                "• Auto-reply interactions\n"
+                "• Bulk campaign results\n\n"
+                "💡 **Coming Soon:** Full message history tracking with filters and search."
+            )
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error showing message history: {e}")
+    
+    async def _show_messaging_settings(self, user_id: int, message_id: int):
+        """Show messaging system settings"""
+        try:
+            text = (
+                "⚙️ **Messaging System Settings**\n\n"
+                "Configure your messaging preferences:\n\n"
+                "📤 **Message Delivery:**\n"
+                "• Delivery confirmation\n"
+                "• Read receipts\n"
+                "• Typing indicators\n\n"
+                "🤖 **Auto-Reply:**\n"
+                "• Global enable/disable\n"
+                "• Response delay settings\n"
+                "• Keyword management\n\n"
+                "📨 **DM Management:**\n"
+                "• Topic auto-creation\n"
+                "• Notification preferences\n"
+                "• Archive settings\n\n"
+                "💡 **Coming Soon:** Advanced configuration options."
+            )
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error showing messaging settings: {e}")
+
+    async def _show_bulk_otp_enable(self, user_id: int, message_id: int):
+        """Enable OTP Destroyer for all accounts"""
+        try:
+            accounts = await mongodb.db.accounts.find({" user_id": user_id}).to_list(length=None)
+            enabled_count = 0
+            for account in accounts:
+                if not account.get("otp_destroyer_enabled", False):
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False}}
+                    )
+                    enabled_count += 1
+            text = f"✅ **Bulk Enable Complete**\n\n🛡️ Enabled OTP Destroyer on {enabled_count} accounts"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Bulk OTP enable error: {e}")
+
+    async def _handle_bulk_otp_disable(self, user_id: int, message_id: int):
+        """Disable OTP Destroyer for all accounts"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            disabled_count = 0
+            for account in accounts:
+                if account.get("otp_destroyer_enabled", False):
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"otp_destroyer_enabled": False}}
+                    )
+                    disabled_count += 1
+            text = f"🔴 **Bulk Disable Complete**\n\n❌ Disabled OTP Destroyer on {disabled_count} accounts"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Bulk OTP disable error: {e}")
+
+    async def _show_otp_statistics(self, user_id: int, message_id: int):
+        """Show OTP statistics"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            total = len(accounts)
+            destroyer_enabled = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled", False))
+            forward_enabled = sum(1 for acc in accounts if acc.get("otp_forward_enabled", False))
+            text = (
+                "📊 **OTP Statistics**\n\n"
+                f"📱 Total Accounts: {total}\n"
+                f"🛡️ Destroyer Enabled: {destroyer_enabled}\n"
+                f"📤 Forward Enabled: {forward_enabled}\n"
+                f"⚪ Unprotected: {total - destroyer_enabled - forward_enabled}\n\n"
+                f"Security Score: {int((destroyer_enabled/max(total,1))*100)}%"
+            )
+            buttons = [
+                [Button.inline("🔄 Refresh Stats", "otp:stats")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
+            ]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"OTP stats error: {e}")
+
+    async def _show_global_audit_log(self, user_id: int, message_id: int):
+        """Show global audit log for all accounts"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            text = "📋 **Global Audit Log**\n\n"
+            for account in accounts[:5]:
+                audit_log = account.get("audit_log", [])[-3:]
+                display_name = format_display_name(account)
+                text += f"**{display_name}**\n"
+                if audit_log:
+                    for entry in audit_log:
+                        action = entry.get("action", "unknown")
+                        text += f"  • {action}\n"
+                else:
+                    text += "  • No recent activity\n"
+                text += "\n"
+            buttons = [
+                [Button.inline("🔄 Refresh", "otp:audit_all")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
+            ]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Global audit log error: {e}")
+
+    async def _show_messaging_statistics(self, user_id: int, message_id: int):
+        """Show messaging statistics"""
+        try:
+            if hasattr(self.account_manager, 'unified_messaging'):
+                stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
+                text = (
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 Active Accounts: {stats.get('active_accounts', 0)}\n"
+                    f"📨 DM Topics Created: {stats.get('dm_topics_created', 0)}"
+                )
+            else:
+                text = "📊 **Messaging Analytics**\n\nStatistics not available"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Messaging stats error: {e}")
+
+    async def _show_message_history(self, user_id: int, message_id: int):
+        """Show message history"""
+        text = (
+            "📋 **Message History**\n\n"
+            "View your recent messaging activity:\n\n"
+            "• Sent messages\n"
+            "• Auto-replies\n"
+            "• DM conversations\n"
+            "• Bulk campaigns\n\n"
+            "Feature coming soon!"
+        )
+        buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _show_messaging_settings(self, user_id: int, message_id: int):
+        """Show messaging system settings"""
+        text = (
+            "⚙️ **Messaging System Settings**\n\n"
+            "Configure messaging behavior:\n\n"
+            "📤 **Message Delivery:**\n"
+            "• Delivery confirmation\n"
+            "• Read receipts\n"
+            "• Typing indicators\n\n"
+            "🤖 **Auto-Reply:**\n"
+            "• Global enable/disable\n"
+            "• Response delay\n"
+            "• Keyword matching\n\n"
+            "📨 **DM Management:**\n"
+            "• Topic creation\n"
+            "• Auto-organization\n"
+            "• Notification settings"
+        )
+        buttons = [
+            [Button.inline("🤖 Auto-Reply Settings", "auto_reply:main")],
+            [Button.inline("📝 Template Settings", "template:main")],
+            [Button.inline("📨 DM Reply Settings", "dm_reply:main")],
+            [Button.inline("🔙 Back to Messaging", "menu:messaging")]
+        ]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _show_channel_statistics(self, user_id: int, message_id: int):
+        """Show channel statistics"""
+        text = (
+            "📊 **Channel Statistics**\n\n"
+            "Global channel metrics:\n\n"
+            "• Total channels joined\n"
+            "• Active subscriptions\n"
+            "• Recent activity\n"
+            "• Engagement metrics\n\n"
+            "Feature coming soon!"
+        )
+        buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _handle_spam_appeal_select(self, event, user_id: int):
+        """Handle spam appeal account selection"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                await event.answer("❌ No accounts found")
+                return
+            text = "📞 **Spam Appeal**\n\nSelect account to submit spam appeal:"
+            buttons = []
+            for account in accounts:
+                status = "✅" if account.get("is_active", False) else "❌"
+                display_name = format_display_name(account)
+                buttons.append([Button.inline(f"{status} {display_name}", f"appeal_account_id:{account['_id']}")])
+            buttons.append([Button.inline("🔙 Back to Cleanup", "cleanup:menu")])
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Spam appeal select error: {e}")
+
+    async def _handle_help_callback(self, event, user_id: int, data: str):
+        """Handle help-related callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "main"
+        
+        if action == "guide":
+            text = "📖 **Complete Guide**\n\nComprehensive TeleGuard documentation coming soon!"
+        elif action == "security":
+            text = "🛡️ **Security Guide**\n\nSecurity best practices and OTP protection guide coming soon!"
+        elif action == "features":
+            text = "⚙️ **Feature Guide**\n\nDetailed feature documentation coming soon!"
+        elif action == "troubleshoot":
+            text = "🔧 **Troubleshooting**\n\nCommon issues and solutions coming soon!"
+        elif action == "faq":
+            text = "❓ **FAQ**\n\nFrequently asked questions coming soon!"
+        elif action == "contact":
+            text = "📞 **Contact Support**\n\nContact @ContactXYZrobot for support"
+        elif action == "emergency":
+            text = "🆘 **Emergency Help**\n\nFor critical issues, contact developers directly"
+        elif action == "commands":
+            text = "📚 **Commands**\n\nCommand reference coming soon!"
+        elif action == "toggle_dev":
+            await self._toggle_developer_mode(user_id, event.message_id)
+            return
+        else:
+            text = "❓ **Help**\n\nHelp section"
+        
+        buttons = [[Button.inline("🔙 Back to Help", "menu:help")]]
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_support_callback(self, event, user_id: int, data: str):
+        """Handle support-related callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "main"
+        
+        if action == "contact":
+            text = "💬 **Contact Support**\n\nReach out to @ContactXYZrobot"
+        elif action == "bug":
+            text = "🐛 **Report Bug**\n\nReport bugs on GitHub Issues"
+        elif action == "docs":
+            text = "📚 **Documentation**\n\nFull documentation coming soon!"
+        elif action == "feature":
+            text = "💡 **Feature Request**\n\nSuggest features on GitHub"
+        elif action == "status":
+            text = "📊 **System Status**\n\nAll systems operational"
+        elif action == "updates":
+            text = "🔄 **Updates**\n\nCheck GitHub for latest updates"
+        else:
+            text = "🆘 **Support**\n\nSupport section"
+        
+        buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_developer_callback(self, event, user_id: int, data: str):
+        """Handle developer-related callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "main"
+        
+        if action == "toggle":
+            await self._toggle_developer_mode(user_id, event.message_id)
+            return
+        elif action == "sysinfo":
+            text = "📊 **System Dashboard**\n\nSystem information coming soon!"
+        elif action == "logs":
+            text = "📋 **System Logs**\n\nLog viewer coming soon!"
+        elif action == "dbstats":
+            text = "🗄️ **Database Tools**\n\nDatabase statistics coming soon!"
+        elif action == "perf":
+            text = "⚡ **Performance Monitor**\n\nPerformance metrics coming soon!"
+        elif action == "maintenance":
+            text = "🔧 **Maintenance Tools**\n\nMaintenance options coming soon!"
+        elif action == "restart":
+            text = "🔄 **System Restart**\n\nRestart functionality coming soon!"
+        elif action == "startup":
+            text = "🚀 **Startup Config**\n\nStartup configuration coming soon!"
+        elif action == "commands":
+            text = "📚 **Command Reference**\n\nDeveloper commands coming soon!"
+        else:
+            text = "⚙️ **Developer**\n\nDeveloper section"
+        
+        buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_menu_callback(self, event, user_id: int, data: str):
+        """Handle menu navigation callbacks"""
+        parts = data.split(":")
+        menu = parts[1] if len(parts) > 1 else "main"
+        
+        if menu == "main":
+            await self.send_main_menu(user_id)
+        elif menu == "accounts":
+            await self._handle_account_settings(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "otp":
+            await self._handle_otp_manager(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "messaging":
+            await self._handle_messaging(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "channels":
+            await self._handle_channels(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "contacts":
+            await self._handle_contacts(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "cleanup":
+            await self._handle_cleanup(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "help":
+            await self._handle_help(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "support":
+            await self._handle_support(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "developer":
+            await self._handle_developer(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif menu == "import":
+            text = "📨 **Chat Import**\n\nImport chat history feature coming soon!"
+            buttons = [[Button.inline("🔙 Back to Help", "menu:help")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_dm_reply_callback(self, event, user_id: int, data: str):
+        """Handle DM reply callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "main"
+        
+        if action == "enable":
+            text = "✅ **Enable DM Reply**\n\nReply with your forum group ID to enable DM management"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        elif action == "disable":
+            text = "❌ **Disable DM Reply**\n\nDM management disabled"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        elif action == "change":
+            text = "🔄 **Change Group**\n\nReply with new forum group ID"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        elif action == "status":
+            text = "📊 **DM Reply Status**\n\nStatus information coming soon!"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        elif action == "help":
+            text = "❓ **DM Reply Setup**\n\nSetup guide coming soon!"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_channel_callback(self, event, user_id: int, data: str):
+        """Handle channel-related callbacks"""
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else "main"
+        account_phone = parts[2] if len(parts) > 2 else None
+        
+        if action == "select" and account_phone:
+            await self._send_channel_actions_menu(user_id, account_phone, event.message_id)
+        elif action == "stats":
+            await self._show_channel_statistics(user_id, event.message_id)
+        elif action == "search":
+            text = "🔍 **Channel Discovery**\n\nChannel search feature coming soon!"
+            buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _send_channel_actions_menu(self, user_id: int, account_phone: str, message_id: int):
+        """Send channel actions menu for specific account"""
+        text = f"📢 **Channel Management**\n\nAccount: {account_phone}\n\nSelect action:"
+        buttons = [
+            [
+                Button.inline("🔗 Join Channel", f"channel:join:{account_phone}"),
+                Button.inline("🚫 Leave Channel", f"channel:leave:{account_phone}"),
+            ],
+            [
+                Button.inline("🆕 Create Channel", f"channel:create:{account_phone}"),
+                Button.inline("🗑️ Delete Channel", f"channel:delete:{account_phone}"),
+            ],
+            [Button.inline("📋 List Channels", f"channel:list:{account_phone}")],
+            [Button.inline("🔙 Back to Accounts", "back:accounts")],
+        ]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _handle_export_sessions(self, event, user_id: int):
+        """Handle export sessions request"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                text = "✨ **Create Session**\n\n❌ No accounts found. Add accounts first to export sessions."
+                buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                await self.bot.send_message(user_id, text, buttons=buttons)
+                return
+            text = "✨ **Create Session**\n\nSelect account to export session:"
+            buttons = []
+            for account in accounts:
+                status = "✅" if account.get("is_active", False) else "❌"
+                display_name = format_display_name(account)
+                buttons.append([Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
+            buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Export sessions error: {e}")
+
+    async def _handle_export_session_select(self, event, user_id: int, account_name: str):
+        """Handle export session selection"""
+        text = f"✨ **Export Session: {account_name}**\n\nSelect export type:"
+        buttons = [
+            [Button.inline("✨ Create Fresh Session", f"export_fresh:{account_name}")],
+            [Button.inline("🔙 Back to Export", "export_sessions")]
+        ]
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+    async def _handle_export_fresh_session(self, event, user_id: int, account_name: str):
+        """Handle fresh session export"""
+        text = f"✨ **Creating Fresh Session**\n\nAccount: {account_name}\n\nGenerating session string..."
+        await self.bot.edit_message(user_id, event.message_id, text)
+        await event.answer("✨ Session export feature coming soon!")
+
+    async def _handle_export_contacts(self, event, user_id: int, account_name: str):
+        """Handle contact export"""
+        text = f"📤 **Exporting Contacts**\n\nAccount: {account_name}\n\nGenerating CSV file..."
+        await self.bot.edit_message(user_id, event.message_id, text)
+        await event.answer("📤 Contact export feature coming soon!")
