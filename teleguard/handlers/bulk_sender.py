@@ -164,11 +164,37 @@ class BulkSender:
         job = self.active_jobs.get(job_id)
         if not job:
             return
+        
+        status_msg = None
         try:
+            # Send initial status
+            status_msg = await job['event'].reply(
+                f"🚀 **Campaign Started**\n\n"
+                f"Account: {job['account_name']}\n"
+                f"Total Users: {job['total']}\n"
+                f"Sent: 0/{job['total']}\n"
+                f"Progress: ░░░░░░░░░░ 0%"
+            )
+            
             for i, target in enumerate(job['targets']):
                 if job['status'] != 'running':
                     break
+                
                 try:
+                    # Resolve target entity first
+                    try:
+                        if target.startswith('@'):
+                            entity = await client.get_entity(target)
+                        elif target.isdigit():
+                            entity = await client.get_entity(int(target))
+                        else:
+                            entity = await client.get_entity(target)
+                    except Exception as e:
+                        logger.error(f"Failed to resolve {target}: {e}")
+                        job['failed'] += 1
+                        continue
+                    
+                    # Send message
                     if job['buttons']:
                         from telethon.tl.types import KeyboardButtonUrl, KeyboardButtonCallback
                         from telethon.tl.types import ReplyInlineMarkup
@@ -180,34 +206,82 @@ class BulkSender:
                             else:
                                 button = KeyboardButtonCallback(btn['text'], btn['data'].encode())
                             current_row.append(button)
-                            # Max 2 buttons per row
                             if len(current_row) >= 2:
                                 keyboard_rows.append(current_row)
                                 current_row = []
                         if current_row:
                             keyboard_rows.append(current_row)
                         markup = ReplyInlineMarkup(keyboard_rows) if keyboard_rows else None
-                        await client.send_message(target, job['message'], buttons=markup)
+                        await client.send_message(entity, job['message'], buttons=markup)
                     else:
-                        await client.send_message(target, job['message'])
+                        await client.send_message(entity, job['message'])
+                    
                     job['sent'] += 1
-                    logger.info(f"Bulk message sent to {target}")
-                    if (i + 1) % 10 == 0 and not job.get('multi_account', False):
-                        await self._update_job_progress(job)
-                    # Rate limiting
-                    await asyncio.sleep(2)
+                    logger.info(f"✅ Sent to {target} ({job['sent']}/{job['total']})")
+                    
+                    # Update progress every 5 messages or at milestones
+                    if (i + 1) % 5 == 0 or (i + 1) == job['total']:
+                        progress_pct = int((job['sent'] / job['total']) * 100)
+                        progress_bar = '■' * (progress_pct // 10) + '░' * (10 - progress_pct // 10)
+                        
+                        if status_msg:
+                            try:
+                                await status_msg.edit(
+                                    f"📤 **Campaign Running**\n\n"
+                                    f"Account: {job['account_name']}\n"
+                                    f"Total Users: {job['total']}\n"
+                                    f"Sent: {job['sent']}/{job['total']}\n"
+                                    f"Failed: {job['failed']}\n"
+                                    f"Progress: {progress_bar} {progress_pct}%"
+                                )
+                            except:
+                                pass
+                    
+                    # Rate limiting - 3-5 seconds between messages
+                    import random
+                    await asyncio.sleep(random.uniform(3, 5))
+                    
                 except Exception as e:
                     job['failed'] += 1
-                    logger.error(f"Failed to send to {target}: {e}")
+                    error_msg = str(e)
+                    logger.error(f"❌ Failed to send to {target}: {error_msg}")
+                    
+                    # Check for flood wait
+                    if 'FloodWaitError' in error_msg or 'FLOOD_WAIT' in error_msg:
+                        import re
+                        wait_match = re.search(r'(\d+)', error_msg)
+                        if wait_match:
+                            wait_time = int(wait_match.group(1))
+                            if status_msg:
+                                await status_msg.edit(
+                                    f"⏸️ **Rate Limited**\n\n"
+                                    f"Waiting {wait_time} seconds...\n"
+                                    f"Sent: {job['sent']}/{job['total']}"
+                                )
+                            await asyncio.sleep(wait_time)
+            
             # Job completed
             job['status'] = 'completed'
-            if not job.get('multi_account', False):
-                await self._update_job_progress(job, final=True)
-            else:
-                logger.info(f"Multi-account job completed: {job['account_name']} - {job['sent']}/{job['total']}")
+            
+            if status_msg:
+                await status_msg.edit(
+                    f"✅ **Campaign Completed**\n\n"
+                    f"Account: {job['account_name']}\n"
+                    f"Total Users: {job['total']}\n"
+                    f"Sent: {job['sent']}/{job['total']}\n"
+                    f"Failed: {job['failed']}\n"
+                    f"Progress: ■■■■■■■■■■ 100%"
+                )
+            
         except Exception as e:
             job['status'] = 'error'
             logger.error(f"Bulk job error: {e}")
+            if status_msg:
+                await status_msg.edit(
+                    f"❌ **Campaign Failed**\n\n"
+                    f"Error: {str(e)}\n"
+                    f"Sent: {job['sent']}/{job['total']}"
+                )
         finally:
             # Clean up after 1 hour
             await asyncio.sleep(3600)
