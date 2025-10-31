@@ -908,6 +908,8 @@ class MenuSystem:
                             },
                         )()
                     )
+                elif data == "auto_reply:main":
+                    await self._send_autoreply_menu(user_id, event.message_id)
                 elif data == "menu:channels":
                     await self._handle_channels(
                         type(
@@ -1020,6 +1022,21 @@ class MenuSystem:
                     buttons = [[Button.inline("🔙 Back", "cleanup:menu")]]
                     await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
                     await event.answer("📞 Spam appeal started")
+                elif data == "menu:import":
+                    text = "📨 **Chat Import**\n\nImport chat history feature coming soon!"
+                    buttons = [[Button.inline("🔙 Back", "menu:main")]]
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                    await event.answer("📨 Chat import")
+                elif data == "menu:help":
+                    await self._handle_help(type("Event", (), {"sender_id": user_id})())
+                elif data == "menu:support":
+                    await self._handle_support(type("Event", (), {"sender_id": user_id})())
+                elif data == "menu:developer":
+                    await self._handle_developer(type("Event", (), {"sender_id": user_id})())
+                elif data == "menu:dm_reply":
+                    await self._handle_dm_reply(type("Event", (), {"sender_id": user_id})())
+                elif data == "back:accounts":
+                    await self._handle_channels(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
                 else:
                     await event.answer("Action processed", alert=False)
             except Exception as e:
@@ -3353,31 +3370,35 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to send message menu: {e}")
     async def _send_autoreply_menu(self, user_id: int, message_id: int):
-        """Send auto-reply management menu"""
+        """Send auto-reply management menu - redirect to advanced system"""
         try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
+            from ..utils.data_encryption import DataEncryption
+            encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+            accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
+            
             if not accounts:
-                text = "🔄 **Auto Reply**\n\nNo accounts found. Add accounts first."
+                text = "🤖 **Advanced Auto-Reply System**\n\n❌ No accounts found. Add accounts first."
                 buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
             else:
-                text = "🔄 **Auto Reply**\n\nSelect account to configure auto-reply:"
-                buttons = []
-                for account in accounts:
-                    status = "✅" if account.get("is_active", False) else "❌"
-                    auto_status = (
-                        "✅" if account.get("auto_reply_enabled", False) else "❌"
-                    )
-                    button_text = f"{status}{auto_status} {account['name']}"
-                    buttons.append(
-                        [
-                            Button.inline(
-                                button_text, f"autoreply:manage:{account['_id']}"
-                            )
-                        ]
-                    )
-                buttons.append([Button.inline("🔙 Back", "menu:messaging")])
+                enabled_count = sum(1 for acc in accounts if acc.get('auto_reply_enabled', False))
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                keyword_status = "🟢 On" if settings.get('keyword_replies_enabled', False) else "🔴 Off"
+                time_status = "🟢 On" if settings.get('time_based_replies_enabled', False) else "🔴 Off"
+                
+                text = f"🤖 **Advanced Auto-Reply System**\n\n"
+                text += f"📱 Accounts: {enabled_count}/{len(accounts)} enabled\n"
+                text += f"🔑 Keyword Replies: {keyword_status}\n"
+                text += f"⏰ Time-based Replies: {time_status}\n\n"
+                text += "Configure your automatic responses:"
+                
+                buttons = [
+                    [Button.inline("📱 Toggle Per Account", "auto_reply:toggle")],
+                    [Button.inline("🔑 Keyword Settings", "auto_reply:keyword_settings")],
+                    [Button.inline("⏰ Time Settings", "auto_reply:time_settings")],
+                    [Button.inline("📊 View Stats", "auto_reply:analytics")],
+                    [Button.inline("🗑️ Reset All", "auto_reply:reset")],
+                    [Button.inline("🔙 Back", "menu:messaging")]
+                ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to send auto-reply menu: {e}")
