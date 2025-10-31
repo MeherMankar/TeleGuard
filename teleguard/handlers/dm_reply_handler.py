@@ -70,9 +70,11 @@ class DMReplyHandler:
                 
             client_key = f"{user_id}:{me.id}"
             if client_key in self.handled_clients:
-                logger.debug(f"DM handler already set up for client {me.id}")
-                return
+                logger.info(f"DM handler already exists for {account_name}, removing old handler")
+                self.handled_clients.discard(client_key)
+            
             self.handled_clients.add(client_key)
+            logger.info(f"Setting up DM handler for {account_name} (ID: {me.id})")
             
             @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
             async def dm_handler(event):
@@ -345,13 +347,18 @@ class DMReplyHandler:
         """Get existing topic or create new one"""
         try:
             topic_key = f"{sender_id}_{account_id}"
+            logger.info(f"Looking for topic: key={topic_key}, group={group_id}")
+            
             existing_topic = await mongodb.db.dm_topics.find_one({
                 "group_id": group_id,
                 "topic_key": topic_key
             })
             
             if existing_topic:
+                logger.info(f"Found existing topic: {existing_topic['topic_id']} - {existing_topic.get('topic_title')}")
                 return existing_topic["topic_id"]
+            
+            logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
             
             from telethon.tl.functions.channels import CreateForumTopicRequest
             result = await self.bot(CreateForumTopicRequest(
@@ -361,27 +368,52 @@ class DMReplyHandler:
                 random_id=hash(topic_key) % (2**63)
             ))
             
+            logger.debug(f"Topic creation result: {result}")
+            
             topic_id = None
             if hasattr(result, 'updates') and result.updates:
                 for update in result.updates:
-                    if hasattr(update, 'message') and hasattr(update.message, 'id'):
-                        topic_id = update.message.id
+                    if hasattr(update, 'message'):
+                        if hasattr(update.message, 'id'):
+                            topic_id = update.message.id
+                            logger.info(f"Extracted topic_id from message.id: {topic_id}")
+                            break
+                        elif hasattr(update.message, 'reply_to') and hasattr(update.message.reply_to, 'reply_to_top_id'):
+                            topic_id = update.message.reply_to.reply_to_top_id
+                            logger.info(f"Extracted topic_id from reply_to_top_id: {topic_id}")
+                            break
+            
+            if not topic_id and hasattr(result, 'updates'):
+                for update in result.updates:
+                    if hasattr(update, 'id'):
+                        topic_id = update.id
+                        logger.info(f"Extracted topic_id from update.id: {topic_id}")
                         break
             
-            if topic_id:
-                await mongodb.db.dm_topics.insert_one({
-                    "group_id": group_id,
-                    "topic_key": topic_key,
-                    "topic_id": topic_id,
-                    "topic_title": topic_title,
-                    "sender_id": sender_id,
-                    "account_id": account_id,
-                    "created_at": datetime.utcnow()
-                })
-                return topic_id
+            if not topic_id:
+                logger.error(f"Failed to extract topic_id from result: {result}")
+                return None
+            
+            # Save to database
+            await mongodb.db.dm_topics.insert_one({
+                "group_id": group_id,
+                "topic_key": topic_key,
+                "topic_id": topic_id,
+                "topic_title": topic_title,
+                "sender_id": sender_id,
+                "account_id": account_id,
+                "created_at": datetime.utcnow()
+            })
+            
+            logger.info(f"✅ Created and saved topic: {topic_id} - '{topic_title}'")
+            return topic_id
             
         except Exception as e:
-            logger.error(f"Failed to create/get topic: {e}")
+            logger.error(f"Failed to create/get topic: {e}", exc_info=True)
+            try:
+                await BotLogger.log_error("Topic Creation Error", str(e)[:500], context=f"Group: {group_id}, Title: {topic_title}")
+            except:
+                pass
         return None
     
     async def setup_ai_automation_job(self, user_id: int, account_id: str, config: dict):
@@ -407,6 +439,17 @@ class DMReplyHandler:
         """Set up DM handler for a newly added client"""
         if client and client.is_connected():
             await self._setup_client_dm_handler(user_id, account_name, client)
+            logger.info(f"✅ DM handler registered for new account: {account_name}")
+    
+    async def refresh_all_handlers(self):
+        """Refresh all DM handlers - automatically called on startup and when adding accounts"""
+        try:
+            self.handled_clients.clear()
+            await self.setup_dm_handlers()
+            handler_count = len(self.handled_clients)
+            logger.info(f"✅ Refreshed DM handlers: {handler_count} accounts registered")
+        except Exception as e:
+            logger.error(f"Failed to refresh DM handlers: {e}")
     
     async def _handle_ai_auto_reply(self, event, me, user_id: int):
         """Handle AI-powered auto-reply to DMs"""

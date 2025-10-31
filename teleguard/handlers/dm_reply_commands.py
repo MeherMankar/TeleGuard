@@ -158,19 +158,70 @@ class DMReplyCommands:
                 # Get all topic mappings
                 mappings = await mongodb.db.dm_topics.find({"group_id": group_id}).to_list(None)
                 
-                if not mappings:
-                    await event.reply(f"📊 **Topic Mappings**\n\nNo topics found for group {group_id}")
-                    return
+                # Get user's accounts
+                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
                 
-                msg = f"📊 **Topic Mappings** ({len(mappings)} topics)\n\n"
-                for m in mappings:
-                    msg += f"📌 **{m.get('topic_title', 'Unknown')}**\n"
-                    msg += f"  Topic ID: `{m['topic_id']}`\n"
-                    msg += f"  Sender: `{m['sender_id']}`\n"
-                    msg += f"  Account: `{m['account_id']}`\n\n"
+                msg = f"📊 **DM Reply Debug Info**\n\n"
+                msg += f"**Group ID:** `{group_id}`\n"
+                msg += f"**Active Accounts:** {len(accounts)}\n"
+                msg += f"**Topics Created:** {len(mappings)}\n\n"
+                
+                if accounts:
+                    msg += "**Your Accounts:**\n"
+                    for acc in accounts:
+                        msg += f"  • {acc.get('name', 'Unknown')} (ID: `{acc.get('telegram_id', 'N/A')}`)"
+                        # Check if handler is registered
+                        handler_status = "✅" if f"{user_id}:{acc.get('telegram_id')}" in self.bot_manager.dm_reply_handler.handled_clients else "❌"
+                        msg += f" Handler: {handler_status}\n"
+                    msg += "\n"
+                
+                if mappings:
+                    msg += f"**Topics ({len(mappings)}):**\n"
+                    for m in mappings:
+                        msg += f"📌 {m.get('topic_title', 'Unknown')}\n"
+                        msg += f"  Topic ID: `{m['topic_id']}`\n"
+                        msg += f"  Sender: `{m['sender_id']}`\n"
+                        msg += f"  Account: `{m['account_id']}`\n\n"
+                else:
+                    msg += "**No topics created yet.**\n"
+                    msg += "Topics will be created when someone sends a DM to your accounts.\n\n"
+                
+                msg += "**Note:**\n"
+                msg += "• Handlers auto-refresh when accounts are added\n"
+                msg += "• Make sure bot is admin in the group\n"
+                msg += "• Group must have Topics enabled\n"
                 
                 await event.reply(msg)
                 
             except Exception as e:
                 logger.error(f"Debug topics error: {e}")
+                await event.reply(f"❌ Error: {e}")
+        
+        @self.bot.on(events.NewMessage(pattern=r'^/refresh_dm_handlers$'))
+        async def refresh_dm_handlers_command(event):
+            """Refresh DM handlers for all accounts"""
+            if not event.is_private:
+                return
+            
+            user_id = event.sender_id
+            
+            try:
+                await event.reply("🔄 Refreshing DM handlers...")
+                
+                if hasattr(self.bot_manager, 'dm_reply_handler') and self.bot_manager.dm_reply_handler:
+                    await self.bot_manager.dm_reply_handler.refresh_all_handlers()
+                    
+                    # Count registered handlers for this user
+                    user_handlers = sum(1 for key in self.bot_manager.dm_reply_handler.handled_clients if key.startswith(f"{user_id}:"))
+                    
+                    await event.reply(
+                        f"✅ **DM Handlers Refreshed**\n\n"
+                        f"Registered handlers for your accounts: {user_handlers}\n\n"
+                        f"All your accounts should now receive DM notifications with topic creation."
+                    )
+                else:
+                    await event.reply("❌ DM reply handler not available")
+                    
+            except Exception as e:
+                logger.error(f"Refresh handlers error: {e}")
                 await event.reply(f"❌ Error: {e}")

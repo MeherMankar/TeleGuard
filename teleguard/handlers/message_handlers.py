@@ -1055,6 +1055,7 @@ class MessageHandlers:
                     first_name = getattr(me, 'first_name', None) or ''
                     last_name = getattr(me, 'last_name', None) or ''
                     username = getattr(me, 'username', None)
+                    telegram_id = getattr(me, 'id', None)
                     display_name = ' '.join(part for part in (first_name, last_name) if part)
                     if not display_name:
                         display_name = f'@{username}' if username else phone
@@ -1064,10 +1065,11 @@ class MessageHandlers:
                             "first_name": first_name,
                             "last_name": last_name,
                             "username": username,
+                            "telegram_id": telegram_id,
                             "display_name": display_name,
                             "name": display_name
                         }}
                     )
-                    logger.info(f"Updated account name for {phone}: {display_name}")
+                    logger.info(f"Updated account info for {phone}: {display_name} (ID: {telegram_id})")
         except (ValueError, ConnectionError, AttributeError) as e:
             logger.error(f"Failed to fetch account name for {phone}: {e}")

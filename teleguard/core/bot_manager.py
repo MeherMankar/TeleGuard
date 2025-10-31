@@ -483,7 +483,7 @@ class BotManager:
             # Set up DM handlers for loaded sessions after all components are initialized
             if self.dm_reply_handler:
                 try:
-                    await self.dm_reply_handler.setup_dm_handlers()
+                    await self.dm_reply_handler.refresh_all_handlers()
                     print("  DM Reply system ready")
                     logger.info("DM handlers set up for existing sessions")
                 except Exception as e:
@@ -878,9 +878,15 @@ class BotManager:
                 logger.info(f"OTP handler setup completed for {account_name}")
             else:
                 logger.warning(f"Could not setup OTP handler - manager: {bool(self.otp_manager)}, client: {bool(client)}")
-            # Setup DM reply handler
+            # Setup DM reply handler - auto-refresh to ensure all handlers are registered
             if self.dm_reply_handler and client:
-                await self.dm_reply_handler.setup_new_client_handler(user_id, account_name, client)
+                try:
+                    await self.dm_reply_handler.setup_new_client_handler(user_id, account_name, client)
+                    # Auto-refresh all handlers to ensure consistency
+                    await self.dm_reply_handler.refresh_all_handlers()
+                    logger.info(f"DM handler setup and refresh completed for {account_name}")
+                except Exception as dm_error:
+                    logger.error(f"Failed to setup DM handler for {account_name}: {dm_error}")
             logger.info(LogFormatter.format_user_action(
                 user_id, "account_added", {"account_name": account_name}
             ))
