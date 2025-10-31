@@ -125,7 +125,23 @@ class DMReplyHandler:
                             else:
                                 raise ve
                         except Exception as send_error:
-                            logger.error(f"Failed to send DM to admin group: {send_error}")
+                            error_msg = str(send_error)
+                            # Check if topic was deleted
+                            if "topic was deleted" in error_msg.lower() or "TOPIC_DELETED" in error_msg:
+                                logger.info(f"Topic {topic_id} was deleted, recreating...")
+                                # Remove old mapping
+                                await mongodb.db.dm_topics.delete_one({"topic_id": topic_id})
+                                # Create new topic
+                                new_topic_id = await self._get_or_create_topic(admin_group_id, topic_title, sender.id, me.id)
+                                if new_topic_id:
+                                    # Retry sending
+                                    if event.media:
+                                        await self.bot.send_file(admin_group_id, event.media, caption=event.text, reply_to=new_topic_id)
+                                    else:
+                                        await self.bot.send_message(admin_group_id, event.text or '[Empty]', reply_to=new_topic_id)
+                                    logger.info(f"✅ Recreated topic and sent message")
+                            else:
+                                logger.error(f"Failed to send DM to admin group: {send_error}")
                             
                 except Exception as e:
                     logger.error(f"DM handler error: {e}", exc_info=True)
