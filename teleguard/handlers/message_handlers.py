@@ -685,16 +685,39 @@ class MessageHandlers:
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
-            if account:
-                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                success = await self.messaging_manager.send_message(
-                    user_id, account_name, target, message
-                )
-                await event.reply(
-                    "✅ Message sent!" if success else "❌ Failed to send message."
-                )
-            else:
+            if not account:
                 await event.reply("❌ Account not found.")
+                self.pending_actions.pop(user_id, None)
+                return
+            
+            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
+            
+            # Check if client is connected
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if not client or not client.is_connected():
+                await event.reply(
+                    f"❌ Account {account_name} is not connected.\n\n"
+                    "Please restart the bot or re-add the account."
+                )
+                self.pending_actions.pop(user_id, None)
+                return
+            
+            # Send message
+            success = await self.messaging_manager.send_message(
+                user_id, account_name, target, message
+            )
+            
+            if success:
+                await event.reply(f"✅ Message sent to {target}!")
+            else:
+                await event.reply(
+                    f"❌ Failed to send message to {target}.\n\n"
+                    "Possible reasons:\n"
+                    "• User not found or username incorrect\n"
+                    "• You haven't started a chat with this user\n"
+                    "• Account is restricted or banned\n\n"
+                    "Try sending a message to this user manually first."
+                )
             self.pending_actions.pop(user_id, None)
         elif action == "set_autoreply_message":
             account_id = self.pending_actions[user_id].get("account_id")

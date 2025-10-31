@@ -901,8 +901,15 @@ class BotManager:
         # Start periodic cleanup task
         asyncio.create_task(self._periodic_cleanup_task())
     async def start_user_client(self, user_id: int, account_name: str, session_string: str) -> None:
-        """Public method to start a user client"""
-        await self._start_user_client(user_id, account_name, session_string)
+        """Public method to start a user client with timeout"""
+        try:
+            await asyncio.wait_for(self._start_user_client(user_id, account_name, session_string), timeout=15.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout starting client for {account_name}")
+            raise TimeoutError(f"Connection timeout after 15s")
+        except Exception as e:
+            logger.error(f"Failed to start client {account_name}: {e}")
+            raise
     
     async def add_user_account(self, user_id: int, account_name: str, session_string: str) -> bool:
         """

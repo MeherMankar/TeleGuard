@@ -472,7 +472,9 @@ Reply:"""
                 dialog = random.choice(dialogs)
                 
                 # Start typing
-                await client.send_typing(dialog.entity)
+                from telethon import functions
+                from telethon.tl import types
+                await client(functions.messages.SetTypingRequest(peer=dialog.entity, action=types.SendMessageTypingAction()))
                 typing_duration = random.uniform(3, 8)
                 await asyncio.sleep(typing_duration)
                 

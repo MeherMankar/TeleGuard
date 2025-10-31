@@ -909,6 +909,7 @@ class MenuSystem:
                         )()
                     )
                 elif data == "auto_reply:main":
+                    await event.answer("🤖 Loading auto-reply menu...")
                     await self._send_autoreply_menu(user_id, event.message_id)
                 elif data == "menu:channels":
                     await self._handle_channels(
@@ -1522,11 +1523,7 @@ class MenuSystem:
                     button_text = f"{status} {display_name}"
                     buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
                 
-                buttons.extend([
-                    [Button.inline("📞 Submit Spam Appeal", "cleanup:spam_appeal_select")],
-                    [Button.inline("❓ Spam Appeal Guide", "help:troubleshoot")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
-                ])
+                buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle cleanup: {e}")
@@ -1671,8 +1668,7 @@ class MenuSystem:
             
             buttons = [
                 [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("❌ Cancel", "cleanup:menu")],
-                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
@@ -1905,8 +1901,7 @@ class MenuSystem:
             
             buttons = [
                 [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("❌ Cancel", "cleanup:menu")],
-                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             await self.bot.send_message(user_id, text, buttons=buttons)
@@ -1973,8 +1968,7 @@ class MenuSystem:
             
             buttons = [
                 [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("❌ Cancel", "cleanup:menu")],
-                [Button.inline("📞 Appeal Spam First", f"cleanup:appeal:{account_id}")]
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             if message_id:
@@ -3372,9 +3366,7 @@ class MenuSystem:
     async def _send_autoreply_menu(self, user_id: int, message_id: int):
         """Send auto-reply management menu - redirect to advanced system"""
         try:
-            from ..utils.data_encryption import DataEncryption
-            encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
-            accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
             
             if not accounts:
                 text = "🤖 **Advanced Auto-Reply System**\n\n❌ No accounts found. Add accounts first."

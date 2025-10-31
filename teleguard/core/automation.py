@@ -344,7 +344,9 @@ Response:"""
         await asyncio.sleep(thinking_time)
         
         # Start typing
-        await client.send_typing(group_id)
+        from telethon import functions
+        from telethon.tl import types
+        await client(functions.messages.SetTypingRequest(peer=group_id, action=types.SendMessageTypingAction()))
         
         # Realistic typing with human-like patterns
         words = response.split()
@@ -371,7 +373,9 @@ Response:"""
             
             # Refresh typing indicator
             if i < segments - 1 and random.random() < 0.5:
-                await client.send_typing(group_id)
+                from telethon import functions
+                from telethon.tl import types
+                await client(functions.messages.SetTypingRequest(peer=group_id, action=types.SendMessageTypingAction()))
         
         # Final review pause
         await asyncio.sleep(random.uniform(1.0, 3.0))
@@ -515,7 +519,9 @@ Response:"""
             active_dialog = random.choice(dialogs)
             
             # Start typing
-            await client.send_typing(active_dialog.entity)
+            from telethon import functions
+            from telethon.tl import types
+            await client(functions.messages.SetTypingRequest(peer=active_dialog.entity, action=types.SendMessageTypingAction()))
             await asyncio.sleep(random.uniform(2, 5))
             
             # Realistic human behavior: sometimes send, sometimes just stop typing
@@ -526,7 +532,9 @@ Response:"""
                 await asyncio.sleep(random.uniform(1.0, 3.5))
                 
                 # Brief typing before sending
-                await client.send_typing(active_dialog.entity)
+                from telethon import functions
+                from telethon.tl import types
+                await client(functions.messages.SetTypingRequest(peer=active_dialog.entity, action=types.SendMessageTypingAction()))
                 await asyncio.sleep(random.uniform(0.8, 2.2))
                 
                 await client.send_message(active_dialog.entity, random.choice(casual_messages))

@@ -77,19 +77,16 @@ file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(detailed_formatter)
 
 # Console handler with UTF-8 encoding support
+import io
 try:
-    # Try to set UTF-8 encoding for console
-    import sys
+    # Force UTF-8 encoding for console with error handling
     if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8')
-    
-    console_handler = logging.StreamHandler()
-except Exception:
-    # Fallback for systems that don't support UTF-8 reconfiguration
-    import io
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     console_handler = logging.StreamHandler(io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace'))
+except Exception:
+    console_handler = logging.StreamHandler()
 
 console_handler.setLevel(logging.ERROR)
 console_handler.setFormatter(simple_formatter)
@@ -98,41 +95,35 @@ console_handler.setFormatter(simple_formatter)
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
-# Configure specific loggers with UTF-8 safe formatting
-class SafeFormatter(logging.Formatter):
-    def format(self, record):
-        try:
-            return super().format(record)
-        except UnicodeEncodeError:
-            # Replace problematic characters with safe alternatives
-            record.msg = str(record.msg).encode('ascii', 'replace').decode('ascii')
-            if record.args:
-                safe_args = []
-                for arg in record.args:
-                    if isinstance(arg, str):
-                        safe_args.append(arg.encode('ascii', 'replace').decode('ascii'))
-                    else:
-                        safe_args.append(arg)
-                record.args = tuple(safe_args)
-            return super().format(record)
+# Configure teleguard loggers with UTF-8 safe file handler only
+for logger_name in ["teleguard", "teleguard.core", "teleguard.handlers", "teleguard.utils"]:
+    mod_logger = logging.getLogger(logger_name)
+    mod_logger.setLevel(logging.INFO)
+    # Remove console handlers to prevent encoding errors
+    mod_logger.propagate = True  # Let root logger handle it
 
-# Update console handler with safe formatter
-console_handler.setFormatter(SafeFormatter('%(levelname)s: %(message)s'))
-
-logging.getLogger("teleguard").setLevel(logging.INFO)
-logging.getLogger("teleguard.core").setLevel(logging.INFO)
-logging.getLogger("teleguard.handlers").setLevel(logging.INFO)
-logging.getLogger("teleguard.utils").setLevel(logging.INFO)
-
-# Silence noisy external modules and set safe handlers
+# Silence noisy external modules
 for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "urllib3", "aiohttp"]:
     mod_logger = logging.getLogger(mod)
     mod_logger.setLevel(logging.ERROR)
-    # Remove any existing handlers that might cause encoding issues
+    mod_logger.propagate = False
+    # Remove all handlers to prevent encoding issues
     for handler in mod_logger.handlers[:]:
         mod_logger.removeHandler(handler)
+    # Add only UTF-8 safe file handler
+    safe_file_handler = RotatingFileHandler(
+        log_dir / "teleguard.log",
+        maxBytes=10*1024*1024,
+        backupCount=5,
+        encoding="utf-8"
+    )
+    safe_file_handler.setLevel(logging.ERROR)
+    safe_file_handler.setFormatter(detailed_formatter)
+    mod_logger.addHandler(safe_file_handler)
 
+# Get logger after configuration
 logger = get_logger(__name__)
+logger.info("Logging system configured with UTF-8 support")
 
 # Global database instance
 db = None
