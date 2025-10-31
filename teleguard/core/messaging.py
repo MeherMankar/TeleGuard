@@ -207,26 +207,58 @@ class MessagingManager:
         if random.random() < 0.6:  # 60% chance to review
             await asyncio.sleep(random.uniform(0.3, 2.0))
     async def send_message(self, user_id: int, account_name: str, target: str, message: str) -> bool:
-        """Send a simple message with human-like behavior"""
+        """Send a message with smart routing and human-like behavior"""
         try:
-            if user_id not in self.user_clients or account_name not in self.user_clients[user_id]:
+            # Smart routing: find the best account to send from
+            client = await self._get_best_client(user_id, account_name, target)
+            if not client:
                 return False
-            client = self.user_clients[user_id][account_name]
-            if not client or not client.is_connected():
+            
+            # Resolve target entity
+            try:
+                if target.startswith('@'):
+                    target_entity = await client.get_entity(target)
+                elif target.startswith('-') or target.isdigit():
+                    target_entity = await client.get_entity(int(target))
+                else:
+                    target_entity = target
+            except Exception as e:
+                logger.error(f"Failed to resolve target {target}: {e}")
                 return False
             
             # Human-like typing simulation
-            await client.send_typing(target)
+            await client.send_typing(target_entity)
             typing_delay = len(message) * random.uniform(0.03, 0.08)
-            typing_delay = min(max(typing_delay, 1.0), 8.0)  # 1-8 seconds
+            typing_delay = min(max(typing_delay, 1.0), 8.0)
             await asyncio.sleep(typing_delay)
             
-            await client.send_message(target, message)
+            await client.send_message(target_entity, message)
             logger.info(f"Message sent from {account_name} to {target}")
             return True
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             return False
+    
+    async def _get_best_client(self, user_id: int, account_name: str, target: str):
+        """Smart routing: get the best client to send message from"""
+        try:
+            # First try specified account
+            if user_id in self.user_clients and account_name in self.user_clients[user_id]:
+                client = self.user_clients[user_id][account_name]
+                if client and client.is_connected():
+                    return client
+            
+            # Fallback: try any connected account
+            if user_id in self.user_clients:
+                for name, client in self.user_clients[user_id].items():
+                    if client and client.is_connected():
+                        logger.info(f"Smart routing: using {name} instead of {account_name}")
+                        return client
+            
+            return None
+        except Exception as e:
+            logger.error(f"Smart routing failed: {e}")
+            return None
     
     async def _get_user_admin_group(self, user_id: int) -> Optional[int]:
         """Get user's admin group for DM replies"""
