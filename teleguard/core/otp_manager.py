@@ -47,14 +47,13 @@ class OTPManager:
         """Register OTP message handler for all user clients"""
         logger.info("🛡️ Starting OTP handler registration...")
         
-        # Don't clear existing handlers - just check if they exist
-        # Clearing can cause issues with active handlers
-        
-        # Clear bot manager OTP registry if available
         if hasattr(self.bot_manager, 'registered_handlers'):
             self.bot_manager.registered_handlers["otp"].clear()
         
+        self.registered_handlers.clear()
+        
         logger.info(f"Current user_clients: {len(self.user_clients)} users")
+        
         async def otp_handler(event):
             """Handle OTP messages from Telegram official account"""
             try:
@@ -113,12 +112,15 @@ class OTPManager:
                             finally:
                                 self.fresh_session_otps.discard(fresh_session_key)
                             return
-                # Priority 1: Check if temp OTP is active (destroyer disabled, forwarding enabled)
+                # Priority 1: Check if temp OTP is active
                 if self._is_temp_passthrough_active(user_id, account_name):
                     await self._forward_otp(
                         user_id, account_name, otp_code, message_text, temp=True
                     )
-                    await event.delete()
+                    try:
+                        await event.delete()
+                    except:
+                        pass
                     
                     # Record OTP metrics for temp forwarding
                     try:
@@ -189,13 +191,19 @@ class OTPManager:
                                 ]
                             })
                             if prot:
-                                await event.delete()
+                                try:
+                                    await event.delete()
+                                except:
+                                    pass
                                 return
                         except Exception:
                             pass
                         from telethon import functions
                         result = await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
-                        await event.delete()
+                        try:
+                            await event.delete()
+                        except:
+                            pass
                         
                         # Record OTP metrics for destruction
                         try:
@@ -244,14 +252,20 @@ class OTPManager:
                             logger.debug(f"Duplicate OTP notification prevented for {notification_key}")
                     except Exception as destroy_error:
                         logger.error(f"Failed to invalidate OTP: {destroy_error}")
-                        await event.delete()
+                        try:
+                            await event.delete()
+                        except:
+                            pass
                     return
                 # Priority 4: Check forwarding setting (only if destroyer is off)
                 if account.get("otp_forward_enabled", False):
                     await self._forward_otp(
                         user_id, account_name, otp_code, message_text
                     )
-                    await event.delete()
+                    try:
+                        await event.delete()
+                    except:
+                        pass
                     
                     # Record OTP metrics for forwarding
                     try:
@@ -305,20 +319,16 @@ class OTPManager:
                     logger.warning(f"⚠️ Client not connected for {handler_key}")
                     continue
                 
-                # Register handler if not already registered
-                if handler_key not in self.registered_handlers:
-                    try:
-                        # Register handler for Telegram service messages (777000) and login codes (42777)
-                        client.add_event_handler(
-                            otp_handler, events.NewMessage(chats=[777000, 42777])
-                        )
-                        self.registered_handlers.add(handler_key)
-                        handler_count += 1
-                        logger.info(f"✅ Registered OTP handler for {handler_key}")
-                    except Exception as e:
-                        logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
-                else:
-                    logger.debug(f"OTP handler already exists for {handler_key}")
+                try:
+                    # Always register handler (cleared at start)
+                    client.add_event_handler(
+                        otp_handler, events.NewMessage(chats=[777000, 42777])
+                    )
+                    self.registered_handlers.add(handler_key)
+                    handler_count += 1
+                    logger.info(f"✅ Registered OTP handler for {handler_key}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
         if handler_count > 0:
             logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
             print(f"  OTP handlers registered for {handler_count} accounts")
@@ -515,7 +525,10 @@ class OTPManager:
                     try:
                         from telethon import functions
                         result = await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
-                        await event.delete()
+                        try:
+                            await event.delete()
+                        except:
+                            pass
                         
                         await mongodb.db.accounts.update_one(
                             {"user_id": int(msg_user_id), "name": str(msg_account_name)},
@@ -545,13 +558,19 @@ class OTPManager:
                             )
                     except Exception as destroy_error:
                         logger.error(f"Failed to invalidate OTP: {destroy_error}")
-                        await event.delete()
+                        try:
+                            await event.delete()
+                        except:
+                            pass
                     return
                 
                 # Check forwarding
                 if account.get("otp_forward_enabled", False):
                     await self._forward_otp(msg_user_id, msg_account_name, otp_code, message_text)
-                    await event.delete()
+                    try:
+                        await event.delete()
+                    except:
+                        pass
                     return
                     
             except Exception as e:

@@ -682,6 +682,39 @@ class BotManager:
                 await event.reply(f"Fix error: {e}")
                 logger.error(f"OTP fix error: {e}")
         
+        @self.bot.on(events.NewMessage(pattern=r'/test_otp'))
+        async def test_otp_handler(event):
+            """Test OTP handler by simulating OTP message"""
+            user_id = event.sender_id
+            if user_id not in config.security.admin_ids:
+                return
+            
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                msg = "🧪 **OTP Handler Test**\n\n"
+                
+                for acc in accounts:
+                    name = acc.get('name', 'Unknown')
+                    destroyer = "✅" if acc.get('otp_destroyer_enabled') else "❌"
+                    forward = "✅" if acc.get('otp_forward_enabled') else "❌"
+                    
+                    handler_key = f"{user_id}:{name}"
+                    handler_registered = "✅" if handler_key in self.otp_manager.registered_handlers else "❌"
+                    
+                    msg += f"**{name}**\n"
+                    msg += f"  Destroyer: {destroyer}\n"
+                    msg += f"  Forward: {forward}\n"
+                    msg += f"  Handler: {handler_registered}\n\n"
+                
+                msg += f"**Total Handlers:** {len(self.otp_manager.registered_handlers)}\n\n"
+                msg += "**Next Step:** Send yourself a login code to test"
+                
+                await event.reply(msg)
+                
+            except Exception as e:
+                await event.reply(f"Test error: {e}")
+                logger.error(f"OTP test error: {e}")
+        
         # Add cleanup command
         @self.bot.on(events.NewMessage(pattern=r'/session_health'))
         async def session_health_handler(event):
