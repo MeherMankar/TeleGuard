@@ -135,30 +135,60 @@ class SpamMasterHandler:
         @self.bot.on(events.CallbackQuery(pattern=b"spam_reply"))
         async def reply_menu(event):
             user_id = event.sender_id
-            config = await self._get_reply_config(user_id)
             
-            status = "✅ Enabled" if config.get("enabled") else "❌ Disabled"
+            # Get reply statistics
+            total_sent = await mongodb.db.spam_users.count_documents({"owner_id": user_id, "status": "sent"})
+            total_replied = await mongodb.db.spam_users.count_documents({"owner_id": user_id, "replied": {"$exists": True}})
+            reply_rate = f"{int((total_replied/total_sent)*100)}%" if total_sent > 0 else "0%"
+            
             buttons = [
-                [Button.inline("🔄 Toggle", b"reply_toggle")],
-                [Button.inline("📝 Set Templates", b"reply_templates")],
+                [Button.inline("📊 View Replies", b"view_replies")],
+                [Button.inline("🗑️ Clear Data", b"clear_spam_data")],
                 [Button.inline("🔙 Back", b"spam_master")]
             ]
             
             await event.edit(
-                f"🤖 **Auto Reply**\n\n"
-                f"Status: {status}\n"
-                f"Templates: {len(config.get('templates', []))}\n\n"
-                f"Auto-replies to user messages",
+                f"📈 **Reply Statistics**\n\n"
+                f"Messages Sent: **{total_sent}**\n"
+                f"Replies Received: **{total_replied}**\n"
+                f"Reply Rate: **{reply_rate}**\n\n"
+                f"Track user responses to your campaigns",
                 buttons=buttons
             )
         
-        @self.bot.on(events.CallbackQuery(pattern=b"reply_toggle"))
-        async def toggle_reply(event):
+        @self.bot.on(events.CallbackQuery(pattern=b"view_replies"))
+        async def view_replies(event):
             user_id = event.sender_id
-            enabled = await self._toggle_auto_reply(user_id)
-            status = "enabled" if enabled else "disabled"
-            await event.answer(f"✅ Auto-reply {status}", alert=True)
+            
+            cursor = mongodb.db.spam_users.find(
+                {"owner_id": user_id, "replied": {"$exists": True}}
+            ).sort("replied_at", -1).limit(20)
+            replies = await cursor.to_list(length=20)
+            
+            if not replies:
+                await event.answer("No replies yet", alert=True)
+                return
+            
+            text = "💬 **Recent Replies**\n\n"
+            for r in replies[:10]:
+                name = r.get("first_name", "Unknown")
+                reply = r.get("replied", "N/A")
+                text += f"• {name}: {reply}\n"
+            
+            buttons = [[Button.inline("🔙 Back", b"spam_reply")]]
+            await event.edit(text, buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"clear_spam_data"))
+        async def clear_data(event):
+            user_id = event.sender_id
+            
+            await mongodb.db.spam_users.delete_many({"owner_id": user_id})
+            await mongodb.db.spam_campaigns.delete_many({"user_id": user_id})
+            
+            await event.answer("✅ All spam data cleared", alert=True)
             await reply_menu(event)
+        
+
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_stats"))
         async def show_stats(event):
@@ -274,12 +304,21 @@ class SpamMasterHandler:
         return list(users_dict.values())
     
     async def _get_gathered_users(self, user_id: int) -> List[Dict]:
-        """Get gathered users for bulk send"""
+        """Get gathered users for bulk send - deduplicated and filtered"""
         cursor = mongodb.db.spam_users.find(
-            {"owner_id": user_id, "status": "new"},
-            limit=500
+            {"owner_id": user_id, "status": "new"}
         )
-        return await cursor.to_list(length=500)
+        all_users = await cursor.to_list(length=None)
+        
+        # Deduplicate by user_id
+        seen = set()
+        unique_users = []
+        for user in all_users:
+            if user["user_id"] not in seen:
+                seen.add(user["user_id"])
+                unique_users.append(user)
+        
+        return unique_users[:500]
     
     async def _start_campaign(self, user_id: int, account_name: str, users: List, msg_event, progress_msg) -> str:
         """Start bulk send campaign"""
@@ -307,6 +346,10 @@ class SpamMasterHandler:
             total = len(users)
             sent = 0
             
+            # Get account's own ID to exclude saved messages
+            me = await client.get_me()
+            my_id = me.id
+            
             for idx, user in enumerate(users, 1):
                 if self.active_campaigns.get(campaign_id):
                     await progress_msg.edit(
@@ -318,15 +361,22 @@ class SpamMasterHandler:
                     )
                     break
                 
+                # Skip if user is self (saved messages)
+                if user["user_id"] == my_id:
+                    continue
+                
                 try:
                     if msg_event.photo:
-                        await client.send_file(user["user_id"], msg_event.photo, caption=msg_event.text)
+                        sent_msg = await client.send_file(user["user_id"], msg_event.photo, caption=msg_event.text)
                     elif msg_event.video:
-                        await client.send_file(user["user_id"], msg_event.video, caption=msg_event.text)
+                        sent_msg = await client.send_file(user["user_id"], msg_event.video, caption=msg_event.text)
                     elif msg_event.document:
-                        await client.send_file(user["user_id"], msg_event.document, caption=msg_event.text)
+                        sent_msg = await client.send_file(user["user_id"], msg_event.document, caption=msg_event.text)
                     else:
-                        await client.send_message(user["user_id"], msg_event.text)
+                        sent_msg = await client.send_message(user["user_id"], msg_event.text)
+                    
+                    # Setup reply listener
+                    asyncio.create_task(self._listen_for_reply(client, user["user_id"], user["_id"]))
                     
                     sent += 1
                     
@@ -395,3 +445,34 @@ class SpamMasterHandler:
             {"user_id": user_id}
         ).sort("_id", -1).limit(5)
         return await cursor.to_list(length=5)
+    
+    async def _listen_for_reply(self, client, target_user_id: int, db_user_id):
+        """Listen for reply from a specific user"""
+        try:
+            from datetime import datetime, timedelta
+            
+            @client.on(events.NewMessage(from_users=target_user_id, incoming=True))
+            async def reply_handler(event):
+                try:
+                    # Update database with reply
+                    await mongodb.db.spam_users.update_one(
+                        {"_id": db_user_id},
+                        {"$set": {
+                            "replied": event.text or "[Media]",
+                            "replied_at": datetime.utcnow()
+                        }}
+                    )
+                    
+                    # Remove handler after first reply
+                    client.remove_event_handler(reply_handler)
+                except Exception as e:
+                    logger.error(f"Reply tracking error: {e}")
+            
+            # Auto-remove handler after 24 hours
+            await asyncio.sleep(86400)
+            try:
+                client.remove_event_handler(reply_handler)
+            except:
+                pass
+        except Exception as e:
+            logger.error(f"Reply listener setup error: {e}")
