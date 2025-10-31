@@ -96,32 +96,50 @@ class TopicActionsHandler:
         """Block user associated with topic"""
         try:
             # Find topic mapping
-            topic_mapping = await mongodb.db.dm_topics.find_one({"topic_id": topic_id})
+            topic_mapping = await mongodb.db.dm_topics.find_one({"group_id": chat_id, "topic_id": topic_id})
             
             if not topic_mapping:
                 logger.warning(f"No topic mapping found for topic {topic_id}")
                 return
             
-            user_id = topic_mapping['user_id']
-            account_name = topic_mapping['account_name']
-            sender_id = topic_mapping['sender_id']
+            user_id = topic_mapping.get('user_id')
+            account_id = topic_mapping.get('account_id')
+            target_sender_id = topic_mapping.get('sender_id')
             
-            # Get client
-            client = self.user_clients.get(user_id, {}).get(account_name)
-            if not client or not client.is_connected():
-                logger.error(f"Client not found for {account_name}")
+            if not user_id or not account_id or not target_sender_id:
+                logger.error(f"Missing data in topic mapping")
+                return
+            
+            # Get client by account_id
+            client = None
+            for uid, clients in self.user_clients.items():
+                for acc_name, c in clients.items():
+                    if c and c.is_connected():
+                        try:
+                            me = await c.get_me()
+                            if me.id == account_id:
+                                client = c
+                                user_id = uid
+                                break
+                        except:
+                            continue
+                if client:
+                    break
+            
+            if not client:
+                logger.error(f"Client not found for account_id {account_id}")
                 return
             
             # Block the user
             from telethon.tl.functions.contacts import BlockRequest
-            await client(BlockRequest(id=sender_id))
+            await client(BlockRequest(id=target_sender_id))
             
-            logger.info(f"✅ Blocked user {sender_id} on account {account_name}")
+            logger.info(f"✅ Blocked user {target_sender_id} on account {account_id}")
             
             # Notify in bot
             await self.bot.send_message(
                 user_id,
-                f"🚫 **User Blocked**\n\nAccount: {account_name}\nUser ID: {sender_id}\n\nTopic closed = User blocked"
+                f"🚫 **User Blocked**\n\nUser ID: {target_sender_id}\n\nTopic closed = User blocked"
             )
             
         except Exception as e:
@@ -146,20 +164,36 @@ class TopicActionsHandler:
         """Clear chat history for user in topic"""
         try:
             # Find topic mapping
-            topic_mapping = await mongodb.db.dm_topics.find_one({"topic_id": topic_id})
+            topic_mapping = await mongodb.db.dm_topics.find_one({"group_id": chat_id, "topic_id": topic_id})
             
             if not topic_mapping:
                 logger.warning(f"No topic mapping found for topic {topic_id}")
                 return False
             
-            user_id = topic_mapping['user_id']
-            account_name = topic_mapping['account_name']
-            target_user_id = topic_mapping['sender_id']
+            user_id = topic_mapping.get('user_id')
+            account_id = topic_mapping.get('account_id')
+            target_user_id = topic_mapping.get('sender_id')
             
-            # Get client
-            client = self.user_clients.get(user_id, {}).get(account_name)
-            if not client or not client.is_connected():
-                logger.error(f"Client not found for {account_name}")
+            if not account_id or not target_user_id:
+                return False
+            
+            # Get client by account_id
+            client = None
+            for uid, clients in self.user_clients.items():
+                for acc_name, c in clients.items():
+                    if c and c.is_connected():
+                        try:
+                            me = await c.get_me()
+                            if me.id == account_id:
+                                client = c
+                                break
+                        except:
+                            continue
+                if client:
+                    break
+            
+            if not client:
+                logger.error(f"Client not found for account_id {account_id}")
                 return False
             
             # Delete chat history

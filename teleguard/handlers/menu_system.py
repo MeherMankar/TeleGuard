@@ -94,6 +94,9 @@ class MenuSystem:
     async def send_main_menu(self, user_id: int) -> int:
         """Send persistent reply keyboard menu"""
         try:
+            # Delete previous menu messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             keyboard = self.get_main_menu_keyboard(user_id)
             text = (
                 "🤖 **TeleGuard Account Manager**\n\n"
@@ -214,40 +217,17 @@ class MenuSystem:
             ]
         )
         return buttons
-    async def send_main_menu(self, user_id: int) -> int:
-        """Send persistent reply keyboard menu"""
+    async def _cleanup_old_messages(self, user_id: int):
+        """Delete old menu messages to prevent collision"""
         try:
-            keyboard = self.get_main_menu_keyboard(user_id)
-            
-            # Get user stats for personalized welcome
-            account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
-            otp_enabled = await mongodb.db.accounts.count_documents({"user_id": user_id, "otp_destroyer_enabled": True})
-            
-            security_score = int((otp_enabled/max(account_count, 1))*100) if account_count > 0 else 0
-            status_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
-            
-            text = (
-                "🤖 **TeleGuard - Professional Account Manager**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "🛡️ **Advanced Telegram Security & Automation Platform**\n\n"
-                f"📊 **Your Dashboard:**\n"
-                f"• 📱 Accounts: {account_count} configured\n"
-                f"• 🛡️ Protection: {otp_enabled}/{account_count} secured\n"
-                f"• {status_emoji} Security Score: {security_score}%\n\n"
-                "⚡ **Quick Actions:** Use the menu buttons below to get started\n\n"
-                "💡 **Tip:** Enable OTP Destroyer on all accounts for maximum security"
-            )
-            message = await self.bot.send_message(user_id, text, buttons=keyboard)
-            # Store menu message ID in MongoDB
-            await mongodb.db.users.update_one(
-                {"telegram_id": user_id},
-                {"$set": {"main_menu_message_id": message.id}},
-                upsert=True,
-            )
-            return message.id
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            if user and user.get("main_menu_message_id"):
+                try:
+                    await self.bot.delete_messages(user_id, user["main_menu_message_id"])
+                except:
+                    pass  # Message might already be deleted
         except Exception as e:
-            logger.error(f"Failed to send main menu: {e}")
-            return 0
+            logger.debug(f"Cleanup old messages error: {e}")
     async def send_accounts_list(
         self, user_id: int, edit_message_id: Optional[int] = None
     ):
@@ -1019,6 +999,9 @@ class MenuSystem:
         """Handle Account Settings menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
                 length=None
             )
@@ -1098,6 +1081,9 @@ class MenuSystem:
         """Handle OTP Manager menu - Settings first approach"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
                 length=None
             )
@@ -1169,6 +1155,9 @@ class MenuSystem:
         """Handle Messaging menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
                 length=None
             )
@@ -1235,6 +1224,9 @@ class MenuSystem:
         """Handle Channels menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
                 length=None
             )
@@ -1298,6 +1290,9 @@ class MenuSystem:
         """Handle Contacts menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
                 text = (
@@ -1362,6 +1357,9 @@ class MenuSystem:
         """Handle SpamMaster menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
                 text = (
@@ -1425,6 +1423,9 @@ class MenuSystem:
         """Handle Cleanup menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
                 text = (
@@ -2000,6 +2001,10 @@ class MenuSystem:
     async def _handle_help(self, event):
         """Handle Help menu"""
         user_id = event.sender_id
+        
+        # Delete previous messages to avoid collision
+        await self._cleanup_old_messages(user_id)
+        
         user = await mongodb.db.users.find_one({"telegram_id": user_id})
         
         # Get user stats for personalized help
@@ -2060,6 +2065,9 @@ class MenuSystem:
         await self.bot.send_message(user_id, text, buttons=buttons)
     async def _handle_support(self, event):
         """Handle Support menu"""
+        # Delete previous messages to avoid collision
+        await self._cleanup_old_messages(event.sender_id)
+        
         text = (
             "🆘 **TeleGuard Support Center**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -2227,6 +2235,9 @@ class MenuSystem:
         """Handle Developer menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
             if user:
                 current_mode = user.get("developer_mode", False)
@@ -2287,6 +2298,9 @@ class MenuSystem:
         """Handle DM Reply menu"""
         user_id = event.sender_id
         try:
+            # Delete previous messages to avoid collision
+            await self._cleanup_old_messages(user_id)
+            
             admin_group_id = await self.account_manager.unified_messaging._get_user_admin_group(user_id)
             if admin_group_id:
                 status_text = f"✅ **Enabled** - Group ID: `{admin_group_id}`"
