@@ -17,26 +17,21 @@ class TopicActionsHandler:
     def register_handlers(self):
         """Register topic action handlers"""
         
-        # Monitor channel events for topic changes
+        # Monitor forum topic edits (close/open)
         @self.bot.on(events.Raw())
-        async def handle_channel_events(event):
+        async def handle_raw_events(event):
             try:
-                from telethon.tl.types import UpdateChannelMessageForwards, UpdateEditChannelMessage
+                from telethon.tl.types import UpdateEditChannelMessage
                 
-                # Check for topic edit (close/open)
-                if hasattr(event, '__class__') and 'EditTopic' in event.__class__.__name__:
-                    await self._check_topic_closed(event)
+                if isinstance(event, UpdateEditChannelMessage):
+                    msg = event.message
+                    if hasattr(msg, 'action'):
+                        from telethon.tl.types import MessageActionTopicEdit
+                        if isinstance(msg.action, MessageActionTopicEdit):
+                            if msg.action.closed:
+                                await self._handle_topic_closed(event.message.peer_id.channel_id, msg.id)
             except Exception as e:
-                logger.debug(f"Channel event handler: {e}")
-        
-        # Monitor message deletions
-        @self.bot.on(events.MessageDeleted())
-        async def handle_message_deletion(event):
-            try:
-                if event.deleted_ids and len(event.deleted_ids) > 5:  # Bulk delete = clear
-                    await self._handle_messages_cleared(event)
-            except Exception as e:
-                logger.error(f"Message deletion handler error: {e}")
+                logger.debug(f"Raw event handler: {e}")
         
         # Monitor general topic (ID=1) for broadcasts
         @self.bot.on(events.NewMessage())
@@ -80,54 +75,54 @@ class TopicActionsHandler:
                 if reply_to:
                     topic_id = getattr(reply_to, 'reply_to_top_id', None)
                     if topic_id:
-                        await self._clear_history_from_topic(event.chat_id, topic_id, event.sender_id)
-                        await event.reply("✅ Chat history cleared")
+                        result = await self._clear_history_from_topic(event.chat_id, topic_id, event.sender_id)
+                        if result:
+                            await event.reply("✅ Chat history cleared and topic renamed")
+                        else:
+                            await event.reply("❌ Failed to clear history")
             except Exception as e:
                 logger.error(f"Clear history command error: {e}")
     
-    async def _check_topic_closed(self, event):
-        """Check if topic was closed and block user"""
+    async def _handle_topic_closed(self, channel_id: int, topic_id: int):
+        """Handle topic closed - block user"""
         try:
-            if hasattr(event, 'closed') and event.closed:
-                chat_id = event.channel_id if hasattr(event, 'channel_id') else None
-                topic_id = event.id if hasattr(event, 'id') else None
-                
-                if chat_id and topic_id:
-                    await self._block_user_from_topic(-chat_id, topic_id, None)
+            chat_id = -1000000000000 - channel_id
+            await self._block_user_from_topic(chat_id, topic_id)
+            logger.info(f"Topic {topic_id} closed, user blocked")
         except Exception as e:
-            logger.error(f"Check topic closed error: {e}")
+            logger.error(f"Handle topic closed error: {e}")
     
-    async def _block_user_from_topic(self, chat_id: int, topic_id: int, sender_id: int):
+    async def _block_user_from_topic(self, chat_id: int, topic_id: int, sender_id: int = None):
         """Block user associated with topic"""
         try:
-            # Verify sender is group owner
-            if sender_id:
-                user = await mongodb.db.users.find_one({"dm_reply_group_id": chat_id})
-                if not user or sender_id != user["telegram_id"]:
-                    return
-            
             # Find topic mapping
-            topic_mapping = await mongodb.db.dm_topics.find_one({
-                "group_id": chat_id,
-                "topic_id": topic_id
-            })
+            topic_mapping = await mongodb.db.dm_topics.find_one({"topic_id": topic_id})
             
             if not topic_mapping:
+                logger.warning(f"No topic mapping found for topic {topic_id}")
                 return
             
-            target_user_id = topic_mapping['sender_id']
-            account_id = topic_mapping['account_id']
+            user_id = topic_mapping['user_id']
+            account_name = topic_mapping['account_name']
+            sender_id = topic_mapping['sender_id']
             
-            # Get managed client
-            managed_client = await self._get_client_by_account_id(account_id)
-            if not managed_client:
+            # Get client
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if not client or not client.is_connected():
+                logger.error(f"Client not found for {account_name}")
                 return
             
             # Block the user
             from telethon.tl.functions.contacts import BlockRequest
-            await managed_client(BlockRequest(id=target_user_id))
+            await client(BlockRequest(id=sender_id))
             
-            logger.info(f"Blocked user {target_user_id} on account {account_id}")
+            logger.info(f"✅ Blocked user {sender_id} on account {account_name}")
+            
+            # Notify in bot
+            await self.bot.send_message(
+                user_id,
+                f"🚫 **User Blocked**\n\nAccount: {account_name}\nUser ID: {sender_id}\n\nTopic closed = User blocked"
+            )
             
         except Exception as e:
             logger.error(f"Failed to block user: {e}")
@@ -150,47 +145,59 @@ class TopicActionsHandler:
     async def _clear_history_from_topic(self, chat_id: int, topic_id: int, sender_id: int):
         """Clear chat history for user in topic"""
         try:
-            # Verify sender is group owner
-            user = await mongodb.db.users.find_one({"dm_reply_group_id": chat_id})
-            if not user or sender_id != user["telegram_id"]:
-                return
-            
             # Find topic mapping
-            topic_mapping = await mongodb.db.dm_topics.find_one({
-                "group_id": chat_id,
-                "topic_id": topic_id
-            })
+            topic_mapping = await mongodb.db.dm_topics.find_one({"topic_id": topic_id})
             
             if not topic_mapping:
-                return
+                logger.warning(f"No topic mapping found for topic {topic_id}")
+                return False
             
+            user_id = topic_mapping['user_id']
+            account_name = topic_mapping['account_name']
             target_user_id = topic_mapping['sender_id']
-            account_id = topic_mapping['account_id']
             
-            # Get managed client
-            managed_client = await self._get_client_by_account_id(account_id)
-            if not managed_client:
-                return
+            # Get client
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if not client or not client.is_connected():
+                logger.error(f"Client not found for {account_name}")
+                return False
             
             # Delete chat history
             from telethon.tl.functions.messages import DeleteHistoryRequest
-            await managed_client(DeleteHistoryRequest(
+            await client(DeleteHistoryRequest(
                 peer=target_user_id,
                 max_id=0,
-                just_clear=True,
+                just_clear=False,
                 revoke=True
             ))
             
-            logger.info(f"Cleared chat history with user {target_user_id} on account {account_id}")
+            # Rename topic to indicate cleared
+            try:
+                from telethon.tl.functions.channels import EditForumTopicRequest
+                sender = await client.get_entity(target_user_id)
+                sender_name = getattr(sender, 'first_name', 'User')
+                new_title = f"🗑️ {sender_name} → {account_name} (Cleared)"
+                
+                await self.bot(EditForumTopicRequest(
+                    channel=chat_id,
+                    topic_id=topic_id,
+                    title=new_title
+                ))
+            except Exception as e:
+                logger.error(f"Failed to rename topic: {e}")
+            
+            logger.info(f"✅ Cleared chat history with user {target_user_id} on account {account_name}")
+            return True
             
         except Exception as e:
             logger.error(f"Failed to clear history: {e}")
+            return False
     
     async def _handle_general_topic_broadcast(self, event):
         """Broadcast message from general topic to all users from all accounts"""
         try:
             # Check if sender is the group owner
-            user = await mongodb.db.users.find_one({"dm_reply_group_id": event.chat_id})
+            user = await mongodb.db.users.find_one({"manager_forum_chat_id": event.chat_id})
             if not user or event.sender_id != user["telegram_id"]:
                 return
             
@@ -198,32 +205,32 @@ class TopicActionsHandler:
             if not message_text:
                 return
             
-            # Get all unique users from all topics
-            topics = await mongodb.db.dm_topics.find({"group_id": event.chat_id}).to_list(None)
+            # Get all topics for this user
+            topics = await mongodb.db.dm_topics.find({"user_id": user["telegram_id"]}).to_list(None)
             
-            # Group by account to send from each account
+            # Group by account
             accounts_users = {}
             for topic in topics:
-                account_id = topic['account_id']
+                account_name = topic['account_name']
                 sender_id = topic['sender_id']
                 
-                if account_id not in accounts_users:
-                    accounts_users[account_id] = set()
-                accounts_users[account_id].add(sender_id)
+                if account_name not in accounts_users:
+                    accounts_users[account_name] = set()
+                accounts_users[account_name].add(sender_id)
             
             # Send from each account to its users
             sent_count = 0
-            for account_id, user_ids in accounts_users.items():
-                managed_client = await self._get_client_by_account_id(account_id)
-                if not managed_client:
+            for account_name, user_ids in accounts_users.items():
+                client = self.user_clients.get(user["telegram_id"], {}).get(account_name)
+                if not client or not client.is_connected():
                     continue
                 
-                for user_id in user_ids:
+                for uid in user_ids:
                     try:
-                        await managed_client.send_message(user_id, message_text)
+                        await client.send_message(uid, message_text)
                         sent_count += 1
                     except Exception as e:
-                        logger.error(f"Failed to send to {user_id} from {account_id}: {e}")
+                        logger.error(f"Failed to send to {uid} from {account_name}: {e}")
             
             # Confirm broadcast
             await event.reply(f"📢 Broadcast sent to {sent_count} users from {len(accounts_users)} accounts")
