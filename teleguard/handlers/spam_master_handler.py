@@ -13,10 +13,12 @@ class SpamMasterHandler:
         self.bot = bot_manager.bot
         self.user_clients = bot_manager.user_clients
         self.active_campaigns = {}  # campaign_id -> stop_flag
+        self.pending_campaigns = {}  # user_id -> campaign_data
         
     def register_handlers(self):
         @self.bot.on(events.CallbackQuery(pattern=b"spam_master"))
         async def spam_master_menu(event):
+            await event.answer()
             buttons = [
                 [Button.inline("📊 Gather Users", b"spam_gather")],
                 [Button.inline("📤 Bulk Send", b"spam_send")],
@@ -29,6 +31,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_gather"))
         async def gather_menu(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -44,6 +47,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"gather_auto"))
         async def gather_auto(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -56,6 +60,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"auto_acc:(.+)"))
         async def auto_gather_account(event):
+            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
@@ -65,6 +70,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"gather_manual"))
         async def gather_manual(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -74,6 +80,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"gather_acc:(.+)"))
         async def gather_account(event):
+            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             await event.edit(f"📝 Send group username/link to gather users from:\n\nAccount: **{account_name}**")
             
@@ -88,6 +95,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_send"))
         async def send_menu(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -109,6 +117,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"send_single"))
         async def send_single(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -118,6 +127,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"send_multi"))
         async def send_multi(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -144,6 +154,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"toggle_acc:(.+)"))
         async def toggle_account(event):
+            await event.answer()
             user_id = event.sender_id
             phone = event.data.decode().split(":", 1)[1]
             
@@ -179,7 +190,7 @@ class SpamMasterHandler:
             user_id = event.sender_id
             
             data = await mongodb.db.temp_data.find_one({"user_id": user_id, "type": "multi_select"})
-            selected = data.get("selected", [])
+            selected = data.get("selected", []) if data else []
             
             if len(selected) < 2:
                 await event.answer("❌ Select at least 2 accounts", alert=True)
@@ -187,9 +198,10 @@ class SpamMasterHandler:
             
             users = await self._get_gathered_users(user_id)
             if not users:
-                await event.answer("❌ No users gathered yet", alert=True)
+                await event.answer("❌ No users gathered yet. Use Gather Users first.", alert=True)
                 return
             
+            await event.answer()
             await event.edit(
                 f"📤 **Multi-Account Setup**\n\n"
                 f"Accounts: **{len(selected)}**\n"
@@ -197,23 +209,11 @@ class SpamMasterHandler:
                 f"Send your message (text/media):"
             )
             
-            @self.bot.on(events.NewMessage(from_users=user_id))
-            async def handle_multi_message(msg_event):
-                self.bot.remove_event_handler(handle_multi_message)
-                
-                buttons = [[Button.inline("🛑 Stop Campaign", b"stop_temp")]]
-                progress_msg = await msg_event.reply(
-                    f"🚀 **Multi-Account Campaign**\n\n"
-                    f"Accounts: **{len(selected)}**\n"
-                    f"Total Users: **{len(users)}**\n"
-                    f"Sent: **0/{len(users)}**\n"
-                    f"Progress: □□□□□□□□□□ 0%",
-                    buttons=buttons
-                )
-                
-                campaign_id = await self._start_multi_campaign(
-                    user_id, selected, users, msg_event, progress_msg
-                )
+            self.pending_campaigns[user_id] = {
+                'type': 'multi',
+                'accounts': selected,
+                'users': users
+            }
         
         @self.bot.on(events.CallbackQuery(pattern=rb"send_acc:(.+)"))
         async def send_account(event):
@@ -222,9 +222,10 @@ class SpamMasterHandler:
             
             users = await self._get_gathered_users(user_id)
             if not users:
-                await event.answer("❌ No users gathered yet", alert=True)
+                await event.answer("❌ No users gathered yet. Use Gather Users first.", alert=True)
                 return
             
+            await event.answer()
             await event.edit(
                 f"📤 **Bulk Send Setup**\n\n"
                 f"Account: **{account_name}**\n"
@@ -232,26 +233,52 @@ class SpamMasterHandler:
                 f"Send your message (text/media):"
             )
             
-            @self.bot.on(events.NewMessage(from_users=user_id))
-            async def handle_message(msg_event):
-                self.bot.remove_event_handler(handle_message)
-                
+            self.pending_campaigns[user_id] = {
+                'type': 'single',
+                'account': account_name,
+                'users': users
+            }
+        
+        @self.bot.on(events.NewMessage(incoming=True))
+        async def handle_campaign_message(msg_event):
+            user_id = msg_event.sender_id
+            if user_id not in self.pending_campaigns:
+                return
+            
+            campaign_data = self.pending_campaigns.pop(user_id)
+            
+            if campaign_data['type'] == 'single':
                 buttons = [[Button.inline("🛑 Stop Campaign", b"stop_temp")]]
                 progress_msg = await msg_event.reply(
                     f"🚀 **Campaign Started**\n\n"
-                    f"Account: **{account_name}**\n"
-                    f"Total Users: **{len(users)}**\n"
-                    f"Sent: **0/{len(users)}**\n"
+                    f"Account: **{campaign_data['account']}**\n"
+                    f"Total Users: **{len(campaign_data['users'])}**\n"
+                    f"Sent: **0/{len(campaign_data['users'])}**\n"
                     f"Progress: □□□□□□□□□□ 0%",
                     buttons=buttons
                 )
                 
-                campaign_id = await self._start_campaign(
-                    user_id, account_name, users, msg_event, progress_msg
+                await self._start_campaign(
+                    user_id, campaign_data['account'], campaign_data['users'], msg_event, progress_msg
+                )
+            elif campaign_data['type'] == 'multi':
+                buttons = [[Button.inline("🛑 Stop Campaign", b"stop_temp")]]
+                progress_msg = await msg_event.reply(
+                    f"🚀 **Multi-Account Campaign**\n\n"
+                    f"Accounts: **{len(campaign_data['accounts'])}**\n"
+                    f"Total Users: **{len(campaign_data['users'])}**\n"
+                    f"Sent: **0/{len(campaign_data['users'])}**\n"
+                    f"Progress: □□□□□□□□□□ 0%",
+                    buttons=buttons
+                )
+                
+                await self._start_multi_campaign(
+                    user_id, campaign_data['accounts'], campaign_data['users'], msg_event, progress_msg
                 )
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_reply"))
         async def reply_menu(event):
+            await event.answer()
             user_id = event.sender_id
             
             # Get reply statistics
@@ -276,6 +303,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"view_replies"))
         async def view_replies(event):
+            await event.answer()
             user_id = event.sender_id
             
             cursor = mongodb.db.spam_users.find(
@@ -298,6 +326,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"clear_spam_data"))
         async def clear_data(event):
+            await event.answer()
             user_id = event.sender_id
             
             await mongodb.db.spam_users.delete_many({"owner_id": user_id})
@@ -308,6 +337,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"group_spam"))
         async def group_spam_menu(event):
+            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -320,6 +350,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"grp_acc:(.+)"))
         async def group_spam_account(event):
+            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
@@ -339,6 +370,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_stats"))
         async def show_stats(event):
+            await event.answer()
             user_id = event.sender_id
             stats = await self._get_campaign_stats(user_id)
             
@@ -359,6 +391,7 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"stop_camp:(.+)"))
         async def stop_campaign(event):
+            await event.answer()
             campaign_id = event.data.decode().split(":", 1)[1]
             self.active_campaigns[campaign_id] = True
             
@@ -369,6 +402,23 @@ class SpamMasterHandler:
             )
             await event.answer("🛑 Campaign stopped", alert=True)
             await event.edit(f"🛑 Campaign {campaign_id} stopped")
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"stop_temp"))
+        async def stop_temp_campaign(event):
+            # Find and stop the most recent campaign for this user
+            user_id = event.sender_id
+            campaign = await mongodb.db.spam_campaigns.find_one(
+                {"user_id": user_id},
+                sort=[("_id", -1)]
+            )
+            if campaign:
+                campaign_id = str(campaign["_id"])
+                self.active_campaigns[campaign_id] = True
+                await mongodb.db.spam_campaigns.update_one(
+                    {"_id": campaign["_id"]},
+                    {"$set": {"stopped": True}}
+                )
+                await event.answer("🛑 Campaign stopped", alert=True)
     
     async def _get_user_accounts(self, user_id: int) -> List[Dict]:
         """Get user's accounts with names"""
@@ -376,11 +426,9 @@ class SpamMasterHandler:
             return []
         
         accounts = []
-        for phone in self.user_clients[user_id].keys():
-            account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-            if account:
-                name = account.get("first_name", phone)
-                accounts.append({"phone": phone, "name": name})
+        for account_name in self.user_clients[user_id].keys():
+            # Use account_name as both identifier and display name
+            accounts.append({"phone": account_name, "name": account_name})
         return accounts
     
     async def _auto_gather_all(self, user_id: int, account_name: str) -> int:

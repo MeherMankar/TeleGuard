@@ -181,16 +181,40 @@ class BulkSender:
                     break
                 
                 try:
-                    # Resolve target entity first
+                    # Resolve target with access_hash from source account
+                    entity = None
                     try:
                         if target.startswith('@'):
                             entity = await client.get_entity(target)
                         elif target.isdigit():
-                            entity = await client.get_entity(int(target))
+                            user_id = int(target)
+                            
+                            # Try direct resolution first
+                            try:
+                                entity = await client.get_entity(user_id)
+                            except:
+                                # Get access_hash from any account that has this user
+                                access_hash = await self._get_access_hash_from_any_account(
+                                    job['user_id'], user_id
+                                )
+                                
+                                if access_hash:
+                                    # Use InputPeerUser with access_hash
+                                    from telethon.tl.types import InputPeerUser
+                                    entity = InputPeerUser(user_id, access_hash)
+                                    logger.info(f"Using access_hash for user {user_id}")
+                                else:
+                                    logger.warning(f"No access_hash found for {user_id}")
+                                    job['failed'] += 1
+                                    continue
                         else:
                             entity = await client.get_entity(target)
                     except Exception as e:
                         logger.error(f"Failed to resolve {target}: {e}")
+                        job['failed'] += 1
+                        continue
+                    
+                    if not entity:
                         job['failed'] += 1
                         continue
                     
@@ -316,6 +340,28 @@ class BulkSender:
         except Exception as e:
             logger.error(f"Failed to get contacts: {e}")
             return []
+    async def _get_access_hash_from_any_account(self, user_id: int, target_user_id: int):
+        """Get access_hash for a user from any account that has them"""
+        try:
+            # Try all user's accounts
+            for account_name, client in self.user_clients.get(user_id, {}).items():
+                if not client or not client.is_connected():
+                    continue
+                
+                try:
+                    # Try to get entity from this account
+                    entity = await client.get_entity(target_user_id)
+                    if hasattr(entity, 'access_hash') and entity.access_hash:
+                        logger.info(f"Found access_hash from {account_name}")
+                        return entity.access_hash
+                except:
+                    continue
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get access_hash: {e}")
+            return None
+    
     def _parse_message_buttons(self, message: str) -> tuple:
         """Parse message text and extract buttons"""
         import re

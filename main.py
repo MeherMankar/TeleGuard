@@ -175,6 +175,15 @@ async def graceful_shutdown() -> None:
     start_time = time.time()
 
     try:
+        # Cancel all pending tasks
+        logger.info("🛑 Cancelling pending tasks...")
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        
+        # Wait for tasks to cancel
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
         # Stop task queue
         logger.info("⏹️ Stopping task queue...")
         shutdown_tasks.append(task_queue.stop())
@@ -188,9 +197,9 @@ async def graceful_shutdown() -> None:
             logger.debug("No client manager to shutdown")
 
         # Wait for all shutdown tasks with timeout
-        logger.info("⏳ Waiting for shutdown tasks to complete (30s timeout)...")
+        logger.info("⏳ Waiting for shutdown tasks to complete (10s timeout)...")
         await asyncio.wait_for(
-            asyncio.gather(*shutdown_tasks, return_exceptions=True), timeout=30.0
+            asyncio.gather(*shutdown_tasks, return_exceptions=True), timeout=10.0
         )
 
         elapsed = time.time() - start_time
