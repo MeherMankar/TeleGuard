@@ -104,25 +104,17 @@ class DMReplyHandler:
                         topic_title = f"{sender_name} → {account_display_name}"
                         topic_id = await self._get_or_create_topic(admin_group_id, topic_title, sender.id, me.id)
                         
-                        timestamp = datetime.now().strftime("%d-%m-%Y %I:%M %p")
-                        
-                        # AI-enhanced message analysis
-                        message_analysis = await self._ai_analyze_message(event.text or '[Media/Sticker]')
-                        priority_indicator = self._get_priority_indicator(message_analysis)
-                        
-                        formatted_message = (
-                            f"{priority_indicator} **From:** {sender_name}\n"
-                            f"📱 **To:** @{account_identifier}\n"
-                            f"🕐 **Time:** {timestamp}\n"
-                            f"{message_analysis.get('summary', '')}\n"
-                            f"{event.text or '[Media/Sticker]'}"
-                        )
-                        
                         try:
                             if topic_id:
-                                await self.bot.send_message(admin_group_id, formatted_message, reply_to=topic_id)
+                                if event.media:
+                                    await self.bot.send_file(admin_group_id, event.media, caption=event.text, reply_to=topic_id)
+                                else:
+                                    await self.bot.send_message(admin_group_id, event.text or '[Empty]', reply_to=topic_id)
                             else:
-                                await self.bot.send_message(admin_group_id, formatted_message)
+                                if event.media:
+                                    await self.bot.send_file(admin_group_id, event.media, caption=event.text)
+                                else:
+                                    await self.bot.send_message(admin_group_id, event.text or '[Empty]')
                         except ValueError as ve:
                             if "Could not find the input entity" in str(ve):
                                 logger.warning(f"Cannot access admin group {admin_group_id}, removing from user settings")
@@ -189,8 +181,8 @@ class DMReplyHandler:
                 if not user or event.sender_id != user["telegram_id"]:
                     return
                 
-                # Skip if no text
-                if not event.text:
+                # Skip if no text or media
+                if not event.text and not event.media:
                     return
                 
                 # Get topic ID - check multiple attributes
@@ -294,7 +286,6 @@ class DMReplyHandler:
                         await event.reply("❌ Account not found. Please re-add the account.")
                         return
                 
-                reply_text = event.text
                 logger.info(f"Sending reply from account {account_id} to user {sender_id}")
                 
                 # Resolve entity first to ensure we can send to this user
@@ -306,22 +297,27 @@ class DMReplyHandler:
                     logger.error(f"Entity resolution failed for user {sender_id}: {entity_error}")
                     return
                 
-                # AI-enhance reply if enabled
-                if self.ai_model and await self._is_ai_enhancement_enabled(user["telegram_id"]):
-                    try:
-                        enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, managed_client)
-                        if enhanced_reply:
-                            reply_text = enhanced_reply
-                    except Exception as ai_error:
-                        logger.debug(f"AI enhancement failed: {ai_error}")
+                # Simulate human typing if text
+                if event.text:
+                    await self._simulate_human_reply_behavior(managed_client, sender_id, event.text)
                 
-                # Simulate human typing
-                await self._simulate_human_reply_behavior(managed_client, sender_id, reply_text)
-                
-                # Send the message
-                await managed_client.send_message(sender_id, reply_text)
-                logger.info(f"✅ Reply sent: {reply_text[:50]}")
-                await event.reply("✅ Reply sent successfully!")
+                # Send the message with media support
+                if event.media:
+                    await managed_client.send_file(sender_id, event.media, caption=event.text)
+                    logger.info(f"✅ Media sent")
+                else:
+                    reply_text = event.text
+                    # AI-enhance reply if enabled
+                    if self.ai_model and await self._is_ai_enhancement_enabled(user["telegram_id"]):
+                        try:
+                            enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, managed_client)
+                            if enhanced_reply:
+                                reply_text = enhanced_reply
+                        except Exception as ai_error:
+                            logger.debug(f"AI enhancement failed: {ai_error}")
+                    
+                    await managed_client.send_message(sender_id, reply_text)
+                    logger.info(f"✅ Reply sent: {reply_text[:50]}")
                 
             except Exception as e:
                 logger.error(f"Failed to handle topic reply: {e}")
@@ -347,7 +343,6 @@ class DMReplyHandler:
         """Get existing topic or create new one"""
         try:
             topic_key = f"{sender_id}_{account_id}"
-            logger.info(f"Looking for topic: key={topic_key}, group={group_id}")
             
             existing_topic = await mongodb.db.dm_topics.find_one({
                 "group_id": group_id,
@@ -355,7 +350,21 @@ class DMReplyHandler:
             })
             
             if existing_topic:
-                logger.info(f"Found existing topic: {existing_topic['topic_id']} - {existing_topic.get('topic_title')}")
+                # Update topic title if names changed
+                if existing_topic.get('topic_title') != topic_title:
+                    try:
+                        from telethon.tl.functions.channels import EditForumTopicRequest
+                        await self.bot(EditForumTopicRequest(
+                            channel=group_id,
+                            topic_id=existing_topic['topic_id'],
+                            title=topic_title
+                        ))
+                        await mongodb.db.dm_topics.update_one(
+                            {"_id": existing_topic["_id"]},
+                            {"$set": {"topic_title": topic_title}}
+                        )
+                    except Exception:
+                        pass
                 return existing_topic["topic_id"]
             
             logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
@@ -617,40 +626,20 @@ Enhanced reply:"""
     async def _simulate_human_reply_behavior(self, client, target, message: str):
         """Simulate extremely realistic human reply behavior"""
         try:
-            # Read the conversation context first (like humans do)
-            context_reading_time = random.uniform(1.5, 4.0)
-            await asyncio.sleep(context_reading_time)
-            
-            # Think about the response
-            thinking_time = len(message) * 0.1 + random.uniform(2.0, 6.0)
-            await asyncio.sleep(thinking_time)
+            # Brief thinking time
+            await asyncio.sleep(random.uniform(0.5, 1.5))
             
             # Start typing
             async with client.action(target, 'typing'):
-                # Realistic typing with natural pauses
-                words = message.split()
-                typing_speed = random.uniform(45, 75)  # WPM
-                chars_per_second = (typing_speed * 5) / 60
-                
-                base_time = len(message) / chars_per_second
-                
-                # Add natural variations and pauses
-                segments = max(1, len(words) // 4)
-                segment_time = base_time / segments
-                
-                for i in range(segments):
-                    await asyncio.sleep(segment_time * random.uniform(0.7, 1.4))
-                    
-                    # Natural pauses while typing
-                    if random.random() < 0.4:
-                        await asyncio.sleep(random.uniform(0.5, 2.0))
+                typing_time = len(message) * random.uniform(0.05, 0.1)
+                typing_time = max(1.0, min(typing_time, 5.0))
+                await asyncio.sleep(typing_time)
             
-            # Brief pause before sending (review)
-            await asyncio.sleep(random.uniform(0.5, 2.0))
+            # Brief pause before sending
+            await asyncio.sleep(random.uniform(0.3, 0.8))
         except Exception as e:
             logger.debug(f"Typing simulation error: {e}")
-            # Fallback to simple delay
-            await asyncio.sleep(random.uniform(2.0, 5.0))
+            await asyncio.sleep(random.uniform(0.5, 1.5))
     
     async def _simulate_human_auto_reply_behavior(self, client, chat_id, message: str):
         """Simulate realistic auto-reply behavior (more immediate but still human)"""
