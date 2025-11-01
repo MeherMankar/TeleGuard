@@ -22,12 +22,20 @@ class AdvancedSpamHandler:
     
     async def _handle_spam_master_menu(self, event):
         """Handle SpamMaster menu display"""
-        user_id = event.sender_id
+        try:
+            user_id = event.sender_id
+        except Exception as e:
+            logger.error(f"Error getting user_id: {e}")
+            return
         
         # Check warning acceptance
-        warning_accepted = await mongodb.db.spam_config.find_one(
-            {"user_id": user_id, "warning_accepted": True}
-        )
+        try:
+            warning_accepted = await mongodb.db.spam_config.find_one(
+                {"user_id": user_id, "warning_accepted": True}
+            )
+        except Exception as e:
+            logger.error(f"Error checking warning acceptance: {e}")
+            warning_accepted = None
         
         if not warning_accepted:
             buttons = [
@@ -74,7 +82,11 @@ class AdvancedSpamHandler:
             return
         
         # Show main menu
-        accounts = await self._get_accounts(user_id)
+        try:
+            accounts = await self._get_accounts(user_id)
+        except Exception as e:
+            logger.error(f"Error getting accounts: {e}")
+            accounts = []
         
         buttons = [
             [Button.inline("📤 Mass Inviter", b"mass_invite"), Button.inline("📇 Contact Scraper", b"contact_scrape")],
@@ -101,9 +113,15 @@ class AdvancedSpamHandler:
             "⚠️ Use at your own risk!"
         )
         
-        await self.bot.send_message(user_id, text, buttons=buttons)
+        try:
+            await self.bot.send_message(user_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error sending SpamMaster menu: {e}")
+            await self.bot.send_message(user_id, f"❌ Error loading SpamMaster menu: {str(e)}")
         
     def register_handlers(self):
+        handler_self = self
+        
         @self.bot.on(events.CallbackQuery(pattern=b"accept_spam_warning"))
         async def accept_warning(event):
             user_id = event.sender_id
@@ -117,7 +135,7 @@ class AdvancedSpamHandler:
             await event.answer("✅ Terms accepted. Redirecting...", alert=True)
             
             # Show main menu with operations
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             buttons = [
                 [Button.inline("📤 Mass Inviter", b"mass_invite"), Button.inline("📇 Contact Scraper", b"contact_scrape")],
@@ -178,6 +196,7 @@ class AdvancedSpamHandler:
         async def advanced_menu(event):
             await event.answer()
             user_id = event.sender_id
+            accounts = await handler_self._get_accounts(user_id)
             
             buttons = [
                 [Button.inline("📤 Mass Inviter", b"mass_invite"), Button.inline("📇 Contact Scraper", b"contact_scrape")],
@@ -210,7 +229,7 @@ class AdvancedSpamHandler:
         async def mass_invite_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -243,7 +262,7 @@ class AdvancedSpamHandler:
         async def contact_scrape_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -276,7 +295,7 @@ class AdvancedSpamHandler:
         async def username_check_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -309,7 +328,7 @@ class AdvancedSpamHandler:
         async def forward_bomb_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -342,7 +361,7 @@ class AdvancedSpamHandler:
         async def message_flood_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -375,7 +394,7 @@ class AdvancedSpamHandler:
         async def raid_coord_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if len(accounts) < 2:
                 await event.answer("❌ Need at least 2 accounts", alert=True)
@@ -398,7 +417,7 @@ class AdvancedSpamHandler:
         async def stealth_raid_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if len(accounts) < 2:
                 await event.answer("❌ Need at least 2 accounts", alert=True)
@@ -421,7 +440,7 @@ class AdvancedSpamHandler:
         async def multi_raid_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await self._get_accounts(user_id)
+            accounts = await handler_self._get_accounts(user_id)
             
             if len(accounts) < 3:
                 await event.answer("❌ Need at least 3 accounts", alert=True)

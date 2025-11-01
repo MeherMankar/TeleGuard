@@ -1098,7 +1098,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ])
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle account settings: {e}")
             await event.reply("❌ Error loading account settings. Please try again.")
@@ -1172,7 +1175,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ]
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle OTP manager: {e}")
             await event.reply("❌ Error loading OTP manager. Please try again.")
@@ -1241,7 +1247,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ]
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle messaging: {e}")
             await event.reply("❌ Error loading messaging menu")
@@ -1307,7 +1316,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ])
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle channels: {e}")
             await event.reply("❌ Error loading channel manager")
@@ -1373,7 +1385,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ]
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle contacts: {e}")
             await event.reply("❌ Error loading contact management")
@@ -1446,7 +1461,10 @@ class MenuSystem:
                     buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
                 
                 buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle cleanup: {e}")
             await event.reply("❌ Error loading cleanup menu")
@@ -2055,7 +2073,10 @@ class MenuSystem:
             dev_text = "🔴 Disable Dev Mode" if dev_mode else "⚙️ Enable Dev Mode"
             buttons.append([Button.inline(dev_text, "help:toggle_dev")])
         buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
-        await self.bot.send_message(user_id, text, buttons=buttons)
+        if hasattr(event, 'message_id'):
+            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        else:
+            await self.bot.send_message(user_id, text, buttons=buttons)
     async def _handle_support(self, event):
         """Handle Support menu"""
         # Delete previous messages to avoid collision
@@ -2096,7 +2117,10 @@ class MenuSystem:
                 Button.inline("🔙 Back to Main Menu", "menu:main"),
             ],
         ]
-        await self.bot.send_message(event.sender_id, text, buttons=buttons)
+        if hasattr(event, 'message_id'):
+            await self.bot.edit_message(event.sender_id, event.message_id, text, buttons=buttons)
+        else:
+            await self.bot.send_message(event.sender_id, text, buttons=buttons)
     async def _get_account_age_info(self, user_id: int, account_name: str, account_data: dict = None) -> str:
         """Get account age information using ID-based estimation"""
         try:
@@ -2281,7 +2305,10 @@ class MenuSystem:
                         Button.inline("🔙 Back to Main Menu", "menu:main"),
                     ],
                 ]
-                await self.bot.send_message(user_id, text, buttons=buttons)
+                if hasattr(event, 'message_id'):
+                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                else:
+                    await self.bot.send_message(user_id, text, buttons=buttons)
             else:
                 await event.reply("❌ User not found")
         except Exception as e:
@@ -2322,7 +2349,10 @@ class MenuSystem:
                 "🚀 **Perfect for managing multiple accounts from one centralized place!**"
             )
             buttons.append([Button.inline("🔙 Back to Messaging", "menu:messaging")])
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            if hasattr(event, 'message_id'):
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle DM reply menu: {e}")
             await event.reply("❌ Error loading DM reply menu")
