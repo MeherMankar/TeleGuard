@@ -93,6 +93,7 @@ class AdvancedSpamHandler:
             [Button.inline("🔍 Username Checker", b"username_check"), Button.inline("💣 Forward Bomber", b"forward_bomb")],
             [Button.inline("🌊 Message Flooder", b"message_flood"), Button.inline("⚔️ Raid Coordinator", b"raid_coord")],
             [Button.inline("🥷 Stealth Raid", b"stealth_raid"), Button.inline("🎯 Multi-Target Raid", b"multi_raid")],
+            [Button.inline("📢 Send to All Groups", b"send_all_groups")],
             [Button.inline("🔙 Back", b"menu:main")]
         ]
         
@@ -142,6 +143,7 @@ class AdvancedSpamHandler:
                 [Button.inline("🔍 Username Checker", b"username_check"), Button.inline("💣 Forward Bomber", b"forward_bomb")],
                 [Button.inline("🌊 Message Flooder", b"message_flood"), Button.inline("⚔️ Raid Coordinator", b"raid_coord")],
                 [Button.inline("🥷 Stealth Raid", b"stealth_raid"), Button.inline("🎯 Multi-Target Raid", b"multi_raid")],
+                [Button.inline("📢 Send to All Groups", b"send_all_groups")],
                 [Button.inline("🔙 Back to Main Menu", b"menu:main")]
             ]
             
@@ -203,6 +205,7 @@ class AdvancedSpamHandler:
                 [Button.inline("🔍 Username Checker", b"username_check"), Button.inline("💣 Forward Bomber", b"forward_bomb")],
                 [Button.inline("🌊 Message Flooder", b"message_flood"), Button.inline("⚔️ Raid Coordinator", b"raid_coord")],
                 [Button.inline("🥷 Stealth Raid", b"stealth_raid"), Button.inline("🎯 Multi-Target Raid", b"multi_raid")],
+                [Button.inline("📢 Send to All Groups", b"send_all_groups")],
                 [Button.inline("🔙 Back", b"spam_master")]
             ]
             
@@ -245,6 +248,24 @@ class AdvancedSpamHandler:
             phone = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
+            buttons = [
+                [Button.inline("🌐 All Groups", f"mi_all:{phone}".encode())],
+                [Button.inline("🎯 Specific Group", f"mi_spec:{phone}".encode())],
+                [Button.inline("🔙 Back", b"mass_invite")]
+            ]
+            
+            await event.edit(
+                f"📤 **Mass Inviter Setup**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Choose target:",
+                buttons=buttons
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"mi_spec:(.+)"))
+        async def mass_invite_specific(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
             await mongodb.db.temp_data.update_one(
                 {"user_id": user_id, "type": "mass_invite"},
                 {"$set": {"phone": phone, "step": "target"}},
@@ -252,10 +273,18 @@ class AdvancedSpamHandler:
             )
             
             await event.edit(
-                f"📤 **Mass Inviter Setup**\n\n"
+                f"📤 **Mass Inviter - Specific Group**\n\n"
                 f"Account: `{phone}`\n\n"
                 f"Send target group username/link:"
             )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"mi_all:(.+)"))
+        async def mass_invite_all(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await event.answer("🌐 Starting mass invite to all groups...", alert=True)
+            await handler_self._execute_mass_invite_all(event, phone, user_id)
         
         # Contact Scraper
         @self.bot.on(events.CallbackQuery(pattern=b"contact_scrape"))
@@ -269,9 +298,10 @@ class AdvancedSpamHandler:
                 return
             
             buttons = [[Button.inline(f"📱 {acc['name']}", f"cs_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons.append([Button.inline("🌐 Scrape All Groups", b"cs_all_groups")])
             buttons.append([Button.inline("🔙 Back", b"advanced_spam")])
             
-            await event.edit("📇 **Contact Scraper**\n\nSelect account:", buttons=buttons)
+            await event.edit("📇 **Contact Scraper**\n\nSelect account or scrape all:", buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=rb"cs_acc:(.+)"))
         async def contact_scrape_setup(event):
@@ -289,6 +319,29 @@ class AdvancedSpamHandler:
                 f"Account: `{phone}`\n\n"
                 f"Send group username/link to scrape:"
             )
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"cs_all_groups"))
+        async def contact_scrape_all_menu(event):
+            await event.answer()
+            user_id = event.sender_id
+            accounts = await handler_self._get_accounts(user_id)
+            
+            if not accounts:
+                await event.answer("❌ No accounts", alert=True)
+                return
+            
+            buttons = [[Button.inline(f"📱 {acc['name']}", f"cs_all:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons.append([Button.inline("🔙 Back", b"contact_scrape")])
+            
+            await event.edit("🌐 **Scrape All Groups**\n\nSelect account:", buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"cs_all:(.+)"))
+        async def contact_scrape_all_execute(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await event.answer("🌐 Starting scrape from all groups...", alert=True)
+            await handler_self._execute_contact_scrape_all(event, phone, user_id)
         
         # Username Checker
         @self.bot.on(events.CallbackQuery(pattern=b"username_check"))
@@ -344,6 +397,24 @@ class AdvancedSpamHandler:
             phone = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
+            buttons = [
+                [Button.inline("🌐 All Groups", f"fb_all:{phone}".encode())],
+                [Button.inline("🎯 Specific Target", f"fb_spec:{phone}".encode())],
+                [Button.inline("🔙 Back", b"forward_bomb")]
+            ]
+            
+            await event.edit(
+                f"💣 **Forward Bomber Setup**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Choose target:",
+                buttons=buttons
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"fb_spec:(.+)"))
+        async def forward_bomb_specific(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
             await mongodb.db.temp_data.update_one(
                 {"user_id": user_id, "type": "forward_bomb"},
                 {"$set": {"phone": phone, "step": "source"}},
@@ -351,7 +422,24 @@ class AdvancedSpamHandler:
             )
             
             await event.edit(
-                f"💣 **Forward Bomber Setup**\n\n"
+                f"💣 **Forward Bomber - Specific Target**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Send source chat username/link:"
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"fb_all:(.+)"))
+        async def forward_bomb_all_setup(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "forward_bomb_all"},
+                {"$set": {"phone": phone, "step": "source"}},
+                upsert=True
+            )
+            
+            await event.edit(
+                f"💣 **Forward Bomber - All Groups**\n\n"
                 f"Account: `{phone}`\n\n"
                 f"Send source chat username/link:"
             )
@@ -377,6 +465,24 @@ class AdvancedSpamHandler:
             phone = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
+            buttons = [
+                [Button.inline("🌐 All Groups", f"mf_all:{phone}".encode())],
+                [Button.inline("🎯 Specific Group", f"mf_spec:{phone}".encode())],
+                [Button.inline("🔙 Back", b"message_flood")]
+            ]
+            
+            await event.edit(
+                f"🌊 **Message Flooder Setup**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Choose target:",
+                buttons=buttons
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"mf_spec:(.+)"))
+        async def message_flood_specific(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
             await mongodb.db.temp_data.update_one(
                 {"user_id": user_id, "type": "message_flood"},
                 {"$set": {"phone": phone, "step": "target"}},
@@ -384,9 +490,26 @@ class AdvancedSpamHandler:
             )
             
             await event.edit(
-                f"🌊 **Message Flooder Setup**\n\n"
+                f"🌊 **Message Flooder - Specific Group**\n\n"
                 f"Account: `{phone}`\n\n"
                 f"Send target group username/link:"
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"mf_all:(.+)"))
+        async def message_flood_all(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "message_flood_all"},
+                {"$set": {"phone": phone, "step": "message"}},
+                upsert=True
+            )
+            
+            await event.edit(
+                f"🌊 **Message Flooder - All Groups**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Send the message to flood:"
             )
         
         # Raid Coordinator
@@ -458,6 +581,39 @@ class AdvancedSpamHandler:
                 f"Send target groups (one per line):"
             )
         
+        # Send to All Groups
+        @self.bot.on(events.CallbackQuery(pattern=b"send_all_groups"))
+        async def send_all_groups_menu(event):
+            await event.answer()
+            user_id = event.sender_id
+            accounts = await handler_self._get_accounts(user_id)
+            
+            if not accounts:
+                await event.answer("❌ No accounts", alert=True)
+                return
+            
+            buttons = [[Button.inline(f"📱 {acc['name']}", f"sag_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons.append([Button.inline("🔙 Back", b"advanced_spam")])
+            
+            await event.edit("📢 **Send to All Groups**\n\nSelect account:", buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"sag_acc:(.+)"))
+        async def send_all_groups_setup(event):
+            phone = event.data.decode().split(":", 1)[1]
+            user_id = event.sender_id
+            
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "send_all_groups"},
+                {"$set": {"phone": phone, "step": "message"}},
+                upsert=True
+            )
+            
+            await event.edit(
+                f"📢 **Send to All Groups Setup**\n\n"
+                f"Account: `{phone}`\n\n"
+                f"Send the message you want to broadcast to all groups:"
+            )
+        
         # Message handler for operations
         @self.bot.on(events.NewMessage(func=lambda e: e.is_private))
         async def operation_handler(event):
@@ -487,6 +643,14 @@ class AdvancedSpamHandler:
                 await self._execute_stealth_raid(event, temp_data)
             elif op_type == "multi_raid" and temp_data.get("step") == "targets":
                 await self._execute_multi_raid(event, temp_data)
+            elif op_type == "send_all_groups" and temp_data.get("step") == "message":
+                await self._execute_send_all_groups(event, temp_data)
+            elif op_type == "message_flood_all" and temp_data.get("step") == "message":
+                await self._execute_message_flood_all(event, temp_data)
+            elif op_type == "forward_bomb_all" and temp_data.get("step") == "source":
+                await self._handle_forward_bomb_all_source(event, temp_data)
+            elif op_type == "forward_bomb_all" and temp_data.get("step") == "msgid":
+                await self._execute_forward_bomb_all(event, temp_data)
     
     async def _get_accounts(self, user_id):
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
@@ -570,6 +734,49 @@ class AdvancedSpamHandler:
             await msg.edit(f"❌ Error: {e}")
         finally:
             await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "contact_scrape"})
+    
+    async def _execute_contact_scrape_all(self, event, phone, user_id):
+        msg = await self.bot.send_message(user_id, "🌐 Scraping contacts from all groups...")
+        
+        try:
+            client = self.user_clients.get(phone)
+            if not client:
+                await msg.edit("❌ Client not found")
+                return
+            
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel]
+            
+            all_contacts = {}
+            groups_scraped = 0
+            
+            for group in groups:
+                try:
+                    async for participant in client.iter_participants(group.entity, limit=5000):
+                        if not participant.bot and participant.id not in all_contacts:
+                            all_contacts[participant.id] = {
+                                "user_id": participant.id,
+                                "username": participant.username,
+                                "first_name": participant.first_name,
+                                "last_name": participant.last_name,
+                                "phone": participant.phone
+                            }
+                    groups_scraped += 1
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Error scraping {group.name}: {e}")
+            
+            contacts = list(all_contacts.values())
+            filename = f"contacts_all_groups_{user_id}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=['user_id', 'username', 'first_name', 'last_name', 'phone'])
+                writer.writeheader()
+                writer.writerows(contacts)
+            
+            await self.bot.send_file(user_id, filename, caption=f"🌐 Scraped {len(contacts)} unique contacts from {groups_scraped} groups")
+            await msg.edit(f"✅ All groups scraped!\n\nGroups: {groups_scraped}\nContacts: {len(contacts)}\n\nFile sent above.")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}")
     
     async def _execute_username_check(self, event, temp_data):
         phone = temp_data["phone"]
@@ -763,13 +970,41 @@ class AdvancedSpamHandler:
     
     async def _stealth_worker(self, client, target, count):
         sent = 0
+        human_messages = [
+            "Hey everyone!", "What's up?", "Anyone here?", "Good morning!",
+            "How's it going?", "Nice group!", "Hello there", "Greetings!",
+            "What's happening?", "Hey guys", "Sup", "Yo", "Hi all",
+            "Good to be here", "Interesting discussion", "I agree",
+            "That's cool", "Nice", "Awesome", "Great point",
+            "Thanks for sharing", "Appreciate it", "Cool stuff", "Interesting",
+            "Makes sense", "True that", "Exactly", "For sure", "Definitely",
+            "I see", "Got it", "Understood", "Fair enough", "Good idea"
+        ]
+        
         try:
             group = await client.get_entity(target)
-            for _ in range(count):
+            for i in range(count):
                 try:
-                    await client.send_message(group, "🥷 Stealth message")
+                    # Random typing indicator (50% chance)
+                    if random.random() > 0.5:
+                        async with client.action(group, 'typing'):
+                            await asyncio.sleep(random.uniform(1, 4))
+                    
+                    # Send varied message
+                    message = random.choice(human_messages)
+                    await client.send_message(group, message)
                     sent += 1
-                    await asyncio.sleep(random.uniform(10, 60))
+                    
+                    # Human-like delays: shorter at start, longer as time goes
+                    base_delay = random.uniform(15, 45)
+                    fatigue_factor = 1 + (i * 0.1)  # Gets slower over time
+                    delay = base_delay * fatigue_factor
+                    
+                    # Random "distraction" - longer pause (20% chance)
+                    if random.random() > 0.8:
+                        delay += random.uniform(30, 120)
+                    
+                    await asyncio.sleep(delay)
                 except:
                     break
         except:
@@ -804,3 +1039,156 @@ class AdvancedSpamHandler:
             await msg.edit(f"❌ Error: {e}")
         finally:
             await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "multi_raid"})
+    
+    async def _execute_send_all_groups(self, event, temp_data):
+        phone = temp_data["phone"]
+        message = event.text.strip()
+        user_id = event.sender_id
+        
+        msg = await event.reply(f"📢 Sending message to all groups...")
+        
+        try:
+            client = self.user_clients.get(phone)
+            if not client:
+                await msg.edit("❌ Client not found")
+                return
+            
+            # Get all dialogs (groups and channels)
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel]
+            
+            sent = 0
+            failed = 0
+            
+            for group in groups:
+                try:
+                    await client.send_message(group.entity, message)
+                    sent += 1
+                    await asyncio.sleep(random.uniform(2, 5))
+                except (FloodWaitError, ChatWriteForbiddenError) as e:
+                    failed += 1
+                    if isinstance(e, FloodWaitError):
+                        await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    logger.error(f"Send error: {e}")
+                    failed += 1
+            
+            await msg.edit(f"✅ Broadcast completed!\n\nSent: {sent}\nFailed: {failed}\nTotal groups: {len(groups)}")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}")
+        finally:
+            await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "send_all_groups"})
+    
+    async def _execute_mass_invite_all(self, event, phone, user_id):
+        msg = await self.bot.send_message(user_id, "🌐 Starting mass invite to all groups...")
+        
+        try:
+            client = self.user_clients.get(phone)
+            if not client:
+                await msg.edit("❌ Client not found")
+                return
+            
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel]
+            users = await mongodb.db.spam_users.find({"owner_id": user_id}).limit(50).to_list(None)
+            
+            total_invited = 0
+            total_failed = 0
+            
+            for group in groups:
+                try:
+                    for user in users:
+                        try:
+                            await client(InviteToChannelRequest(group.entity, [user["user_id"]]))
+                            total_invited += 1
+                            await asyncio.sleep(random.randint(5, 15))
+                        except:
+                            total_failed += 1
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Error inviting to {group.name}: {e}")
+            
+            await msg.edit(f"✅ Mass invite completed!\n\nGroups: {len(groups)}\nInvited: {total_invited}\nFailed: {total_failed}")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}")
+    
+    async def _handle_forward_bomb_all_source(self, event, temp_data):
+        source = event.text.strip()
+        user_id = event.sender_id
+        
+        await mongodb.db.temp_data.update_one(
+            {"user_id": user_id, "type": "forward_bomb_all"},
+            {"$set": {"source": source, "step": "msgid"}}
+        )
+        
+        await event.reply(f"💣 Source set: {source}\n\nNow send message ID to forward:")
+    
+    async def _execute_forward_bomb_all(self, event, temp_data):
+        phone = temp_data["phone"]
+        source = temp_data["source"]
+        msg_id = int(event.text.strip())
+        user_id = event.sender_id
+        
+        msg = await event.reply("💣 Starting forward bomb to all groups...")
+        
+        try:
+            client = self.user_clients.get(phone)
+            if not client:
+                await msg.edit("❌ Client not found")
+                return
+            
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel]
+            
+            forwarded = 0
+            
+            for group in groups:
+                try:
+                    await client.forward_messages(group.entity, msg_id, source)
+                    forwarded += 1
+                    await asyncio.sleep(random.randint(2, 8))
+                except:
+                    pass
+            
+            await msg.edit(f"✅ Forward bomb completed!\n\nGroups: {len(groups)}\nForwarded: {forwarded}")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}")
+        finally:
+            await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "forward_bomb_all"})
+    
+    async def _execute_message_flood_all(self, event, temp_data):
+        phone = temp_data["phone"]
+        message = event.text.strip()
+        user_id = event.sender_id
+        
+        msg = await event.reply("🌊 Starting flood to all groups...")
+        
+        try:
+            client = self.user_clients.get(phone)
+            if not client:
+                await msg.edit("❌ Client not found")
+                return
+            
+            dialogs = await client.get_dialogs()
+            groups = [d for d in dialogs if d.is_group or d.is_channel]
+            
+            total_sent = 0
+            
+            for group in groups:
+                try:
+                    for i in range(50):
+                        try:
+                            await client.send_message(group.entity, message)
+                            total_sent += 1
+                            await asyncio.sleep(random.uniform(0.1, 0.5))
+                        except (FloodWaitError, SlowModeWaitError, ChatWriteForbiddenError):
+                            break
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.error(f"Flood error: {e}")
+            
+            await msg.edit(f"✅ Flood completed!\n\nGroups: {len(groups)}\nMessages sent: {total_sent}")
+        except Exception as e:
+            await msg.edit(f"❌ Error: {e}")
+        finally:
+            await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "message_flood_all"})
