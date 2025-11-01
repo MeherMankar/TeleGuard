@@ -657,6 +657,7 @@ class AdvancedSpamHandler:
         return [{"phone": acc["phone"], "name": acc.get("name", acc.get("first_name", acc["phone"]))} for acc in accounts]
     
     def _get_client(self, phone):
+        phone = str(phone)
         if phone in self.user_clients:
             return self.user_clients[phone]
         phone_clean = phone.lstrip('+')
@@ -666,7 +667,8 @@ class AdvancedSpamHandler:
         if phone_plus in self.user_clients:
             return self.user_clients[phone_plus]
         for key in self.user_clients:
-            if phone_clean in key.lstrip('+'):
+            key_str = str(key).lstrip('+')
+            if phone_clean in key_str or key_str in phone_clean:
                 return self.user_clients[key]
         return None
     
