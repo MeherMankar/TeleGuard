@@ -656,6 +656,20 @@ class AdvancedSpamHandler:
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         return [{"phone": acc["phone"], "name": acc.get("name", acc.get("first_name", acc["phone"]))} for acc in accounts]
     
+    def _get_client(self, phone):
+        if phone in self.user_clients:
+            return self.user_clients[phone]
+        phone_clean = phone.lstrip('+')
+        if phone_clean in self.user_clients:
+            return self.user_clients[phone_clean]
+        phone_plus = f"+{phone_clean}"
+        if phone_plus in self.user_clients:
+            return self.user_clients[phone_plus]
+        for key in self.user_clients:
+            if phone_clean in key.lstrip('+'):
+                return self.user_clients[key]
+        return None
+    
     async def _execute_mass_invite(self, event, temp_data):
         phone = temp_data["phone"]
         target = event.text.strip()
@@ -664,7 +678,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"📤 Starting mass invite to {target}...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -700,7 +714,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"📇 Scraping contacts from {group}...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -739,7 +753,7 @@ class AdvancedSpamHandler:
         msg = await self.bot.send_message(user_id, "🌐 Scraping contacts from all groups...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -786,7 +800,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"🔍 Checking usernames for base: {base}...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -834,7 +848,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"💣 Starting forward bombing...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -871,7 +885,7 @@ class AdvancedSpamHandler:
         ]
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -901,7 +915,7 @@ class AdvancedSpamHandler:
         
         try:
             accounts = await self._get_accounts(user_id)
-            clients = [self.user_clients.get(acc["phone"]) for acc in accounts if self.user_clients.get(acc["phone"])]
+            clients = [self._get_client(acc["phone"]) for acc in accounts if self._get_client(acc["phone"])]
             
             if not clients:
                 await msg.edit("❌ No clients available")
@@ -947,7 +961,7 @@ class AdvancedSpamHandler:
         
         try:
             accounts = await self._get_accounts(user_id)
-            clients = [self.user_clients.get(acc["phone"]) for acc in accounts if self.user_clients.get(acc["phone"])]
+            clients = [self._get_client(acc["phone"]) for acc in accounts if self._get_client(acc["phone"])]
             
             if not clients:
                 await msg.edit("❌ No clients available")
@@ -1019,7 +1033,7 @@ class AdvancedSpamHandler:
         
         try:
             accounts = await self._get_accounts(user_id)
-            clients = [self.user_clients.get(acc["phone"]) for acc in accounts if self.user_clients.get(acc["phone"])]
+            clients = [self._get_client(acc["phone"]) for acc in accounts if self._get_client(acc["phone"])]
             
             if not clients:
                 await msg.edit("❌ No clients available")
@@ -1048,7 +1062,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"📢 Sending message to all groups...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1083,7 +1097,7 @@ class AdvancedSpamHandler:
         msg = await self.bot.send_message(user_id, "🌐 Starting mass invite to all groups...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1132,7 +1146,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("💣 Starting forward bomb to all groups...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1164,7 +1178,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("🌊 Starting flood to all groups...")
         
         try:
-            client = self.user_clients.get(phone)
+            client = self._get_client(phone)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
