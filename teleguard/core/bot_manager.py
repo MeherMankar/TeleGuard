@@ -842,9 +842,10 @@ class BotManager:
             "contact_share_handler", ContactShareHandler, self
         )
         
-        from ..handlers.spam_master_handler import SpamMasterHandler
-        self.spam_master_handler = await self.component_manager.initialize_component(
-            "spam_master_handler", SpamMasterHandler, self
+        # Advanced SpamMaster with all features
+        from ..handlers.advanced_spam_handler import AdvancedSpamHandler
+        self.advanced_spam_handler = await self.component_manager.initialize_component(
+            "advanced_spam_handler", AdvancedSpamHandler, self
         )
         
 

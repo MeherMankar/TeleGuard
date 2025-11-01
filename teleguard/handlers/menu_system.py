@@ -453,10 +453,10 @@ class MenuSystem:
                     "Channels",
                     "👥 Contacts",
                     "Contacts",
-                    "🧹 Cleanup",
-                    "Cleanup",
                     "🎯 SpamMaster",
                     "SpamMaster",
+                    "🧹 Cleanup",
+                    "Cleanup",
                     "❓ Help",
                     "Help",
                     "🆘 Support",
@@ -482,20 +482,10 @@ class MenuSystem:
                     await self._handle_channels(event)
                 elif text in ["👥 Contacts", "Contacts"]:
                     await self._handle_contacts(event)
+                elif text in ["🎯 SpamMaster", "SpamMaster"]:
+                    await self._handle_spam_master(event)
                 elif text in ["🧹 Cleanup", "Cleanup"]:
                     await self._handle_cleanup(event)
-                elif text in ["🎯 SpamMaster", "SpamMaster"]:
-                    # Trigger spam_master callback instead of handling here
-                    from telethon import Button
-                    buttons = [[Button.inline("Loading...", b"spam_master")]]
-                    msg = await event.reply("🎯 SpamMaster", buttons=buttons)
-                    # Auto-click the button
-                    import asyncio
-                    await asyncio.sleep(0.1)
-                    try:
-                        await msg.delete()
-                    except:
-                        pass
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -993,22 +983,12 @@ class MenuSystem:
                         text = "🔍 **Session String Validator**\n\nReply with a session string to validate and see DC information (DC1, DC2, DC3, DC4, or DC5):"
                         await self.bot.send_message(user_id, text)
                         await event.answer("🔍 Send session string to validate")
-                elif data.startswith("spam_"):
-                    parts = data.split("_", 1)
-                    action = parts[1] if len(parts) > 1 else "main"
-                    if action == "gather":
-                        text = "📊 **Gather Users**\n\nUser gathering feature coming soon!"
-                    elif action == "send":
-                        text = "📤 **Bulk Send**\n\nBulk sending feature coming soon!"
-                    elif action == "reply":
-                        text = "🤖 **Auto Reply**\n\nSpam auto-reply feature coming soon!"
-                    elif action == "stats":
-                        text = "📈 **Campaign Stats**\n\nCampaign statistics coming soon!"
+                elif data == "spam_master":
+                    # Redirect to advanced spam handler
+                    if hasattr(self.account_manager, 'advanced_spam_handler'):
+                        await self.account_manager.advanced_spam_handler._handle_spam_master_menu(event)
                     else:
-                        text = "🎯 **SpamMaster**\n\nFeature coming soon!"
-                    buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
-                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-                    await event.answer("🎯 SpamMaster feature")
+                        await event.answer("SpamMaster not available")
 
                 elif data.startswith("appeal_account_id:"):
                     account_id = data.split(":", 1)[1]
@@ -1021,6 +1001,8 @@ class MenuSystem:
                     buttons = [[Button.inline("🔙 Back", "menu:main")]]
                     await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
                     await event.answer("📨 Chat import")
+                elif data == "menu:spam_master":
+                    await self._handle_spam_master(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
                 elif data == "menu:help":
                     await self._handle_help(type("Event", (), {"sender_id": user_id})())
                 elif data == "menu:support":
@@ -1397,67 +1379,14 @@ class MenuSystem:
             await event.reply("❌ Error loading contact management")
     
     async def _handle_spam_master(self, event):
-        """Handle SpamMaster menu"""
+        """Handle SpamMaster menu - redirect to advanced spam handler"""
         user_id = event.sender_id
         try:
-            # Delete previous messages to avoid collision
-            await self._cleanup_old_messages(user_id)
-            
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-            if not accounts:
-                text = (
-                    "🎯 **SpamMaster - Bulk Messaging System**\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "🚨 **No accounts available!**\n\n"
-                    "You need active accounts to use SpamMaster features.\n\n"
-                    "🎯 **Powerful Features:**\n"
-                    "• 📊 **User Gathering** - Collect users from groups/channels\n"
-                    "• 📤 **Bulk Messaging** - Send to thousands of users\n"
-                    "• 🤖 **Smart Auto-Reply** - Automated response system\n"
-                    "• 📈 **Campaign Analytics** - Track performance metrics\n"
-                    "• 🎭 **Human-Like Behavior** - Realistic delays & patterns\n\n"
-                    "Add accounts to unlock SpamMaster:"
-                )
-                buttons = [
-                    [Button.inline("🚀 Add First Account", "account:add")],
-                    [Button.inline("❓ SpamMaster Guide", "help:features")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
-                ]
+            # Redirect to advanced spam handler
+            if hasattr(self.account_manager, 'advanced_spam_handler'):
+                await self.account_manager.advanced_spam_handler._handle_spam_master_menu(event)
             else:
-                active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
-                gathered_users = await mongodb.db.spam_users.count_documents({"owner_id": user_id})
-                active_campaigns = await mongodb.db.spam_campaigns.count_documents({"user_id": user_id, "sent": {"$lt": "$total"}})
-                
-                text = (
-                    "🎯 **SpamMaster - Professional Bulk Messaging**\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"📊 **System Status:**\n"
-                    f"• 📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
-                    f"• 👥 Gathered Users: {gathered_users:,}\n"
-                    f"• 🚀 Active Campaigns: {active_campaigns}\n"
-                    f"• 🟢 System: Operational\n\n"
-                    "⚡ **Professional Tools:**\n"
-                    "• Gather users from any group/channel\n"
-                    "• Send bulk messages with media support\n"
-                    "• Automated reply system with templates\n"
-                    "• Real-time campaign tracking & analytics\n"
-                    "• Smart delays to avoid spam detection\n\n"
-                    "Choose your action below:"
-                )
-                buttons = [
-                    [
-                        Button.inline("📊 Gather Users", "spam_gather"),
-                        Button.inline("📤 Bulk Send", "spam_send"),
-                    ],
-                    [
-                        Button.inline("🤖 Auto Reply", "spam_reply"),
-                        Button.inline("📈 Campaign Stats", "spam_stats"),
-                    ],
-                    [
-                        Button.inline("🔙 Back to Main Menu", "menu:main"),
-                    ],
-                ]
-            await self.bot.send_message(user_id, text, buttons=buttons)
+                await event.reply("❌ SpamMaster not available")
         except Exception as e:
             logger.error(f"Failed to handle SpamMaster menu: {e}")
             await event.reply("❌ Error loading SpamMaster menu")
