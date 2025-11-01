@@ -76,17 +76,32 @@ file_handler = RotatingFileHandler(
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(detailed_formatter)
 
-# Console handler with UTF-8 encoding support
+# Console handler with UTF-8 encoding support and Unicode error handling
 import io
+
+class SafeStreamHandler(logging.StreamHandler):
+    """Stream handler that safely handles Unicode characters"""
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            # Replace Unicode characters that can't be encoded
+            stream = self.stream
+            if hasattr(stream, 'encoding') and stream.encoding:
+                msg = msg.encode(stream.encoding, errors='replace').decode(stream.encoding)
+            stream.write(msg + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
 try:
     # Force UTF-8 encoding for console with error handling
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    console_handler = logging.StreamHandler(io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace'))
+    console_handler = SafeStreamHandler(io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace'))
 except Exception:
-    console_handler = logging.StreamHandler()
+    console_handler = SafeStreamHandler()
 
 console_handler.setLevel(logging.ERROR)
 console_handler.setFormatter(simple_formatter)

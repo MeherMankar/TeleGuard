@@ -52,6 +52,30 @@ python main.py
 
 ---
 
+## 🎯 Feature Comparison
+
+| Feature | Free Version | Premium Features |
+|---------|-------------|------------------|
+| **Accounts** | Up to 10 | Unlimited |
+| **OTP Protection** | ✅ Full | ✅ Full |
+| **DM Management** | ✅ Full | ✅ Full |
+| **Topic System** | ✅ Full | ✅ Full |
+| **SpamMaster** | ✅ Full | ✅ Enhanced |
+| **Bulk Sender** | ✅ Full | ✅ Priority |
+| **Spam Appeal** | ✅ Basic | ✅ AI-Powered |
+| **Device Snooper** | ✅ Full | ✅ Full |
+| **Contact Sharing** | ✅ Full | ✅ Full |
+| **Chat Import** | ✅ Full | ✅ Full |
+| **ID Collector** | ✅ Full | ✅ Full |
+| **Audit System** | ✅ 30 days | ✅ Unlimited |
+| **Session Protection** | ✅ Full | ✅ Enhanced |
+| **Backup System** | ✅ Basic | ✅ Advanced |
+| **Support** | Community | Priority |
+
+**Note:** All features are currently available in the free version. Premium features are planned for future releases.
+
+---
+
 ## 🚀 Features
 
 ### 🛡️ OTP Protection System
@@ -208,6 +232,231 @@ python main.py
 - Per-account control
 - Stealth mode available
 
+### 📊 SpamMaster - Professional Bulk Messaging
+
+**User Gathering**
+- Auto-gather from all groups/channels
+- Manual gathering from specific groups
+- Smart deduplication
+- Blacklist management
+
+**Bulk Sending**
+- Single account mode
+- Multi-account rotation (prevents limits)
+- Media support (photos, videos, documents)
+- Real-time progress tracking
+- Smart delays (40-60s between messages)
+
+**Campaign Management**
+- Live campaign monitoring
+- Stop/resume campaigns
+- Reply tracking and statistics
+- Campaign history and analytics
+
+**Group Spam**
+- Send to all joined groups
+- Automatic group detection
+- Rate limiting protection
+
+**Smart Filters**
+- Blacklist users by ID
+- Smart delay configuration
+- Duplicate prevention
+- Auto-skip blocked users
+
+**Commands:**
+- Access via main menu → "🎯 SpamMaster"
+- Warning acceptance required (ToS compliance)
+- Full campaign control interface
+
+### 🛡️ Spam Appeal System
+
+**Automated Appeal Process**
+- AI-powered appeal message generation
+- Smart spam type detection (spamblock, two-way, new account)
+- Multi-strategy optimization
+- Manual captcha verification support
+
+**Appeal Features**
+- Automatic spambot interaction
+- Human-like message composition
+- Account age-aware messaging
+- Success rate optimization
+
+**Spam Type Detection**
+- Spamblock restrictions
+- Two-way restrictions
+- New account limitations
+- Time-based restrictions
+- Illegal content flags
+
+**Commands:**
+- `/appeal` - Start automated appeal
+- `/appeal_help` - Get appeal guidance
+- `/spam_stats` - View spam detector statistics
+- `/test_appeal_messages` - Test appeal system
+
+### 📱 Device Snooper
+
+**Android Device Monitoring**
+- Scan active Android devices
+- View device history
+- Detect suspicious devices
+- Monitor device changes
+
+**Device Information**
+- Device model and type
+- OS name and version
+- App name and version
+- IP address and country
+- Last active timestamp
+
+**Security Features**
+- Suspicious device detection
+- Session termination
+- Device change alerts
+- Access pattern analysis
+
+**Commands:**
+- Access via main menu → "🕵️ Device Snooper"
+- Per-account device scanning
+- Real-time device monitoring
+
+### 📤 Bulk Message Sender
+
+**Advanced Bulk Sending**
+- Send to username/ID lists
+- Send to all contacts
+- Multi-account broadcasting
+- Button support (URL & callback)
+
+**Message Features**
+- Text messages
+- Media attachments
+- Inline buttons
+- Custom formatting
+
+**Smart Routing**
+- Access hash resolution
+- Cross-account contact sharing
+- Automatic entity resolution
+- Flood wait handling
+
+**Progress Tracking**
+- Real-time progress bars
+- Success/failure counts
+- Campaign statistics
+- Stop/resume controls
+
+**Commands:**
+- `/bulk_send` - View bulk sender help
+- `/bulk_send_list` - Send to specific users
+- `/bulk_send_contacts` - Send to all contacts
+- `/bulk_send_all` - Broadcast from all accounts
+- `/bulk_jobs` - View active jobs
+- `/bulk_stop` - Stop a campaign
+
+### 📇 Contact Sharing
+
+**Cross-Account Contact Sync**
+- Share contacts between accounts
+- Batch import (100 contacts per batch)
+- Phone number preservation
+- Name synchronization
+
+**Features**
+- Source account selection
+- Target account selection
+- Progress tracking
+- Automatic batching
+
+**Commands:**
+- `/share_contacts` - View help
+- `/share_contacts source target` - Share contacts
+
+### 💬 Chat Import System
+
+**Retroactive Topic Creation**
+- Import existing private chats
+- Auto-create topics for conversations
+- Import message history (last 5 messages)
+- Preserve conversation context
+
+**Import Features**
+- Multi-account scanning
+- Private chat detection
+- Bot/deleted account filtering
+- Progress tracking
+
+**Topic Management**
+- Automatic topic naming
+- Message history import
+- Chronological ordering
+- Context preservation
+
+**Commands:**
+- `/import_chats` - Import all existing chats
+- `/check_admin_group` - Verify group setup
+- `/import_help` - Get import guidance
+
+### 📊 Comprehensive Audit System
+
+**Activity Tracking**
+- All bot actions logged
+- Active sim activities
+- Account management events
+- Security events
+
+**Audit Events**
+- Reactions posted
+- Channels joined/left
+- Messages sent
+- Comments posted
+- Poll votes
+- Profile views
+- Entity views
+- Session activities
+
+**Audit Features**
+- 30-day retention
+- Per-account logs
+- Activity summaries
+- Real-time tracking
+- Quick access logs
+
+**Data Tracked**
+- Event type and timestamp
+- Action details
+- IP addresses
+- User context
+- Account information
+
+### 🔍 ID Collector
+
+**Silent ID Collection**
+- Automatic collection every 6 hours
+- Scans all managed accounts
+- Collects from dialogs and groups
+- Exports to CSV
+
+**Collection Features**
+- User IDs from direct chats
+- Participant IDs from groups
+- Channel member IDs
+- Smart deduplication
+
+**Export & Delivery**
+- CSV file generation
+- Automatic admin delivery
+- Logs bot integration
+- Timestamp tracking
+
+**Data Format**
+- User ID
+- Collection timestamp
+- Sorted output
+- UTF-8 encoding
+
 ### ⚡ Automation Engine
 
 **Scheduled Tasks**
@@ -344,7 +593,7 @@ LOG_FILE=bot.log
 ```
 📱 Account Settings    🛡️ OTP Manager
 💬 Messaging          📢 Channels
-👥 Contacts           ❓ Help
+👥 Contacts           🎯 SpamMaster    ❓ Help
 🆘 Support            ⚙️ Developer
 ```
 
@@ -611,6 +860,42 @@ Auto-created on first DM
 - Check disk space
 - Review error logs
 
+### SpamMaster Issues
+
+**Gathering Not Working**
+```bash
+# Check account connection
+- Verify account is active
+- Check group permissions
+- Try manual gathering first
+```
+
+**Campaign Stuck**
+```bash
+# Stop and restart
+/bulk_stop <job_id>
+# Check for flood wait
+# Reduce sending speed
+```
+
+**No Users Gathered**
+- Ensure you're in groups/channels
+- Check account has access
+- Try auto-gather mode
+- Verify account permissions
+
+### Bulk Sender Issues
+
+**Access Hash Errors**
+- Use `/share_contacts` to sync contacts
+- Ensure target users are in contacts
+- Try different source account
+
+**Flood Wait Errors**
+- Automatic handling built-in
+- Wait for specified time
+- Use multi-account rotation
+
 ### Common Errors
 
 | Error | Cause | Solution |
@@ -620,6 +905,8 @@ Auto-created on first DM
 | `SESSION_PASSWORD_NEEDED` | 2FA required | Provide password |
 | `FLOOD_WAIT` | Rate limited | Wait specified time |
 | `Could not find entity` | Invalid group ID | Check group ID |
+| `No access_hash` | User not in contacts | Use contact sharing |
+| `Captcha required` | Manual verification | Complete captcha manually |
 
 ### Debug Commands
 
@@ -810,6 +1097,78 @@ User Input → Validation → Processing → Database → Response
 
 ---
 
+## 🔧 Additional Features
+
+### Account Age Estimation
+
+**Smart Age Detection**
+- Estimates account creation date
+- Uses anchor data and ID ranges
+- Caches results for performance
+- Manual age override support
+
+**Commands:**
+- `/account_age` - Check account age
+- `/set_manual_age` - Override estimated age
+- `/clear_age_cache` - Clear cached ages
+
+### Session Guardian
+
+**Advanced Session Protection**
+- Real-time session monitoring
+- Automatic threat detection
+- Session health scoring
+- Risk level assessment
+
+**Protection Features**
+- Rate limit tracking
+- Activity throttling
+- Cooldown management
+- Automatic recovery
+
+### Network Optimization
+
+**Connection Management**
+- Smart connection pooling
+- Automatic reconnection
+- Network error handling
+- Bandwidth optimization
+
+### Redis Caching
+
+**Performance Enhancement**
+- Fast data access
+- Session caching
+- Query optimization
+- Distributed caching support
+
+### Task Queue System
+
+**Background Processing**
+- Asynchronous task execution
+- Priority queue management
+- Job scheduling
+- Error recovery
+
+### API Security
+
+**Enhanced Security**
+- Rate limiting
+- Request validation
+- Token management
+- Access control
+
+### Comprehensive Logging
+
+**Advanced Logging**
+- Structured logging
+- Log rotation
+- Error tracking
+- Performance monitoring
+- Audit trails
+
+---
+
 ## 📄 License
 
 MIT License
@@ -836,12 +1195,205 @@ SOFTWARE.
 
 ---
 
+## 📝 Complete Command Reference
+
+### Core Commands
+
+**Basic**
+- `/start` - Start the bot and show main menu
+- `/help` - Show help information
+- `/support` - Contact support
+
+**Account Management**
+- `/add_account` - Add new Telegram account
+- `/remove_account` - Remove account from bot
+- `/my_accounts` - List all your accounts
+- `/cleanup_accounts` - Remove inactive accounts
+
+**OTP Protection**
+- `/otp_debug` - Check OTP handler status
+- `/otp_fix` - Force re-register OTP handlers
+- `/test_otp` - Test OTP configuration
+
+**DM Management**
+- `/set_dm_group` - Configure admin group for DMs
+- `/debug_topics` - Show topic mappings
+- `/dm_status` - Check DM reply status
+- `/block` - Block user in current topic
+- `/clear_history` - Clear chat history in topic
+
+**Session Management**
+- `/session_health` - Check session health
+- `/export_session` - Export session string
+- `/import_session` - Import session string
+
+### Advanced Commands
+
+**Spam Appeal**
+- `/appeal` - Start automated spam appeal
+- `/appeal_help` - Get appeal guidance
+- `/spam_stats` - View spam statistics
+- `/test_appeal_messages` - Test appeal system
+
+**Bulk Messaging**
+- `/bulk_send` - Bulk sender help
+- `/bulk_send_list` - Send to user list
+- `/bulk_send_contacts` - Send to all contacts
+- `/bulk_send_all` - Broadcast from all accounts
+- `/bulk_jobs` - View active campaigns
+- `/bulk_stop <job_id>` - Stop campaign
+
+**Contact Management**
+- `/share_contacts` - Share contacts between accounts
+- `/export_contacts` - Export contacts to CSV
+
+**Chat Import**
+- `/import_chats` - Import existing chats to topics
+- `/check_admin_group` - Verify group configuration
+- `/import_help` - Get import guidance
+
+**Backup & Recovery**
+- `/backup_status` - Check backup status
+- `/backup_now` - Trigger GitHub backup
+- `/backup_settings` - Backup to Telegram
+- `/backup_sessions` - Backup session files
+- `/backup_all` - All backup types
+
+**Developer Commands**
+- `/dev_stats` - System statistics
+- `/dev_logs` - View recent logs
+- `/dev_cleanup` - Clean up database
+- `/dev_test` - Run system tests
+
+### Activity Simulation Commands
+
+**Online Maker**
+- `/online_start` - Start online maker
+- `/online_stop` - Stop online maker
+- `/online_status` - Check online status
+
+**Simulation**
+- `/sim_start` - Start activity simulation
+- `/sim_stop` - Stop simulation
+- `/sim_config` - Configure simulation
+
+### Monitoring Commands
+
+**Account Age**
+- `/account_age` - Check account age
+- `/set_manual_age` - Override estimated age
+- `/clear_age_cache` - Clear age cache
+
+**Device Monitoring**
+- Access via menu → Device Snooper
+- Scan devices per account
+- View device history
+- Detect suspicious devices
+
+**Audit Logs**
+- `/audit_log` - View audit logs
+- `/activity_summary` - Get activity summary
+
+---
+
 ## 🔗 Links
 
 - **GitHub:** [MeherMankar/TeleGuard](https://github.com/MeherMankar/TeleGuard)
 - **Issues:** [Report Bug](https://github.com/MeherMankar/TeleGuard/issues)
 - **Support:** [@ContactXYZrobot](https://t.me/ContactXYZrobot)
 - **Developers:** [@Meher_Mankar](https://t.me/Meher_Mankar) • [@Gutkesh](https://t.me/Gutkesh)
+
+---
+
+## ❓ Frequently Asked Questions
+
+### General Questions
+
+**Q: Is TeleGuard safe to use?**
+A: Yes, TeleGuard uses official Telegram APIs and implements security best practices. However, bulk messaging features may violate Telegram's ToS.
+
+**Q: How many accounts can I manage?**
+A: Up to 10 accounts per user by default. This can be configured in settings.
+
+**Q: Does TeleGuard store my passwords?**
+A: 2FA passwords are hashed with SHA-256. Session strings are encrypted with Fernet. No plaintext storage.
+
+**Q: Can I use TeleGuard on multiple devices?**
+A: Yes, but only one instance should run at a time per account to avoid conflicts.
+
+### Feature Questions
+
+**Q: How does OTP Destroyer work?**
+A: It monitors incoming messages from Telegram (777000), detects login codes, and calls the official `invalidateSignInCodes` API to block unauthorized logins.
+
+**Q: What's the difference between OTP Destroyer and OTP Forward?**
+A: Destroyer invalidates codes (blocks logins), Forward sends codes to you (allows logins). Use Destroyer for security, Forward for convenience.
+
+**Q: How do I set up DM management?**
+A: Create a forum group, add bot as admin, send `/set_dm_group`, provide group ID. All DMs will auto-create topics.
+
+**Q: Can I import existing conversations?**
+A: Yes! Use `/import_chats` to retroactively create topics for all existing private chats.
+
+**Q: Is SpamMaster legal?**
+A: Bulk messaging violates Telegram's ToS and may result in account bans. Use at your own risk with test accounts.
+
+**Q: How does the spam appeal system work?**
+A: It uses AI to generate optimized appeal messages, automatically interacts with @spambot, and handles captcha verification.
+
+**Q: What is Device Snooper?**
+A: It monitors active Android devices on your accounts, detects suspicious logins, and allows session termination.
+
+**Q: How does ID Collector work?**
+A: It silently scans all your accounts every 6 hours, collects user IDs from dialogs and groups, and exports to CSV.
+
+### Technical Questions
+
+**Q: What database does TeleGuard use?**
+A: MongoDB for data storage, with optional Redis for caching.
+
+**Q: Can I run TeleGuard on Heroku?**
+A: Yes, one-click deployment is available. See deployment section.
+
+**Q: How do I backup my data?**
+A: Use `/backup_all` for complete backup, or individual backup commands for specific data.
+
+**Q: What happens if my session expires?**
+A: You'll need to re-add the account. Enable OTP Destroyer to prevent unauthorized session creation.
+
+**Q: Can I use TeleGuard with Telegram Premium?**
+A: Yes, all features work with both free and premium Telegram accounts.
+
+### Troubleshooting Questions
+
+**Q: Why aren't topics being created?**
+A: Ensure your admin group is a forum group, bot is admin, and has "Manage Topics" permission. Use `/check_admin_group` to verify.
+
+**Q: Why is OTP Destroyer not working?**
+A: Run `/otp_debug` to check status, `/otp_fix` to re-register handlers, and `/test_otp` to test configuration.
+
+**Q: How do I fix "Could not find entity" errors?**
+A: Use `/share_contacts` to sync contacts between accounts, or ensure the user is in your contacts.
+
+**Q: What should I do if I get flood wait errors?**
+A: Wait for the specified time. Use multi-account rotation in SpamMaster to avoid rate limits.
+
+**Q: Why can't I send messages to some users?**
+A: You need their access_hash. Use `/share_contacts` to import contacts from another account that has them.
+
+### Security Questions
+
+**Q: How secure is my data?**
+A: Sessions are encrypted with Fernet, passwords are hashed with SHA-256, and all data is stored securely in MongoDB.
+
+**Q: Can someone hack my account through TeleGuard?**
+A: No, TeleGuard uses official APIs and doesn't expose your credentials. Enable OTP Destroyer for additional protection.
+
+**Q: What data does TeleGuard collect?**
+A: Only data necessary for functionality (sessions, settings, audit logs). No data is shared with third parties.
+
+**Q: How do I delete my data?**
+A: Remove all accounts from the bot, then contact support for complete data deletion.
 
 ---
 
@@ -855,6 +1407,13 @@ This software is provided for educational and legitimate account management purp
 - Applicable cybersecurity regulations
 
 The developers assume no liability for misuse of this software. Use at your own risk.
+
+**Important Warnings:**
+- SpamMaster bulk messaging violates Telegram ToS and may result in account bans
+- Use test accounts for bulk messaging, not your main account
+- Spam appeal success is not guaranteed
+- ID collection should comply with privacy laws
+- Device snooping is for security purposes only
 
 ---
 

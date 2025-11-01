@@ -129,6 +129,15 @@ class MessageHandlers:
         """Handle user text replies for pending actions"""
         user_id = event.sender_id
         message = event.raw_text.strip()
+        
+        # Skip messages in admin group (forum topics) - they're handled by unified_messaging
+        try:
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            if user and user.get("dm_reply_group_id") == event.chat_id:
+                return
+        except Exception:
+            pass
+        
         if message.startswith("/"):
             # Clear pending actions for certain commands
             if message in ["/start", "/cancel", "/help"]:

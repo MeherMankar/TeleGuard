@@ -16,26 +16,101 @@ class SpamMasterHandler:
         self.pending_campaigns = {}  # user_id -> campaign_data
         
     def register_handlers(self):
+        @self.bot.on(events.CallbackQuery(pattern=b"accept_spam_warning"))
+        async def accept_warning(event):
+            user_id = event.sender_id
+            
+            await mongodb.db.spam_config.update_one(
+                {"user_id": user_id},
+                {"$set": {"warning_accepted": True}},
+                upsert=True
+            )
+            
+            await event.answer("✅ Warning accepted", alert=True)
+            await spam_master_menu(event)
+        
         @self.bot.on(events.CallbackQuery(pattern=b"spam_master"))
         async def spam_master_menu(event):
-            await event.answer()
             try:
                 await event.delete()
             except:
                 pass
+            await event.answer()
+            
+            # Check if user has accepted warning
+            user_id = event.sender_id
+            warning_accepted = await mongodb.db.spam_config.find_one(
+                {"user_id": user_id, "warning_accepted": True}
+            )
+            
+            if not warning_accepted:
+                buttons = [
+                    [Button.inline("✅ I Understand & Accept", b"accept_spam_warning")],
+                    [Button.inline("🔙 Back", b"main_menu")]
+                ]
+                warning_text = (
+                    "⚠️ **IMPORTANT WARNING** ⚠️\n\n"
+                    "🚫 **Terms of Service Violation**\n"
+                    "Bulk messaging violates Telegram's Terms of Service\n\n"
+                    "🚨 **Risks:**\n"
+                    "• Account ban/suspension\n"
+                    "• Permanent account freeze\n"
+                    "• Phone number blacklist\n"
+                    "• IP address restrictions\n\n"
+                    "⛔ **Disclaimer:**\n"
+                    "We are NOT responsible for:\n"
+                    "• Account bans or restrictions\n"
+                    "• Data loss or account termination\n"
+                    "• Any consequences from using this feature\n\n"
+                    "📜 **Legal Notice:**\n"
+                    "By using SpamMaster, you acknowledge:\n"
+                    "• You use this at your own risk\n"
+                    "• You accept full responsibility\n"
+                    "• You understand Telegram's ToS\n"
+                    "• Developers hold no liability\n\n"
+                    "💡 **Recommendation:**\n"
+                    "Use test accounts, not your main account\n\n"
+                    "Click 'I Understand & Accept' to continue"
+                )
+                await event.respond(warning_text, buttons=buttons)
+                return
+            
+            # Get stats
+            total_users = await mongodb.db.spam_users.count_documents({"owner_id": user_id})
+            active_campaigns = await mongodb.db.spam_campaigns.count_documents({"user_id": user_id, "stopped": {"$ne": True}})
+            accounts = await self._get_user_accounts(user_id)
+            
             buttons = [
                 [Button.inline("📊 Gather Users", b"spam_gather")],
                 [Button.inline("📤 Bulk Send", b"spam_send")],
                 [Button.inline("💬 Group Spam", b"group_spam")],
+                [Button.inline("🎯 Filters & Delays", b"spam_filters")],
                 [Button.inline("🤖 Auto Reply", b"spam_reply")],
                 [Button.inline("📈 Campaign Stats", b"spam_stats")],
                 [Button.inline("🔙 Back", b"main_menu")]
             ]
-            await event.respond("🎯 **SpamMaster**\n\nBulk messaging and automation", buttons=buttons)
+            
+            text = (
+                "🎯 **SpamMaster - Professional Bulk Messaging**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📊 **System Status:**\n"
+                f"• 📱 Active Accounts: {len(accounts)}/{len(accounts)}\n"
+                f"• 👥 Gathered Users: {total_users}\n"
+                f"• 🚀 Active Campaigns: {active_campaigns}\n"
+                f"• 🟢 System: Operational\n\n"
+                f"⚡ **Professional Tools:**\n"
+                f"• Gather users from any group/channel\n"
+                f"• Send bulk messages with media support\n"
+                f"• Automated reply system with templates\n"
+                f"• Real-time campaign tracking & analytics\n"
+                f"• Smart delays to avoid spam detection\n\n"
+                f"Choose your action below:"
+            )
+            
+            await event.respond(text, buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_gather"))
         async def gather_menu(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -46,6 +121,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [
                 [Button.inline("🔄 Auto Gather All", b"gather_auto")],
                 [Button.inline("📝 Manual Gather", b"gather_manual")],
@@ -55,7 +131,6 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"gather_auto"))
         async def gather_auto(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -66,13 +141,13 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [[Button.inline(f"📱 {acc['name']}", f"auto_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", b"spam_gather")])
             await event.respond("Select account for auto-gathering:", buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=rb"auto_acc:(.+)"))
         async def auto_gather_account(event):
-            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
@@ -80,13 +155,13 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             msg = await event.respond(f"⏳ Auto-gathering from all groups/channels...\n\nAccount: **{account_name}**")
             total = await self._auto_gather_all(user_id, account_name)
             await msg.edit(f"✅ Auto-gathered {total} users from all groups/channels")
         
         @self.bot.on(events.CallbackQuery(pattern=b"gather_manual"))
         async def gather_manual(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -94,13 +169,13 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [[Button.inline(f"📱 {acc['name']}", f"gather_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", b"spam_gather")])
             await event.respond("Select account to gather users:", buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=rb"gather_acc:(.+)"))
         async def gather_account(event):
-            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
@@ -108,6 +183,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             await event.respond(f"📝 Send group username/link to gather users from:\n\nAccount: **{account_name}**")
             
             # Store state instead of nested handler
@@ -119,7 +195,6 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_send"))
         async def send_menu(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -130,6 +205,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [
                 [Button.inline("🔄 Multi-Account (Rotate)", b"send_multi")],
                 [Button.inline("📱 Single Account", b"send_single")],
@@ -145,7 +221,6 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"send_single"))
         async def send_single(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -153,13 +228,13 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [[Button.inline(f"📱 {acc['name']}", f"send_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", b"spam_send")])
             await event.respond("Select account:", buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=b"send_multi"))
         async def send_multi(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             
@@ -171,6 +246,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             
             # Show account selection with checkboxes
             text = "🔄 **Select Accounts to Rotate**\n\nChoose which accounts to use:"
@@ -191,9 +267,9 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"toggle_acc:(.+)"))
         async def toggle_account(event):
-            await event.answer()
             user_id = event.sender_id
             phone = event.data.decode().split(":", 1)[1]
+            await event.answer()
             
             # Get current selection
             data = await mongodb.db.temp_data.find_one({"user_id": user_id, "type": "multi_select"})
@@ -211,6 +287,11 @@ class SpamMasterHandler:
             )
             
             # Update display
+            try:
+                await event.delete()
+            except:
+                pass
+            
             accounts = await self._get_user_accounts(user_id)
             text = f"🔄 **Select Accounts to Rotate**\n\nSelected: **{len(selected)}** accounts\n\nChoose which accounts to use:"
             buttons = []
@@ -220,7 +301,7 @@ class SpamMasterHandler:
             buttons.append([Button.inline("✅ Confirm Selection", b"confirm_multi")])
             buttons.append([Button.inline("🔙 Back", b"spam_send")])
             
-            await event.edit(text, buttons=buttons)
+            await event.respond(text, buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=b"confirm_multi"))
         async def confirm_multi(event):
@@ -266,11 +347,11 @@ class SpamMasterHandler:
                 await event.answer("❌ No users gathered yet. Use Gather Users first.", alert=True)
                 return
             
-            await event.answer()
             try:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             await event.respond(
                 f"📤 **Bulk Send Setup**\n\n"
                 f"Account: **{account_name}**\n"
@@ -311,6 +392,26 @@ class SpamMasterHandler:
                 await msg_event.reply(f"✅ Sent to {count} groups")
                 return
             
+            # Handle blacklist
+            blacklist_state = await mongodb.db.temp_data.find_one({"user_id": user_id, "type": "blacklist_wait"})
+            if blacklist_state:
+                try:
+                    from datetime import datetime
+                    target = msg_event.text.strip()
+                    target_id = int(target)
+                    
+                    await mongodb.db.spam_blacklist.update_one(
+                        {"owner_id": user_id, "user_id": target_id},
+                        {"$set": {"owner_id": user_id, "user_id": target_id, "added_at": datetime.utcnow()}},
+                        upsert=True
+                    )
+                    
+                    await msg_event.reply(f"✅ Added {target_id} to blacklist")
+                    await mongodb.db.temp_data.delete_one({"user_id": user_id, "type": "blacklist_wait"})
+                except:
+                    await msg_event.reply("❌ Invalid user ID")
+                return
+            
             if user_id not in self.pending_campaigns:
                 return
             
@@ -347,8 +448,8 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"spam_reply"))
         async def reply_menu(event):
-            await event.answer()
             user_id = event.sender_id
+            await event.answer()
             
             # Get reply statistics
             total_sent = await mongodb.db.spam_users.count_documents({"owner_id": user_id, "status": "sent"})
@@ -376,8 +477,8 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"view_replies"))
         async def view_replies(event):
-            await event.answer()
             user_id = event.sender_id
+            await event.answer()
             
             cursor = mongodb.db.spam_users.find(
                 {"owner_id": user_id, "replied": {"$exists": True}}
@@ -403,7 +504,6 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"clear_spam_data"))
         async def clear_data(event):
-            await event.answer()
             user_id = event.sender_id
             
             await mongodb.db.spam_users.delete_many({"owner_id": user_id})
@@ -414,7 +514,6 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=b"group_spam"))
         async def group_spam_menu(event):
-            await event.answer()
             user_id = event.sender_id
             accounts = await self._get_user_accounts(user_id)
             if not accounts:
@@ -425,13 +524,13 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             buttons = [[Button.inline(f"📱 {acc['name']}", f"grp_acc:{acc['phone']}".encode())] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", b"spam_master")])
             await event.respond("💬 **Group Spam**\n\nSelect account:", buttons=buttons)
         
         @self.bot.on(events.CallbackQuery(pattern=rb"grp_acc:(.+)"))
         async def group_spam_account(event):
-            await event.answer()
             account_name = event.data.decode().split(":", 1)[1]
             user_id = event.sender_id
             
@@ -439,6 +538,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             await event.respond(
                 f"💬 **Group Spam Setup**\n\n"
                 f"Account: **{account_name}**\n\n"
@@ -452,9 +552,127 @@ class SpamMasterHandler:
                 upsert=True
             )
         
+        @self.bot.on(events.CallbackQuery(pattern=b"spam_filters"))
+        async def filters_menu(event):
+            user_id = event.sender_id
+            
+            try:
+                await event.delete()
+            except:
+                pass
+            await event.answer()
+            
+            config = await self._get_filter_config(user_id)
+            
+            buttons = [
+                [Button.inline(f"{'✅' if config.get('smart_delays') else '☐'} Smart Delays ({config.get('min_delay', 40)}-{config.get('max_delay', 60)}s)", b"toggle_delays")],
+                [Button.inline("🚫 Blacklist Management", b"manage_blacklist")],
+                [Button.inline("🔙 Back", b"spam_master")]
+            ]
+            
+            text = (
+                "🎯 **Smart Filters & Delays**\n\n"
+                f"Smart Delays: {'✅ Enabled' if config.get('smart_delays') else '❌ Disabled'}\n"
+                f"Delay Range: {config.get('min_delay', 40)}-{config.get('max_delay', 60)}s\n"
+                f"Blacklisted Users: {await mongodb.db.spam_blacklist.count_documents({'owner_id': user_id})}\n\n"
+                "Prevent bans with smart delays"
+            )
+            
+            await event.respond(text, buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"toggle_delays"))
+        async def toggle_delays(event):
+            user_id = event.sender_id
+            config = await self._get_filter_config(user_id)
+            enabled = not config.get('smart_delays', True)
+            
+            await mongodb.db.spam_config.update_one(
+                {"user_id": user_id},
+                {"$set": {"smart_delays": enabled}},
+                upsert=True
+            )
+            
+            await event.answer(f"Smart Delays {'Enabled' if enabled else 'Disabled'}", alert=True)
+            await filters_menu(event)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"manage_blacklist"))
+        async def blacklist_menu(event):
+            user_id = event.sender_id
+            
+            try:
+                await event.delete()
+            except:
+                pass
+            await event.answer()
+            
+            count = await mongodb.db.spam_blacklist.count_documents({"owner_id": user_id})
+            
+            buttons = [
+                [Button.inline("➕ Add User ID", b"blacklist_add")],
+                [Button.inline("📋 View List", b"blacklist_view")],
+                [Button.inline("🗑️ Clear All", b"blacklist_clear")],
+                [Button.inline("🔙 Back", b"spam_filters")]
+            ]
+            
+            await event.respond(
+                f"🚫 **Blacklist Management**\n\n"
+                f"Blacklisted Users: {count}\n\n"
+                "Blacklisted users will be excluded from campaigns",
+                buttons=buttons
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"blacklist_add"))
+        async def blacklist_add(event):
+            user_id = event.sender_id
+            
+            try:
+                await event.delete()
+            except:
+                pass
+            await event.answer()
+            
+            await event.respond("Send user ID to blacklist:")
+            
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "blacklist_wait"},
+                {"$set": {"action": "add"}},
+                upsert=True
+            )
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"blacklist_view"))
+        async def blacklist_view(event):
+            user_id = event.sender_id
+            await event.answer()
+            
+            cursor = mongodb.db.spam_blacklist.find({"owner_id": user_id}).limit(20)
+            blacklist = await cursor.to_list(length=20)
+            
+            if not blacklist:
+                await event.answer("Blacklist is empty", alert=True)
+                return
+            
+            try:
+                await event.delete()
+            except:
+                pass
+            
+            text = "🚫 **Blacklisted Users**\n\n"
+            for item in blacklist[:10]:
+                text += f"• {item.get('user_id')}\n"
+            
+            buttons = [[Button.inline("🔙 Back", b"manage_blacklist")]]
+            await event.respond(text, buttons=buttons)
+        
+        @self.bot.on(events.CallbackQuery(pattern=b"blacklist_clear"))
+        async def blacklist_clear(event):
+            user_id = event.sender_id
+            
+            await mongodb.db.spam_blacklist.delete_many({"owner_id": user_id})
+            await event.answer("✅ Blacklist cleared", alert=True)
+            await blacklist_menu(event)
+        
         @self.bot.on(events.CallbackQuery(pattern=b"spam_stats"))
         async def show_stats(event):
-            await event.answer()
             user_id = event.sender_id
             stats = await self._get_campaign_stats(user_id)
             
@@ -462,6 +680,7 @@ class SpamMasterHandler:
                 await event.delete()
             except:
                 pass
+            await event.answer()
             text = "📈 **Campaign Statistics**\n\n"
             if not stats:
                 text += "No active campaigns"
@@ -479,8 +698,8 @@ class SpamMasterHandler:
         
         @self.bot.on(events.CallbackQuery(pattern=rb"stop_camp:(.+)"))
         async def stop_campaign(event):
-            await event.answer()
             campaign_id = event.data.decode().split(":", 1)[1]
+            await event.answer("🛑 Stopping campaign...", alert=False)
             self.active_campaigns[campaign_id] = True
             
             from bson import ObjectId
@@ -597,15 +816,25 @@ class SpamMasterHandler:
         )
         all_users = await cursor.to_list(length=None)
         
-        # Deduplicate by user_id
+        # Get blacklist
+        blacklist_cursor = mongodb.db.spam_blacklist.find({"owner_id": user_id})
+        blacklist = await blacklist_cursor.to_list(length=None)
+        blacklist_ids = {b['user_id'] for b in blacklist}
+        
+        # Deduplicate and filter blacklist
         seen = set()
         unique_users = []
         for user in all_users:
-            if user["user_id"] not in seen:
+            if user["user_id"] not in seen and user["user_id"] not in blacklist_ids:
                 seen.add(user["user_id"])
                 unique_users.append(user)
         
         return unique_users[:500]
+    
+    async def _get_filter_config(self, user_id: int) -> Dict:
+        """Get filter configuration"""
+        config = await mongodb.db.spam_config.find_one({"user_id": user_id})
+        return config or {"smart_delays": True, "min_delay": 40, "max_delay": 60}
     
     async def _start_campaign(self, user_id: int, account_name: str, users: List, msg_event, progress_msg) -> str:
         """Start bulk send campaign"""

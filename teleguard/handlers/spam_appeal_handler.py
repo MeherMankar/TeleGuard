@@ -171,6 +171,7 @@ class SpamAppealHandler:
             user_id = event.sender_id
             account_id = event.data.decode().split(':', 1)[1]
             try:
+                await event.answer()
                 await event.delete()
                 
                 # Get account details from database using ID
@@ -195,6 +196,7 @@ class SpamAppealHandler:
         @self.bot.on(events.CallbackQuery(pattern=b"appeal_cancel"))
         async def appeal_cancel_callback(event):
             try:
+                await event.answer()
                 await event.delete()
                 await event.respond("❌ Appeal process cancelled.")
             except Exception as e:
@@ -205,6 +207,7 @@ class SpamAppealHandler:
             user_id = event.sender_id
             action = event.data.decode().split('_')[1]
             try:
+                await event.answer()
                 await event.delete()
                 if user_id not in self.active_appeals:
                     await event.respond("⚠️ No active appeal process found.")
@@ -244,6 +247,7 @@ class SpamAppealHandler:
                 return
             
             account_name = self.active_appeals[user_id].get('account_name', 'Unknown Account')
+            logger.info(f"Getting client for account: {account_name}")
             client = await self._get_user_client(user_id, account_name)
             
             if not client:
@@ -255,6 +259,14 @@ class SpamAppealHandler:
                 await self._notify_user(user_id, f"❌ Account '{account_name}' not connected.")
                 self.active_appeals.pop(user_id, None)
                 return
+            
+            # Verify we got the correct client
+            try:
+                me = await client.get_me()
+                actual_name = me.first_name or 'Unknown'
+                logger.info(f"Using client for: {actual_name} (requested: {account_name})")
+            except Exception as e:
+                logger.warning(f"Could not verify client identity: {e}")
             
             self.active_appeals[user_id]['state'] = 'starting'
             await self._notify_user(user_id, f"🛡️ **Starting Appeal for {account_name}**\n\n⏳ This may take 30 seconds to 1 minute...")
@@ -272,13 +284,16 @@ class SpamAppealHandler:
                 logger.info(f"Sending /start to {bot_username} for {account_name}")
                 await client.send_message(bot_username, "/start")
                 logger.info(f"Sent /start to {bot_username} for {account_name}")
+                await asyncio.sleep(3)
             except Exception as e:
                 logger.warning(f"Failed with {bot_username}, trying SpamBot: {e}")
                 bot_username = "SpamBot"
                 await client.send_message(bot_username, "/start")
                 logger.info(f"Sent /start to {bot_username} for {account_name}")
+                await asyncio.sleep(3)
             
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
+            logger.info(f"Waiting for spambot response for {account_name}...")
             
         except Exception as e:
             logger.error(f"Appeal process error: {e}")
@@ -288,31 +303,63 @@ class SpamAppealHandler:
     async def _process_spambot_response(self, user_id: int, event):
         """Process response from spambot or spam info bot"""
         if user_id not in self.active_appeals:
+            logger.warning(f"No active appeal for user {user_id}")
             return
             
         state = self.active_appeals[user_id]
-        message_text = event.message.text.lower()
+        message_text = event.message.text.lower() if event.message.text else ""
         account_name = state.get('account_name', 'Unknown Account')
+        
+        logger.info(f"Processing spambot message for {account_name}: {message_text[:100]}...")
         
         # Prevent processing same message multiple times
         if state.get('last_processed_msg') == event.message.id:
+            logger.debug(f"Skipping duplicate message {event.message.id}")
             return
         state['last_processed_msg'] = event.message.id
         
-        # Detect bot type from message patterns
-        is_spam_info_bot = ("harsh response from our anti-spam systems" in message_text or 
-                           "subscribe to telegram premium" in message_text)
+        # Detect restriction type and bot type
+        is_spam_info_bot = "subscribe to telegram premium" in message_text
+        has_captcha = "sorry that you had to contact" in message_text
         
         if is_spam_info_bot:
-            state['bot_type'] = 'spam_info_bot'
+            state['bot_type'] = 'spam_info_bot'  # No captcha flow
+        elif has_captcha:
+            state['bot_type'] = 'regular_spambot'  # With captcha flow
         
-        # No restrictions - only if explicitly stated
+        # 1. No restrictions - account is clean
         if "good news" in message_text and "no limits" in message_text:
-            await self._notify_user(user_id, f"🎉 **{account_name}**: No restrictions found! Your account is clean.")
+            await self._notify_user(user_id, f"🎉 **{account_name}: No Restrictions**\n\nYour account is clean! No action needed.")
             self.active_appeals.pop(user_id, None)
             return
         
-        # Spam Info Bot Flow (no captcha required)
+        # 2. Time-based restriction - cannot appeal, must wait
+        if "limited until" in message_text and "automatically released" in message_text:
+            await self._notify_user(
+                user_id,
+                f"⏰ **{account_name}: Time-Based Restriction**\n\n"
+                f"❌ Cannot be appealed - must wait for automatic release\n\n"
+                f"**Actions:**\n"
+                f"• Wait for expiry date\n"
+                f"• Avoid triggering actions\n"
+                f"• Premium users get shorter times"
+            )
+            self.active_appeals.pop(user_id, None)
+            return
+        
+        # 3. Illegal content - must email abuse@telegram.org
+        if "illegal" in message_text and "public content" in message_text:
+            await self._notify_user(
+                user_id,
+                f"🚫 **{account_name}: Illegal Content**\n\n"
+                f"❌ Cannot appeal via bot\n\n"
+                f"**Contact:** abuse@telegram.org\n"
+                f"Include phone number and details"
+            )
+            self.active_appeals.pop(user_id, None)
+            return
+        
+        # Flow 1: Spam Info Bot (no captcha, phone number issue)
         if state.get('bot_type') == 'spam_info_bot':
             # Step 1: Initial message with "Submit a complaint" button
             if "harsh response from our anti-spam systems" in message_text and event.message.buttons:
@@ -341,8 +388,8 @@ class SpamAppealHandler:
                 await self._complete_appeal(user_id, True)
                 return
         
-        # Regular @spambot Flow (with captcha)
-        else:
+        # Flow 2: Regular spambot (with captcha, user behavior issue)
+        elif state.get('bot_type') == 'regular_spambot':
             # Step 1: Click "This is a mistake" - initial spambot message
             if ("sorry that you had to contact" in message_text or "anti-spam" in message_text or "some actions can trigger" in message_text) and event.message.buttons:
                 await self._notify_user(user_id, f"⚠️ **{account_name}**: Restriction detected! Starting appeal process...")
@@ -866,7 +913,7 @@ Generate 4 diverse examples:"""
             
             # Get specific client if provided
             if user_id and account_name:
-                client = self._get_user_client(user_id, account_name)
+                client = await self._get_user_client(user_id, account_name)
                 if client:
                     try:
                         # Ensure client is connected
@@ -918,31 +965,64 @@ Generate 4 diverse examples:"""
         """Get specific user client by account name or first available"""
         try:
             user_clients = self.bot_manager.user_clients.get(user_id, {})
+            # Safe logging - encode Unicode characters for display only
+            try:
+                safe_account_name = account_name.encode('ascii', errors='replace').decode('ascii') if account_name else None
+                safe_keys = [k.encode('ascii', errors='replace').decode('ascii') for k in user_clients.keys()]
+                logger.info(f"Looking for client '{safe_account_name}' among {len(user_clients)} clients")
+                logger.info(f"Available client keys: {safe_keys}")
+            except:
+                pass  # Skip logging if encoding fails
             
             # If account name specified, try to find that specific client
             if account_name:
-                # Try exact match first
+                # Try exact match first (use original Unicode name)
                 client = user_clients.get(account_name)
                 if client and client.is_connected():
-                    logger.info(f"Found client by exact name: {account_name}")
                     return client
                 
                 # Try to find by checking all stored names for this account
                 from ..core.mongo_database import mongodb
                 try:
+                    # Try multiple query patterns
                     account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    if not account:
+                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "display_name": account_name})
+                    if not account:
+                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": account_name})
+                    if not account:
+                        # Try case-insensitive search
+                        account = await mongodb.db.accounts.find_one({
+                            "user_id": user_id,
+                            "name": {"$regex": f"^{account_name}$", "$options": "i"}
+                        })
+                    
                     if account:
-                        # Try phone, display_name, and other variations
-                        for key in ['phone', 'display_name', 'first_name']:
+                        # Try all possible client key variations
+                        for key in ['phone', 'name', 'display_name', 'first_name']:
                             if key in account and account[key]:
                                 client = user_clients.get(account[key])
                                 if client and client.is_connected():
-                                    logger.info(f"Found client by {key}: {account[key]}")
                                     return client
                 except Exception as e:
-                    logger.debug(f"Could not check database for account variations: {e}")
+                    logger.error(f"Database lookup error: {e}")
             
-            # Fallback to first available client
+            # DON'T fallback if account_name was specified - return None to force error
+            if account_name:
+                try:
+                    safe_account_name = account_name.encode('ascii', errors='replace').decode('ascii')
+                    safe_keys = [k.encode('ascii', errors='replace').decode('ascii') for k in user_clients.keys()]
+                    logger.error(f"Could not find client for specified account: {safe_account_name}")
+                    logger.error(f"Available clients: {safe_keys}")
+                except:
+                    logger.error(f"Could not find client for account (Unicode name)")
+                # Try case-insensitive match with original Unicode names
+                for key, client in user_clients.items():
+                    if key.lower() == account_name.lower() and client and client.is_connected():
+                        return client
+                return None
+            
+            # Only use fallback if no specific account was requested
             for name, client in user_clients.items():
                 if client and client.is_connected():
                     logger.warning(f"Using fallback client: {name}")
@@ -970,7 +1050,7 @@ Generate 4 diverse examples:"""
             self.active_appeals[user_id]['state'] = 'new'
             
             # Load account client if not already loaded
-            client = self._get_user_client(user_id, account_name)
+            client = await self._get_user_client(user_id, account_name)
             if not client:
                 await event.respond("⏳ Loading account client...")
                 # Get account from database
@@ -983,16 +1063,30 @@ Generate 4 diverse examples:"""
                 # Load the client
                 try:
                     await self.bot_manager.start_user_client(user_id, account_name, account['session_string'])
+                    await asyncio.sleep(2)
                     await event.respond("✅ Account loaded successfully!")
-                    # Get the newly loaded client
-                    client = self._get_user_client(user_id, account_name)
+                    client = await self._get_user_client(user_id, account_name)
                     if not client:
                         await event.respond("❌ Failed to get loaded client.")
                         return
                 except Exception as e:
-                    logger.error(f"Failed to load account {account_name}: {e}")
-                    await event.respond(f"❌ Failed to load account: {str(e)}")
-                    return
+                    error_str = str(e)
+                    if 'E11000' in error_str or 'duplicate key' in error_str:
+                        logger.info(f"Account {account_name} already loaded, continuing...")
+                        client = await self._get_user_client(user_id, account_name)
+                        if client:
+                            await event.respond("✅ Account already loaded!")
+                        else:
+                            await event.respond("❌ Account exists but client not found.")
+                            return
+                    else:
+                        logger.error(f"Failed to load account {account_name}: {e}")
+                        await event.respond(
+                            f"❌ Failed to load account\n\n"
+                            f"The account may need re-authentication.\n"
+                            f"Please remove and re-add it in Account Settings."
+                        )
+                        return
             
             # Start the appeal process directly
             await self._start_appeal_process(user_id)
@@ -1076,13 +1170,17 @@ Generate 4 diverse examples:"""
 
     async def setup_client_handler(self, user_id: int, client):
         """Setup spambot handler for a specific client"""
-        # Remove existing handlers to prevent duplicates
-        client.remove_event_handler(lambda e: True, events.NewMessage)
+        logger.info(f"Setting up spambot handler for user {user_id}")
         
-        @client.on(events.NewMessage(from_users=['spambot', 'SpamBot']))
+        @client.on(events.NewMessage(chats=['spambot', 'SpamBot'], incoming=True))
         async def handle_spambot_message(event):
+            logger.info(f"Received message from spambot: {event.message.text[:50] if event.message.text else 'No text'}...")
             if user_id in self.active_appeals:
                 try:
                     await self._process_spambot_response(user_id, event)
                 except Exception as e:
                     logger.error(f"Error processing spambot message: {e}")
+            else:
+                logger.warning(f"No active appeal for user {user_id}")
+        
+        logger.info(f"Handler registered successfully for user {user_id}")

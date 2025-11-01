@@ -485,7 +485,17 @@ class MenuSystem:
                 elif text in ["🧹 Cleanup", "Cleanup"]:
                     await self._handle_cleanup(event)
                 elif text in ["🎯 SpamMaster", "SpamMaster"]:
-                    await self._handle_spam_master(event)
+                    # Trigger spam_master callback instead of handling here
+                    from telethon import Button
+                    buttons = [[Button.inline("Loading...", b"spam_master")]]
+                    msg = await event.reply("🎯 SpamMaster", buttons=buttons)
+                    # Auto-click the button
+                    import asyncio
+                    await asyncio.sleep(0.1)
+                    try:
+                        await msg.delete()
+                    except:
+                        pass
                 elif text in ["❓ Help", "Help"]:
                     await self._handle_help(event)
                 elif text in ["🆘 Support", "Support"]:
@@ -671,14 +681,6 @@ class MenuSystem:
                         await event.answer("🔍 Search feature")
                     else:
                         await self._handle_channel_callback(event, user_id, data)
-                elif data.startswith("help:"):
-                    await self._handle_help_callback(event, user_id, data)
-                elif data.startswith("support:"):
-                    await self._handle_support_callback(event, user_id, data)
-                elif data.startswith("dev:"):
-                    await self._handle_developer_callback(event, user_id, data)
-                elif data.startswith("menu:"):
-                    await self._handle_menu_callback(event, user_id, data)
                 elif data.startswith("help:"):
                     await self._handle_help_callback(event, user_id, data)
                 elif data.startswith("support:"):
@@ -1007,16 +1009,7 @@ class MenuSystem:
                     buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
                     await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
                     await event.answer("🎯 SpamMaster feature")
-                elif data == "session_login":
-                    text = "🔐 **Session Login**\n\nLogin via session string:\n\nReply with your session string to import an existing account."
-                    buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
-                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-                    await event.answer("🔐 Session login")
-                elif data == "import_sessions":
-                    text = "📥 **Import Sessions**\n\nBulk import multiple sessions:\n\nReply with session strings (one per line) to import multiple accounts at once."
-                    buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
-                    await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-                    await event.answer("📥 Import sessions")
+
                 elif data.startswith("appeal_account_id:"):
                     account_id = data.split(":", 1)[1]
                     text = "📞 **Spam Appeal**\n\nStarting spam appeal process..."
@@ -3518,23 +3511,6 @@ class MenuSystem:
             )
             await event.answer("📝 Reply with message")
             await self.bot.send_message(user_id, text)
-    async def _handle_bulk_callback(self, event, user_id: int, data: str):
-        """Handle bulk sender callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        if action == "send_list":
-            await self._start_bulk_list_flow(user_id, event)
-        elif action == "send_contacts":
-            await self._start_bulk_contacts_flow(user_id, event)
-        elif action == "send_all":
-            await self._start_bulk_all_flow(user_id, event)
-        elif action == "jobs":
-            await self._show_bulk_jobs(user_id, event.message_id)
-        elif action == "help":
-            await self._show_bulk_help(user_id, event.message_id)
-        elif action == "stop" and len(parts) > 2:
-            job_id = parts[2]
-            await self._stop_bulk_job(user_id, job_id, event)
     async def _send_bulk_sender_menu(self, user_id: int, message_id: int):
         """Send bulk sender management menu"""
         try:
@@ -3705,44 +3681,6 @@ class MenuSystem:
         )
         buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        """Send bulk sender management menu"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            if not accounts:
-                text = "📨 **Bulk Message Sender**\n\nNo accounts found. Add accounts first to use bulk messaging."
-                buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
-            else:
-                active_jobs = 0
-                if hasattr(self.account_manager, 'bulk_sender'):
-                    user_jobs = [job for job in self.account_manager.bulk_sender.active_jobs.values() if job['user_id'] == user_id]
-                    active_jobs = len(user_jobs)
-                text = (
-                    "📨 **Bulk Message Sender**\n\n"
-                    "Send messages to multiple users at once.\n\n"
-                    f"📊 **Status:**\n"
-                    f"• Available accounts: {len(accounts)}\n"
-                    f"• Active jobs: {active_jobs}\n\n"
-                    "**Choose bulk sending method:**"
-                )
-                buttons = [
-                    [Button.inline("📋 Send to List", "bulk:send_list")],
-                    [Button.inline("👥 Send to Contacts", "bulk:send_contacts")],
-                    [Button.inline("🌐 Send from All Accounts", "bulk:send_all")],
-                ]
-                if active_jobs > 0:
-                    buttons.append([Button.inline("📊 View Active Jobs", "bulk:jobs")])
-                buttons.extend([
-                    [Button.inline("❓ Help & Commands", "bulk:help")],
-                    [Button.inline("🔙 Back to Messaging", "menu:messaging")]
-                ])
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except Exception as e:
-            logger.error(f"Failed to send bulk sender menu: {e}")
-            text = "❌ Error loading bulk sender"
-            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_simulate_callback(self, event, user_id: int, data: str):
         """Handle Activity Simulator callbacks"""
         parts = data.split(":")
@@ -5184,8 +5122,10 @@ class MenuSystem:
                             f"⚠️ **Keep this {dc_display} session secure!**"
                         )
                         
-                        await self.bot.send_message(user_id, message)
-                        await event.answer(f"✅ {dc_display} session exported")
+                        from telethon import Button
+                        buttons = [[Button.inline("🔙 Back to Export", "export_sessions")]]
+                        await event.answer()
+                        await self.bot.edit_message(user_id, event.message_id, message, buttons=buttons)
                         
                     except Exception as e:
                         logger.error(f"Error getting session data: {e}")
@@ -6364,43 +6304,3 @@ class MenuSystem:
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
-    async def _handle_export_sessions(self, event, user_id: int):
-        """Handle export sessions request"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-            if not accounts:
-                text = "✨ **Create Session**\n\n❌ No accounts found. Add accounts first to export sessions."
-                buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
-                await self.bot.send_message(user_id, text, buttons=buttons)
-                return
-            text = "✨ **Create Session**\n\nSelect account to export session:"
-            buttons = []
-            for account in accounts:
-                status = "✅" if account.get("is_active", False) else "❌"
-                display_name = format_display_name(account)
-                buttons.append([Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
-            buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
-            await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-        except Exception as e:
-            logger.error(f"Export sessions error: {e}")
-
-    async def _handle_export_session_select(self, event, user_id: int, account_name: str):
-        """Handle export session selection"""
-        text = f"✨ **Export Session: {account_name}**\n\nSelect export type:"
-        buttons = [
-            [Button.inline("✨ Create Fresh Session", f"export_fresh:{account_name}")],
-            [Button.inline("🔙 Back to Export", "export_sessions")]
-        ]
-        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-
-    async def _handle_export_fresh_session(self, event, user_id: int, account_name: str):
-        """Handle fresh session export"""
-        text = f"✨ **Creating Fresh Session**\n\nAccount: {account_name}\n\nGenerating session string..."
-        await self.bot.edit_message(user_id, event.message_id, text)
-        await event.answer("✨ Session export feature coming soon!")
-
-    async def _handle_export_contacts(self, event, user_id: int, account_name: str):
-        """Handle contact export"""
-        text = f"📤 **Exporting Contacts**\n\nAccount: {account_name}\n\nGenerating CSV file..."
-        await self.bot.edit_message(user_id, event.message_id, text)
-        await event.answer("📤 Contact export feature coming soon!")
