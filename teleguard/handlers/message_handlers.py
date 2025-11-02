@@ -173,7 +173,12 @@ class MessageHandlers:
             await self._handle_auth_actions(event, user, action, message)
         elif action.startswith("2fa_") and action != "verify_2fa":
             await self._handle_2fa_actions(event, user, action, message)
-        elif action in ["change_2fa_current", "remove_2fa_password", "set_2fa_password"]:
+        elif action in ["change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"]:
+            # Route to twofa_commands handler
+            if hasattr(self.bot_manager, 'twofa_commands'):
+                handled = await self.bot_manager.twofa_commands.handle_text_message(event, user_id, message)
+                if handled:
+                    return
             await self._handle_2fa_management_actions(event, user, action, message)
         elif action == "update_2fa_password":
             if hasattr(self.bot_manager, 'twofa_manager'):

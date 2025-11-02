@@ -2784,55 +2784,39 @@ class MenuSystem:
         await self.bot.send_message(user_id, text)
     async def _handle_2fa_callback(self, event, user_id: int, data: str):
         """Handle 2FA-related callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        account_id = parts[2] if len(parts) > 2 else "0"
-        if action == "set":
-            if self.account_manager:
-                self.account_manager.pending_actions[user_id] = {
-                    "action": "set_2fa_password",
-                    "account_id": account_id,
-                }
-                text = (
-                    "🔑 **Set 2FA Password**\n\n"
-                    "Reply with your new 2FA password:\n\n"
-                    "⚠️ This will set the actual 2FA password on Telegram!\n"
-                    "⚠️ Message will be deleted after processing for security."
-                )
-                await event.answer("🔑 Reply with password")
-                await self.bot.send_message(user_id, text)
-        elif action == "change":
-            if self.account_manager:
-                self.account_manager.pending_actions[user_id] = {
-                    "action": "change_2fa_current",
-                    "account_id": account_id,
-                }
-                text = (
-                    "🔑 **Change 2FA Password**\n\n"
-                    "Reply with your current 2FA password:\n\n"
-                    "⚠️ Message will be deleted after processing for security."
-                )
-                await event.answer("🔑 Enter current password")
-                await self.bot.send_message(user_id, text)
-        elif action == "remove":
-            if self.account_manager:
-                self.account_manager.pending_actions[user_id] = {
-                    "action": "remove_2fa_password",
-                    "account_id": account_id,
-                }
-                text = (
-                    "🔑 **Remove 2FA Password**\n\n"
-                    "Reply with your current 2FA password to remove it:\n\n"
-                    "⚠️ This will disable 2FA protection!\n"
-                    "⚠️ Message will be deleted after processing for security."
-                )
-                await event.answer("🔑 Enter password to remove")
-                await self.bot.send_message(user_id, text)
-        elif action == "status":
-            # Show 2FA status
-            await self.secure_2fa_handlers.show_2fa_status(
-                user_id, account_id, event.message_id
-            )
+        try:
+            parts = data.split(":")
+            action = parts[1]
+            account_id = parts[2] if len(parts) > 2 else "0"
+            
+            # Check if account manager and handlers are available
+            if not self.account_manager:
+                await event.answer("❌ Service unavailable", alert=True)
+                return
+            
+            # Get twofa_commands handler
+            twofa_handler = None
+            if hasattr(self.account_manager, 'twofa_commands'):
+                twofa_handler = self.account_manager.twofa_commands
+            elif hasattr(self, 'twofa_commands'):
+                twofa_handler = self.twofa_commands
+            
+            if action in ["set", "change", "remove"]:
+                if not twofa_handler:
+                    await event.answer("❌ 2FA management not available", alert=True)
+                    return
+                await twofa_handler.handle_2fa_callback(event, user_id, data)
+            elif action == "status":
+                # Show 2FA status using secure handlers
+                if self.secure_2fa_handlers:
+                    await self.secure_2fa_handlers.show_2fa_status(
+                        user_id, account_id, event.message_id
+                    )
+                else:
+                    await event.answer("❌ 2FA management not available", alert=True)
+        except Exception as e:
+            logger.error(f"2FA callback error: {e}")
+            await event.answer("❌ Error processing 2FA request", alert=True)
     async def _handle_profile_callback(self, event, user_id: int, data: str):
         """Handle profile-related callbacks"""
         parts = data.split(":")

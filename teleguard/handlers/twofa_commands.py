@@ -137,7 +137,7 @@ class TwoFACommands:
             if action == "verify_2fa":
                 # This is 2FA during account creation - handle in message_handlers
                 return False
-            if not action.endswith("_2fa"):
+            if not (action.endswith("_2fa") or action in ["change_2fa", "set_2fa", "remove_2fa"]):
                 return False  # Not a 2FA action
             account_id = action_data.get("account_id")
             step = action_data.get("step")

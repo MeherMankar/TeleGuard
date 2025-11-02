@@ -587,6 +587,48 @@ class BotManager:
             "contact_export_handler", ContactExportHandler, self
         )
         
+        # Initialize 2FA commands handler
+        from ..handlers.twofa_commands import TwoFACommands
+        self.twofa_commands = await self.component_manager.initialize_component(
+            "twofa_commands", TwoFACommands, self.bot, self
+        )
+        
+        # Initialize template handler
+        from ..handlers.template_handler import TemplateHandler
+        self.template_handler = await self.component_manager.initialize_component(
+            "template_handler", TemplateHandler, self
+        )
+        
+        # Initialize auto-reply handler
+        from ..handlers.auto_reply_handler import AutoReplyHandler
+        self.auto_reply_handler = await self.component_manager.initialize_component(
+            "auto_reply_handler", AutoReplyHandler, self
+        )
+        
+        # Initialize bulk sender
+        from ..handlers.bulk_sender import BulkSender
+        self.bulk_sender = await self.component_manager.initialize_component(
+            "bulk_sender", BulkSender, self
+        )
+        
+        # Initialize channel manager
+        from ..handlers.channel_manager import ChannelManager
+        self.channel_manager = await self.component_manager.initialize_component(
+            "channel_manager", ChannelManager, self
+        )
+        
+        # Initialize online maker
+        from ..handlers.online_maker import OnlineMaker
+        self.online_maker = await self.component_manager.initialize_component(
+            "online_maker", OnlineMaker, self
+        )
+        
+        # Initialize activity simulator
+        from ..workers.activity_simulator import ActivitySimulator
+        self.activity_simulator = await self.component_manager.initialize_component(
+            "activity_simulator", ActivitySimulator, self
+        )
+        
         from ..handlers.admin_handlers import AdminHandlers
         self.admin_handlers = await self.component_manager.initialize_component(
             "admin_handlers", AdminHandlers, self
