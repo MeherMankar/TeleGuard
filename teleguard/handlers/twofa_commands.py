@@ -202,27 +202,20 @@ class TwoFACommands:
                 await event.reply("❌ Account not available")
                 self.account_manager.pending_actions.pop(user_id, None)
                 return
-            # Test current password by trying to get password info
-            from telethon import errors, functions
-            try:
-                # This will fail if password is wrong
-                await client(functions.account.GetPasswordRequest())
-                # Store current password and ask for new one
-                if user_id in self.account_manager.pending_actions:
-                    self.account_manager.pending_actions[user_id].update(
-                        {"step": "new_password", "current_password": current_password}
-                    )
-                    await event.reply(
-                        "✅ Current password verified.\n\n"
-                        "Now send your new 2FA password (4+ characters):"
-                    )
-                else:
-                    await event.reply("❌ Session expired. Please start over.")
-            except errors.PasswordHashInvalidError:
-                await event.reply("❌ Current password is incorrect. Try again:")
-            except Exception as verify_error:
-                logger.error(f"Password verification error: {verify_error}")
-                await event.reply("❌ Failed to verify password. Try again:")
+            
+            # Simply store the password and move to next step
+            # Password will be verified when actually changing it
+            if user_id in self.account_manager.pending_actions:
+                self.account_manager.pending_actions[user_id].update(
+                    {"step": "new_password", "current_password": current_password}
+                )
+                await event.reply(
+                    "✅ Current password received.\n\n"
+                    "Now send your new 2FA password (4+ characters):"
+                )
+            else:
+                await event.reply("❌ Session expired. Please start over.")
+                
         except Exception as e:
             logger.error(f"Process change 2FA current error: {e}")
             await event.reply("❌ Error processing current password")
@@ -255,8 +248,14 @@ class TwoFACommands:
                 client, current_password, new_password
             )
             if success:
+                # Store the new password in database
+                from ..utils.twofa_helper import twofa_helper
+                phone = account.get('phone')
+                if phone:
+                    await twofa_helper.store_password(user_id, phone, new_password)
+                
                 await event.reply(
-                    f"✅ **2FA Password Changed Successfully**\n\n{message}"
+                    f"✅ **2FA Password Changed Successfully**\n\n{message}\n\n🔐 Password stored for automatic use"
                 )
             else:
                 await event.reply(f"❌ **Failed to Change 2FA Password**\n\n{message}")

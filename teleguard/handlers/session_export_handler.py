@@ -48,7 +48,7 @@ class SessionExportHandler:
         async def create_fresh_session(event):
             user_id = event.sender_id
             account_name = event.pattern_match.group(1).decode()
-            await self._create_fresh_session(event, user_id, account_name)
+            await self._export_account_session(event, user_id, account_name)
     async def _show_export_menu(self, event, user_id):
         """Show session export menu"""
         try:

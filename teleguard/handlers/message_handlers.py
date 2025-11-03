@@ -173,7 +173,7 @@ class MessageHandlers:
             await self._handle_auth_actions(event, user, action, message)
         elif action.startswith("2fa_") and action != "verify_2fa":
             await self._handle_2fa_actions(event, user, action, message)
-        elif action in ["change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"]:
+        elif action in ["change_2fa", "remove_2fa", "set_2fa", "change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"]:
             # Route to twofa_commands handler
             if hasattr(self.bot_manager, 'twofa_commands'):
                 handled = await self.bot_manager.twofa_commands.handle_text_message(event, user_id, message)
@@ -216,6 +216,8 @@ class MessageHandlers:
             await self._handle_session_validation(event, user, action, message)
         elif action == "cleanup_selection":
             await self._handle_cleanup_selection(event, user, action, message)
+        elif action == "session_creation_2fa_password":
+            await self._handle_session_creation_2fa(event, user, action, message)
         else:
             if hasattr(self.bot_manager, 'session_export_handler') and hasattr(self.bot_manager, 'pending_fresh_sessions'):
                 if user_id in self.bot_manager.pending_fresh_sessions:
@@ -490,6 +492,21 @@ class MessageHandlers:
     async def _handle_2fa_management_actions(self, event, user, action, message):
         """Handle 2FA management actions from menu system"""
         user_id = event.sender_id
+        
+        # Try to use twofa_commands handler if available
+        twofa_handler = None
+        if hasattr(self.bot_manager, 'twofa_commands'):
+            twofa_handler = self.bot_manager.twofa_commands
+        elif hasattr(self.bot_manager.account_manager, 'twofa_commands'):
+            twofa_handler = self.bot_manager.account_manager.twofa_commands
+        
+        if twofa_handler:
+            # Use the twofa_commands handler
+            handled = await twofa_handler.handle_text_message(event, user_id, message)
+            if handled:
+                return
+        
+        # Fallback to old implementation
         account_id = self.pending_actions[user_id].get("account_id")
         
         # Delete the user's message for security
@@ -519,7 +536,7 @@ class MessageHandlers:
                     }
                     await self.bot.send_message(
                         user_id, 
-                        "🔑 **Set New 2FA Password**\n\nReply with your new 2FA password:\n\n⚠️ Message will be deleted after processing for security."
+                        "✅ Current password verified!\n\n🔑 **Set New 2FA Password**\n\nReply with your new 2FA password:\n\n⚠️ Message will be deleted after processing for security."
                     )
                 else:
                     await self.bot.send_message(user_id, "❌ Current password is incorrect")
@@ -1110,3 +1127,106 @@ class MessageHandlers:
                     logger.info(f"Updated account info for {phone}: {display_name} (ID: {telegram_id})")
         except (ValueError, ConnectionError, AttributeError) as e:
             logger.error(f"Failed to fetch account name for {phone}: {e}")
+
+
+
+    async def _handle_session_creation_2fa(self, event, user, action, message):
+        """Handle 2FA password for session creation"""
+        user_id = event.sender_id
+        password = message.strip()
+        
+        try:
+            # Delete the password message for security
+            try:
+                await event.delete()
+            except:
+                pass
+            
+            # Get pending auth data
+            if not hasattr(self.bot_manager, 'session_login_handler'):
+                await self.bot.send_message(user_id, "❌ Session login handler not available")
+                self.pending_actions.pop(user_id, None)
+                return
+            
+            session_handler = self.bot_manager.session_login_handler
+            if user_id not in session_handler.pending_auth:
+                await self.bot.send_message(user_id, "❌ Session creation expired. Please try again.")
+                self.pending_actions.pop(user_id, None)
+                return
+            
+            auth_data = session_handler.pending_auth[user_id]
+            client = auth_data.get("client")
+            phone = auth_data.get("phone")
+            destroyer_was_enabled = auth_data.get("destroyer_was_enabled", False)
+            account = auth_data.get("account")
+            
+            if not client or not phone:
+                await self.bot.send_message(user_id, "❌ Invalid session state. Please try again.")
+                self.pending_actions.pop(user_id, None)
+                session_handler.pending_auth.pop(user_id, None)
+                return
+            
+            # Try to sign in with 2FA password
+            status_msg = await self.bot.send_message(user_id, f"🔐 Authenticating with 2FA password...")
+            
+            try:
+                from telethon.sessions import StringSession
+                await client.sign_in(password=password)
+                
+                # Store the password for future use
+                from ..core.database_manager import db_manager
+                if account:
+                    await db_manager.store_2fa_password(user_id, str(account['_id']), password)
+                
+                # Get session string
+                session_string = StringSession.save(client.session)
+                await client.disconnect()
+                
+                # Re-enable OTP destroyer
+                if destroyer_was_enabled and account:
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"otp_destroyer_enabled": True}}
+                    )
+                
+                # Send success message
+                await status_msg.edit(
+                    f"✅ **Session Created Successfully!**\n\n"
+                    f"📱 Phone: {phone}\n"
+                    f"📝 Session String:\n\n"
+                    f"`{session_string}`\n\n"
+                    f"💾 Copy and save this session string securely!\n\n"
+                    f"🔐 2FA password stored for future use\n"
+                    f"🛡️ OTP Destroyer re-enabled"
+                )
+                
+            except Exception as e:
+                await client.disconnect()
+                if destroyer_was_enabled and account:
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"otp_destroyer_enabled": True}}
+                    )
+                
+                error_msg = str(e)
+                if "PASSWORD_HASH_INVALID" in error_msg or "password" in error_msg.lower():
+                    await status_msg.edit(
+                        f"❌ **Incorrect 2FA Password**\n\n"
+                        f"The password you entered is incorrect.\n\n"
+                        f"Please try again by sending your correct 2FA password:"
+                    )
+                    # Keep the pending action so user can try again
+                    return
+                else:
+                    await status_msg.edit(f"❌ 2FA authentication failed: {error_msg}")
+            
+            # Clean up
+            self.pending_actions.pop(user_id, None)
+            session_handler.pending_auth.pop(user_id, None)
+            
+        except Exception as e:
+            logger.error(f"Session creation 2FA error: {e}")
+            await self.bot.send_message(user_id, f"❌ Error processing 2FA password: {str(e)}")
+            self.pending_actions.pop(user_id, None)
+            if hasattr(self.bot_manager, 'session_login_handler'):
+                self.bot_manager.session_login_handler.pending_auth.pop(user_id, None)

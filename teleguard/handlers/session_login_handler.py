@@ -77,6 +77,18 @@ class SessionLoginHandler:
             user_id = event.sender_id
             await self._show_session_login_menu(event, user_id)
         
+        @self.bot.on(events.CallbackQuery(pattern=r"^export_sessions$"))
+        async def create_session_menu(event):
+            user_id = event.sender_id
+            await self._start_session_creation(event, user_id)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"^create_sess:(.+)$"))
+        async def create_session_execute(event):
+            user_id = event.sender_id
+            phone = event.pattern_match.group(1).decode()
+            await event.answer("⏳ Creating session...")
+            await self._execute_session_creation(event, user_id, phone)
+        
 
         
         @self.bot.on(events.CallbackQuery(pattern=r"^login_session_file$"))
@@ -1695,3 +1707,225 @@ class SessionLoginHandler:
                     logger.info(f"Updated account name for {phone}: {display_name}")
         except Exception as e:
             logger.error(f"Failed to fetch account name for {phone}: {e}")
+    
+    async def _start_session_creation(self, event, user_id):
+        """Start session creation with automatic OTP for managed accounts"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            
+            if not accounts:
+                await event.edit("❌ No accounts found. Add accounts first before creating sessions.")
+                return
+            
+            buttons = [[Button.inline(f"📱 {acc.get('name', acc['phone'])}", f"create_sess:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons.append([Button.inline("🔙 Back", "session_login")])
+            
+            text = (
+                "✨ **Create Session String**\n\n"
+                "🔐 **Automatic OTP Fetching**\n"
+                "Select an account to create fresh session:\n\n"
+                "⚡ **Process:**\n"
+                "1. Select account\n"
+                "2. Bot requests new OTP\n"
+                "3. Bot auto-fetches OTP from Telegram\n"
+                "4. Fresh session string created\n\n"
+                "Select account:"
+            )
+            await event.edit(text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Start session creation error: {e}")
+            await event.edit("❌ Error starting session creation")
+    
+    async def _execute_session_creation(self, event, user_id, phone):
+        """Execute session creation with auto OTP"""
+        client = None
+        destroyer_was_enabled = False
+        account = None
+        try:
+            # Temporarily disable OTP destroyer
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
+            if account and account.get("otp_destroyer_enabled"):
+                destroyer_was_enabled = True
+                await mongodb.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"otp_destroyer_enabled": False}}
+                )
+                logger.info(f"Temporarily disabled OTP destroyer for {phone}")
+            
+            await event.edit(f"⏳ Creating session for {phone}...\n\n🛡️ OTP Destroyer temporarily disabled\n1️⃣ Requesting OTP from Telegram...")
+            
+            device = self.get_random_device()
+            client = TelegramClient(
+                StringSession(),
+                config.telegram.api_id,
+                config.telegram.api_hash,
+                device_model=device["model"],
+                system_version=device["system"],
+                app_version=device["version"]
+            )
+            
+            await client.connect()
+            
+            phone_code_hash = None
+            try:
+                result = await client.send_code_request(phone)
+                phone_code_hash = result.phone_code_hash
+                logger.info(f"Code requested for {phone}, hash: {phone_code_hash}")
+            except Exception as req_error:
+                logger.error(f"Failed to request code: {req_error}")
+                await client.disconnect()
+                if destroyer_was_enabled and account:
+                    await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
+                await event.edit(f"❌ Failed to request OTP: {req_error}")
+                return
+            
+            await event.edit(f"⏳ Creating session for {phone}...\n\n2️⃣ Waiting for OTP to arrive...")
+            await asyncio.sleep(5)
+            
+            otp_code = await self._fetch_otp_from_telegram(user_id, phone)
+            
+            if not otp_code:
+                await client.disconnect()
+                if destroyer_was_enabled and account:
+                    await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
+                await event.edit("❌ Could not fetch OTP automatically.")
+                return
+            
+            await event.edit(f"⏳ Creating session for {phone}...\n\n3️⃣ Signing in with OTP: {otp_code}...")
+            
+            try:
+                await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
+            except SessionPasswordNeededError:
+                # 2FA required - use centralized helper
+                from ..utils.twofa_helper import twofa_helper
+                await event.edit(f"⏳ Creating session for {phone}...\n\n4️⃣ Checking for stored 2FA password...")
+                
+                success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
+                
+                if success:
+                    # Success - continue with session creation
+                    session_string = session_str
+                else:
+                    # Failed - ask user for password
+                    if error in ["stored_password_invalid", "no_stored_password"]:
+                        # Store pending session creation state
+                        self.pending_auth[user_id] = {
+                            "client": client,
+                            "phone": phone,
+                            "phone_code_hash": phone_code_hash,
+                            "destroyer_was_enabled": destroyer_was_enabled,
+                            "account": account,
+                            "action": "session_creation_2fa"
+                        }
+                        
+                        # Ask for 2FA password
+                        msg = f"🔐 **2FA Password Required**\n\n"
+                        if error == "stored_password_invalid":
+                            msg += f"Your stored 2FA password is incorrect (changed externally).\n\n"
+                        else:
+                            msg += f"This account has 2FA enabled.\n\n"
+                        msg += f"Please send your 2FA password to continue:"
+                        
+                        await event.edit(msg)
+                        
+                        # Set pending action for message handler
+                        self.bot_manager.pending_actions[user_id] = {
+                            "action": "session_creation_2fa_password",
+                            "phone": phone
+                        }
+                        return
+                    else:
+                        await client.disconnect()
+                        if destroyer_was_enabled and account:
+                            await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
+                        await event.edit(f"❌ 2FA authentication failed: {error}")
+                        return
+            except Exception as sign_error:
+                await client.disconnect()
+                if destroyer_was_enabled and account:
+                    await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
+                await event.edit(f"❌ Sign in failed: {sign_error}")
+                return
+            
+            session_string = StringSession.save(client.session)
+            await client.disconnect()
+            
+            # Re-enable OTP destroyer
+            if destroyer_was_enabled and account:
+                await mongodb.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"otp_destroyer_enabled": True}}
+                )
+                logger.info(f"Re-enabled OTP destroyer for {phone}")
+            
+            await event.edit(
+                f"✅ **Session Created Successfully!**\n\n"
+                f"📱 Phone: {phone}\n"
+                f"📝 Session String:\n\n"
+                f"`{session_string}`\n\n"
+                f"💾 Copy and save this session string securely!\n\n"
+                f"🛡️ OTP Destroyer re-enabled"
+            )
+            
+        except Exception as e:
+            if client:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
+            if destroyer_was_enabled and account:
+                await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
+            logger.error(f"Session creation error: {e}")
+            await event.edit(f"❌ Error: {e}")
+    
+    async def _fetch_otp_from_telegram(self, user_id, target_phone):
+        """Fetch OTP code from Telegram (777000) using existing accounts"""
+        try:
+            if user_id not in self.user_clients:
+                logger.warning(f"No clients found for user {user_id}")
+                return None
+            
+            target_phone_clean = target_phone.replace("+", "")
+            logger.info(f"Fetching OTP for {target_phone} from {len(self.user_clients[user_id])} accounts")
+            
+            # Try multiple times with delays
+            for attempt in range(3):
+                for account_name, client in self.user_clients[user_id].items():
+                    if not client or not client.is_connected():
+                        continue
+                    
+                    try:
+                        messages = await client.get_messages(777000, limit=15)
+                        
+                        for msg in messages:
+                            if not msg.message:
+                                continue
+                            
+                            # Check if message is recent (within last 60 seconds)
+                            import time as time_module
+                            if hasattr(msg, 'date') and (time_module.time() - msg.date.timestamp()) > 60:
+                                continue
+                            
+                            # Check if message contains target phone or is login code
+                            if target_phone_clean in msg.message or "Login code" in msg.message:
+                                import re
+                                code_match = re.search(r'\b(\d{5})\b', msg.message)
+                                if code_match:
+                                    code = code_match.group(1)
+                                    # Safe logging with Unicode handling
+                                    safe_name = account_name.encode('ascii', errors='replace').decode('ascii')
+                                    logger.info(f"Found OTP {code} from {safe_name}")
+                                    return code
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch from {account_name}: {e}")
+                        continue
+                
+                if attempt < 2:
+                    await asyncio.sleep(2)
+            
+            logger.warning(f"No OTP found for {target_phone} after 3 attempts")
+            return None
+        except Exception as e:
+            logger.error(f"OTP fetch error: {e}")
+            return None
