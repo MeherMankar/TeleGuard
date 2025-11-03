@@ -16,39 +16,9 @@ class SessionExportHandler:
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
     def register_handlers(self):
-        """Register session export handlers"""
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_sessions$"))
-        async def export_sessions_menu(event):
-            user_id = event.sender_id
-            await self._show_export_menu(event, user_id)
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_session:(.+)$"))
-        async def export_specific_session(event):
-            user_id = event.sender_id
-            account_name = event.pattern_match.group(1).decode()
-            await self._export_account_session(event, user_id, account_name)
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_string:(.+)$"))
-        async def export_string_session(event):
-            user_id = event.sender_id
-            account_name = event.pattern_match.group(1).decode()
-            await self._send_string_session(event, user_id, account_name)
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_file:(.+)$"))
-        async def export_file_session(event):
-            user_id = event.sender_id
-            account_name = event.pattern_match.group(1).decode()
-            await self._send_file_session(event, user_id, account_name)
-        @self.bot.on(events.CallbackQuery(pattern=r"^copy_string:(.+)$"))
-        async def copy_string_callback(event):
-            account_name = event.pattern_match.group(1).decode()
-            await self._copy_string_handler(event, account_name)
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_all_sessions$"))
-        async def export_all_sessions(event):
-            user_id = event.sender_id
-            await self._export_all_sessions(event, user_id)
-        @self.bot.on(events.CallbackQuery(pattern=r"^create_fresh_session:(.+)$"))
-        async def create_fresh_session(event):
-            user_id = event.sender_id
-            account_name = event.pattern_match.group(1).decode()
-            await self._export_account_session(event, user_id, account_name)
+        """Register session export handlers - DEPRECATED"""
+        # All session functionality moved to session_login_handler.py
+        pass
     async def _show_export_menu(self, event, user_id):
         """Show session export menu"""
         try:

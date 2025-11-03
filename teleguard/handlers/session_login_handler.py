@@ -86,8 +86,15 @@ class SessionLoginHandler:
         async def create_session_execute(event):
             user_id = event.sender_id
             phone = event.pattern_match.group(1).decode()
+            await self._show_format_selection(event, user_id, phone)
+        
+        @self.bot.on(events.CallbackQuery(pattern=rb"^create_sess_fmt:(.+):(.+)$"))
+        async def create_session_with_format(event):
+            user_id = event.sender_id
+            phone = event.pattern_match.group(1).decode()
+            format_type = event.pattern_match.group(2).decode()
             await event.answer("⏳ Creating session...")
-            await self._execute_session_creation(event, user_id, phone)
+            await self._execute_session_creation(event, user_id, phone, format_type)
         
 
         
@@ -1714,29 +1721,72 @@ class SessionLoginHandler:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
             
             if not accounts:
-                await event.edit("❌ No accounts found. Add accounts first before creating sessions.")
+                try:
+                    await event.edit("❌ No accounts found. Add accounts first before creating sessions.")
+                except:
+                    pass
                 return
             
             buttons = [[Button.inline(f"📱 {acc.get('name', acc['phone'])}", f"create_sess:{acc['phone']}".encode())] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", "session_login")])
             
             text = (
-                "✨ **Create Session String**\n\n"
+                "✨ **Create Session**\n\n"
                 "🔐 **Automatic OTP Fetching**\n"
                 "Select an account to create fresh session:\n\n"
                 "⚡ **Process:**\n"
                 "1. Select account\n"
-                "2. Bot requests new OTP\n"
+                "2. Choose format (String/File)\n"
                 "3. Bot auto-fetches OTP from Telegram\n"
-                "4. Fresh session string created\n\n"
+                "4. Fresh session created\n\n"
                 "Select account:"
             )
+            try:
+                await event.edit(text, buttons=buttons)
+            except Exception as edit_error:
+                if "Content of the message was not modified" not in str(edit_error):
+                    raise
+        except Exception as e:
+            if "Content of the message was not modified" not in str(e):
+                logger.error(f"Start session creation error: {e}")
+    
+    async def _show_format_selection(self, event, user_id, phone):
+        """Show format selection menu"""
+        try:
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
+            if not account:
+                await event.edit("❌ Account not found")
+                return
+            
+            account_name = account.get('name', phone)
+            
+            text = (
+                f"📦 **Choose Session Format**\n\n"
+                f"📱 **Account:** {account_name}\n"
+                f"📞 **Phone:** {phone}\n\n"
+                f"📝 **String Session**\n"
+                f"• Text format\n"
+                f"• Easy to copy/paste\n"
+                f"• Use in code directly\n\n"
+                f"📁 **Session File**\n"
+                f"• .session file\n"
+                f"• Download and use\n"
+                f"• Compatible with Telethon\n\n"
+                f"Choose your preferred format:"
+            )
+            
+            buttons = [
+                [Button.inline("📝 String Session", f"create_sess_fmt:{phone}:string".encode())],
+                [Button.inline("📁 Session File", f"create_sess_fmt:{phone}:file".encode())],
+                [Button.inline("🔙 Back", "menu:accounts")]
+            ]
+            
             await event.edit(text, buttons=buttons)
         except Exception as e:
-            logger.error(f"Start session creation error: {e}")
-            await event.edit("❌ Error starting session creation")
+            logger.error(f"Format selection error: {e}")
+            await event.edit("❌ Error showing format selection")
     
-    async def _execute_session_creation(self, event, user_id, phone):
+    async def _execute_session_creation(self, event, user_id, phone, format_type='string'):
         """Execute session creation with auto OTP"""
         client = None
         destroyer_was_enabled = False
@@ -1819,6 +1869,9 @@ class SessionLoginHandler:
                             "action": "session_creation_2fa"
                         }
                         
+                        # Store format type for later
+                        self.pending_auth[user_id]["format_type"] = format_type
+                        
                         # Ask for 2FA password
                         msg = f"🔐 **2FA Password Required**\n\n"
                         if error == "stored_password_invalid":
@@ -1832,7 +1885,8 @@ class SessionLoginHandler:
                         # Set pending action for message handler
                         self.bot_manager.pending_actions[user_id] = {
                             "action": "session_creation_2fa_password",
-                            "phone": phone
+                            "phone": phone,
+                            "format_type": format_type
                         }
                         return
                     else:
@@ -1849,6 +1903,49 @@ class SessionLoginHandler:
                 return
             
             session_string = StringSession.save(client.session)
+            
+            # Generate session file if requested
+            session_file_data = None
+            if format_type == 'file':
+                file_client = None
+                temp_path = None
+                try:
+                    temp_path = f"temp_{phone}_{user_id}.session"
+                    file_client = TelegramClient(temp_path, config.telegram.api_id, config.telegram.api_hash)
+                    file_client.session.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
+                    file_client.session.auth_key = client.session.auth_key
+                    file_client.session.save()
+                    
+                    # Disconnect and cleanup file_client
+                    if file_client:
+                        try:
+                            await file_client.disconnect()
+                        except:
+                            pass
+                        del file_client
+                    
+                    await asyncio.sleep(0.5)
+                    
+                    if os.path.exists(temp_path):
+                        with open(temp_path, 'rb') as f:
+                            session_file_data = f.read()
+                        try:
+                            os.remove(temp_path)
+                        except Exception as del_err:
+                            logger.warning(f"Could not delete temp file immediately: {del_err}")
+                            try:
+                                await asyncio.sleep(1)
+                                os.remove(temp_path)
+                            except:
+                                pass
+                except Exception as file_err:
+                    logger.error(f"Session file creation error: {file_err}")
+                    if file_client:
+                        try:
+                            await file_client.disconnect()
+                        except:
+                            pass
+            
             await client.disconnect()
             
             # Re-enable OTP destroyer
@@ -1859,14 +1956,36 @@ class SessionLoginHandler:
                 )
                 logger.info(f"Re-enabled OTP destroyer for {phone}")
             
-            await event.edit(
-                f"✅ **Session Created Successfully!**\n\n"
-                f"📱 Phone: {phone}\n"
-                f"📝 Session String:\n\n"
-                f"`{session_string}`\n\n"
-                f"💾 Copy and save this session string securely!\n\n"
-                f"🛡️ OTP Destroyer re-enabled"
-            )
+            # Send based on format
+            if format_type == 'string':
+                await event.edit(
+                    f"✅ **Session String Created!**\n\n"
+                    f"📱 Phone: {phone}\n"
+                    f"📝 Session String:\n\n"
+                    f"`{session_string}`\n\n"
+                    f"💾 Copy and save securely!\n"
+                    f"🛡️ OTP Destroyer re-enabled"
+                )
+            elif format_type == 'file':
+                if session_file_data:
+                    from telethon.tl.types import DocumentAttributeFilename
+                    await self.bot.send_message(
+                        user_id,
+                        f"📁 **Session File Created!**\n\n"
+                        f"📱 Phone: {phone}\n\n"
+                        f"💾 Download and save securely!\n"
+                        f"🛡️ OTP Destroyer re-enabled",
+                        file=session_file_data,
+                        attributes=[DocumentAttributeFilename(f"{phone}.session")]
+                    )
+                    await event.delete()
+                else:
+                    await event.edit(
+                        f"✅ **Session Created!**\n\n"
+                        f"❌ File generation failed, here's the string:\n\n"
+                        f"`{session_string}`\n\n"
+                        f"🛡️ OTP Destroyer re-enabled"
+                    )
             
         except Exception as e:
             if client:

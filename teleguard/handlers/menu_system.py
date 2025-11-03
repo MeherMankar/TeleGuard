@@ -962,7 +962,28 @@ class MenuSystem:
                         user_id, account_phone, event.message_id
                     )
                 elif data == "export_sessions":
-                    await self._handle_export_sessions(event, user_id)
+                    # Redirect to new session creation in session_login_handler
+                    try:
+                        session_handler = None
+                        if hasattr(self.account_manager, 'bot_manager') and hasattr(self.account_manager.bot_manager, 'session_login_handler'):
+                            session_handler = self.account_manager.bot_manager.session_login_handler
+                        elif hasattr(self.account_manager, 'session_login_handler'):
+                            session_handler = self.account_manager.session_login_handler
+                        
+                        if session_handler:
+                            try:
+                                await session_handler._start_session_creation(event, user_id)
+                            except Exception as edit_error:
+                                if "Content of the message was not modified" in str(edit_error):
+                                    await event.answer("✅")
+                                else:
+                                    raise
+                        else:
+                            await event.answer("❌ Session creation not available")
+                    except Exception as e:
+                        if "Content of the message was not modified" not in str(e):
+                            logger.error(f"Session creation error: {e}")
+                            await event.answer("❌ Error starting session creation")
                 elif data.startswith("export_session:"):
                     account_name = data.split(":", 1)[1]
                     await self._handle_export_session_select(event, user_id, account_name)
