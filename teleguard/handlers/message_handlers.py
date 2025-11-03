@@ -609,15 +609,10 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
-                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                # Try multiple keys to find the client
-                client = None
-                user_clients_dict = self.user_clients.get(user_id, {})
-                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
-                    if key and key in user_clients_dict:
-                        client = user_clients_dict[key]
-                        if client and client.is_connected():
-                            break
+                phone = account.get('phone')
+                session_string = account.get('session_string')
+                client = await self._get_or_reconnect_client(user_id, account)
+                
                 if client:
                     try:
                         from telethon import functions
@@ -627,14 +622,14 @@ class MessageHandlers:
                             )
                         )
                         await event.reply(
-                            f"Profile name updated to: {first_name} {last_name}"
+                            f"✅ Profile name updated to: {first_name} {last_name}"
                         )
                     except (ValueError, ConnectionError) as e:
-                        await event.reply(f"Failed to update name: {e}")
+                        await event.reply(f"❌ Failed to update name: {e}")
                 else:
-                    await event.reply(f"Account client not found. Account: {account.get('name', 'Unknown')}, User: {user_id}")
+                    await event.reply(f"❌ Could not connect to account")
             else:
-                await event.reply("Account not found")
+                await event.reply("❌ Account not found")
         elif action == "change_username":
             username = message.replace("@", "").strip()
             from bson import ObjectId
@@ -642,57 +637,81 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
-                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                # Try multiple keys to find the client
-                client = None
-                user_clients_dict = self.user_clients.get(user_id, {})
-                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
-                    if key and key in user_clients_dict:
-                        client = user_clients_dict[key]
-                        if client and client.is_connected():
-                            break
+                client = await self._get_or_reconnect_client(user_id, account)
+                
                 if client:
                     try:
                         from telethon import functions
                         await client(
                             functions.account.UpdateUsernameRequest(username=username)
                         )
-                        await event.reply(f"Username updated to: @{username}")
+                        await event.reply(f"✅ Username updated to: @{username}")
                     except (ValueError, ConnectionError) as e:
-                        await event.reply(f"Failed to update username: {e}")
+                        await event.reply(f"❌ Failed to update username: {e}")
                 else:
-                    await event.reply(f"Account client not found. Account: {account.get('name', 'Unknown')}, User: {user_id}")
+                    await event.reply(f"❌ Could not connect to account")
             else:
-                await event.reply("Account not found")
+                await event.reply("❌ Account not found")
         elif action == "change_bio":
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
-                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                # Try multiple keys to find the client
-                client = None
-                user_clients_dict = self.user_clients.get(user_id, {})
-                for key in [account_name, account.get('phone'), account.get('display_name'), account.get('first_name')]:
-                    if key and key in user_clients_dict:
-                        client = user_clients_dict[key]
-                        if client and client.is_connected():
-                            break
+                client = await self._get_or_reconnect_client(user_id, account)
+                
                 if client:
                     try:
                         from telethon import functions
                         await client(
                             functions.account.UpdateProfileRequest(about=message)
                         )
-                        await event.reply(f"Bio updated successfully")
+                        await event.reply(f"✅ Bio updated successfully")
                     except (ValueError, ConnectionError) as e:
-                        await event.reply(f"Failed to update bio: {e}")
+                        await event.reply(f"❌ Failed to update bio: {e}")
                 else:
-                    await event.reply(f"Account client not found. Account: {account.get('name', 'Unknown')}, User: {user_id}")
+                    await event.reply(f"❌ Could not connect to account")
             else:
-                await event.reply("Account not found")
+                await event.reply("❌ Account not found")
         self.pending_actions.pop(user_id, None)
+    
+    async def _get_or_reconnect_client(self, user_id, account):
+        """Get client or automatically reconnect if disconnected"""
+        phone = account.get('phone')
+        session_string = account.get('session_string')
+        
+        # Try to find existing client
+        user_clients_dict = self.user_clients.get(user_id, {})
+        for key in [phone, account.get('name'), account.get('display_name'), account.get('first_name'), account.get('username')]:
+            if key and key in user_clients_dict:
+                client = user_clients_dict[key]
+                if client and client.is_connected():
+                    return client
+        
+        # Try phone variations
+        if phone:
+            phone_clean = phone.replace('+', '')
+            for key in user_clients_dict.keys():
+                if phone_clean in str(key).replace('+', ''):
+                    client = user_clients_dict[key]
+                    if client and client.is_connected():
+                        return client
+        
+        # Client not found or disconnected - reconnect automatically
+        if session_string and phone:
+            try:
+                logger.info(f"Auto-reconnecting client for {phone}")
+                account_name = account.get('name') or account.get('display_name') or phone
+                await self.bot_manager.start_user_client(user_id, account_name, session_string)
+                
+                # Return the newly connected client
+                user_clients_dict = self.user_clients.get(user_id, {})
+                return user_clients_dict.get(account_name)
+            except Exception as e:
+                logger.error(f"Auto-reconnect failed for {phone}: {e}")
+                return None
+        
+        return None
     async def _handle_messaging_actions(self, event, user, action, message):
         """Handle messaging related actions"""
         user_id = event.sender_id
