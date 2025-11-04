@@ -1,0 +1,281 @@
+"""Split from auto_reply.py - auto_reply_core"""
+"""Advanced auto-reply handler with keyword detection and analytics - FIXED VERSION"""
+import logging
+import re
+import html
+import time as time_module
+from datetime import datetime, time
+from telethon import events
+from telethon.tl.custom import Button
+from ..core.mongo_database import mongodb
+from ..utils.data_encryption import DataEncryption
+logger = logging.getLogger(__name__)
+# Constants for validation
+MIN_KEYWORD_LENGTH = 2
+MIN_MESSAGE_LENGTH = 5
+RECONNECT_DELAY = 1.0
+class AutoReplyHandler:
+    """Advanced auto-reply system with keyword detection and user categorization"""
+    def __init__(self, bot_manager):
+        self.bot_manager = bot_manager
+        self.bot = bot_manager.bot
+        self.user_clients = bot_manager.user_clients
+        self.handled_clients = set()
+        self.user_keywords = {}  # Store keywords per user
+        self.business_hours = {'start': time(9, 0), 'end': time(17, 0), 'days': [0, 1, 2, 3, 4]}
+        self.analytics = {'total_messages': 0, 'auto_replies_sent': 0, 'keyword_hits': {}, 'unmatched_queries': 0}
+        self.pending_actions = {}  # Track user input states
+        self.last_toggle_time = {}  # Prevent rapid toggles
+        self.setup_text_handler()
+        self.setup_auto_reply_menu()
+    def setup_auto_reply_handlers(self):
+        """Set up auto-reply handlers for all user clients"""
+        for user_id, clients in self.user_clients.items():
+            import asyncio
+            asyncio.create_task(self.load_user_keywords(user_id))
+            for account_name, client in clients.items():
+                if client and client.is_connected():
+                    self._setup_client_handler(user_id, account_name, client)
+    async def force_cleanup_user_handlers(self, user_id: int):
+        """Force cleanup all handlers for a specific user"""
+        try:
+            # Clear memory
+            self.user_keywords.pop(user_id, None)
+            clients_to_remove = [key for key in self.handled_clients if key.startswith(f"{user_id}:")]
+            for client_key in clients_to_remove:
+                self.handled_clients.discard(client_key)
+            if user_id in self.user_clients:
+                for account_name, client in self.user_clients[user_id].items():
+                    if client and client.is_connected():
+                        try:
+                            client.remove_event_handler(None)
+                            logger.info(f"Removed all handlers for {account_name}")
+                        except Exception as e:
+                            logger.error(f"Error removing handlers for {account_name}: {e}")
+            logger.info(f"Force cleanup completed for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error during force cleanup for user {user_id}: {e}")
+    def _setup_client_handler(self, user_id: int, account_name: str, client):
+        """Set up auto-reply handler for a specific client"""
+        client_key = f"{user_id}:{account_name}"
+        if client_key in self.handled_clients:
+            logger.info(f"Handler already exists for {client_key}, skipping")
+            return
+        try:
+            client.remove_event_handler(None)
+        except Exception as e:
+            logger.debug(f"Error removing existing handlers: {e}")
+        self.handled_clients.add(client_key)
+        logger.info(f"Setting up auto-reply handler for {client_key}")
+        @client.on(events.NewMessage(incoming=True, func=lambda e: not e.is_group and not e.is_channel))
+        async def auto_reply_handler(event):
+            try:
+                # Try to find account by encrypted name first, then by plain name
+                account_doc = None
+                try:
+                    account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+                except:
+                    pass
+                # If not found with encrypted name, try plain name
+                if not account_doc:
+                    account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if not account_doc:
+                    return
+                account = DataEncryption.decrypt_account_data(account_doc)
+                if not account.get("auto_reply_enabled", False):
+                    return
+                # Skip auto-reply for bots to prevent unwanted interactions
+                sender = await event.get_sender()
+                if sender and getattr(sender, 'bot', False):
+                    logger.debug(f"Skipping auto-reply to bot: {sender.username or sender.id}")
+                    return
+                # Skip common bot usernames
+                if sender and hasattr(sender, 'username') and sender.username:
+                    bot_usernames = ['spambot', 'botfather', 'userinfobot', 'telegram']
+                    if sender.username.lower() in bot_usernames or sender.username.lower().endswith('bot'):
+                        logger.debug(f"Skipping auto-reply to known bot: {sender.username}")
+                        return
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": int(user_id)}) or {}
+                message_text = event.message.text.lower() if event.message.text else ""
+                sender_id = event.sender_id
+                self.analytics['total_messages'] += 1
+                user_keywords = await self._get_user_keywords(user_id)
+                matched_keyword = None
+                response = None
+                if settings.get('keyword_replies_enabled', False) and user_keywords:
+                    for keyword, reply_msg in user_keywords.items():
+                        # Escape special regex characters to prevent injection
+                        escaped_keyword = re.escape(keyword.lower())
+                        try:
+                            if re.search(r'\b' + escaped_keyword + r'\b', message_text):
+                                matched_keyword = keyword
+                                # Sanitize response to prevent XSS
+                                response = html.escape(reply_msg)
+                                break
+                        except re.error:
+                            # Skip invalid regex patterns
+                            continue
+                if matched_keyword:
+                    self.analytics['keyword_hits'][matched_keyword] = self.analytics['keyword_hits'].get(matched_keyword, 0) + 1
+                elif settings.get('time_based_replies_enabled', False):
+                    self.analytics['unmatched_queries'] += 1
+                    now = datetime.now()
+                    is_business_hours = self._is_business_hours(now)
+                    if is_business_hours:
+                        response = "I'm currently available and will respond soon."
+                    else:
+                        response = "I'm not available right now. I'll get back to you later."
+                else:
+                    return  # No reply if both disabled
+                contact_type = await self._get_contact_type(sender_id)
+                if contact_type == 'family':
+                    response = "Hey! " + response
+                elif contact_type == 'work':
+                    response = "Hi, " + response
+                await event.reply(response)
+                self.analytics['auto_replies_sent'] += 1
+                logger.info(f"Auto-reply sent from {account_name} to {sender_id}")
+            except Exception as e:
+                logger.error(f"Auto-reply error for {account_name}: {e}")
+    async def setup_new_client_handler(self, user_id: int, account_name: str, client):
+        """Set up auto-reply handler for a newly added client"""
+        if client and client.is_connected():
+            self._setup_client_handler(user_id, account_name, client)
+    async def _get_contact_type(self, sender_id: int) -> str:
+        """Determine contact type"""
+        try:
+            contact_data = await mongodb.db.contacts.find_one({"sender_id": sender_id})
+            if contact_data:
+                return contact_data.get('type', 'general')
+            return 'general'
+        except Exception as e:
+            logger.error(f"Error getting contact type for {sender_id}: {e}")
+            return 'general'
+    async def _get_user_keywords(self, user_id: int) -> dict:
+        """Get user-specific keywords"""
+        try:
+            settings = await mongodb.db.auto_reply_settings.find_one({"user_id": int(user_id)})
+            return settings.get('keywords', {}) if settings else {}
+        except Exception as e:
+            logger.error(f"Error loading keywords for user {user_id}: {e}")
+            return {}
+    async def _add_user_keyword(self, user_id: int, keyword: str, message: str):
+        """Add keyword for specific user"""
+        try:
+            # Sanitize inputs
+            safe_keyword = keyword.strip().lower()
+            safe_message = message.strip()
+            if not isinstance(user_id, int):
+                raise ValueError("Invalid user_id")
+            await mongodb.db.auto_reply_settings.update_one(
+                {"user_id": user_id},
+                {"$set": {f"keywords.{safe_keyword}": safe_message}},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error adding keyword for user {user_id}: {e}")
+            raise
+    async def _remove_user_keyword(self, user_id: int, keyword: str):
+        """Remove keyword for specific user"""
+        try:
+            safe_keyword = keyword.strip().lower()
+            if not isinstance(user_id, int):
+                raise ValueError("Invalid user_id")
+            await mongodb.db.auto_reply_settings.update_one(
+                {"user_id": user_id},
+                {"$unset": {f"keywords.{safe_keyword}": ""}}
+            )
+        except Exception as e:
+            logger.error(f"Error removing keyword for user {user_id}: {e}")
+            raise
+    def setup_text_handler(self):
+        """Setup text input handler for custom keywords"""
+        @self.bot.on(events.NewMessage(pattern=r"^/clear_auto_reply$"))
+        async def clear_auto_reply_command(event):
+            user_id = event.sender_id
+            try:
+                # Emergency clear all auto-reply data
+                await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$unset": {"auto_reply_enabled": ""}}
+                )
+                # Force cleanup handlers
+                await self.force_cleanup_user_handlers(user_id)
+                await event.reply("✅ **Emergency Auto-Reply Clear Complete**\n\nAll auto-reply systems disabled and cleared. Old messages should stop.")
+            except Exception as e:
+                logger.error(f"Error in clear_auto_reply_command: {e}")
+                await event.reply(f"❌ **Error during clear:** {str(e)}")
+        @self.bot.on(events.NewMessage(pattern=r"^/force_restart_auto_reply$"))
+        async def force_restart_auto_reply_command(event):
+            user_id = event.sender_id
+            try:
+                # 1. Clear all user data
+                await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$unset": {"auto_reply_enabled": ""}}
+                )
+                # 2. Force cleanup handlers
+                await self.force_cleanup_user_handlers(user_id)
+                await event.reply("✅ **Force Restart Complete**\n\nAll auto-reply handlers cleared and reset. Old messages should stop now.")
+            except Exception as e:
+                await event.reply(f"❌ **Error during restart:** {str(e)}")
+                logger.error(f"Force restart error: {e}")
+        @self.bot.on(events.NewMessage(pattern=r"^/debug_auto_reply$"))
+        async def debug_auto_reply_command(event):
+            user_id = event.sender_id
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id})
+            debug_text = "🔍 **Auto-Reply Debug Info**\n\n"
+            debug_text += f"**Accounts ({len(accounts)}):**\n"
+            for acc in accounts:
+                status = acc.get('auto_reply_enabled', 'NOT_SET')
+                debug_text += f"• {acc['name']}: {status}\n"
+            debug_text += f"\n**Settings:** {settings}\n"
+            debug_text += f"**Keywords Cache:** {self.user_keywords.get(user_id, 'None')}\n"
+            debug_text += f"**Handled Clients:** {[k for k in self.handled_clients if k.startswith(f'{user_id}:')]}"
+            await event.reply(debug_text)
+        @self.bot.on(events.NewMessage(pattern=r"^/fix_duplicate_replies$"))
+        async def fix_duplicate_replies_command(event):
+            user_id = event.sender_id
+            try:
+                # Force cleanup all handlers
+                await self.force_cleanup_user_handlers(user_id)
+                # Disable all auto-reply temporarily
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$unset": {"auto_reply_enabled_enc": "", "auto_reply_enabled": ""}}
+                )
+                await event.reply("✅ **Duplicate Reply Fix Applied**\n\nAll auto-reply handlers cleared. Please re-enable auto-reply for your accounts to avoid duplicates.")
+            except Exception as e:
+                await event.reply(f"❌ **Error fixing duplicates:** {str(e)}")
+                logger.error(f"Fix duplicate replies error: {e}")
+        @self.bot.on(events.NewMessage(pattern=r"^(?!/)"))
+        async def handle_text_input(event):
+            user_id = event.sender_id
+            if user_id not in self.pending_actions:
+                return
+            action_data = self.pending_actions[user_id]
+            text = event.message.text
+            if text.lower().strip() in ['cancel', '/cancel', 'stop', '/stop']:
+                del self.pending_actions[user_id]
+                buttons = [[Button.inline("🔙 Back to Keywords", "auto_reply:keywords")]]
+                await event.reply("❌ **Operation Cancelled**", buttons=buttons)
+                return
+            if action_data['action'] == 'add_keyword':
+                if action_data['step'] == 'keyword':
+                    keyword = text.lower().strip()
+                    if len(keyword) < MIN_KEYWORD_LENGTH:
+                        await event.reply(f"❌ Keyword too short. Please send a keyword (minimum {MIN_KEYWORD_LENGTH} characters):")
+                        return
+                    action_data['keyword'] = keyword
+                    action_data['step'] = 'message'
+                    await event.reply(f"✅ Keyword set: `{keyword}`\n\n📝 Now send the auto-reply message (minimum 5 characters):\n\n💡 Example: 'Thanks for your message! I'll get back to you soon.'", 
+                                    parse_mode='markdown')
+                elif action_data['step'] == 'message':
+                    keyword = action_data['keyword']
+                    if len(text.strip()) < MIN_MESSAGE_LENGTH:
+                        await event.reply(f"❌ Reply message too short (minimum {MIN_MESSAGE_LENGTH} characters).\n\n📝 Send the auto-reply message for keyword '{keyword}':")
+                        return
+                    await self._add_user_keyword(user_id, keyword, text)
