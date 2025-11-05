@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any, Dict, Optional, List
 from motor.motor_asyncio import AsyncIOMotorClient
-from ..utils.crypto_utils import DataEncryption
+from ..utils.data_encryption import DataEncryption
 from datetime import datetime
 logger = logging.getLogger(__name__)
 class MongoDB:

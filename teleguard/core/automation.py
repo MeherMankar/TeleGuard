@@ -541,3 +541,47 @@ Response:"""
                 
         except Exception as e:
             logger.error(f"Typing simulation error: {e}")
+    
+    async def _maintain_online_presence(self, client):
+        """Maintain online presence"""
+        try:
+            await client.get_me()
+            await asyncio.sleep(random.uniform(60, 300))
+        except Exception as e:
+            logger.error(f"Online presence error: {e}")
+    
+    async def _random_interactions(self, client):
+        """Random interactions in chats"""
+        try:
+            dialogs = await client.get_dialogs(limit=5)
+            if dialogs and random.random() < 0.3:
+                dialog = random.choice(dialogs)
+                await client.send_read_acknowledge(dialog.entity)
+        except Exception as e:
+            logger.error(f"Random interaction error: {e}")
+    
+    async def _ai_engage_discussions(self, client, group_id):
+        """AI engages in group discussions"""
+        try:
+            messages = await client.get_messages(group_id, limit=20)
+            for message in messages:
+                if message.text and random.random() < 0.2:
+                    response = await self._ai_generate_response(message)
+                    if response:
+                        await asyncio.sleep(random.uniform(5, 15))
+                        await message.reply(response)
+                        break
+        except Exception as e:
+            logger.error(f"AI discussion engagement error: {e}")
+    
+    async def _ai_react_to_messages(self, client, group_id):
+        """AI reacts to messages"""
+        try:
+            messages = await client.get_messages(group_id, limit=10)
+            reactions = ['👍', '❤️', '😄', '🔥']
+            for message in messages:
+                if random.random() < 0.15:
+                    await message.react(random.choice(reactions))
+                    await asyncio.sleep(random.uniform(1, 3))
+        except Exception as e:
+            logger.error(f"AI reaction error: {e}")

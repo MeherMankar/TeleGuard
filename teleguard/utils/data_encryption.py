@@ -59,6 +59,35 @@ class DataEncryption:
     def key(self) -> bytes:
         """Get the encryption key."""
         return self._key
+    
+    @staticmethod
+    def decrypt_account_data(encrypted_data: str) -> dict:
+        """Decrypt account data - uses global encryption."""
+        try:
+            decrypted = decrypt_string(encrypted_data)
+            import json
+            return json.loads(decrypted)
+        except:
+            return {}
+    
+    @staticmethod
+    def encrypt_settings_data(data: dict) -> str:
+        """Encrypt settings data - uses global encryption."""
+        import json
+        json_str = json.dumps(data)
+        return encrypt_string(json_str)
+    
+    @staticmethod
+    def decrypt_settings_data(encrypted_data: dict) -> dict:
+        """Decrypt settings data - uses global encryption."""
+        try:
+            if isinstance(encrypted_data, dict):
+                return encrypted_data
+            decrypted = decrypt_string(encrypted_data)
+            import json
+            return json.loads(decrypted)
+        except:
+            return {}
 
 
 # Global encryption instance

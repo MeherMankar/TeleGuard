@@ -501,3 +501,18 @@ Reply:"""
             
         except Exception as e:
             logger.error(f"Online presence error: {e}")
+    
+    async def _simulate_natural_online_activity(self, user_id: int, account_id: str):
+        """Simulate natural online activity"""
+        try:
+            client = await self._get_client(account_id)
+            if client:
+                await client.get_me()
+                if random.random() < 0.5:
+                    dialogs = await client.get_dialogs(limit=3)
+                    for dialog in dialogs:
+                        if dialog.unread_count > 0:
+                            await client.send_read_acknowledge(dialog.entity)
+                            await asyncio.sleep(random.uniform(1, 3))
+        except Exception as e:
+            logger.error(f"Natural activity simulation error: {e}")

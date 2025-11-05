@@ -5,8 +5,8 @@ from typing import List, Optional
 from telethon import Button, events
 from ..core.config import ADMIN_IDS
 from ..core.mongo_database import mongodb
-from .secure_2fa_handlers import Secure2FAHandlers
-from ..utils.network_helpers import format_display_name, format_phone_number
+from ..utils.helpers import format_display_name
+from ..utils.network_helpers import format_phone_number
 
 
     async def _handle_account_settings(self, event):

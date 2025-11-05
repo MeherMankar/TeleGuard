@@ -12,7 +12,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional
 from .mongo_database import mongodb
-from ..utils.crypto_utils import DataEncryption
+from ..utils.data_encryption import DataEncryption
 logger = logging.getLogger(__name__)
 class MessagingManager:
     """Manages message templates and sending"""
@@ -287,6 +287,23 @@ class MessagingManager:
         except Exception as e:
             logger.error(f"Failed to get user admin group: {e}")
             return None
+    
+    async def get_messaging_statistics(self, user_id: int) -> Dict:
+        """Get messaging statistics for user"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
+            templates = await self.get_user_templates(user_id)
+            return {
+                "total_messages_sent": 0,
+                "auto_replies_sent": 0,
+                "active_accounts": active_accounts,
+                "dm_topics_created": 0,
+                "templates_count": len(templates)
+            }
+        except Exception as e:
+            logger.error(f"Failed to get messaging statistics: {e}")
+            return {"total_messages_sent": 0, "auto_replies_sent": 0, "active_accounts": 0, "dm_topics_created": 0}
     
     async def send_template(self, user_id: int, account_name: str, target: str, template_id: str) -> bool:
         """Send a template message with human-like behavior"""

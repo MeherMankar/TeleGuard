@@ -1,5 +1,18 @@
-"""TeleGuard - Account Settings Module"""
+"""Account settings module"""
+from .profile_handlers import (
+    send_profile_management,
+    handle_profile_name_change,
+    handle_profile_username_change,
+    handle_profile_bio_change,
+    handle_profile_photo_change
+)
+from .account_handlers import handle_account_settings
 
-def register(bot_manager):
-    """Register account_settings handlers"""
-    pass
+__all__ = [
+    'send_profile_management',
+    'handle_profile_name_change',
+    'handle_profile_username_change',
+    'handle_profile_bio_change',
+    'handle_profile_photo_change',
+    'handle_account_settings'
+]

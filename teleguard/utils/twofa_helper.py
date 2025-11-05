@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError
 from ..core.mongo_database import mongodb
-from ..utils.crypto_utils import DataEncryption
+from ..utils.data_encryption import DataEncryption
 
 logger = logging.getLogger(__name__)
 
