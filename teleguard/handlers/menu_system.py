@@ -59,8 +59,8 @@ class MenuSystem:
             
             keyboard = self.get_main_menu_keyboard(user_id)
             text = (
-                "ðŸ¤– **TeleGuard Account Manager**\n\n"
-                "ðŸ›¡ï¸ Professional Telegram security & automation\n\n"
+                "🤖 **TeleGuard Account Manager**\n\n"
+                "🛡️ Professional Telegram security & automation\n\n"
                 "Use the menu buttons below to get started:"
             )
             message = await self.bot.send_message(user_id, text, buttons=keyboard)
@@ -100,13 +100,13 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "ðŸ“± **Account Management**\n\nNo accounts found. Add your first account to get started.\n\nUse /add command or enable Developer Mode to add accounts."
+                text = "📱 **Account Management**\n\nNo accounts found. Add your first account to get started.\n\nUse /add command or enable Developer Mode to add accounts."
             else:
-                text = f"ðŸ“± **Account Management**\n\nYou have {len(accounts)} account(s):\n\n"
+                text = f"📱 **Account Management**\n\nYou have {len(accounts)} account(s):\n\n"
                 for i, account in enumerate(accounts, 1):
-                    status = "âœ…" if account.get("is_active", False) else "âŒ"
+                    status = "✅" if account.get("is_active", False) else "❌"
                     destroyer_status = (
-                        "âœ…" if account.get("otp_destroyer_enabled", False) else "âŒ"
+                        "✅" if account.get("otp_destroyer_enabled", False) else "❌"
                     )
                     display_name = format_display_name(account)
                     phone = format_phone_number(account.get('phone', 'Unknown'))
@@ -141,16 +141,27 @@ class MenuSystem:
         
         # Clear existing handlers to prevent duplicates
         if self._menu_text_handler:
-            self.bot.remove_event_handler(self._menu_text_handler)
+            try:
+                self.bot.remove_event_handler(self._menu_text_handler)
+            except Exception as e:
+                logger.debug(f"Could not remove old menu text handler: {e}")
         if self._callback_handler:
-            self.bot.remove_event_handler(self._callback_handler)
+            try:
+                self.bot.remove_event_handler(self._callback_handler)
+            except Exception as e:
+                logger.debug(f"Could not remove old callback handler: {e}")
         
         # Setup handlers using extracted module
         import asyncio
         loop = asyncio.get_event_loop()
-        self._menu_text_handler = loop.run_until_complete(setup_menu_text_handler(self.bot, self))
-        loop.run_until_complete(setup_cleanup_selection_handler(self.bot, self))
-        self._callback_handler = loop.run_until_complete(setup_callback_handler(self.bot, self))
+        try:
+            self._menu_text_handler = loop.run_until_complete(setup_menu_text_handler(self.bot, self))
+            loop.run_until_complete(setup_cleanup_selection_handler(self.bot, self))
+            self._callback_handler = loop.run_until_complete(setup_callback_handler(self.bot, self))
+            logger.info("✅ All menu handlers registered successfully")
+        except Exception as e:
+            logger.error(f"❌ Error setting up menu handlers: {e}")
+            raise
     
     async def _handle_account_settings(self, event):
         """Handle Account Settings menu - delegated to modular handler"""
@@ -181,10 +192,10 @@ class MenuSystem:
             if hasattr(self.account_manager, 'advanced_spam_handler'):
                 await self.account_manager.advanced_spam_handler._handle_spam_master_menu(event)
             else:
-                await event.reply("âŒ SpamMaster not available")
+                await event.reply("❌ SpamMaster not available")
         except Exception as e:
             logger.error(f"Failed to handle SpamMaster menu: {e}")
-            await event.reply("âŒ Error loading SpamMaster menu")
+            await event.reply("❌ Error loading SpamMaster menu")
     
     async def _handle_cleanup(self, event):
         """Handle Cleanup menu"""
@@ -196,58 +207,58 @@ class MenuSystem:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
                 text = (
-                    "ðŸ§¹ **Professional Account Cleanup**\n"
+                    "🧹 **Professional Account Cleanup**\n"
                     "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n"
-                    "ðŸš¨ **No accounts available!**\n\n"
+                    "🚨 **No accounts available!**\n\n"
                     "You need active accounts to use cleanup features.\n\n"
-                    "ðŸŽ¯ **Cleanup Capabilities:**\n"
-                    "â€¢ ðŸ’¬ **Smart Chat Cleanup** - Personal, bot, official chats\n"
-                    "â€¢ ðŸš« **Spam Removal** - Spambot and unwanted chats\n"
-                    "â€¢ ðŸšª **Mass Exit** - Leave channels and groups\n"
-                    "â€¢ ðŸ—‘ï¸ **Ownership Cleanup** - Delete owned channels/groups\n"
-                    "â€¢ ðŸ“ž **Spam Appeals** - Automated appeal system\n\n"
-                    "âš ï¸ **Important:** All cleanup actions are irreversible!\n\n"
+                    "🎯 **Cleanup Capabilities:**\n"
+                    "🧠 **Smart Chat Cleanup** - Personal, bot, official chats\n"
+                    "🚫 **Spam Removal** - Spambot and unwanted chats\n"
+                    "🚪 **Mass Exit** - Leave channels and groups\n"
+                    "🗑️ **Ownership Cleanup** - Delete owned channels/groups\n"
+                    "📞 **Spam Appeals** - Automated appeal system\n\n"
+                    "⚠️ **Important:** All cleanup actions are irreversible!\n\n"
                     "Add accounts to access cleanup tools:"
                 )
                 buttons = [
-                    [Button.inline("ðŸš€ Add First Account", "account:add")],
-                    [Button.inline("â“ Cleanup Guide", "help:features")],
-                    [Button.inline("ðŸ”™ Back to Main Menu", "menu:main")],
+                    [Button.inline("🚀 Add First Account", "account:add")],
+                    [Button.inline("🧹 Cleanup Guide", "help:features")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             else:
                 active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
                 
                 text = (
-                    "ðŸ§¹ **Professional Account Cleanup**\n"
+                    "🧹 **Professional Account Cleanup**\n"
                     "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n"
-                    f"ðŸ“Š **System Status:**\n"
-                    f"â€¢ ðŸ“± Active Accounts: {active_accounts}/{len(accounts)}\n"
-                    f"â€¢ ðŸŸ¢ Cleanup Tools: Ready\n\n"
-                    "âš ï¸ **CRITICAL WARNING:**\n"
+                    f"📊 **System Status:**\n"
+                    f"📱 Active Accounts: {active_accounts}/{len(accounts)}\n"
+                    f"🟢 Cleanup Tools: Ready\n\n"
+                    "⚠️ **CRITICAL WARNING:**\n"
                     "All cleanup actions are **PERMANENT** and **IRREVERSIBLE**!\n\n"
-                    "ðŸŽ¯ **Available Cleanup Options:**\n"
-                    "â€¢ ðŸ’¬ Personal chats â€¢ ðŸ¤– Bot conversations\n"
-                    "â€¢ ðŸ“¢ Telegram official â€¢ ðŸš« Spambot chats\n"
-                    "â€¢ ðŸšª Exit channels â€¢ ðŸ‘¥ Exit groups\n"
-                    "â€¢ ðŸ—‘ï¸ Delete owned groups â€¢ ðŸ“º Delete owned channels\n\n"
-                    "ðŸŽ›ï¸ **Select Account to Clean:**"
+                    "🎯 **Available Cleanup Options:**\n"
+                    "🧑 Personal chats 🤖 Bot conversations\n"
+                    "🔐 Telegram official 🚫 Spambot chats\n"
+                    "🚪 Exit channels â€¢ 👥 Exit groups\n"
+                    "🗑️ Delete owned groups 📺 Delete owned channels\n\n"
+                    " **Select Account to Clean:**"
                 )
                 
                 buttons = []
                 for account in accounts:
-                    status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
+                    status = "🟢" if account.get("is_active", False) else "ðŸ”´"
                     display_name = format_display_name(account)
                     button_text = f"{status} {display_name}"
                     buttons.append([Button.inline(button_text, f"cleanup:select:{account['_id']}")])
                 
-                buttons.append([Button.inline("ðŸ”™ Back to Main Menu", "menu:main")])
+                buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
             if hasattr(event, 'message_id'):
                 await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             else:
                 await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle cleanup: {e}")
-            await event.reply("âŒ Error loading cleanup menu")
+            await event.reply("❌ Error loading cleanup menu")
     
     async def _handle_cleanup_callback(self, event, user_id: int, data: str):
         """Handle account cleanup callbacks"""
@@ -270,10 +281,10 @@ class MenuSystem:
                 except Exception as e:
                     if "Content of the message was not modified" in str(e):
                         # Message content is the same, just answer the callback
-                        await event.answer("âœ… Cleanup options confirmed")
+                        await event.answer("✅ Cleanup options confirmed")
                     else:
                         logger.error(f"Cleanup options error: {e}")
-                        await event.answer("âŒ Error processing cleanup options")
+                        await event.answer("❌ Error processing cleanup options")
         elif action == "confirm":
             account_id = parts[2] if len(parts) > 2 else None
             cleanup_types = parts[3] if len(parts) > 3 else None
@@ -300,7 +311,7 @@ class MenuSystem:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
             if not account:
-                await self.bot.edit_message(user_id, message_id, "âŒ Account not found", buttons=[[Button.inline("ðŸ”™ Back", "cleanup:menu")]])
+                await self.bot.edit_message(user_id, message_id, "❌ Account not found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
                 return
             
             display_name = format_display_name(account)
@@ -313,46 +324,46 @@ class MenuSystem:
             # Create display text for selected options
             selected_options = []
             if 'personal' in cleanup_list:
-                selected_options.append("âœ… ðŸ’¬ Personal chats")
+                selected_options.append("✅ ðŸ’¬ Personal chats")
             if 'bots' in cleanup_list:
-                selected_options.append("âœ… ðŸ¤– Bot chats")
+                selected_options.append("✅ 🤖 Bot chats")
             if 'telegram' in cleanup_list:
-                selected_options.append("âœ… ðŸ“¢ Telegram official chats")
+                selected_options.append("✅ 🔐¢ Telegram official chats")
             if 'spambot' in cleanup_list:
-                selected_options.append("âœ… ðŸš« Spambot chats")
+                selected_options.append("✅ 🚫 Spambot chats")
             if 'channels' in cleanup_list:
-                selected_options.append("âœ… ðŸšª Exit from channels")
+                selected_options.append("✅ 🚪 Exit from channels")
             if 'groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ‘¥ Exit from groups")
+                selected_options.append("✅ 👥 Exit from groups")
             if 'owned_groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ—‘ï¸ Delete owned groups")
+                selected_options.append("✅ 🗑️ Delete owned groups")
             if 'owned_channels' in cleanup_list:
-                selected_options.append("âœ… ðŸ“º Delete owned channels")
+                selected_options.append("✅ 📺 Delete owned channels")
             
             if not selected_options:
-                await self.bot.send_message(user_id, "âŒ No valid cleanup options selected. Please try again.")
+                await self.bot.send_message(user_id, "❌ No valid cleanup options selected. Please try again.")
                 return
             
             text = (
-                f"ðŸ§¹ **Final Cleanup Confirmation**\n\n"
-                f"ðŸ“± Account: {display_name}\n\n"
+                f"🧹 **Final Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options) + "\n\n"
-                f"âš ï¸ **FINAL WARNING**: This action cannot be undone!\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
                 f"All selected chats and data will be permanently deleted.\n\n"
                 f"Are you absolutely sure you want to proceed?"
             )
             
             buttons = [
-                [Button.inline("ðŸš€ YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("âŒ Cancel", "cleanup:menu")]
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in cleanup confirmation: {e}")
-            await self.bot.edit_message(user_id, message_id, "âŒ Error loading cleanup confirmation", buttons=[[Button.inline("ðŸ”™ Back", "cleanup:menu")]])
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup confirmation", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
     
     async def _execute_cleanup(self, event, user_id: int, account_id: str, cleanup_types: str):
         """Execute account cleanup - delegated to CleanupOperations"""
@@ -367,12 +378,12 @@ class MenuSystem:
             if hasattr(event, 'text'):
                 # This is a text message response
                 if not hasattr(self.account_manager, 'pending_actions') or user_id not in self.account_manager.pending_actions:
-                    await event.reply("âŒ No pending cleanup action found.")
+                    await event.reply("❌ No pending cleanup action found.")
                     return
                 
                 action_data = self.account_manager.pending_actions[user_id]
                 if action_data.get('action') != 'cleanup_selection':
-                    await event.reply("âŒ Invalid action state.")
+                    await event.reply("❌ Invalid action state.")
                     return
                 
                 account_id = action_data.get('account_id')
@@ -393,7 +404,7 @@ class MenuSystem:
             
         except Exception as e:
             logger.error(f"Error in cleanup selection callback: {e}")
-            await event.reply("âŒ Error processing cleanup selection.")
+            await event.reply("❌ Error processing cleanup selection.")
     
     async def _send_cleanup_confirmation_new(self, user_id: int, account_id: str, cleanup_types: str):
         """Send cleanup confirmation as new message to avoid edit conflicts"""
@@ -401,7 +412,7 @@ class MenuSystem:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
             if not account:
-                await self.bot.send_message(user_id, "âŒ Account not found")
+                await self.bot.send_message(user_id, "❌ Account not found")
                 return
             
             display_name = format_display_name(account)
@@ -414,46 +425,46 @@ class MenuSystem:
             # Create display text for selected options
             selected_options = []
             if 'personal' in cleanup_list:
-                selected_options.append("âœ… ðŸ’¬ Personal chats")
+                selected_options.append("✅ ðŸ’¬ Personal chats")
             if 'bots' in cleanup_list:
-                selected_options.append("âœ… ðŸ¤– Bot chats")
+                selected_options.append("✅ 🤖 Bot chats")
             if 'telegram' in cleanup_list:
-                selected_options.append("âœ… ðŸ“¢ Telegram official chats")
+                selected_options.append("✅ 🔐¢ Telegram official chats")
             if 'spambot' in cleanup_list:
-                selected_options.append("âœ… ðŸš« Spambot chats")
+                selected_options.append("✅ 🚫 Spambot chats")
             if 'channels' in cleanup_list:
-                selected_options.append("âœ… ðŸšª Exit from channels")
+                selected_options.append("✅ 🚪 Exit from channels")
             if 'groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ‘¥ Exit from groups")
+                selected_options.append("✅ 👥 Exit from groups")
             if 'owned_groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ—‘ï¸ Delete owned groups")
+                selected_options.append("✅ 🗑️ Delete owned groups")
             if 'owned_channels' in cleanup_list:
-                selected_options.append("âœ… ðŸ“º Delete owned channels")
+                selected_options.append("✅ 📺 Delete owned channels")
             
             if not selected_options:
-                await self.bot.send_message(user_id, "âŒ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all")
+                await self.bot.send_message(user_id, "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all")
                 return
             
             text = (
-                f"ðŸ§¹ **Final Cleanup Confirmation**\n\n"
-                f"ðŸ“± Account: {display_name}\n\n"
+                f"🧹 **Final Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options) + "\n\n"
-                f"âš ï¸ **FINAL WARNING**: This action cannot be undone!\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
                 f"All selected chats and data will be permanently deleted.\n\n"
                 f"Are you absolutely sure you want to proceed?"
             )
             
             buttons = [
-                [Button.inline("ðŸš€ YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("âŒ Cancel", "cleanup:menu")]
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             await self.bot.send_message(user_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in cleanup confirmation: {e}")
-            await self.bot.send_message(user_id, "âŒ Error loading cleanup confirmation")
+            await self.bot.send_message(user_id, "❌ Error loading cleanup confirmation")
     
     async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
         """Send cleanup confirmation with selected options (legacy method for edit)"""
@@ -462,9 +473,9 @@ class MenuSystem:
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
             if not account:
                 if message_id:
-                    await self.bot.edit_message(user_id, message_id, "âŒ Account not found", buttons=[[Button.inline("ðŸ”™ Back", "cleanup:menu")]])
+                    await self.bot.edit_message(user_id, message_id, "❌ Account not found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
                 else:
-                    await self.bot.send_message(user_id, "âŒ Account not found")
+                    await self.bot.send_message(user_id, "❌ Account not found")
                 return
             
             display_name = format_display_name(account)
@@ -477,43 +488,43 @@ class MenuSystem:
             # Create display text for selected options
             selected_options = []
             if 'personal' in cleanup_list:
-                selected_options.append("âœ… ðŸ’¬ Personal chats")
+                selected_options.append("✅ ðŸ’¬ Personal chats")
             if 'bots' in cleanup_list:
-                selected_options.append("âœ… ðŸ¤– Bot chats")
+                selected_options.append("✅ 🤖 Bot chats")
             if 'telegram' in cleanup_list:
-                selected_options.append("âœ… ðŸ“¢ Telegram official chats")
+                selected_options.append("✅ 🔐¢ Telegram official chats")
             if 'spambot' in cleanup_list:
-                selected_options.append("âœ… ðŸš« Spambot chats")
+                selected_options.append("✅ 🚫 Spambot chats")
             if 'channels' in cleanup_list:
-                selected_options.append("âœ… ðŸšª Exit from channels")
+                selected_options.append("✅ 🚪 Exit from channels")
             if 'groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ‘¥ Exit from groups")
+                selected_options.append("✅ 👥 Exit from groups")
             if 'owned_groups' in cleanup_list:
-                selected_options.append("âœ… ðŸ—‘ï¸ Delete owned groups")
+                selected_options.append("✅ 🗑️ Delete owned groups")
             if 'owned_channels' in cleanup_list:
-                selected_options.append("âœ… ðŸ“º Delete owned channels")
+                selected_options.append("✅ 📺 Delete owned channels")
             
             if not selected_options:
-                error_msg = "âŒ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all"
+                error_msg = "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all"
                 if message_id:
-                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("ðŸ”™ Back", "cleanup:menu")]])
+                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
                 else:
                     await self.bot.send_message(user_id, error_msg)
                 return
             
             text = (
-                f"ðŸ§¹ **Final Cleanup Confirmation**\n\n"
-                f"ðŸ“± Account: {display_name}\n\n"
+                f"🧹 **Final Cleanup Confirmation**\n\n"
+                f"📱 Account: {display_name}\n\n"
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options) + "\n\n"
-                f"âš ï¸ **FINAL WARNING**: This action cannot be undone!\n"
+                f"⚠️ **FINAL WARNING**: This action cannot be undone!\n"
                 f"All selected chats and data will be permanently deleted.\n\n"
                 f"Are you absolutely sure you want to proceed?"
             )
             
             buttons = [
-                [Button.inline("ðŸš€ YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
-                [Button.inline("âŒ Cancel", "cleanup:menu")]
+                [Button.inline("🚀 YES, Start Cleanup", f"cleanup:confirm:{account_id}:{cleanup_types}")],
+                [Button.inline("❌ Cancel", "cleanup:menu")]
             ]
             
             if message_id:
@@ -523,10 +534,10 @@ class MenuSystem:
             
         except Exception as e:
             logger.error(f"Error in cleanup confirmation: {e}")
-            error_msg = "âŒ Error loading cleanup confirmation"
+            error_msg = "❌ Error loading cleanup confirmation"
             if message_id:
                 try:
-                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("ðŸ”™ Back", "cleanup:menu")]])
+                    await self.bot.edit_message(user_id, message_id, error_msg, buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
                 except:
                     await self.bot.send_message(user_id, error_msg)
             else:
@@ -537,28 +548,28 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ“ž **Spam Appeal**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back", "cleanup:menu")]]
+                text = "📞 **Spam Appeal**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back", "cleanup:menu")]]
                 await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
                 return
             
             text = (
-                "ðŸ“ž **Spam Appeal**\n\n"
+                "📞 **Spam Appeal**\n\n"
                 "Select account to submit spam appeal:"
             )
             buttons = []
             for account in accounts:
-                status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
+                status = "🟢" if account.get("is_active", False) else "ðŸ”´"
                 display_name = format_display_name(account)
                 button_text = f"{status} {display_name}"
                 buttons.append([Button.inline(button_text, f"appeal_account_id:{account['_id']}")])
             
-            buttons.append([Button.inline("ðŸ”™ Back", "cleanup:menu")])
+            buttons.append([Button.inline("🔙 Back", "cleanup:menu")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in spam appeal select: {e}")
-            await event.answer("âŒ Error loading spam appeal")
+            await event.answer("❌ Error loading spam appeal")
     
     async def _handle_spam_appeal(self, event, user_id: int, account_id: str):
         """Handle spam appeal for account before cleanup"""
@@ -566,7 +577,7 @@ class MenuSystem:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             display_name = format_display_name(account)
@@ -574,8 +585,8 @@ class MenuSystem:
             # Check if spam appeal handler is available
             if hasattr(self.account_manager, 'spam_appeal_handler'):
                 text = (
-                    f"ðŸ“ž **Spam Appeal - {display_name}**\n\n"
-                    f"ðŸ¤– **Smart Appeal System**\n\n"
+                    f"📞 **Spam Appeal - {display_name}**\n\n"
+                    f"🤖 **Smart Appeal System**\n\n"
                     f"Before cleaning your account, you can try appealing any spam restrictions.\n\n"
                     f"**Features:**\n"
                     f"â€¢ AI-powered message selection\n"
@@ -586,15 +597,15 @@ class MenuSystem:
                 )
                 
                 buttons = [
-                    [Button.inline("ðŸš€ Start Appeal", f"appeal_account_id:{account_id}")],
-                    [Button.inline("ðŸ§¹ Skip to Cleanup", f"cleanup:select:{account_id}")],
-                    [Button.inline("ðŸ”™ Back to Menu", "cleanup:menu")]
+                    [Button.inline("🚀 Start Appeal", f"appeal_account_id:{account_id}")],
+                    [Button.inline("🧹 Skip to Cleanup", f"cleanup:select:{account_id}")],
+                    [Button.inline("🔙 Back to Menu", "cleanup:menu")]
                 ]
                 
                 await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             else:
                 text = (
-                    f"ðŸ“ž **Manual Spam Appeal - {display_name}**\n\n"
+                    f"📞 **Manual Spam Appeal - {display_name}**\n\n"
                     f"Spam appeal system is not available.\n\n"
                     f"**Manual steps:**\n"
                     f"1. Go to @spambot\n"
@@ -605,15 +616,15 @@ class MenuSystem:
                 )
                 
                 buttons = [
-                    [Button.inline("ðŸ§¹ Continue to Cleanup", f"cleanup:select:{account_id}")],
-                    [Button.inline("ðŸ”™ Back to Menu", "cleanup:menu")]
+                    [Button.inline("🧹 Continue to Cleanup", f"cleanup:select:{account_id}")],
+                    [Button.inline("🔙 Back to Menu", "cleanup:menu")]
                 ]
                 
                 await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in spam appeal: {e}")
-            await event.answer("âŒ Error loading spam appeal")
+            await event.answer("❌ Error loading spam appeal")
     async def _handle_help(self, event):
         """Handle Help menu - delegated to modular handler"""
         from teleguard_modular.menu_delegation import handle_help_menu
@@ -779,11 +790,11 @@ class MenuSystem:
                         "otp_forward_enabled": False  # Disable forward when destroyer is enabled
                     }},
                 )
-                await event.answer("ðŸ›¡ï¸ OTP Destroyer enabled! Forward disabled.")
+                await event.answer("🛡️ OTP Destroyer enabled! Forward disabled.")
                 # Go back to OTP Destroyer account selection instead of individual account menu
                 await self._handle_otp_setting_callback(event, user_id, "otp_setting:destroyer")
             except Exception as e:
-                await event.answer("âŒ Error enabling OTP Destroyer")
+                await event.answer("❌ Error enabling OTP Destroyer")
         elif action == "disable":
             try:
                 from bson import ObjectId
@@ -795,7 +806,7 @@ class MenuSystem:
                 # Go back to OTP Destroyer account selection instead of individual account menu
                 await self._handle_otp_setting_callback(event, user_id, "otp_setting:destroyer")
             except Exception as e:
-                await event.answer("âŒ Error disabling OTP Destroyer")
+                await event.answer("❌ Error disabling OTP Destroyer")
         elif action == "forward_enable":
             try:
                 from bson import ObjectId
@@ -803,17 +814,17 @@ class MenuSystem:
                     {"_id": ObjectId(account_id), "user_id": user_id}
                 )
                 if account and account.get("otp_destroyer_enabled", False):
-                    await event.answer("âŒ Cannot enable forward while OTP Destroyer is active")
+                    await event.answer("❌ Cannot enable forward while OTP Destroyer is active")
                     return
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id), "user_id": user_id},
                     {"$set": {"otp_forward_enabled": True}},
                 )
-                await event.answer("ðŸ“¤ OTP Forward enabled!")
+                await event.answer("📤 OTP Forward enabled!")
                 # Go back to OTP Forward account selection instead of individual account menu
                 await self._handle_otp_setting_callback(event, user_id, "otp_setting:forward")
             except Exception as e:
-                await event.answer("âŒ Error enabling OTP Forward")
+                await event.answer("❌ Error enabling OTP Forward")
         elif action == "forward_disable":
             try:
                 from bson import ObjectId
@@ -825,7 +836,7 @@ class MenuSystem:
                 # Go back to OTP Forward account selection instead of individual account menu
                 await self._handle_otp_setting_callback(event, user_id, "otp_setting:forward")
             except Exception as e:
-                await event.answer("âŒ Error disabling OTP Forward")
+                await event.answer("❌ Error disabling OTP Forward")
         elif action == "temp":
             try:
                 from bson import ObjectId
@@ -833,7 +844,7 @@ class MenuSystem:
                     {"_id": ObjectId(account_id), "user_id": user_id}
                 )
                 if not account:
-                    await event.answer("âŒ Account not found")
+                    await event.answer("❌ Account not found")
                     return
                 
                 # Check if temp OTP is already active
@@ -863,7 +874,7 @@ class MenuSystem:
                             "action": "temp_passthrough_stopped",
                             "timestamp": int(time.time())
                         })
-                        await event.answer("âŒ Temp OTP stopped! Original settings restored.")
+                        await event.answer("❌ Temp OTP stopped! Original settings restored.")
                         await self._handle_otp_setting_callback(event, user_id, "otp_setting:temp")
                         return
                 
@@ -909,7 +920,7 @@ class MenuSystem:
                 asyncio.create_task(simple_cleanup())
             except Exception as e:
                 logger.error(f"Error handling temp OTP: {e}")
-                await event.answer("âŒ Error handling temp OTP")
+                await event.answer("❌ Error handling temp OTP")
         elif action == "audit":
             await self.send_audit_log(user_id, account_id)
         elif action == "setpass":
@@ -921,13 +932,13 @@ class MenuSystem:
                 text = (
                     "ðŸ”’ **Set Disable Password**\n\n"
                     "Reply with a password that will be required to disable OTP Destroyer.\n\n"
-                    "âš ï¸ This adds an extra security layer - choose a strong password!\n"
-                    "ðŸ“ Minimum 6 characters required."
+                    "⚠️ This adds an extra security layer - choose a strong password!\n"
+                    "🔐 Minimum 6 characters required."
                 )
                 await event.answer("ðŸ”’ Reply with password")
                 await self.bot.send_message(user_id, text)
             else:
-                await event.answer("âŒ Service unavailable")
+                await event.answer("❌ Service unavailable")
     
     async def _handle_otp_setting_callback(self, event, user_id: int, data: str):
         """Handle OTP setting callbacks from main OTP menu"""
@@ -937,50 +948,50 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ›¡ï¸ **OTP Settings**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+                text = "🛡️ **OTP Settings**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
                 await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
                 return
             
             if setting_type == "destroyer":
-                text = "ðŸ›¡ï¸ **OTP Destroyer Settings**\n\nSelect account to enable/disable OTP Destroyer:"
+                text = "🛡️ **OTP Destroyer Settings**\n\nSelect account to enable/disable OTP Destroyer:"
             elif setting_type == "forward":
-                text = "ðŸ“¤ **OTP Forward Settings**\n\nSelect account to enable/disable OTP Forward:"
+                text = "📤 **OTP Forward Settings**\n\nSelect account to enable/disable OTP Forward:"
             elif setting_type == "temp":
                 text = "â° **Temp OTP Settings**\n\nSelect account to enable 5-minute passthrough:"
             else:
-                text = "ðŸ›¡ï¸ **OTP Settings**\n\nSelect account:"
+                text = "🛡️ **OTP Settings**\n\nSelect account:"
             
             buttons = []
             for account in accounts:
-                status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
+                status = "🟢" if account.get("is_active", False) else "ðŸ”´"
                 
                 if setting_type == "destroyer":
-                    feature_status = "ðŸ›¡ï¸" if account.get("otp_destroyer_enabled", False) else "âšª"
+                    feature_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                 elif setting_type == "forward":
-                    feature_status = "ðŸ“¤" if account.get("otp_forward_enabled", False) else "âšª"
+                    feature_status = "📤" if account.get("otp_forward_enabled", False) else "⚪"
                 else:
-                    feature_status = "âšª"
+                    feature_status = "⚪"
                 
                 display_name = format_display_name(account)
                 button_text = f"{status}{feature_status} {display_name}"
                 buttons.append([Button.inline(button_text, f"otp:manage:{account['_id']}")])
             
-            buttons.append([Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")])
+            buttons.append([Button.inline("🔙 Back to OTP Manager", "menu:otp")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in OTP setting callback: {e}")
-            await event.answer("âŒ Error loading OTP settings")
+            await event.answer("❌ Error loading OTP settings")
     
     async def _send_help_menu(self, user_id: int, message_id: int):
         """Send help menu"""
         text = (
             "â“ **Help & Information**\n\n"
-            "ðŸ›¡ï¸ **OTP Destroyer**: Automatically invalidates login codes to prevent unauthorized access\n\n"
-            "ðŸ“± **Account Management**: Add, remove, and configure your Telegram accounts\n\n"
+            "🛡️ **OTP Destroyer**: Automatically invalidates login codes to prevent unauthorized access\n\n"
+            "📱 **Account Management**: Add, remove, and configure your Telegram accounts\n\n"
             "ðŸ” **Security**: All data is encrypted and stored securely\n\n"
-            "âš™ï¸ **Developer Mode**: Access advanced features and text commands"
+            "⚙️ **Developer Mode**: Access advanced features and text commands"
         )
         await self.bot.send_message(user_id, text)
     async def _toggle_developer_mode(self, user_id: int, message_id: int):
@@ -994,12 +1005,12 @@ class MenuSystem:
                     {"telegram_id": user_id}, {"$set": {"developer_mode": new_mode}}
                 )
                 status = "enabled" if new_mode else "disabled"
-                text = f"âš™ï¸ **Developer Mode**\n\nDeveloper mode {status}.\n\n"
+                text = f"⚙️ **Developer Mode**\n\nDeveloper mode {status}.\n\n"
                 if new_mode:
                     text += "You now have access to text commands:\n/add, /remove, /accs, /toggle_protection, etc."
                 else:
                     text += "Text commands are now hidden. Use the menu system."
-                buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+                buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to toggle developer mode: {e}")
@@ -1010,13 +1021,13 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                text = "ðŸ›¡ï¸ **OTP Manager**\n\nNo accounts found. Add accounts first to manage OTP settings."
+                text = "🛡️ **OTP Manager**\n\nNo accounts found. Add accounts first to manage OTP settings."
             else:
                 text = (
-                    "ðŸ›¡ï¸ **OTP Manager**\n\n"
+                    "🛡️ **OTP Manager**\n\n"
                     "OTP security features:\n\n"
-                    "â€¢ ðŸ›¡ï¸ Destroyer: Blocks unauthorized logins\n"
-                    "â€¢ ðŸ“¤ Forward: Forwards OTP codes to you\n"
+                    "â€¢ 🛡️ Destroyer: Blocks unauthorized logins\n"
+                    "â€¢ 📤 Forward: Forwards OTP codes to you\n"
                     "â€¢ â° Temp Pass: 5-minute security bypass\n\n"
                     f"You have {len(accounts)} account(s). Use Account Settings to manage OTP protection."
                 )
@@ -1033,7 +1044,7 @@ class MenuSystem:
             "â€¢ Import sessions\n"
             "â€¢ Session health check"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_2fa_menu(self, user_id: int, message_id: int):
         """Send 2FA settings menu"""
@@ -1043,31 +1054,31 @@ class MenuSystem:
             )
             if not accounts:
                 text = "ðŸ”‘ **2FA Settings**\n\nNo accounts found. Add accounts first."
-                buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+                buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
             else:
                 text = "ðŸ”‘ **2FA Settings**\n\nSelect an account to manage 2FA:"
                 buttons = []
                 for account in accounts:
-                    has_2fa = "ðŸ›¡ï¸" if account.get("twofa_password") else "âŒ"
+                    has_2fa = "🛡️" if account.get("twofa_password") else "❌"
                     button_text = f"{has_2fa} {account['name']}"
                     buttons.append(
                         [Button.inline(button_text, f"2fa:status:{account['_id']}")]
                     )
-                buttons.append([Button.inline("ðŸ”™ Back to Main", "menu:main")])
+                buttons.append([Button.inline("🔙 Back to Main", "menu:main")])
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to send 2FA menu: {e}")
     async def _send_online_menu(self, user_id: int, message_id: int):
         """Send online maker menu"""
         text = (
-            "ðŸŸ¢ **Online Maker**\n\n"
+            "🟢 **Online Maker**\n\n"
             "Keep your accounts online automatically.\n\n"
             "Features coming soon:"
             "â€¢ Auto-online intervals\n"
             "â€¢ Custom status messages\n"
             "â€¢ Schedule management"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_security_menu(self, user_id: int, account_id: str, message_id: int):
         """Send security settings menu"""
@@ -1079,7 +1090,7 @@ class MenuSystem:
             "â€¢ Audit log retention\n"
             "â€¢ Alert preferences"
         )
-        buttons = [[Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")]]
+        buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_profile_menu(self, user_id: int, message_id: int):
         """Send profile management menu"""
@@ -1089,14 +1100,14 @@ class MenuSystem:
             )
             if not accounts:
                 text = (
-                    "ðŸ‘¤ **Profile Manager**\n\nNo accounts found. Add accounts first."
+                    "👤 **Profile Manager**\n\nNo accounts found. Add accounts first."
                 )
-                buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+                buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
             else:
-                text = "ðŸ‘¤ **Profile Manager**\n\nSelect an account to manage profile:"
+                text = "👤 **Profile Manager**\n\nSelect an account to manage profile:"
                 buttons = []
                 for account in accounts:
-                    status = "âœ…" if account.get("is_active", False) else "âŒ"
+                    status = "✅" if account.get("is_active", False) else "❌"
                     username_display = (
                         f"@{account.get('username', '')}"
                         if account.get("username")
@@ -1106,14 +1117,14 @@ class MenuSystem:
                     buttons.append(
                         [Button.inline(button_text, f"profile:manage:{account['_id']}")]
                     )
-                buttons.append([Button.inline("ðŸ”™ Back to Main", "menu:main")])
+                buttons.append([Button.inline("🔙 Back to Main", "menu:main")])
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to send profile menu: {e}")
     async def _send_groups_menu(self, user_id: int, message_id: int):
         """Send groups and channels menu"""
         text = (
-            "ðŸ‘¥ **Groups & Channels**\n\n"
+            "👥 **Groups & Channels**\n\n"
             "Manage groups and channels for your accounts.\n\n"
             "Features coming soon:"
             "â€¢ Create channels/groups\n"
@@ -1121,7 +1132,7 @@ class MenuSystem:
             "â€¢ Post and schedule content\n"
             "â€¢ Invite link management"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_messaging_menu(self, user_id: int, message_id: int):
         """Send messaging menu"""
@@ -1131,14 +1142,14 @@ class MenuSystem:
             )
             if not accounts:
                 text = "ðŸ’¬ **Messaging**\n\nNo accounts found. Add accounts first to use messaging features."
-                buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+                buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
             else:
                 text = "ðŸ’¬ **Messaging**\n\nSelect messaging action:"
                 buttons = [
-                    [Button.inline("ðŸ“¤ Send Message", "msg:send")],
+                    [Button.inline("📤 Send Message", "msg:send")],
                     [Button.inline("ðŸ”„ Auto Reply", "msg:autoreply")],
-                    [Button.inline("ðŸ“ Message Templates", "msg:templates")],
-                    [Button.inline("ðŸ”™ Back to Main", "menu:main")],
+                    [Button.inline("🔐 Message Templates", "msg:templates")],
+                    [Button.inline("🔙 Back to Main", "menu:main")],
                 ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
@@ -1146,7 +1157,7 @@ class MenuSystem:
     async def _send_automation_menu(self, user_id: int, message_id: int):
         """Send automation menu"""
         text = (
-            "âš¡ **Automation**\n\n"
+            "⚡ **Automation**\n\n"
             "Automate account actions and workflows.\n\n"
             "Available features:"
             "â€¢ Online maker (keep accounts online)\n"
@@ -1154,12 +1165,12 @@ class MenuSystem:
             "â€¢ Scheduled posts\n"
             "â€¢ Auto-join/leave groups"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_analytics_menu(self, user_id: int, message_id: int):
         """Send analytics menu"""
         text = (
-            "ðŸ“Š **Analytics**\n\n"
+            "📊 **Analytics**\n\n"
             "View account statistics and activity.\n\n"
             "Features coming soon:"
             "â€¢ Account health monitoring\n"
@@ -1167,17 +1178,17 @@ class MenuSystem:
             "â€¢ OTP destroyer statistics\n"
             "â€¢ Automation performance"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Main", "menu:main")]]
+        buttons = [[Button.inline("🔙 Back to Main", "menu:main")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _send_support_menu(self, user_id: int, message_id: int):
         """Send support menu"""
         text = (
-            "ðŸ†˜ **Support & Contact**\n\n"
+            "🆘 **Support & Contact**\n\n"
             "Need help? Contact our support team:\n\n"
             "ðŸ‘¨ðŸ’» **Developers:**\n"
             "â€¢ @Meher_Mankar\n"
             "â€¢ @Gutkesh\n\n"
-            "ðŸ“§ **Support:** https://t.me/ContactXYZrobot\n"
+            "🔐§ **Support:** https://t.me/ContactXYZrobot\n"
             "ðŸ› **Bug Reports:** Create an issue on GitHub\n\n"
             "â° **Response Time:** Usually within 24 hours\n\n"
             "ðŸ’¬ **Tips:**\n"
@@ -1195,7 +1206,7 @@ class MenuSystem:
             
             # Check if account manager and handlers are available
             if not self.account_manager:
-                await event.answer("âŒ Service unavailable", alert=True)
+                await event.answer("❌ Service unavailable", alert=True)
                 return
             
             # Get twofa_commands handler
@@ -1207,7 +1218,7 @@ class MenuSystem:
             
             if action in ["set", "change", "remove"]:
                 if not twofa_handler:
-                    await event.answer("âŒ 2FA management not available", alert=True)
+                    await event.answer("❌ 2FA management not available", alert=True)
                     return
                 await twofa_handler.handle_2fa_callback(event, user_id, data)
             elif action == "status":
@@ -1217,10 +1228,10 @@ class MenuSystem:
                         user_id, account_id, event.message_id
                     )
                 else:
-                    await event.answer("âŒ 2FA management not available", alert=True)
+                    await event.answer("❌ 2FA management not available", alert=True)
         except Exception as e:
             logger.error(f"2FA callback error: {e}")
-            await event.answer("âŒ Error processing 2FA request", alert=True)
+            await event.answer("❌ Error processing 2FA request", alert=True)
     async def _handle_profile_callback(self, event, user_id: int, data: str):
         """Handle profile-related callbacks"""
         parts = data.split(":")
@@ -1278,13 +1289,13 @@ class MenuSystem:
                         else:
                             await self.account_manager.online_maker.stop_online_maker(user_id, account_identifier)
                     status = "started" if new_status else "stopped"
-                    status_emoji = "âœ…" if new_status else "âŒ"
+                    status_emoji = "✅" if new_status else "❌"
                     await event.answer(f"{status_emoji} Online maker {status}!")
                     await self.send_account_management(
                         user_id, account_id, event.message_id
                     )
             except Exception as e:
-                await event.answer("âŒ Error toggling online maker")
+                await event.answer("❌ Error toggling online maker")
     async def _handle_automation_callback(self, event, user_id: int, data: str):
         """Handle automation callbacks"""
         parts = data.split(":")
@@ -1313,7 +1324,7 @@ class MenuSystem:
             f"Loading session information...\n\n"
             f"This will show all active login sessions for the account."
         )
-        buttons = [[Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")]]
+        buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _toggle_online_maker(
         self, user_id: int, account_id: str, message_id: int
@@ -1333,8 +1344,8 @@ class MenuSystem:
                 )
                 status = "enabled" if new_status else "disabled"
                 interval = account.get("online_maker_interval", 300)
-                text = f"ðŸŸ¢ **Online Maker {status.title()}**\n\nAccount: {account['name']}\nStatus: {status}\nInterval: {interval}s"
-                buttons = [[Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")]]
+                text = f"🟢 **Online Maker {status.title()}**\n\nAccount: {account['name']}\nStatus: {status}\nInterval: {interval}s"
+                buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to toggle online maker: {e}")
@@ -1343,7 +1354,7 @@ class MenuSystem:
     ):
         """Send automation management for account"""
         text = (
-            f"âš¡ **Automation Management**\n\n"
+            f"⚡ **Automation Management**\n\n"
             f"Configure automation rules and jobs.\n\n"
             f"Available options:"
             f"â€¢ Online maker\n"
@@ -1351,8 +1362,8 @@ class MenuSystem:
             f"â€¢ Scheduled actions"
         )
         buttons = [
-            [Button.inline("ðŸŸ¢ Online Maker", f"online:toggle:{account_id}")],
-            [Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")],
+            [Button.inline("🟢 Online Maker", f"online:toggle:{account_id}")],
+            [Button.inline("🔙 Back", f"account:manage:{account_id}")],
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_profile_name_change(self, user_id: int, account_id: str, event):
@@ -1537,13 +1548,13 @@ class MenuSystem:
             from ..core.config import MAX_ACCOUNTS
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
             if not user:
-                await event.answer("âŒ Please start the bot first")
+                await event.answer("❌ Please start the bot first")
                 return
             account_count = await mongodb.db.accounts.count_documents(
                 {"user_id": user_id}
             )
             if account_count >= MAX_ACCOUNTS:
-                await event.answer(f"âŒ Maximum account limit ({MAX_ACCOUNTS}) reached")
+                await event.answer(f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached")
                 return
             if self.account_manager:
                 self.account_manager.pending_actions[user_id] = {
@@ -1552,16 +1563,16 @@ class MenuSystem:
                 text = (
                     "âž• **Add New Account**\n\n"
                     "Reply with the phone number for the new account.\n\n"
-                    "ðŸ“± Format: +1234567890 (include country code)\n"
+                    "📱 Format: +1234567890 (include country code)\n"
                     "ðŸ’¡ Tip: Enter OTP codes as 1-2-3-4-5 (with hyphens)"
                 )
                 await event.answer("âž• Reply with phone number")
                 await self.bot.send_message(user_id, text)
             else:
-                await event.answer("âŒ Service unavailable")
+                await event.answer("❌ Service unavailable")
         except Exception as e:
             logger.error(f"Failed to handle add account: {e}")
-            await event.answer("âŒ Error processing request")
+            await event.answer("❌ Error processing request")
     async def _handle_remove_account(self, event, user_id: int):
         """Handle remove account request"""
         try:
@@ -1570,24 +1581,24 @@ class MenuSystem:
                 length=None
             )
             if not accounts:
-                await self.bot.send_message(user_id, "âŒ No accounts to remove.")
+                await self.bot.send_message(user_id, "❌ No accounts to remove.")
                 return
-            text = "ðŸ—‘ï¸ **Remove Account**\n\nSelect an account to remove:"
+            text = "🗑️ **Remove Account**\n\nSelect an account to remove:"
             buttons = []
             for account in accounts:
                 buttons.append(
                     [
                         Button.inline(
-                            f"ðŸ—‘ï¸ {account['name']} ({account['phone']})",
+                            f"🗑️ {account['name']} ({account['phone']})",
                             f"remove:confirm:{account['_id']}",
                         )
                     ]
                 )
-            buttons.append([Button.inline("ðŸ”™ Back to Accounts", "menu:accounts")])
+            buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle remove account: {e}")
-            await event.reply("âŒ Error processing remove account request")
+            await event.reply("❌ Error processing remove account request")
     async def _execute_remove_account(self, event, user_id: int, account_id: str):
         """Execute account removal"""
         try:
@@ -1600,26 +1611,26 @@ class MenuSystem:
                 success, message = await self.account_manager.remove_account_by_id(user_id, account_id)
                 message = "Account removed successfully" if success else "Failed to remove account"
                 if success:
-                    await event.answer("âœ… Account removed successfully!")
+                    await event.answer("✅ Account removed successfully!")
                     await self.bot.edit_message(
                         user_id,
                         event.message_id,
-                        "âœ… **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\nðŸ” Session terminated from Telegram\nðŸ” Stored 2FA password also removed for security",
-                        buttons=[[Button.inline("ðŸ”™ Back to Accounts", "menu:accounts")]],
+                        "✅ **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\nðŸ” Session terminated from Telegram\nðŸ” Stored 2FA password also removed for security",
+                        buttons=[[Button.inline("🔙 Back to Accounts", "menu:accounts")]],
                     )
                 else:
-                    await event.answer(f"âŒ Failed to remove account: {message}")
+                    await event.answer(f"❌ Failed to remove account: {message}")
                     await self.bot.edit_message(
                         user_id,
                         event.message_id,
-                        f"âŒ **Removal Failed**\n\n{message}",
-                        buttons=[[Button.inline("ðŸ”™ Back to Accounts", "menu:accounts")]],
+                        f"❌ **Removal Failed**\n\n{message}",
+                        buttons=[[Button.inline("🔙 Back to Accounts", "menu:accounts")]],
                     )
             else:
-                await event.answer("âŒ Service unavailable")
+                await event.answer("❌ Service unavailable")
         except Exception as e:
             logger.error(f"Failed to execute remove account: {e}")
-            await event.reply("âŒ Error executing account removal")
+            await event.reply("❌ Error executing account removal")
     async def _handle_messaging_callback(self, event, user_id: int, data: str):
         """Handle messaging-related callbacks"""
         parts = data.split(":")
@@ -1656,14 +1667,14 @@ class MenuSystem:
                 "account_id": account_id,
             }
             text = (
-                "ðŸ“¤ **Compose Message**\n\n"
+                "📤 **Compose Message**\n\n"
                 "Reply with the target (username, phone, or chat ID):\n\n"
                 "Examples:\n"
                 "â€¢ @username\n"
                 "â€¢ +1234567890\n"
                 "â€¢ -1001234567890 (for groups/channels)"
             )
-            await event.answer("ðŸ“¤ Reply with target")
+            await event.answer("📤 Reply with target")
             await self.bot.send_message(user_id, text)
     async def _handle_autoreply_callback(self, event, user_id: int, data: str):
         """Handle auto-reply callbacks"""
@@ -1699,25 +1710,25 @@ class MenuSystem:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if not account:
-                await self.bot.send_message(user_id, "âŒ Account not found")
+                await self.bot.send_message(user_id, "❌ Account not found")
                 return
             auto_enabled = account.get("auto_reply_enabled", False)
             auto_message = account.get("auto_reply_message", "Not set")
             text = (
                 f"ðŸ”„ **Auto Reply: {account['name']}**\n\n"
-                f"Status: {'ðŸŸ¢ Enabled' if auto_enabled else 'ðŸ”´ Disabled'}\n"
+                f"Status: {'🟢 Enabled' if auto_enabled else 'ðŸ”´ Disabled'}\n"
                 f"Message: {auto_message[:50]}{'...' if len(auto_message) > 50 else ''}\n\n"
                 f"Configure auto-reply settings:"
             )
-            toggle_text = "ðŸ”´ Disable" if auto_enabled else "ðŸŸ¢ Enable"
+            toggle_text = "ðŸ”´ Disable" if auto_enabled else "🟢 Enable"
             buttons = [
                 [
                     Button.inline(
                         f"{toggle_text} Auto Reply", f"autoreply:toggle:{account_id}"
                     )
                 ],
-                [Button.inline("ðŸ“ Set Message", f"autoreply:set:{account_id}")],
-                [Button.inline("ðŸ”™ Back", "msg:autoreply")],
+                [Button.inline("🔐 Set Message", f"autoreply:set:{account_id}")],
+                [Button.inline("🔙 Back", "msg:autoreply")],
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
@@ -1739,7 +1750,7 @@ class MenuSystem:
                 await self._send_autoreply_management(user_id, account_id, event.message_id)
         except Exception as e:
             logger.error(f"Toggle autoreply error: {e}")
-            await event.answer("âŒ Error toggling auto-reply")
+            await event.answer("❌ Error toggling auto-reply")
     async def _set_autoreply_message(self, user_id: int, account_id: str, event):
         """Set auto-reply message"""
         if self.account_manager:
@@ -1748,11 +1759,11 @@ class MenuSystem:
                 "account_id": account_id,
             }
             text = (
-                "ðŸ“ **Set Auto-Reply Message**\n\n"
+                "🔐 **Set Auto-Reply Message**\n\n"
                 "Reply with the message to send automatically:\n\n"
                 "This message will be sent to anyone who messages this account."
             )
-            await event.answer("ðŸ“ Reply with message")
+            await event.answer("🔐 Reply with message")
             await self.bot.send_message(user_id, text)
     async def _send_bulk_sender_menu(self, user_id: int, message_id: int):
         """Send bulk sender management menu - delegated to MessagingOperations"""
@@ -1784,20 +1795,20 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.answer("âŒ No accounts found")
+                await event.answer("❌ No accounts found")
                 return
             text = (
-                "ðŸ“‹ **Bulk Send to List**\n\n"
+                "🔐‹ **Bulk Send to List**\n\n"
                 "Step 1: Select account to send from:\n\n"
             )
             buttons = []
             for account in accounts:
-                status = "âœ…" if account.get("is_active", False) else "âŒ"
+                status = "✅" if account.get("is_active", False) else "❌"
                 button_text = f"{status} {account['name']}"
                 buttons.append([Button.inline(button_text, f"bulk_list_account:{account['_id']}")])
-            buttons.append([Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")])
+            buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-            await event.answer("ðŸ“‹ Select account")
+            await event.answer("🔐‹ Select account")
         except Exception as e:
             logger.error(f"Failed to start bulk list flow: {e}")
     async def _start_bulk_contacts_flow(self, user_id: int, event):
@@ -1811,21 +1822,21 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.answer("âŒ No accounts found")
+                await event.answer("❌ No accounts found")
                 return
             text = (
-                "ðŸ‘¥ **Bulk Send to Contacts**\n\n"
+                "👥 **Bulk Send to Contacts**\n\n"
                 "Step 1: Select account to send from:\n\n"
                 "This will send to ALL contacts of the selected account."
             )
             buttons = []
             for account in accounts:
-                status = "âœ…" if account.get("is_active", False) else "âŒ"
+                status = "✅" if account.get("is_active", False) else "❌"
                 button_text = f"{status} {account['name']}"
                 buttons.append([Button.inline(button_text, f"bulk_contacts_account:{account['_id']}")])
-            buttons.append([Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")])
+            buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-            await event.answer("ðŸ‘¥ Select account")
+            await event.answer("👥 Select account")
         except Exception as e:
             logger.error(f"Failed to start bulk contacts flow: {e}")
     async def _start_bulk_all_flow(self, user_id: int, event):
@@ -1839,14 +1850,14 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.answer("âŒ No accounts found")
+                await event.answer("❌ No accounts found")
                 return
             if self.account_manager:
                 self.account_manager.pending_actions[user_id] = {
                     "action": "bulk_all_targets"
                 }
             text = (
-                f"ðŸŒ **Bulk Send from All Accounts**\n\n"
+                f"🌌 **Bulk Send from All Accounts**\n\n"
                 f"This will send from ALL {len(accounts)} accounts.\n\n"
                 "Step 1: Reply with target usernames/IDs (comma-separated):\n\n"
                 "**Examples:**\n"
@@ -1855,7 +1866,7 @@ class MenuSystem:
                 "Reply with the targets:"
             )
             await self.bot.edit_message(user_id, event.message_id, text)
-            await event.answer("ðŸŒ Reply with targets")
+            await event.answer("🌌 Reply with targets")
         except Exception as e:
             logger.error(f"Failed to start bulk all flow: {e}")
     async def _show_bulk_jobs(self, user_id: int, message_id: int):
@@ -1868,19 +1879,19 @@ class MenuSystem:
         """Legacy bulk jobs display"""
         try:
             if not hasattr(self.account_manager, 'bulk_sender'):
-                text = "âŒ Bulk sender not available"
-                buttons = [[Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")]]
+                text = "❌ Bulk sender not available"
+                buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
             else:
                 user_jobs = [job for job in self.account_manager.bulk_sender.active_jobs.values() if job['user_id'] == user_id]
                 if not user_jobs:
-                    text = "ðŸ“Š **Active Bulk Jobs**\n\nðŸ’­ No active jobs found."
-                    buttons = [[Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")]]
+                    text = "📊 **Active Bulk Jobs**\n\nðŸ’­ No active jobs found."
+                    buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
                 else:
-                    text = f"ðŸ“Š **Active Bulk Jobs** ({len(user_jobs)})\n\n"
+                    text = f"📊 **Active Bulk Jobs** ({len(user_jobs)})\n\n"
                     buttons = []
                     for job in user_jobs:
                         progress = f"{job['sent']}/{job['total']}"
-                        status_emoji = "âœ…" if job['status'] == 'running' else "âŒ"
+                        status_emoji = "✅" if job['status'] == 'running' else "❌"
                         account_info = f" [{job['account_name']}]" if job.get('multi_account') else ""
                         text += f"{status_emoji} **Job {job['id'][:8]}**{account_info}\n"
                         text += f"   Progress: {progress} ({job['status']})\n"
@@ -1890,7 +1901,7 @@ class MenuSystem:
                         if job['status'] == 'running':
                             buttons.append([Button.inline(f"â¹ï¸ Stop {job['id'][:8]}", f"bulk:stop:{job['id']}")])
                     buttons.append([Button.inline("ðŸ”„ Refresh", "bulk:jobs")])
-                    buttons.append([Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")])
+                    buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to show bulk jobs: {e}")
@@ -1923,7 +1934,7 @@ class MenuSystem:
             "â€¢ Commands provide more advanced options\n"
             "â€¢ Jobs run in background with progress updates"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Bulk Sender", "msg:bulk")]]
+        buttons = [[Button.inline("🔙 Back to Bulk Sender", "msg:bulk")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_simulate_callback(self, event, user_id: int, data: str):
         await self.callback_handlers.handle_simulate_callback(event, user_id, data)
@@ -1965,16 +1976,16 @@ class MenuSystem:
                             self.account_manager.activity_simulator.simulation_tasks[task_key].cancel()
                             del self.account_manager.activity_simulator.simulation_tasks[task_key]
                 status = "enabled" if new_status else "disabled"
-                status_emoji = "ðŸŽ­" if new_status else "ðŸ”´"
+                status_emoji = "🎭" if new_status else "ðŸ”´"
                 await event.answer(f"{status_emoji} Activity simulation {status}!")
                 await self.send_account_management(
                     user_id, account_id, event.message_id
                 )
             else:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
         except Exception as e:
             logger.error(f"Toggle simulation error: {e}")
-            await event.answer("âŒ Error toggling simulation")
+            await event.answer("❌ Error toggling simulation")
     async def _show_simulation_status(
         self, user_id: int, account_id: str, message_id: int
     ):
@@ -1986,12 +1997,12 @@ class MenuSystem:
             )
             if account:
                 status = (
-                    "âœ… Active"
+                    "✅ Active"
                     if account.get("simulation_enabled", False)
-                    else "âŒ Inactive"
+                    else "❌ Inactive"
                 )
                 text = (
-                    f"ðŸŽ­ **Activity Simulator: {account['name']}**\n\n"
+                    f"🎭 **Activity Simulator: {account['name']}**\n\n"
                     f"Status: {status}\n\n"
                     f"The simulator performs human-like activities:\n"
                     f"â€¢ Views random channels/groups\n"
@@ -2004,7 +2015,7 @@ class MenuSystem:
                 toggle_text = (
                     "ðŸ”´ Disable"
                     if account.get("simulation_enabled", False)
-                    else "ðŸŸ¢ Enable"
+                    else "🟢 Enable"
                 )
                 buttons = [
                     [
@@ -2014,14 +2025,14 @@ class MenuSystem:
                     ],
                     [
                         Button.inline(
-                            "ðŸ“‹ Activity Log (4h)", f"simulate:log:{account_id}"
+                            "🔐‹ Activity Log (4h)", f"simulate:log:{account_id}"
                         )
                     ],
-                    [Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")],
+                    [Button.inline("🔙 Back", f"account:manage:{account_id}")],
                 ]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             else:
-                await self.bot.send_message(user_id, "âŒ Account not found")
+                await self.bot.send_message(user_id, "❌ Account not found")
         except Exception as e:
             logger.error(f"Show simulation status error: {e}")
     async def _show_activity_log(self, user_id: int, account_id: str, message_id: int):
@@ -2054,7 +2065,7 @@ class MenuSystem:
                     else:
                         stats_text = "No active simulation session found."
                 text = (
-                    f"ðŸ“Š **Simulation Stats: {account['name']}**\n\n"
+                    f"📊 **Simulation Stats: {account['name']}**\n\n"
                     f"{stats_text}\n\n"
                     f"**Activity Types:**\n"
                     f"â€¢ Channel/Group browsing\n"
@@ -2065,15 +2076,15 @@ class MenuSystem:
                 )
                 buttons = [
                     [Button.inline("ðŸ”„ Refresh", f"simulate:stats:{account_id}")],
-                    [Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")]
+                    [Button.inline("🔙 Back", f"account:manage:{account_id}")]
                 ]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             else:
-                await self.bot.send_message(user_id, "âŒ Account not found")
+                await self.bot.send_message(user_id, "❌ Account not found")
         except Exception as e:
             logger.error(f"Show simulation stats error: {e}")
-            text = "âŒ Error loading simulation statistics"
-            buttons = [[Button.inline("ðŸ”™ Back", f"account:manage:{account_id}")]]
+            text = "❌ Error loading simulation statistics"
+            buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_audit_callback(self, event, user_id: int, data: str):
         """Handle audit-related callbacks"""
@@ -2097,7 +2108,7 @@ class MenuSystem:
                     self.bot, user_id, account_id, event.message_id
                 )
         else:
-            await event.answer("âŒ Audit system unavailable")
+            await event.answer("❌ Audit system unavailable")
     async def _handle_manage_callback(self, event, user_id: int, data: str):
         """Handle channel management account selection"""
         account_phone = data.split(":")[1]
@@ -2106,18 +2117,18 @@ class MenuSystem:
         self, user_id: int, account_phone: str, message_id: int
     ):
         """Send channel actions menu for selected account"""
-        text = f"ðŸ“± **Managing: {account_phone}**\n\nWhat would you like to do?"
+        text = f"📱 **Managing: {account_phone}**\n\nWhat would you like to do?"
         buttons = [
             [
                 Button.inline("ðŸ”— Join Channel", f"channel:join:{account_phone}"),
-                Button.inline("ðŸš« Leave Channel", f"channel:leave:{account_phone}"),
+                Button.inline("🚫 Leave Channel", f"channel:leave:{account_phone}"),
             ],
             [
-                Button.inline("ðŸ†• Create Channel", f"channel:create:{account_phone}"),
-                Button.inline("ðŸ—‘ï¸ Delete Channel", f"channel:delete:{account_phone}"),
+                Button.inline("🆕 Create Channel", f"channel:create:{account_phone}"),
+                Button.inline("🗑️ Delete Channel", f"channel:delete:{account_phone}"),
             ],
-            [Button.inline("ðŸ“‹ List Channels", f"channel:list:{account_phone}")],
-            [Button.inline("ðŸ”™ Back to Accounts", "back:accounts")],
+            [Button.inline("🔐‹ List Channels", f"channel:list:{account_phone}")],
+            [Button.inline("🔙 Back to Accounts", "back:accounts")],
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_channels_pagination(self, event, user_id: int, data: str):
@@ -2138,9 +2149,9 @@ class MenuSystem:
             start_idx = page * per_page
             end_idx = min(start_idx + per_page, len(channels))
             page_channels = channels[start_idx:end_idx]
-            text = f"ðŸ“‹ **Channels for {account_phone}** (Page {page + 1}/{total_pages})\n\n"
+            text = f"🔐‹ **Channels for {account_phone}** (Page {page + 1}/{total_pages})\n\n"
             for i, ch in enumerate(page_channels, start_idx + 1):
-                emoji = "ðŸ“¢" if ch["type"] == "channel" else "ðŸ‘¥"
+                emoji = "🔐¢" if ch["type"] == "channel" else "👥"
                 type_text = "Channel" if ch["type"] == "channel" else "Group"
                 username = f"@{ch['username']}" if ch["username"] else f"ID: {ch['id']}"
                 text += (
@@ -2161,7 +2172,7 @@ class MenuSystem:
             buttons = []
             if nav_buttons:
                 buttons.append(nav_buttons)
-            buttons.append([Button.inline("ðŸ”™ Back", f"manage:{account_phone}")])
+            buttons.append([Button.inline("🔙 Back", f"manage:{account_phone}")])
             await event.answer(f"Page {page + 1}")
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
@@ -2183,20 +2194,20 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "âœ¨ **Fresh Sessions**\n\nâŒ No accounts found. Add accounts first to create fresh sessions."
-                buttons = [[Button.inline("ðŸ”™ Back to Accounts", "menu:accounts")]]
+                text = "âœ¨ **Fresh Sessions**\n\n❌ No accounts found. Add accounts first to create fresh sessions."
+                buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
             else:
                 text = "âœ¨ **Fresh Sessions**\n\nSelect account to create fresh session for:"
                 buttons = []
                 for account in accounts:
-                    status = "âœ…" if account.get("is_active", False) else "âŒ"
+                    status = "✅" if account.get("is_active", False) else "❌"
                     display_name = self.format_display_name(account)
                     buttons.append([Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
-                buttons.append([Button.inline("ðŸ”™ Back to Accounts", "menu:accounts")])
+                buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle export sessions: {e}")
-            await event.answer("âŒ Error loading export sessions")
+            await event.answer("❌ Error loading export sessions")
     
     async def _handle_export_session_select(self, event, user_id: int, account_name: str):
         """Handle export session selection"""
@@ -2204,19 +2215,19 @@ class MenuSystem:
             # Find account by name
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             display_name = self.format_display_name(account)
             text = f"âœ¨ **Fresh Session: {display_name}**\n\nThis will create a completely new session:"
             buttons = [
                 [Button.inline("âœ¨ Create Fresh Session", f"export_fresh:{account_name}")],
-                [Button.inline("ðŸ”™ Back to Export", "export_sessions")]
+                [Button.inline("🔙 Back to Export", "export_sessions")]
             ]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle export session select: {e}")
-            await event.answer("âŒ Error processing export selection")
+            await event.answer("❌ Error processing export selection")
     
     async def _handle_export_session_file(self, event, user_id: int, account_name: str):
         """Handle export session file"""
@@ -2224,25 +2235,25 @@ class MenuSystem:
             # Find account by name
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             if not account.get("is_active", False):
-                await event.answer("âŒ Account is not connected")
+                await event.answer("❌ Account is not connected")
                 return
             
             # Use account manager to export session file
             if hasattr(self.account_manager, 'export_session_file'):
                 success, message = await self.account_manager.export_session_file(user_id, account['phone'])
                 if success:
-                    await event.answer("âœ… Session file exported successfully")
+                    await event.answer("✅ Session file exported successfully")
                 else:
-                    await event.answer(f"âŒ Export failed: {message}")
+                    await event.answer(f"❌ Export failed: {message}")
             else:
-                await event.answer("âŒ Export functionality not available")
+                await event.answer("❌ Export functionality not available")
         except Exception as e:
             logger.error(f"Failed to export session file: {e}")
-            await event.answer("âŒ Error exporting session file")
+            await event.answer("❌ Error exporting session file")
     
     async def _handle_export_fresh_session(self, event, user_id: int, account_name: str):
         """Handle export session string with DC information"""
@@ -2250,11 +2261,11 @@ class MenuSystem:
             # Find account by name
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             if not account.get("is_active", False):
-                await event.answer("âŒ Account is not connected")
+                await event.answer("❌ Account is not connected")
                 return
             
             # Get client from account manager
@@ -2279,10 +2290,10 @@ class MenuSystem:
                         
                         # Format message with prominent DC information
                         message = (
-                            f"ðŸ“ **Session Export - {dc_display}**\n\n"
-                            f"ðŸ“± **Account:** {display_name}\n"
-                            f"ðŸ“ž **Phone:** {phone}\n"
-                            f"ðŸŒ **Data Center:** {dc_display}\n\n"
+                            f"🔐 **Session Export - {dc_display}**\n\n"
+                            f"📱 **Account:** {display_name}\n"
+                            f"📞 **Phone:** {phone}\n"
+                            f"🌌 **Data Center:** {dc_display}\n\n"
                             f"**Session String:**\n"
                             f"```\n{session_string}\n```\n\n"
                             f"**Usage Example:**\n"
@@ -2296,25 +2307,25 @@ class MenuSystem:
                             f")\n"
                             f"await client.start()\n"
                             f"```\n\n"
-                            f"âš ï¸ **Keep this {dc_display} session secure!**"
+                            f"⚠️ **Keep this {dc_display} session secure!**"
                         )
                         
                         from telethon import Button
-                        buttons = [[Button.inline("ðŸ”™ Back to Export", "export_sessions")]]
+                        buttons = [[Button.inline("🔙 Back to Export", "export_sessions")]]
                         await event.answer()
                         await self.bot.edit_message(user_id, event.message_id, message, buttons=buttons)
                         
                     except Exception as e:
                         logger.error(f"Error getting session data: {e}")
-                        await event.answer("âŒ Error extracting session data")
+                        await event.answer("❌ Error extracting session data")
                 else:
-                    await event.answer("âŒ Account client not connected")
+                    await event.answer("❌ Account client not connected")
             else:
-                await event.answer("âŒ Account client not found")
+                await event.answer("❌ Account client not found")
                 
         except Exception as e:
             logger.error(f"Failed to export session string: {e}")
-            await event.answer("âŒ Error exporting session string")
+            await event.answer("❌ Error exporting session string")
     
     async def _handle_export_contacts(self, event, user_id: int, account_name: str):
         """Handle export contacts"""
@@ -2322,11 +2333,11 @@ class MenuSystem:
             # Find account by name
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             if not account.get("is_active", False):
-                await event.answer("âŒ Account is not connected")
+                await event.answer("❌ Account is not connected")
                 return
             
             # Use contact export handler
@@ -2335,14 +2346,14 @@ class MenuSystem:
                 export_handler = ContactExportHandler(self.account_manager)
                 success, message = await export_handler.export_contacts_to_csv(user_id, account['phone'])
                 if success:
-                    await event.answer("âœ… Contacts exported successfully")
+                    await event.answer("✅ Contacts exported successfully")
                 else:
-                    await event.answer(f"âŒ Export failed: {message}")
+                    await event.answer(f"❌ Export failed: {message}")
             except ImportError:
-                await event.answer("âŒ Contact export handler not available")
+                await event.answer("❌ Contact export handler not available")
         except Exception as e:
             logger.error(f"Failed to export contacts: {e}")
-            await event.answer("âŒ Error exporting contacts")
+            await event.answer("❌ Error exporting contacts")
     
     async def _show_otp_statistics(self, user_id: int, message_id: int):
         """Show OTP statistics using the OTP metrics service"""
@@ -2371,7 +2382,7 @@ class MenuSystem:
             
             # Build statistics text
             text = (
-                "ðŸ“Š **OTP Statistics (Last 30 Days)**\n\n"
+                "📊 **OTP Statistics (Last 30 Days)**\n\n"
                 f"ðŸ•° **Global Summary:**\n"
                 f"â€¢ Total Blocks: {global_stats.get('total_blocked', 0):,}\n"
                 f"â€¢ Total Allows: {global_stats.get('total_allowed', 0):,}\n"
@@ -2390,7 +2401,7 @@ class MenuSystem:
                     user_total_allows += account_stats.get('total_allowed', 0)
                 
                 text += (
-                    f"ðŸ“± **Your Accounts:**\n"
+                    f"📱 **Your Accounts:**\n"
                     f"â€¢ Your Blocks: {user_total_blocks:,}\n"
                     f"â€¢ Your Allows: {user_total_allows:,}\n"
                     f"â€¢ Managed Accounts: {len(accounts)}\n\n"
@@ -2407,10 +2418,10 @@ class MenuSystem:
             
             # Add activity sparkline
             if sparkline:
-                text += f"ðŸ“ˆ **Activity (Last 7 Days):**\n{sparkline}\n\n"
+                text += f"🔐ˆ **Activity (Last 7 Days):**\n{sparkline}\n\n"
             
             text += (
-                "ðŸ“ **Legend:**\n"
+                "🔐 **Legend:**\n"
                 "â€¢ Blocks: Unauthorized login attempts stopped\n"
                 "â€¢ Allows: Legitimate OTP codes forwarded\n"
                 "â€¢ Success Rate: Percentage of malicious attempts blocked"
@@ -2418,7 +2429,7 @@ class MenuSystem:
             
             buttons = [
                 [Button.inline("ðŸ”„ Refresh Stats", "otp:stats")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
@@ -2426,11 +2437,11 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Error showing OTP statistics: {e}")
             text = (
-                "ðŸ“Š **OTP Statistics**\n\n"
-                "âŒ Error loading statistics. Please try again.\n\n"
+                "📊 **OTP Statistics**\n\n"
+                "❌ Error loading statistics. Please try again.\n\n"
                 f"Error: {str(e)}"
             )
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     def validate_session_string(self, session_string: str) -> dict:
@@ -2471,8 +2482,8 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ›¡ï¸ **Enable All OTP Destroyers**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+                text = "🛡️ **Enable All OTP Destroyers**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
                 return
             
@@ -2493,23 +2504,23 @@ class MenuSystem:
                     logger.error(f"Error enabling OTP for account {account['name']}: {e}")
             
             text = (
-                f"ðŸ›¡ï¸ **Bulk Enable Complete**\n\n"
-                f"âœ… Enabled OTP Destroyer for {enabled_count}/{len(accounts)} accounts\n\n"
+                f"🛡️ **Bulk Enable Complete**\n\n"
+                f"✅ Enabled OTP Destroyer for {enabled_count}/{len(accounts)} accounts\n\n"
                 f"ðŸ”´ Forward disabled for all accounts (security best practice)\n\n"
-                f"ðŸ›¡ï¸ All your accounts are now protected!"
+                f"🛡️ All your accounts are now protected!"
             )
             
             buttons = [
-                [Button.inline("ðŸ“Š View Statistics", "otp:stats")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("📊 View Statistics", "otp:stats")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in bulk OTP enable: {e}")
-            text = f"âŒ Error enabling OTP Destroyers: {str(e)}"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = f"❌ Error enabling OTP Destroyers: {str(e)}"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
     async def _handle_bulk_otp_disable(self, user_id: int, message_id: int):
@@ -2517,8 +2528,8 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ”´ **Disable All OTP Destroyers**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+                text = "ðŸ”´ **Disable All OTP Destroyers**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
                 return
             
@@ -2537,22 +2548,22 @@ class MenuSystem:
             
             text = (
                 f"ðŸ”´ **Bulk Disable Complete**\n\n"
-                f"âŒ Disabled OTP Destroyer for {disabled_count}/{len(accounts)} accounts\n\n"
-                f"âš ï¸ **WARNING:** All your accounts are now vulnerable to unauthorized login attempts!\n\n"
-                f"ðŸ›¡ï¸ Consider re-enabling protection when needed."
+                f"❌ Disabled OTP Destroyer for {disabled_count}/{len(accounts)} accounts\n\n"
+                f"⚠️ **WARNING:** All your accounts are now vulnerable to unauthorized login attempts!\n\n"
+                f"🛡️ Consider re-enabling protection when needed."
             )
             
             buttons = [
-                [Button.inline("ðŸ›¡ï¸ Enable All Again", "otp:enable_all")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("🛡️ Enable All Again", "otp:enable_all")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in bulk OTP disable: {e}")
-            text = f"âŒ Error disabling OTP Destroyers: {str(e)}"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = f"❌ Error disabling OTP Destroyers: {str(e)}"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
     async def _show_global_audit_log(self, user_id: int, message_id: int):
@@ -2560,8 +2571,8 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ“‹ **Global OTP Audit Log**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+                text = "🔐‹ **Global OTP Audit Log**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
                 return
             
@@ -2579,9 +2590,9 @@ class MenuSystem:
             all_entries.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
             
             if not all_entries:
-                text = "ðŸ“‹ **Global OTP Audit Log**\n\nðŸ’­ No audit entries found across all accounts."
+                text = "🔐‹ **Global OTP Audit Log**\n\nðŸ’­ No audit entries found across all accounts."
             else:
-                text = f"ðŸ“‹ **Global OTP Audit Log**\n\nShowing last {min(15, len(all_entries))} entries across all accounts:\n\n"
+                text = f"🔐‹ **Global OTP Audit Log**\n\nShowing last {min(15, len(all_entries))} entries across all accounts:\n\n"
                 
                 # Show last 15 entries
                 for entry in all_entries[:15]:
@@ -2594,11 +2605,11 @@ class MenuSystem:
                     
                     # Map actions to user-friendly messages
                     action_messages = {
-                        "otp_destroyed": f"ðŸ›¡ï¸ Blocked login code {entry.get('code', 'Unknown')}",
-                        "otp_forwarded": f"ðŸ“¤ Forwarded login code {entry.get('code', 'Unknown')}",
-                        "destroyer_enabled": "ðŸ›¡ï¸ OTP Destroyer enabled",
+                        "otp_destroyed": f"🛡️ Blocked login code {entry.get('code', 'Unknown')}",
+                        "otp_forwarded": f"📤 Forwarded login code {entry.get('code', 'Unknown')}",
+                        "destroyer_enabled": "🛡️ OTP Destroyer enabled",
                         "destroyer_disabled": "ðŸ”´ OTP Destroyer disabled",
-                        "forwarding_enabled": "ðŸ“¤ OTP Forwarding enabled",
+                        "forwarding_enabled": "📤 OTP Forwarding enabled",
                         "forwarding_disabled": "ðŸ”´ OTP Forwarding disabled",
                         "temp_passthrough_enabled": "â° 5-minute passthrough activated",
                         "temp_passthrough_expired": "â° 5-minute passthrough expired",
@@ -2612,16 +2623,16 @@ class MenuSystem:
             
             buttons = [
                 [Button.inline("ðŸ”„ Refresh Log", "otp:audit_all")],
-                [Button.inline("ðŸ“Š View Statistics", "otp:stats")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("📊 View Statistics", "otp:stats")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error showing global audit log: {e}")
-            text = f"âŒ Error loading global audit log: {str(e)}"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = f"❌ Error loading global audit log: {str(e)}"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_otp_setting_callback(self, event, user_id: int, data: str):
         """Handle OTP setting callbacks - direct enable/disable without old menu"""
@@ -2631,26 +2642,26 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.answer("âŒ No accounts found")
+                await event.answer("❌ No accounts found")
                 return
             
             if setting_type == "destroyer":
-                text = "ðŸ›¡ï¸ **OTP Destroyer Settings**\n\nSelect account to toggle OTP Destroyer:"
+                text = "🛡️ **OTP Destroyer Settings**\n\nSelect account to toggle OTP Destroyer:"
                 buttons = []
                 for account in accounts:
-                    status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
-                    destroyer_status = "ðŸ›¡ï¸" if account.get("otp_destroyer_enabled", False) else "âšª"
+                    status = "🟢" if account.get("is_active", False) else "ðŸ”´"
+                    destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     action = "disable" if account.get("otp_destroyer_enabled", False) else "enable"
                     button_text = f"{status}{destroyer_status} {display_name}"
                     buttons.append([Button.inline(button_text, f"otp:{action}:{account['_id']}")])
                     
             elif setting_type == "forward":
-                text = "ðŸ“¤ **OTP Forward Settings**\n\nSelect account to toggle OTP Forward:"
+                text = "📤 **OTP Forward Settings**\n\nSelect account to toggle OTP Forward:"
                 buttons = []
                 for account in accounts:
-                    status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
-                    forward_status = "ðŸ“¤" if account.get("otp_forward_enabled", False) else "âšª"
+                    status = "🟢" if account.get("is_active", False) else "ðŸ”´"
+                    forward_status = "📤" if account.get("otp_forward_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     action = "forward_disable" if account.get("otp_forward_enabled", False) else "forward_enable"
                     button_text = f"{status}{forward_status} {display_name}"
@@ -2660,26 +2671,26 @@ class MenuSystem:
                 text = "â° **Temp OTP Settings**\n\nSelect account to enable 5-minute temp OTP:"
                 buttons = []
                 for account in accounts:
-                    status = "ðŸŸ¢" if account.get("is_active", False) else "ðŸ”´"
-                    destroyer_status = "ðŸ›¡ï¸" if account.get("otp_destroyer_enabled", False) else "âšª"
+                    status = "🟢" if account.get("is_active", False) else "ðŸ”´"
+                    destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "⚪"
                     display_name = format_display_name(account)
                     button_text = f"{status}{destroyer_status} {display_name}"
                     buttons.append([Button.inline(button_text, f"otp:temp:{account['_id']}")])
             
-            buttons.append([Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")])
+            buttons.append([Button.inline("🔙 Back to OTP Manager", "menu:otp")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error in OTP setting callback: {e}")
-            await event.answer("âŒ Error processing OTP setting")
+            await event.answer("❌ Error processing OTP setting")
 
     async def _show_global_audit_log(self, user_id: int, message_id: int):
         """Show global audit log for all user accounts"""
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                text = "ðŸ“‹ **Global Audit Log**\n\nâŒ No accounts found."
-                buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+                text = "🔐‹ **Global Audit Log**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
                 await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
                 return
             
@@ -2693,9 +2704,9 @@ class MenuSystem:
             all_entries.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
             
             if not all_entries:
-                text = "ðŸ“‹ **Global Audit Log**\n\nðŸ’­ No audit entries found."
+                text = "🔐‹ **Global Audit Log**\n\nðŸ’­ No audit entries found."
             else:
-                text = f"ðŸ“‹ **Global Audit Log** (Last {len(all_entries)} entries)\n\n"
+                text = f"🔐‹ **Global Audit Log** (Last {len(all_entries)} entries)\n\n"
                 
                 for entry in all_entries[:15]:
                     timestamp = entry.get("timestamp", 0)
@@ -2706,34 +2717,34 @@ class MenuSystem:
                     time_str = time.strftime("%m-%d %H:%M", time.localtime(timestamp))
                     
                     if action in ["otp_destroyed", "invalidate_codes"]:
-                        emoji = "ðŸ›¡ï¸"
+                        emoji = "🛡️"
                         msg = f"Blocked login code {entry.get('code', 'Unknown')}"
                     elif action == "otp_forwarded":
-                        emoji = "ðŸ“¤"
+                        emoji = "📤"
                         msg = f"Forwarded login code {entry.get('code', 'Unknown')}"
                     elif action in ["destroyer_enabled", "enable_otp_destroyer"]:
-                        emoji = "ðŸŸ¢"
+                        emoji = "🟢"
                         msg = "OTP Destroyer enabled"
                     elif action in ["destroyer_disabled", "disable_otp_destroyer"]:
                         emoji = "ðŸ”´"
                         msg = "OTP Destroyer disabled"
                     else:
-                        emoji = "â„¹ï¸"
+                        emoji = "ℹ️"
                         msg = f"Action: {action}"
                     
                     text += f"{emoji} {time_str} [{account_name}]: {msg}\n"
             
             buttons = [
                 [Button.inline("ðŸ”„ Refresh", "otp:audit_all")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
             
         except Exception as e:
             logger.error(f"Error showing global audit log: {e}")
-            text = "âŒ Error loading global audit log"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = "❌ Error loading global audit log"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     async def _handle_otp_toggle_callback(self, event, user_id: int, data: str):
         """Handle direct OTP toggle callbacks without showing old menu"""
@@ -2747,7 +2758,7 @@ class MenuSystem:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if not account:
-                await event.answer("âŒ Account not found")
+                await event.answer("❌ Account not found")
                 return
             
             display_name = format_display_name(account)
@@ -2765,14 +2776,14 @@ class MenuSystem:
                 )
                 
                 if new_status:
-                    await event.answer(f"ðŸ›¡ï¸ OTP Destroyer enabled for {display_name}!")
+                    await event.answer(f"🛡️ OTP Destroyer enabled for {display_name}!")
                 else:
                     await event.answer(f"ðŸ”´ OTP Destroyer disabled for {display_name}!")
                     
             elif toggle_type == "forward":
                 # Check if destroyer is enabled first
                 if account.get("otp_destroyer_enabled", False):
-                    await event.answer("âŒ Cannot enable forward while OTP Destroyer is active")
+                    await event.answer("❌ Cannot enable forward while OTP Destroyer is active")
                     return
                     
                 current_status = account.get("otp_forward_enabled", False)
@@ -2784,13 +2795,13 @@ class MenuSystem:
                 )
                 
                 if new_status:
-                    await event.answer(f"ðŸ“¤ OTP Forward enabled for {display_name}!")
+                    await event.answer(f"📤 OTP Forward enabled for {display_name}!")
                 else:
                     await event.answer(f"ðŸ”´ OTP Forward disabled for {display_name}!")
                     
             elif toggle_type == "temp":
                 if not account.get("otp_destroyer_enabled", False):
-                    await event.answer("âš ï¸ Temp OTP only works when OTP Destroyer is enabled")
+                    await event.answer("⚠️ Temp OTP only works when OTP Destroyer is enabled")
                     return
                     
                 # Enable 5-minute temp passthrough
@@ -2822,7 +2833,7 @@ class MenuSystem:
             
         except Exception as e:
             logger.error(f"Error in OTP toggle callback: {e}")
-            await event.answer("âŒ Error toggling OTP setting")
+            await event.answer("❌ Error toggling OTP setting")
 
 
 
@@ -2834,23 +2845,23 @@ class MenuSystem:
                 stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
                 
                 text = (
-                    "ðŸ“Š **Messaging Analytics**\n\n"
-                    f"ðŸ“¤ **Total Messages:** {stats.get('total_messages_sent', 0)}\n"
-                    f"ðŸ¤– **Auto-Replies:** {stats.get('auto_replies_sent', 0)}\n"
-                    f"ðŸ“± **Active Accounts:** {stats.get('active_accounts', 0)}\n"
-                    f"ðŸ“¨ **DM Topics:** {stats.get('dm_topics_created', 0)}\n\n"
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 **Total Messages:** {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 **Auto-Replies:** {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 **Active Accounts:** {stats.get('active_accounts', 0)}\n"
+                    f"🔐¨ **DM Topics:** {stats.get('dm_topics_created', 0)}\n\n"
                     "ðŸ’¡ **Tip:** Enable auto-reply for better engagement"
                 )
             else:
-                text = "ðŸ“Š **Messaging Analytics**\n\nâŒ Analytics is unavailable for messages"
+                text = "📊 **Messaging Analytics**\n\n❌ Analytics is unavailable for messages"
             
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging statistics: {e}")
             from telethon import Button
-            text = "âŒ Analytics is unavailable for messages"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ Analytics is unavailable for messages"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_message_history(self, user_id: int, message_id: int):
@@ -2863,24 +2874,24 @@ class MenuSystem:
             recent_messages = await stats_service.get_recent_messages(user_id, limit=10)
             
             if not recent_messages:
-                text = "ðŸ“‹ **Message History**\n\nðŸ’­ No recent messages found."
+                text = "🔐‹ **Message History**\n\nðŸ’­ No recent messages found."
             else:
-                text = "ðŸ“‹ **Message History** (Last 10)\n\n"
+                text = "🔐‹ **Message History** (Last 10)\n\n"
                 for msg in recent_messages:
                     import time
                     timestamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(msg.get('timestamp', 0)))
                     target = msg.get('target', 'Unknown')
                     msg_type = msg.get('type', 'message')
-                    emoji = "ðŸ¤–" if msg_type == "auto_reply" else "ðŸ“¤"
+                    emoji = "🤖" if msg_type == "auto_reply" else "📤"
                     text += f"{emoji} {timestamp} â†’ {target}\n"
             
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing message history: {e}")
             from telethon import Button
-            text = "âŒ Message history is unavailable"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ Message history is unavailable"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_messaging_settings(self, user_id: int, message_id: int):
@@ -2893,9 +2904,9 @@ class MenuSystem:
             time_based_enabled = settings.get('time_based_replies_enabled', False)
             
             text = (
-                "âš™ï¸ **Messaging System Settings**\n\n"
-                f"ðŸ”‘ **Keyword Replies:** {'âœ… Enabled' if keyword_enabled else 'âŒ Disabled'}\n"
-                f"â° **Time-Based Replies:** {'âœ… Enabled' if time_based_enabled else 'âŒ Disabled'}\n\n"
+                "⚙️ **Messaging System Settings**\n\n"
+                f"ðŸ”‘ **Keyword Replies:** {'✅ Enabled' if keyword_enabled else '❌ Disabled'}\n"
+                f"â° **Time-Based Replies:** {'✅ Enabled' if time_based_enabled else '❌ Disabled'}\n\n"
                 "**Configure:**\n"
                 "â€¢ Auto-reply rules\n"
                 "â€¢ Message templates\n"
@@ -2905,17 +2916,17 @@ class MenuSystem:
             )
             
             buttons = [
-                [Button.inline("ðŸ¤– Auto-Reply Settings", "auto_reply:main")],
-                [Button.inline("ðŸ“ Template Settings", "template:main")],
-                [Button.inline("ðŸ“¨ DM Reply Settings", "dm_reply:main")],
-                [Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]
+                [Button.inline("🤖 Auto-Reply Settings", "auto_reply:main")],
+                [Button.inline("🔐 Template Settings", "template:main")],
+                [Button.inline("🔐¨ DM Reply Settings", "dm_reply:main")],
+                [Button.inline("🔙 Back to Messaging", "menu:messaging")]
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging settings: {e}")
             from telethon import Button
-            text = "âŒ System settings is unavailable"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ System settings is unavailable"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
 
@@ -2928,23 +2939,23 @@ class MenuSystem:
                 stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
                 
                 text = (
-                    "ðŸ“Š **Messaging Analytics**\n\n"
-                    f"ðŸ“¤ **Total Messages:** {stats.get('total_messages_sent', 0)}\n"
-                    f"ðŸ¤– **Auto-Replies:** {stats.get('auto_replies_sent', 0)}\n"
-                    f"ðŸ“± **Active Accounts:** {stats.get('active_accounts', 0)}\n"
-                    f"ðŸ“¨ **DM Topics:** {stats.get('dm_topics_created', 0)}\n\n"
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 **Total Messages:** {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 **Auto-Replies:** {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 **Active Accounts:** {stats.get('active_accounts', 0)}\n"
+                    f"🔐¨ **DM Topics:** {stats.get('dm_topics_created', 0)}\n\n"
                     "ðŸ’¡ **Tip:** Enable auto-reply for better engagement"
                 )
             else:
-                text = "ðŸ“Š **Messaging Analytics**\n\nâŒ Analytics is unavailable for messages"
+                text = "📊 **Messaging Analytics**\n\n❌ Analytics is unavailable for messages"
             
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging statistics: {e}")
             from telethon import Button
-            text = "âŒ Analytics is unavailable for messages"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ Analytics is unavailable for messages"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_message_history(self, user_id: int, message_id: int):
@@ -2957,24 +2968,24 @@ class MenuSystem:
             recent_messages = await stats_service.get_recent_messages(user_id, limit=10)
             
             if not recent_messages:
-                text = "ðŸ“‹ **Message History**\n\nðŸ’­ No recent messages found."
+                text = "🔐‹ **Message History**\n\nðŸ’­ No recent messages found."
             else:
-                text = "ðŸ“‹ **Message History** (Last 10)\n\n"
+                text = "🔐‹ **Message History** (Last 10)\n\n"
                 for msg in recent_messages:
                     import time
                     timestamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(msg.get('timestamp', 0)))
                     target = msg.get('target', 'Unknown')
                     msg_type = msg.get('type', 'message')
-                    emoji = "ðŸ¤–" if msg_type == "auto_reply" else "ðŸ“¤"
+                    emoji = "🤖" if msg_type == "auto_reply" else "📤"
                     text += f"{emoji} {timestamp} â†’ {target}\n"
             
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing message history: {e}")
             from telethon import Button
-            text = "âŒ Message history is unavailable"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ Message history is unavailable"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_messaging_settings(self, user_id: int, message_id: int):
@@ -2987,9 +2998,9 @@ class MenuSystem:
             time_based_enabled = settings.get('time_based_replies_enabled', False)
             
             text = (
-                "âš™ï¸ **Messaging System Settings**\n\n"
-                f"ðŸ”‘ **Keyword Replies:** {'âœ… Enabled' if keyword_enabled else 'âŒ Disabled'}\n"
-                f"â° **Time-Based Replies:** {'âœ… Enabled' if time_based_enabled else 'âŒ Disabled'}\n\n"
+                "⚙️ **Messaging System Settings**\n\n"
+                f"ðŸ”‘ **Keyword Replies:** {'✅ Enabled' if keyword_enabled else '❌ Disabled'}\n"
+                f"â° **Time-Based Replies:** {'✅ Enabled' if time_based_enabled else '❌ Disabled'}\n\n"
                 "**Configure:**\n"
                 "â€¢ Auto-reply rules\n"
                 "â€¢ Message templates\n"
@@ -2999,17 +3010,17 @@ class MenuSystem:
             )
             
             buttons = [
-                [Button.inline("ðŸ¤– Auto-Reply Settings", "auto_reply:main")],
-                [Button.inline("ðŸ“ Template Settings", "template:main")],
-                [Button.inline("ðŸ“¨ DM Reply Settings", "dm_reply:main")],
-                [Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]
+                [Button.inline("🤖 Auto-Reply Settings", "auto_reply:main")],
+                [Button.inline("🔐 Template Settings", "template:main")],
+                [Button.inline("🔐¨ DM Reply Settings", "dm_reply:main")],
+                [Button.inline("🔙 Back to Messaging", "menu:messaging")]
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging settings: {e}")
             from telethon import Button
-            text = "âŒ System settings is unavailable"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ System settings is unavailable"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_messaging_statistics(self, user_id: int, message_id: int):
@@ -3018,28 +3029,28 @@ class MenuSystem:
             if hasattr(self.account_manager, 'unified_messaging'):
                 stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
                 text = (
-                    "ðŸ“Š **Messaging Analytics**\n\n"
-                    f"ðŸ“¤ Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
-                    f"ðŸ¤– Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
-                    f"ðŸ“± Active Accounts: {stats.get('active_accounts', 0)}\n"
-                    f"ðŸ“¨ DM Topics Created: {stats.get('dm_topics_created', 0)}\n\n"
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 Active Accounts: {stats.get('active_accounts', 0)}\n"
+                    f"🔐¨ DM Topics Created: {stats.get('dm_topics_created', 0)}\n\n"
                     "Use messaging features to see more detailed statistics."
                 )
             else:
-                text = "ðŸ“Š **Messaging Analytics**\n\nâŒ Statistics service unavailable."
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+                text = "📊 **Messaging Analytics**\n\n❌ Statistics service unavailable."
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging statistics: {e}")
-            text = "âŒ Error loading statistics"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            text = "❌ Error loading statistics"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
     async def _show_message_history(self, user_id: int, message_id: int):
         """Show message history"""
         try:
             text = (
-                "ðŸ“‹ **Message History**\n\n"
+                "🔐‹ **Message History**\n\n"
                 "View your recent messaging activity:\n\n"
                 "â€¢ Sent messages\n"
                 "â€¢ Received messages\n"
@@ -3047,7 +3058,7 @@ class MenuSystem:
                 "â€¢ Bulk campaign results\n\n"
                 "ðŸ’¡ **Coming Soon:** Full message history tracking with filters and search."
             )
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing message history: {e}")
@@ -3056,23 +3067,23 @@ class MenuSystem:
         """Show messaging system settings"""
         try:
             text = (
-                "âš™ï¸ **Messaging System Settings**\n\n"
+                "⚙️ **Messaging System Settings**\n\n"
                 "Configure your messaging preferences:\n\n"
-                "ðŸ“¤ **Message Delivery:**\n"
+                "📤 **Message Delivery:**\n"
                 "â€¢ Delivery confirmation\n"
                 "â€¢ Read receipts\n"
                 "â€¢ Typing indicators\n\n"
-                "ðŸ¤– **Auto-Reply:**\n"
+                "🤖 **Auto-Reply:**\n"
                 "â€¢ Global enable/disable\n"
                 "â€¢ Response delay settings\n"
                 "â€¢ Keyword management\n\n"
-                "ðŸ“¨ **DM Management:**\n"
+                "🔐¨ **DM Management:**\n"
                 "â€¢ Topic auto-creation\n"
                 "â€¢ Notification preferences\n"
                 "â€¢ Archive settings\n\n"
                 "ðŸ’¡ **Coming Soon:** Advanced configuration options."
             )
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing messaging settings: {e}")
@@ -3089,8 +3100,8 @@ class MenuSystem:
                         {"$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False}}
                     )
                     enabled_count += 1
-            text = f"âœ… **Bulk Enable Complete**\n\nðŸ›¡ï¸ Enabled OTP Destroyer on {enabled_count} accounts"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = f"✅ **Bulk Enable Complete**\n\n🛡️ Enabled OTP Destroyer on {enabled_count} accounts"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Bulk OTP enable error: {e}")
@@ -3107,8 +3118,8 @@ class MenuSystem:
                         {"$set": {"otp_destroyer_enabled": False}}
                     )
                     disabled_count += 1
-            text = f"ðŸ”´ **Bulk Disable Complete**\n\nâŒ Disabled OTP Destroyer on {disabled_count} accounts"
-            buttons = [[Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]]
+            text = f"ðŸ”´ **Bulk Disable Complete**\n\n❌ Disabled OTP Destroyer on {disabled_count} accounts"
+            buttons = [[Button.inline("🔙 Back to OTP Manager", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Bulk OTP disable error: {e}")
@@ -3121,16 +3132,16 @@ class MenuSystem:
             destroyer_enabled = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled", False))
             forward_enabled = sum(1 for acc in accounts if acc.get("otp_forward_enabled", False))
             text = (
-                "ðŸ“Š **OTP Statistics**\n\n"
-                f"ðŸ“± Total Accounts: {total}\n"
-                f"ðŸ›¡ï¸ Destroyer Enabled: {destroyer_enabled}\n"
-                f"ðŸ“¤ Forward Enabled: {forward_enabled}\n"
-                f"âšª Unprotected: {total - destroyer_enabled - forward_enabled}\n\n"
+                "📊 **OTP Statistics**\n\n"
+                f"📱 Total Accounts: {total}\n"
+                f"🛡️ Destroyer Enabled: {destroyer_enabled}\n"
+                f"📤 Forward Enabled: {forward_enabled}\n"
+                f"⚪ Unprotected: {total - destroyer_enabled - forward_enabled}\n\n"
                 f"Security Score: {int((destroyer_enabled/max(total,1))*100)}%"
             )
             buttons = [
                 [Button.inline("ðŸ”„ Refresh Stats", "otp:stats")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
@@ -3140,7 +3151,7 @@ class MenuSystem:
         """Show global audit log for all accounts"""
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-            text = "ðŸ“‹ **Global Audit Log**\n\n"
+            text = "🔐‹ **Global Audit Log**\n\n"
             for account in accounts[:5]:
                 audit_log = account.get("audit_log", [])[-3:]
                 display_name = format_display_name(account)
@@ -3154,7 +3165,7 @@ class MenuSystem:
                 text += "\n"
             buttons = [
                 [Button.inline("ðŸ”„ Refresh", "otp:audit_all")],
-                [Button.inline("ðŸ”™ Back to OTP Manager", "menu:otp")]
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")]
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
@@ -3166,15 +3177,15 @@ class MenuSystem:
             if hasattr(self.account_manager, 'unified_messaging'):
                 stats = await self.account_manager.unified_messaging.get_messaging_statistics(user_id)
                 text = (
-                    "ðŸ“Š **Messaging Analytics**\n\n"
-                    f"ðŸ“¤ Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
-                    f"ðŸ¤– Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
-                    f"ðŸ“± Active Accounts: {stats.get('active_accounts', 0)}\n"
-                    f"ðŸ“¨ DM Topics Created: {stats.get('dm_topics_created', 0)}"
+                    "📊 **Messaging Analytics**\n\n"
+                    f"📤 Total Messages Sent: {stats.get('total_messages_sent', 0)}\n"
+                    f"🤖 Auto-Replies Sent: {stats.get('auto_replies_sent', 0)}\n"
+                    f"📱 Active Accounts: {stats.get('active_accounts', 0)}\n"
+                    f"🔐¨ DM Topics Created: {stats.get('dm_topics_created', 0)}"
                 )
             else:
-                text = "ðŸ“Š **Messaging Analytics**\n\nStatistics not available"
-            buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+                text = "📊 **Messaging Analytics**\n\nStatistics not available"
+            buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Messaging stats error: {e}")
@@ -3182,7 +3193,7 @@ class MenuSystem:
     async def _show_message_history(self, user_id: int, message_id: int):
         """Show message history"""
         text = (
-            "ðŸ“‹ **Message History**\n\n"
+            "🔐‹ **Message History**\n\n"
             "View your recent messaging activity:\n\n"
             "â€¢ Sent messages\n"
             "â€¢ Auto-replies\n"
@@ -3190,39 +3201,39 @@ class MenuSystem:
             "â€¢ Bulk campaigns\n\n"
             "Feature coming soon!"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]]
+        buttons = [[Button.inline("🔙 Back to Messaging", "menu:messaging")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_messaging_settings(self, user_id: int, message_id: int):
         """Show messaging system settings"""
         text = (
-            "âš™ï¸ **Messaging System Settings**\n\n"
+            "⚙️ **Messaging System Settings**\n\n"
             "Configure messaging behavior:\n\n"
-            "ðŸ“¤ **Message Delivery:**\n"
+            "📤 **Message Delivery:**\n"
             "â€¢ Delivery confirmation\n"
             "â€¢ Read receipts\n"
             "â€¢ Typing indicators\n\n"
-            "ðŸ¤– **Auto-Reply:**\n"
+            "🤖 **Auto-Reply:**\n"
             "â€¢ Global enable/disable\n"
             "â€¢ Response delay\n"
             "â€¢ Keyword matching\n\n"
-            "ðŸ“¨ **DM Management:**\n"
+            "🔐¨ **DM Management:**\n"
             "â€¢ Topic creation\n"
             "â€¢ Auto-organization\n"
             "â€¢ Notification settings"
         )
         buttons = [
-            [Button.inline("ðŸ¤– Auto-Reply Settings", "auto_reply:main")],
-            [Button.inline("ðŸ“ Template Settings", "template:main")],
-            [Button.inline("ðŸ“¨ DM Reply Settings", "dm_reply:main")],
-            [Button.inline("ðŸ”™ Back to Messaging", "menu:messaging")]
+            [Button.inline("🤖 Auto-Reply Settings", "auto_reply:main")],
+            [Button.inline("🔐 Template Settings", "template:main")],
+            [Button.inline("🔐¨ DM Reply Settings", "dm_reply:main")],
+            [Button.inline("🔙 Back to Messaging", "menu:messaging")]
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _show_channel_statistics(self, user_id: int, message_id: int):
         """Show channel statistics"""
         text = (
-            "ðŸ“Š **Channel Statistics**\n\n"
+            "📊 **Channel Statistics**\n\n"
             "Global channel metrics:\n\n"
             "â€¢ Total channels joined\n"
             "â€¢ Active subscriptions\n"
@@ -3230,7 +3241,7 @@ class MenuSystem:
             "â€¢ Engagement metrics\n\n"
             "Feature coming soon!"
         )
-        buttons = [[Button.inline("ðŸ”™ Back to Channels", "menu:channels")]]
+        buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _handle_spam_appeal_select(self, event, user_id: int):
@@ -3238,15 +3249,15 @@ class MenuSystem:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
             if not accounts:
-                await event.answer("âŒ No accounts found")
+                await event.answer("❌ No accounts found")
                 return
-            text = "ðŸ“ž **Spam Appeal**\n\nSelect account to submit spam appeal:"
+            text = "📞 **Spam Appeal**\n\nSelect account to submit spam appeal:"
             buttons = []
             for account in accounts:
-                status = "âœ…" if account.get("is_active", False) else "âŒ"
+                status = "✅" if account.get("is_active", False) else "❌"
                 display_name = format_display_name(account)
                 buttons.append([Button.inline(f"{status} {display_name}", f"appeal_account_id:{account['_id']}")])
-            buttons.append([Button.inline("ðŸ”™ Back to Cleanup", "cleanup:menu")])
+            buttons.append([Button.inline("🔙 Back to Cleanup", "cleanup:menu")])
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Spam appeal select error: {e}")
@@ -3257,24 +3268,24 @@ class MenuSystem:
         action = parts[1] if len(parts) > 1 else "main"
         
         if action == "enable":
-            text = "âœ… **Enable DM Reply**\n\nReply with your forum group ID to enable DM management"
-            buttons = [[Button.inline("ðŸ”™ Back to DM Reply", "menu:dm_reply")]]
+            text = "✅ **Enable DM Reply**\n\nReply with your forum group ID to enable DM management"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         elif action == "disable":
-            text = "âŒ **Disable DM Reply**\n\nDM management disabled"
-            buttons = [[Button.inline("ðŸ”™ Back to DM Reply", "menu:dm_reply")]]
+            text = "❌ **Disable DM Reply**\n\nDM management disabled"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         elif action == "change":
             text = "ðŸ”„ **Change Group**\n\nReply with new forum group ID"
-            buttons = [[Button.inline("ðŸ”™ Back to DM Reply", "menu:dm_reply")]]
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         elif action == "status":
-            text = "ðŸ“Š **DM Reply Status**\n\nStatus information coming soon!"
-            buttons = [[Button.inline("ðŸ”™ Back to DM Reply", "menu:dm_reply")]]
+            text = "📊 **DM Reply Status**\n\nStatus information coming soon!"
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         elif action == "help":
             text = "â“ **DM Reply Setup**\n\nSetup guide coming soon!"
-            buttons = [[Button.inline("ðŸ”™ Back to DM Reply", "menu:dm_reply")]]
+            buttons = [[Button.inline("🔙 Back to DM Reply", "menu:dm_reply")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
 
     async def _handle_channel_callback(self, event, user_id: int, data: str):
@@ -3289,22 +3300,22 @@ class MenuSystem:
             await self._show_channel_statistics(user_id, event.message_id)
         elif action == "search":
             text = "ðŸ” **Channel Discovery**\n\nChannel search feature coming soon!"
-            buttons = [[Button.inline("ðŸ”™ Back to Channels", "menu:channels")]]
+            buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
             await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
 
     async def _send_channel_actions_menu(self, user_id: int, account_phone: str, message_id: int):
         """Send channel actions menu for specific account"""
-        text = f"ðŸ“¢ **Channel Management**\n\nAccount: {account_phone}\n\nSelect action:"
+        text = f"🔐¢ **Channel Management**\n\nAccount: {account_phone}\n\nSelect action:"
         buttons = [
             [
                 Button.inline("ðŸ”— Join Channel", f"channel:join:{account_phone}"),
-                Button.inline("ðŸš« Leave Channel", f"channel:leave:{account_phone}"),
+                Button.inline("🚫 Leave Channel", f"channel:leave:{account_phone}"),
             ],
             [
-                Button.inline("ðŸ†• Create Channel", f"channel:create:{account_phone}"),
-                Button.inline("ðŸ—‘ï¸ Delete Channel", f"channel:delete:{account_phone}"),
+                Button.inline("🆕 Create Channel", f"channel:create:{account_phone}"),
+                Button.inline("🗑️ Delete Channel", f"channel:delete:{account_phone}"),
             ],
-            [Button.inline("ðŸ“‹ List Channels", f"channel:list:{account_phone}")],
-            [Button.inline("ðŸ”™ Back to Accounts", "back:accounts")],
+            [Button.inline("🔐‹ List Channels", f"channel:list:{account_phone}")],
+            [Button.inline("🔙 Back to Accounts", "back:accounts")],
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)

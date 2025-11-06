@@ -10,26 +10,7 @@ logger = logging.getLogger(__name__)
 
 async def setup_menu_text_handler(bot, menu_system):
     """Setup menu text handler for button-based navigation"""
-    @bot.on(
-        events.NewMessage(
-            func=lambda e: e.is_private
-            and e.text
-            and e.text.strip()
-            in [
-                "📱 Account Settings", "Account Settings",
-                "🛡️ OTP Manager", "OTP Manager",
-                "💬 Messaging", "Messaging",
-                "📨 DM Reply", "DM Reply",
-                "📢 Channels", "Channels",
-                "👥 Contacts", "Contacts",
-                "🎯 SpamMaster", "SpamMaster",
-                "🧹 Cleanup", "Cleanup",
-                "❓ Help", "Help",
-                "🆘 Support", "Support",
-                "⚙️ Developer", "Developer",
-            ]
-        )
-    )
+    
     async def menu_text_handler(event):
         user_id = event.sender_id
         text = event.text.strip()
@@ -63,19 +44,55 @@ async def setup_menu_text_handler(bot, menu_system):
             logger.error(f"Menu handler error for {text}: {e}")
             await event.reply("❌ Error processing menu action")
     
+    # Register the handler
+    bot.add_event_handler(
+        menu_text_handler,
+        events.NewMessage(
+            func=lambda e: e.is_private
+            and e.text
+            and e.text.strip()
+            in [
+                "📱 Account Settings", "Account Settings",
+                "🛡️ OTP Manager", "OTP Manager",
+                "💬 Messaging", "Messaging",
+                "📨 DM Reply", "DM Reply",
+                "📢 Channels", "Channels",
+                "👥 Contacts", "Contacts",
+                "🎯 SpamMaster", "SpamMaster",
+                "🧹 Cleanup", "Cleanup",
+                "❓ Help", "Help",
+                "🆘 Support", "Support",
+                "⚙️ Developer", "Developer",
+            ]
+        )
+    )
+    logger.info("✅ Menu text handler registered successfully")
+    
     return menu_text_handler
 
 async def setup_cleanup_selection_handler(bot, menu_system):
     """Setup cleanup selection text input handler"""
-    @bot.on(events.NewMessage(func=lambda e: e.is_private and hasattr(menu_system.account_manager, 'pending_actions') and e.sender_id in menu_system.account_manager.pending_actions and menu_system.account_manager.pending_actions[e.sender_id].get('action') == 'cleanup_selection'))
+    
     async def cleanup_selection_handler(event):
         await menu_system._handle_cleanup_selection_callback(event, event.sender_id, event.text)
+    
+    # Register the handler
+    bot.add_event_handler(
+        cleanup_selection_handler,
+        events.NewMessage(
+            func=lambda e: e.is_private 
+            and hasattr(menu_system.account_manager, 'pending_actions') 
+            and e.sender_id in menu_system.account_manager.pending_actions 
+            and menu_system.account_manager.pending_actions[e.sender_id].get('action') == 'cleanup_selection'
+        )
+    )
+    logger.info("✅ Cleanup selection handler registered successfully")
     
     return cleanup_selection_handler
 
 async def setup_callback_handler(bot, menu_system):
     """Setup massive callback handler for all button interactions"""
-    @bot.on(events.CallbackQuery)
+    
     async def callback_handler(event):
         try:
             user_id = event.sender_id
@@ -510,5 +527,9 @@ async def setup_callback_handler(bot, menu_system):
         except Exception as e:
             logger.error(f"Callback handler error: {e}")
             await event.answer("❌ Service temporarily unavailable", alert=True)
+    
+    # Register the handler
+    bot.add_event_handler(callback_handler, events.CallbackQuery())
+    logger.info("✅ Callback handler registered successfully")
     
     return callback_handler

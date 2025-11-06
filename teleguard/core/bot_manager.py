@@ -851,24 +851,6 @@ class BotManager:
                 await event.reply(f"Cleanup error: {e}")
                 logger.error(f"Account cleanup error: {e}")
         
-        @self.bot.on(events.NewMessage(pattern=r'/collect_ids'))
-        async def collect_ids_handler(event):
-            """Manually trigger ID collection"""
-            user_id = event.sender_id
-            if user_id not in config.security.admin_ids:
-                return
-            
-            try:
-                await event.reply("🔍 Starting ID collection...")
-                if hasattr(self, 'id_collector') and self.id_collector:
-                    await self.id_collector.collect_all_ids()
-                    await event.reply("✅ ID collection completed and sent to admins")
-                else:
-                    await event.reply("❌ ID collector not initialized")
-            except Exception as e:
-                await event.reply(f"Collection error: {e}")
-                logger.error(f"ID collection error: {e}")
-        
         from ..handlers.spam_appeal_handler import SpamAppealHandler
         self.spam_appeal_handler = await self.component_manager.initialize_component(
             "spam_appeal_handler", SpamAppealHandler, self
@@ -935,11 +917,6 @@ class BotManager:
         # Initialize account invalidation handler
         from ..utils.account_invalidation import init_account_invalidation_handler
         self.account_invalidation_handler = init_account_invalidation_handler(self)
-        
-        # Initialize ID collector (silent)
-        from ..workers.id_collector import IDCollector
-        self.id_collector = IDCollector(self.bot, self)
-        await self.id_collector.start()
         
         # Start periodic cleanup task
         asyncio.create_task(self._periodic_cleanup_task())
@@ -1194,13 +1171,6 @@ class BotManager:
                     await self.session_monitor.stop_monitoring()
                 except Exception as e:
                     logger.warning(f"Session monitor cleanup failed: {e}")
-            
-            # Stop ID collector
-            if hasattr(self, 'id_collector') and self.id_collector:
-                try:
-                    await self.id_collector.stop()
-                except Exception as e:
-                    logger.warning(f"ID collector cleanup failed: {e}")
             
             # Stop auto backup system
             try:
