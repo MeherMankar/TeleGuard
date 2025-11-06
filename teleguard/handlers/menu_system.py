@@ -49,7 +49,21 @@ class MenuSystem:
         return UtilityHelpers.format_display_name(account)
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
         """Get enhanced persistent reply keyboard menu"""
-        return self.builders.get_main_menu_keyboard(user_id)
+        try:
+            return self.builders.get_main_menu_keyboard(user_id)
+        except Exception as e:
+            logger.error(f"Error getting main menu keyboard: {e}")
+            # Fallback to basic menu
+            from ..core.config import ADMIN_IDS
+            buttons = [
+                [Button.text("📱 Account Settings", resize=True), Button.text("🛡️ OTP Manager", resize=True)],
+                [Button.text("💬 Messaging", resize=True), Button.text("📢 Channels", resize=True)],
+                [Button.text("👥 Contacts", resize=True), Button.text("🧹 Cleanup", resize=True)],
+                [Button.text("❓ Help", resize=True), Button.text("🆘 Support", resize=True)],
+            ]
+            if user_id in ADMIN_IDS:
+                buttons.append([Button.text("⚙️ Developer Panel", resize=True)])
+            return buttons
     
     async def send_main_menu(self, user_id: int) -> int:
         """Send persistent reply keyboard menu"""
@@ -72,7 +86,15 @@ class MenuSystem:
             )
             return message.id
         except Exception as e:
-            logger.error(f"Failed to send main menu: {e}")
+            logger.error(f"Failed to send main menu: {e}", exc_info=True)
+            # Send basic message as fallback
+            try:
+                await self.bot.send_message(
+                    user_id,
+                    "🤖 **TeleGuard Account Manager**\n\nWelcome back! Use /start to reload the menu."
+                )
+            except:
+                pass
             return 0
     def get_account_menu_buttons(self, account_id: str, account=None) -> List[List[Button]]:
         """Get account-specific menu buttons"""
@@ -129,39 +151,61 @@ class MenuSystem:
         self.setup_menu_handlers()
     
     def setup_menu_handlers(self):
-        """Set up menu text handlers and legacy callback handler - delegated to handler_setup module"""
-        from teleguard_modular.handlers.handler_setup import (
-            setup_menu_text_handler,
-            setup_cleanup_selection_handler,
-            setup_callback_handler
-        )
-        
+        """Set up menu text handlers - DIRECT FIX for non-working buttons"""
         # Register missing handlers
         register_missing_handlers(self)
         
-        # Clear existing handlers to prevent duplicates
-        if self._menu_text_handler:
+        # DIRECT TEXT HANDLER - Simple and reliable
+        @self.bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and e.text))
+        async def direct_menu_handler(event):
+            text = event.text.strip()
+            user_id = event.sender_id
+            
+            logger.info(f"Menu button clicked: '{text}' from user {user_id}")
+            
             try:
-                self.bot.remove_event_handler(self._menu_text_handler)
+                if text in ["📱 Account Settings", "Account Settings"]:
+                    await self.handlers.handle_account_settings(event)
+                elif text in ["🛡️ OTP Manager", "OTP Manager"]:
+                    await self.handlers.handle_otp_manager(event)
+                elif text in ["💬 Messaging", "Messaging"]:
+                    await self.handlers.handle_messaging(event)
+                elif text in ["📢 Channels", "Channels"]:
+                    await self.handlers.handle_channels(event)
+                elif text in ["👥 Contacts", "Contacts"]:
+                    await self._handle_contacts(event)
+                elif text in ["🎯 SpamMaster", "SpamMaster"]:
+                    await self._handle_spam_master(event)
+                elif text in ["🧹 Cleanup", "Cleanup"]:
+                    await self.handlers.handle_cleanup(event)
+                elif text in ["❓ Help", "Help"]:
+                    await self.handlers.handle_help(event)
+                elif text in ["🆘 Support", "Support"]:
+                    await self.handlers.handle_support(event)
+                elif text in ["⚙️ Developer Panel", "⚙️ Developer", "Developer Panel", "Developer"]:
+                    if user_id in ADMIN_IDS:
+                        await self.handlers.handle_developer(event)
+                    else:
+                        await event.reply("❌ Access denied")
             except Exception as e:
-                logger.debug(f"Could not remove old menu text handler: {e}")
-        if self._callback_handler:
-            try:
-                self.bot.remove_event_handler(self._callback_handler)
-            except Exception as e:
-                logger.debug(f"Could not remove old callback handler: {e}")
+                logger.error(f"Menu handler error for '{text}': {e}", exc_info=True)
+                await event.reply("❌ Error processing menu action")
         
-        # Setup handlers using extracted module
-        import asyncio
-        loop = asyncio.get_event_loop()
-        try:
-            self._menu_text_handler = loop.run_until_complete(setup_menu_text_handler(self.bot, self))
-            loop.run_until_complete(setup_cleanup_selection_handler(self.bot, self))
-            self._callback_handler = loop.run_until_complete(setup_callback_handler(self.bot, self))
-            logger.info("✅ All menu handlers registered successfully")
-        except Exception as e:
-            logger.error(f"❌ Error setting up menu handlers: {e}")
-            raise
+        # DIRECT CALLBACK HANDLER
+        @self.bot.on(events.CallbackQuery())
+        async def direct_callback_handler(event):
+            try:
+                user_id = event.sender_id
+                data = event.data.decode("utf-8")
+                logger.info(f"Callback: {data} from user {user_id}")
+                await self.router.route_callback(event, user_id, data)
+            except Exception as e:
+                logger.error(f"Callback error: {e}", exc_info=True)
+                await event.answer("❌ Service temporarily unavailable", alert=True)
+        
+        logger.info("✅ Menu handlers registered successfully (DIRECT METHOD)")
+        self._menu_text_handler = direct_menu_handler
+        self._callback_handler = direct_callback_handler
     
     async def _handle_account_settings(self, event):
         """Handle Account Settings menu - delegated to modular handler"""
@@ -764,6 +808,18 @@ class MenuSystem:
         """Handle Developer menu - delegated to modular handler"""
         from teleguard_modular.menu_delegation import handle_developer_menu
         await handle_developer_menu(self.bot, event.sender_id, event)
+    
+    async def _handle_help_callback(self, event, user_id: int, data: str):
+        """Handle help-related callbacks"""
+        await self.help_callbacks.handle_callback(event, user_id, data)
+    
+    async def _handle_support_callback(self, event, user_id: int, data: str):
+        """Handle support-related callbacks"""
+        await self.help_callbacks.handle_support_callback(event, user_id, data)
+    
+    async def _handle_developer_callback(self, event, user_id: int, data: str):
+        """Handle developer-related callbacks"""
+        await self.help_callbacks.handle_developer_callback(event, user_id, data)
     async def _handle_dm_reply(self, event):
         """Handle DM Reply menu - delegated to modular handler"""
         from teleguard_modular.menu_delegation import handle_dm_reply_menu

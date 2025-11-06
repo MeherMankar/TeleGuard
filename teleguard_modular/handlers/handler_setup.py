@@ -14,6 +14,7 @@ async def setup_menu_text_handler(bot, menu_system):
     async def menu_text_handler(event):
         user_id = event.sender_id
         text = event.text.strip()
+        logger.info(f"Menu text handler triggered: '{text}' from user {user_id}")
         try:
             if text in ["📱 Account Settings", "Account Settings"]:
                 await menu_system.handlers.handle_account_settings(event)
@@ -62,7 +63,7 @@ async def setup_menu_text_handler(bot, menu_system):
                 "🧹 Cleanup", "Cleanup",
                 "❓ Help", "Help",
                 "🆘 Support", "Support",
-                "⚙️ Developer", "Developer",
+                "⚙️ Developer", "Developer", "⚙️ Developer Panel", "Developer Panel",
             ]
         )
     )
@@ -219,7 +220,8 @@ async def setup_callback_handler(bot, menu_system):
             elif data.startswith("dev:"):
                 await menu_system._handle_developer_callback(event, user_id, data)
             elif data.startswith("menu:"):
-                await menu_system._handle_menu_callback(event, user_id, data)
+                # Menu routing is already handled by router.route_callback above
+                pass
             elif data.startswith("dm_reply:"):
                 if data == "dm_reply:main":
                     await menu_system._handle_dm_reply(

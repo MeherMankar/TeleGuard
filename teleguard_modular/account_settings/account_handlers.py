@@ -1,8 +1,8 @@
 """Account management handlers"""
 import logging
 from telethon import Button
-from ...core.mongo_database import mongodb
-from ...utils.network_helpers import format_display_name, format_phone_number
+from teleguard.core.mongo_database import mongodb
+from teleguard.utils.network_helpers import format_display_name, format_phone_number
 
 logger = logging.getLogger(__name__)
 
