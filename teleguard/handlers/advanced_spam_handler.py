@@ -9,7 +9,7 @@ from telethon import events, Button
 from telethon.errors import FloodWaitError, UserPrivacyRestrictedError, ChatWriteForbiddenError, SlowModeWaitError
 from telethon.tl.functions.channels import InviteToChannelRequest
 from ..core.mongo_database import mongodb
-from ..utils.bot_logger import logger
+from ..utils.logger import logger
 
 
 class AdvancedSpamHandler:

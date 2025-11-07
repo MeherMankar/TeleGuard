@@ -37,8 +37,7 @@ try:
     from teleguard.core.task_queue import task_queue
     from teleguard.core.database_manager import init_database_manager, db_manager
     from teleguard.utils.health_server import health_checker
-    from teleguard.utils.logger import get_logger
-    from teleguard.utils.bot_logger import BotLogger
+    from teleguard.utils.logger import get_logger, BotLogger
 except ImportError as e:
     print(f"Failed to import TeleGuard modules: {e}")
     print(
@@ -76,32 +75,21 @@ file_handler = RotatingFileHandler(
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(detailed_formatter)
 
-# Console handler with UTF-8 encoding support and Unicode error handling
-import io
-
-class SafeStreamHandler(logging.StreamHandler):
-    """Stream handler that safely handles Unicode characters"""
+# Safe console handler that removes problematic Unicode characters
+class SafeConsoleHandler(logging.StreamHandler):
+    """Console handler that safely handles Unicode characters"""
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Replace Unicode characters that can't be encoded
-            stream = self.stream
-            if hasattr(stream, 'encoding') and stream.encoding:
-                msg = msg.encode(stream.encoding, errors='replace').decode(stream.encoding)
-            stream.write(msg + self.terminator)
+            # Remove problematic Unicode characters for Windows console
+            if sys.platform == 'win32':
+                msg = msg.encode('ascii', errors='replace').decode('ascii')
+            self.stream.write(msg + '\n')
             self.flush()
         except Exception:
-            self.handleError(record)
+            pass
 
-try:
-    # Force UTF-8 encoding for console with error handling
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    console_handler = SafeStreamHandler(io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace'))
-except Exception:
-    console_handler = SafeStreamHandler()
+console_handler = SafeConsoleHandler()
 
 console_handler.setLevel(logging.ERROR)
 console_handler.setFormatter(simple_formatter)
@@ -110,31 +98,17 @@ console_handler.setFormatter(simple_formatter)
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
-# Configure teleguard loggers with UTF-8 safe file handler only
+# Configure teleguard loggers
 for logger_name in ["teleguard", "teleguard.core", "teleguard.handlers", "teleguard.utils"]:
     mod_logger = logging.getLogger(logger_name)
     mod_logger.setLevel(logging.INFO)
-    # Remove console handlers to prevent encoding errors
-    mod_logger.propagate = True  # Let root logger handle it
+    mod_logger.propagate = True
 
 # Silence noisy external modules
 for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "urllib3", "aiohttp"]:
     mod_logger = logging.getLogger(mod)
     mod_logger.setLevel(logging.ERROR)
     mod_logger.propagate = False
-    # Remove all handlers to prevent encoding issues
-    for handler in mod_logger.handlers[:]:
-        mod_logger.removeHandler(handler)
-    # Add only UTF-8 safe file handler
-    safe_file_handler = RotatingFileHandler(
-        log_dir / "teleguard.log",
-        maxBytes=10*1024*1024,
-        backupCount=5,
-        encoding="utf-8"
-    )
-    safe_file_handler.setLevel(logging.ERROR)
-    safe_file_handler.setFormatter(detailed_formatter)
-    mod_logger.addHandler(safe_file_handler)
 
 # Get logger after configuration
 logger = get_logger(__name__)

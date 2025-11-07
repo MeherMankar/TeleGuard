@@ -19,7 +19,7 @@ from .mongo_database import init_db, mongodb
 from ..utils.response_formatter import LogFormatter
 from ..utils.account_invalidation import init_account_invalidation_handler
 from ..utils.session_protection import session_protection
-from ..utils.bot_logger import BotLogger
+from ..utils.logger import BotLogger
 logger = logging.getLogger(__name__)
 class ComponentManager:
     """Manages bot components and their lifecycle"""

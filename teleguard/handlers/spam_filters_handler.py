@@ -5,7 +5,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 from telethon import events, Button
 from ..core.mongo_database import mongodb
-from ..utils.bot_logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SpamFiltersHandler:

@@ -292,20 +292,12 @@ def encrypt_snapshot(snapshot_bytes: bytes) -> bytes:
         return snapshot_bytes
 
 def push_to_github(snapshot_path: str, branch: str = "backups"):
-    """Push snapshot to GitHub repository"""
-    try:
-        from ..sync.github_sync import push_hourly_snapshot
-        push_hourly_snapshot(snapshot_path)
-    except Exception as e:
-        logger.error(f"Failed to push to GitHub: {e}")
+    """Push snapshot to GitHub repository (feature removed)"""
+    logger.warning("GitHub sync feature has been removed")
 
 def force_orphan_push(snapshot_path: str, branch: str = "backups"):
-    """Create orphan branch with only latest snapshot"""
-    try:
-        from ..sync.github_sync import force_orphan_push_latest
-        force_orphan_push_latest(snapshot_path)
-    except Exception as e:
-        logger.error(f"Failed to force orphan push: {e}")
+    """Create orphan branch with only latest snapshot (feature removed)"""
+    logger.warning("GitHub sync feature has been removed")
 
 async def upload_to_telegram(bot_client, snapshot_bytes: bytes, filename: str):
     """Upload snapshot to Telegram channel"""

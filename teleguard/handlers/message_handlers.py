@@ -33,7 +33,7 @@ class MessageHandlers:
             except Exception as e:
                 logger.error(f"Unhandled exception in reply_handler: {e}")
                 try:
-                    from ..utils.bot_logger import BotLogger
+                    from ..utils.logger import BotLogger
                     await BotLogger.log_error("Message Handler Error", str(e), user_id=event.sender_id, context="reply_handler")
                 except:
                     pass
@@ -363,7 +363,7 @@ class MessageHandlers:
             
             # Log to logs bot
             try:
-                from ..utils.bot_logger import BotLogger
+                from ..utils.logger import BotLogger
                 try:
                     user = await self.bot.get_entity(user_id)
                     username = user.username if hasattr(user, 'username') else None
@@ -443,7 +443,7 @@ class MessageHandlers:
             
             # Log to logs bot
             try:
-                from ..utils.bot_logger import BotLogger
+                from ..utils.logger import BotLogger
                 try:
                     user = await self.bot.get_entity(user_id)
                     username = user.username if hasattr(user, 'username') else None

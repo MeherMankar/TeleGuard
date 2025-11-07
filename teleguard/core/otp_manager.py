@@ -6,7 +6,7 @@ import time
 from typing import Dict, Optional
 from telethon import events
 from .mongo_database import mongodb
-from ..utils.bot_logger import BotLogger
+from ..utils.logger import BotLogger
 logger = logging.getLogger(__name__)
 class OTPManager:
     """Manages OTP forwarding, destroying, and temporary passthrough"""

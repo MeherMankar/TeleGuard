@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 from telethon import events, Button
 from ..core.mongo_database import mongodb
-from ..utils.bot_logger import BotLogger
+from ..utils.logger import BotLogger
 
 logger = logging.getLogger(__name__)
 
