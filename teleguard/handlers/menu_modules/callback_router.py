@@ -124,19 +124,21 @@ class CallbackRouter:
     
     async def _route_menu(self, event, user_id, data):
         if data == "menu:accounts":
-            await self.menu._handle_account_settings(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+            await self.menu.handlers.handle_account_settings(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:otp":
-            await self.menu._handle_otp_manager(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+            await self.menu.handlers.handle_otp_manager(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:messaging":
-            await self.menu._handle_messaging(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+            await self.menu.handlers.handle_messaging(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:channels":
-            await self.menu._handle_channels(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+            await self.menu.handlers.handle_channels(type("Event", (), {"sender_id": user_id})())
+        elif data == "menu:cleanup":
+            await self.menu.handlers.handle_cleanup(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:help":
-            await self.menu._handle_help(type("Event", (), {"sender_id": user_id})())
+            await self.menu.handlers.handle_help(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:support":
-            await self.menu._handle_support(type("Event", (), {"sender_id": user_id})())
+            await self.menu.handlers.handle_support(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:developer":
-            await self.menu._handle_developer(type("Event", (), {"sender_id": user_id})())
+            await self.menu.handlers.handle_developer(type("Event", (), {"sender_id": user_id})())
         elif data == "menu:main":
             await self.menu.send_main_menu(user_id)
     
