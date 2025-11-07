@@ -677,129 +677,13 @@ class MenuSystem:
         """Handle Support menu - delegated to modular handler"""
         from teleguard_modular.menu_delegation import handle_support_menu
         await handle_support_menu(self.bot, event.sender_id, event)
-    async def _get_account_age_info(self, user_id: int, account_name: str, account_data: dict = None) -> str:
-        """Get account age information using ID-based estimation"""
-        try:
-            from ..utils.account_age_estimator import AccountAgeEstimator
-            from datetime import timezone, datetime
-            
-            # Skip invalid cached data
-            cached_age = account_data.get('age_days') if account_data else None
-            if cached_age and cached_age > 0:
-                years = cached_age // 365
-                months = (cached_age % 365) // 30
-                days = (cached_age % 365) % 30
-                return f"Age: {years}y {months}m {days}d ({cached_age} days)"
-            
-            # Get Telegram user ID
-            telegram_user_id = account_data.get('telegram_user_id') if account_data else None
-            if not telegram_user_id:
-                telegram_user_id = await self._get_telegram_user_id(user_id, account_name)
-            
-            if telegram_user_id:
-                telegram_user_id = int(telegram_user_id)
-                creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
-                
-                if creation_date:
-                    now = datetime.now(timezone.utc)
-                    if creation_date.tzinfo is None:
-                        creation_date = creation_date.replace(tzinfo=timezone.utc)
-                    age_days = max(0, (now - creation_date).days)
-                    
-                    await self._update_account_age_cache(user_id, account_name, creation_date, age_days, telegram_user_id)
-                    
-                    years = age_days // 365
-                    months = (age_days % 365) // 30
-                    days = (age_days % 365) % 30
-                    return f"Age: {years}y {months}m {days}d ({age_days} days)"
-            
-            return "Age: Unknown"
-        except Exception as e:
-            logger.error(f"Error getting account age for {account_name}: {e}")
-            return "Age: Unknown"
+
     
-    async def _get_telegram_user_id(self, user_id: int, account_name: str) -> Optional[int]:
-        """Get Telegram user ID from connected client"""
-        try:
-            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
-                user_clients = self.account_manager.user_clients[user_id]
-                
-                # Try all possible client keys
-                for key in [account_name] + list(user_clients.keys()):
-                    client = user_clients.get(key)
-                    if client:
-                        try:
-                            if not client.is_connected():
-                                await client.connect()
-                            me = await client.get_me()
-                            if me:
-                                return me.id
-                        except:
-                            continue
-            return None
-        except Exception:
-            return None
+
     
-    async def _update_account_age_cache(self, user_id: int, account_name: str, creation_date, age_days: int, telegram_user_id: int):
-        """Update account age cache in database"""
-        try:
-            from datetime import datetime, timezone
-            
-            update_data = {
-                'creation_date': creation_date,
-                'age_days': age_days,
-                'telegram_user_id': telegram_user_id,
-                'last_age_update': datetime.now(timezone.utc)
-            }
-            
-            await mongodb.db.accounts.update_one(
-                {'user_id': user_id, 'name': account_name},
-                {'$set': update_data}
-            )
-        except Exception as e:
-            logger.debug(f"Error updating age cache for {account_name}: {e}")
+
     
-    async def _update_single_account_age(self, user_id: int, account: dict):
-        """Update age for a single account"""
-        try:
-            from ..utils.account_age_estimator import AccountAgeEstimator
-            from datetime import datetime, timezone
-            
-            account_name = account.get('name')
-            phone = account.get('phone')
-            
-            if not account_name:
-                return
-            
-            # Try to get client
-            client = None
-            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
-                user_clients = self.account_manager.user_clients[user_id]
-                client = user_clients.get(account_name) or user_clients.get(phone)
-            
-            if client and hasattr(client, 'is_connected') and client.is_connected():
-                me = await client.get_me()
-                telegram_user_id = int(me.id)
-                
-                creation_date, method = await AccountAgeEstimator.estimate_creation_date(telegram_user_id)
-                
-                if creation_date:
-                    now = datetime.now(timezone.utc)
-                    if creation_date.tzinfo is None:
-                        creation_date = creation_date.replace(tzinfo=timezone.utc)
-                    age_days = max(0, (now - creation_date).days)
-                    
-                    await mongodb.db.accounts.update_one(
-                        {'_id': account['_id']},
-                        {'$set': {
-                            'creation_date': creation_date,
-                            'age_days': age_days,
-                            'telegram_user_id': telegram_user_id,
-                            'last_age_update': datetime.now(timezone.utc)
-                        }}
-                    )
-        except Exception as e:
-            logger.debug(f"Error updating age for {account.get('name')}: {e}")
+
     
 
 
