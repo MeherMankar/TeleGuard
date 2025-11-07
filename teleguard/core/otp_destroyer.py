@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class OTPDestroyer:
-    """OTP destroyer with audit logging and security features
+    """OTP destroyer with security features
 
     This class expects the BotManager instance so it can consult
     in-memory pending session state (`pending_fresh_sessions`) as well as
@@ -198,23 +198,12 @@ class OTPDestroyer:
                     except Exception as metrics_error:
                         logger.error(f"Failed to record OTP metrics: {metrics_error}")
 
-                    # Log the action
-                    audit_entry = {
-                        "action": "invalidate_codes",
-                        "codes": codes,
-                        "result": bool(result),
-                        "message_id": event.message.id,
-                        "raw_message": message[:200],  # First 200 chars
-                        "timestamp": int(time.time()),
-                    }
-
-                    # Update account with audit entry
+                    # Update account timestamp
                     from bson import ObjectId
 
                     await mongodb.db.accounts.update_one(
                         {"_id": account["_id"]},
                         {
-                            "$push": {"audit_log": audit_entry},
                             "$set": {
                                 "otp_destroyed_at": time.strftime(
                                     "%Y-%m-%d %H:%M:%S"
@@ -235,20 +224,6 @@ class OTPDestroyer:
                 except Exception as e:
                     logger.error(
                         f"❌ Failed to invalidate codes for {account_name}: {e}"
-                    )
-
-                    # Log the failure
-                    audit_entry = {
-                        "action": "invalidate_error",
-                        "codes": codes,
-                        "error": str(e),
-                        "timestamp": int(time.time()),
-                    }
-
-                    # Update account with error audit entry
-                    await mongodb.db.accounts.update_one(
-                        {"_id": account["_id"]},
-                        {"$push": {"audit_log": audit_entry}},
                     )
 
                     # Still notify about the attempt
@@ -311,18 +286,9 @@ class OTPDestroyer:
             if not account:
                 return False, "Account not found"
 
-            audit_entry = {
-                "action": "enable_otp_destroyer",
-                "user_id": user_id,
-                "timestamp": int(time.time()),
-            }
-
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},
-                {
-                    "$set": {"otp_destroyer_enabled": True},
-                    "$push": {"audit_log": audit_entry},
-                },
+                {"$set": {"otp_destroyer_enabled": True}},
             )
 
             logger.info(f"🛡️ OTP destroyer enabled for account {account['name']}")
@@ -367,19 +333,9 @@ class OTPDestroyer:
                         "Invalid password. OTP Destroyer remains enabled for security.",
                     )
 
-            audit_entry = {
-                "action": "disable_otp_destroyer",
-                "user_id": user_id,
-                "auth_used": bool(auth_password),
-                "timestamp": int(time.time()),
-            }
-
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},
-                {
-                    "$set": {"otp_destroyer_enabled": False},
-                    "$push": {"audit_log": audit_entry},
-                },
+                {"$set": {"otp_destroyer_enabled": False}},
             )
 
             logger.info(f"🔴 OTP destroyer disabled for account {account['name']}")
@@ -412,18 +368,9 @@ class OTPDestroyer:
             ph = PasswordHasher()
             password_hash = ph.hash(password)
 
-            audit_entry = {
-                "action": "set_disable_password",
-                "user_id": user_id,
-                "timestamp": int(time.time()),
-            }
-
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},
-                {
-                    "$set": {"otp_destroyer_disable_auth": password_hash},
-                    "$push": {"audit_log": audit_entry},
-                },
+                {"$set": {"otp_destroyer_disable_auth": password_hash}},
             )
 
             return (

@@ -130,7 +130,7 @@ class CallbackHandlers:
             status = "✅ Active" if account.get("simulation_enabled", False) else "❌ Inactive"
             text = f"🎭 **Activity Simulator: {account['name']}**\n\nStatus: {status}\n\nThe simulator performs human-like activities:\n• Views random channels/groups\n• Reacts to posts with emojis\n• Votes in polls occasionally\n• Browses user profiles\n• Rarely joins/leaves channels\n\nSessions every 30-90 minutes with 2-5 actions each."
             toggle_text = "🔴 Disable" if account.get("simulation_enabled", False) else "🟢 Enable"
-            buttons = [[self.bot.Button.inline(f"{toggle_text} Simulation", f"simulate:toggle:{account_id}")], [self.bot.Button.inline("📋 Activity Log (4h)", f"simulate:log:{account_id}")], [self.bot.Button.inline("🔙 Back", f"account:manage:{account_id}")]]
+            buttons = [[self.bot.Button.inline(f"{toggle_text} Simulation", f"simulate:toggle:{account_id}")], [self.bot.Button.inline("🔙 Back", f"account:manage:{account_id}")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         else:
             await self.bot.send_message(user_id, "❌ Account not found")

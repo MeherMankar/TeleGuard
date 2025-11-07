@@ -25,8 +25,6 @@ class CallbackRouter:
             await self._route_messaging(event, user_id, data)
         elif data.startswith("simulate:"):
             await self.menu._handle_simulate_callback(event, user_id, data)
-        elif data.startswith("audit:"):
-            await self.menu._handle_audit_callback(event, user_id, data)
         elif data.startswith("channel:"):
             await self._route_channel(event, user_id, data)
         elif data.startswith("cleanup:"):
@@ -70,9 +68,6 @@ class CallbackRouter:
         elif data == "otp:stats":
             await self.menu._show_otp_statistics(user_id, event.message_id)
             await event.answer("📊 OTP statistics")
-        elif data == "otp:audit_all":
-            await self.menu._show_global_audit_log(user_id, event.message_id)
-            await event.answer("📋 Global audit log loaded")
         else:
             await self.menu._handle_otp_callback(event, user_id, data)
     

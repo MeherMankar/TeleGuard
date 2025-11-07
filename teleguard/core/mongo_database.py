@@ -54,9 +54,7 @@ class MongoDB:
             # Session indexes
             await self.db.sessions.create_index([("user_id", 1), ("account_id", 1)])
             await self.db.sessions.create_index("created_at")
-            # Audit log indexes
-            await self.db.audit_logs.create_index([("user_id", 1), ("timestamp", -1)])
-            await self.db.audit_logs.create_index("timestamp")
+
             # Settings indexes
             await self.db.user_settings.create_index("user_id", unique=True)
             # OTP protections: expire documents automatically using a datetime field
@@ -122,15 +120,7 @@ class MongoDB:
         """Get account by phone number"""
         account = await self.db.accounts.find_one({"user_id": user_id, "phone": phone})
         return account
-    async def add_audit_entry(self, account_id: str, entry: dict):
-        """Add audit log entry to account"""
-        from bson import ObjectId
-        import time
-        entry["timestamp"] = time.time()
-        await self.db.accounts.update_one(
-            {"_id": ObjectId(account_id)},
-            {"$push": {"audit_log": entry}}
-        )
+
     async def get_active_accounts(self, user_id: int):
         """Get active accounts for user"""
         cursor = self.db.accounts.find({"user_id": user_id, "is_active": True})
@@ -239,30 +229,7 @@ class MongoDB:
     async def delete_user_settings(self, user_id: int):
         """Delete user settings"""
         await self.db.user_settings.delete_one({"user_id": user_id})
-    # Audit Logging (Durable Storage)
-    async def add_audit_log(self, user_id: int, action: str, details: dict = None):
-        """Add audit log entry"""
-        log_entry = {
-            "user_id": user_id,
-            "action": action,
-            "details": details or {},
-            "timestamp": time.time()
-        }
-        await self.db.audit_logs.insert_one(log_entry)
-    async def get_audit_logs(self, user_id: int, limit: int = 100) -> List[dict]:
-        """Get audit logs for user"""
-        cursor = self.db.audit_logs.find(
-            {"user_id": user_id}
-        ).sort("timestamp", -1).limit(limit)
-        logs = await cursor.to_list(length=None)
-        return logs
-    async def cleanup_old_audit_logs(self, days: int = 30):
-        """Clean up old audit logs"""
-        cutoff_time = time.time() - (days * 24 * 3600)
-        result = await self.db.audit_logs.delete_many({
-            "timestamp": {"$lt": cutoff_time}
-        })
-        logger.info(f"Cleaned up {result.deleted_count} old audit log entries")
+
     # Backup and Recovery
     async def create_backup_snapshot(self, user_id: int) -> dict:
         """Create backup snapshot of user data"""
@@ -309,6 +276,3 @@ async def init_db():
 async def get_db():
     """Get MongoDB database instance"""
     return mongodb.db
-async def cleanup_old_data():
-    """Cleanup old data from MongoDB"""
-    await mongodb.cleanup_old_audit_logs()

@@ -1,4 +1,4 @@
-"""Activity Simulator with Comprehensive Audit Logging
+"""Activity simulator
 Simulates natural user behavior with complete transparency.
 All actions are logged and can be viewed by users.
 """
@@ -9,17 +9,15 @@ import time
 from typing import Any, Dict, List, Optional
 from telethon import errors, functions, types
 from telethon.tl.types import InputPeerEmpty, MessageMediaPoll
-from ..core.comprehensive_audit import AuditEventType, ComprehensiveAudit
 from ..core.mongo_database import mongodb
 logger = logging.getLogger(__name__)
 class ActivitySimulator:
-    """Activity simulator with comprehensive audit logging"""
+    """Activity simulator"""
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
         self.running = False
         self.simulation_tasks: Dict[int, asyncio.Task] = {}
-        self.audit = ComprehensiveAudit()
         self._lock = asyncio.Lock()
         # activity weights with new behaviors
         self.activity_weights = {
@@ -140,15 +138,14 @@ class ActivitySimulator:
                 weights=[5, 15, 25, 25, 15, 10, 5]
             )[0]
             # Log session start
-            await self.audit.log_sim_session(account_id, user_id, "start", num_actions)
-            for i in range(num_actions):
+                        for i in range(num_actions):
                 try:
                     # Select random activity based on weights
                     activity = random.choices(
                         list(self.activity_weights.keys()),
                         weights=list(self.activity_weights.values()),
                     )[0]
-                    await self._execute_activity_with_audit(
+                    await self._execute_activity(
                         client, activity, account_id, user_id, account_name
                     )
                     # Extremely realistic delays between actions (like real human behavior)
@@ -159,48 +156,47 @@ class ActivitySimulator:
                     logger.error(f"Activity execution error for {account_name}: {e}")
                     await asyncio.sleep(30)
             # Log session end
-            await self.audit.log_sim_session(account_id, user_id, "end", num_actions)
-        except Exception as e:
+                    except Exception as e:
             logger.error(f"Activity burst error for {account_name}: {e}")
-    async def _execute_activity_with_audit(
+    async def _execute_activity(
         self, client, activity: str, account_id: int, user_id: int, account_name: str
     ):
         """Execute activity with comprehensive audit logging"""
         try:
             if activity == "view_random_entity":
-                await self._view_random_entity_with_audit(
+                await self._view_random_entity(
                     client, account_id, user_id, account_name
                 )
             elif activity == "react_to_random_post":
-                await self._react_to_random_post_with_audit(
+                await self._react_to_random_post(
                     client, account_id, user_id, account_name
                 )
             elif activity == "browse_profiles":
-                await self._browse_profiles_with_audit(
+                await self._browse_profiles(
                     client, account_id, user_id, account_name
                 )
             elif activity == "vote_in_random_poll":
-                await self._vote_in_random_poll_with_audit(
+                await self._vote_in_random_poll(
                     client, account_id, user_id, account_name
                 )
             elif activity == "join_or_leave_public_channel":
-                await self._join_or_leave_channel_with_audit(
+                await self._join_or_leave_channel(
                     client, account_id, user_id, account_name
                 )
             elif activity == "send_message":
-                await self._send_message_with_audit(
+                await self._send_message(
                     client, account_id, user_id, account_name
                 )
             elif activity == "post_comment":
-                await self._post_comment_with_audit(
+                await self._post_comment(
                     client, account_id, user_id, account_name
                 )
             elif activity == "scroll_and_read":
-                await self._scroll_and_read_with_audit(
+                await self._scroll_and_read(
                     client, account_id, user_id, account_name
                 )
             elif activity == "typing_simulation":
-                await self._typing_simulation_with_audit(
+                await self._typing_simulation(
                     client, account_id, user_id, account_name
                 )
         except errors.FloodWaitError as e:
@@ -208,7 +204,7 @@ class ActivitySimulator:
             await asyncio.sleep(e.seconds)
         except Exception as e:
             logger.error(f"Activity {activity} failed for {account_name}: {e}")
-    async def _view_random_entity_with_audit(
+    async def _view_random_entity(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """View random entity with audit logging"""
@@ -223,12 +219,11 @@ class ActivitySimulator:
             read_time = random.uniform(5, 25)
             await asyncio.sleep(read_time)
             # Log the activity
-            await self.audit.log_sim_entity_viewed(
-                account_id, user_id, entity.name, message_count, read_time
+                            account_id, user_id, entity.name, message_count, read_time
             )
         except Exception as e:
             logger.error(f"View entity error for {account_name}: {e}")
-    async def _react_to_random_post_with_audit(
+    async def _react_to_random_post(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """React to random post with audit logging"""
@@ -253,12 +248,11 @@ class ActivitySimulator:
                 )
             )
             # Log the reaction
-            await self.audit.log_sim_reaction(
-                account_id, user_id, entity.name, emoji, message.id
+                            account_id, user_id, entity.name, emoji, message.id
             )
         except Exception as e:
             logger.error(f"React error for {account_name}: {e}")
-    async def _browse_profiles_with_audit(
+    async def _browse_profiles(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Browse profiles with audit logging"""
@@ -278,12 +272,11 @@ class ActivitySimulator:
             await asyncio.sleep(view_time)
             # Log profile view
             profile_name = user.first_name or "Unknown User"
-            await self.audit.log_sim_profile_viewed(
-                account_id, user_id, profile_name, view_time
+                            account_id, user_id, profile_name, view_time
             )
         except Exception as e:
             logger.error(f"Profile browse error for {account_name}: {e}")
-    async def _vote_in_random_poll_with_audit(
+    async def _vote_in_random_poll(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Vote in poll with audit logging"""
@@ -311,8 +304,7 @@ class ActivitySimulator:
                                 )
                             )
                             # Log poll vote
-                            await self.audit.log_sim_poll_voted(
-                                account_id,
+                                                            account_id,
                                 user_id,
                                 entity.name,
                                 poll.question,
@@ -321,7 +313,7 @@ class ActivitySimulator:
                             return
         except Exception as e:
             logger.error(f"Poll vote error for {account_name}: {e}")
-    async def _join_or_leave_channel_with_audit(
+    async def _join_or_leave_channel(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Join or leave channel with audit logging"""
@@ -341,8 +333,7 @@ class ActivitySimulator:
                     channel = random.choice(channels)
                     await client(functions.channels.JoinChannelRequest(channel))
                     # Log channel join
-                    await self.audit.log_sim_join_channel(
-                        account_id, user_id, channel.title, channel.id
+                                            account_id, user_id, channel.title, channel.id
                     )
             else:  # leave
                 dialogs = await client.get_dialogs(limit=100)
@@ -351,12 +342,11 @@ class ActivitySimulator:
                     channel = random.choice(old_channels)
                     await client(functions.channels.LeaveChannelRequest(channel))
                     # Log channel leave
-                    await self.audit.log_sim_leave_channel(
-                        account_id, user_id, channel.name, channel.id
+                                            account_id, user_id, channel.name, channel.id
                     )
         except Exception as e:
             logger.error(f"Join/leave error for {account_name}: {e}")
-    async def _send_message_with_audit(
+    async def _send_message(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Send message with audit logging (very rare)"""
@@ -385,12 +375,11 @@ class ActivitySimulator:
             message_text = random.choice(messages)
             sent_message = await client.send_message(group, message_text)
             # Log message sent
-            await self.audit.log_sim_message_sent(
-                account_id, user_id, group.name, message_text
+                            account_id, user_id, group.name, message_text
             )
         except Exception as e:
             logger.error(f"Send message error for {account_name}: {e}")
-    async def _post_comment_with_audit(
+    async def _post_comment(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Post comment with audit logging (very rare)"""
@@ -421,8 +410,7 @@ class ActivitySimulator:
                             channel, comment_text, reply_to=message.id
                         )
                         # Log comment posted
-                        await self.audit.log_sim_comment_posted(
-                            account_id, user_id, channel.name, comment_text
+                                                    account_id, user_id, channel.name, comment_text
                         )
                         break
                     except Exception as e:
@@ -430,7 +418,7 @@ class ActivitySimulator:
                         continue
         except Exception as e:
             logger.error(f"Post comment error for {account_name}: {e}")
-    async def _scroll_and_read_with_audit(
+    async def _scroll_and_read(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Simulate realistic scrolling and reading behavior"""
@@ -467,12 +455,11 @@ class ActivitySimulator:
                         
                         await asyncio.sleep(pause_time)
             # Log scrolling activity
-            await self.audit.log_sim_entity_viewed(
-                account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
+                            account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
             )
         except Exception as e:
             logger.error(f"Scroll and read error for {account_name}: {e}")
-    async def _typing_simulation_with_audit(
+    async def _typing_simulation(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Simulate typing indicators without sending messages"""
@@ -501,8 +488,7 @@ class ActivitySimulator:
                 )
             )
             # Log typing simulation
-            await self.audit.log_sim_entity_viewed(
-                account_id, user_id, f"Typing in {entity.name}", 1, typing_time
+                            account_id, user_id, f"Typing in {entity.name}", 1, typing_time
             )
         except Exception as e:
             logger.error(f"Typing simulation error for {account_name}: {e}")

@@ -34,7 +34,6 @@ class MenuBuilders:
             [Button.inline("👤 Profile Settings", f"profile:manage:{account_id}"), Button.inline(twofa_text, f"2fa:status:{account_id}")],
             [Button.inline("🔐 Active Sessions", f"sessions:list:{account_id}"), Button.inline(online_text, f"online:toggle:{account_id}")],
             [Button.inline(sim_text, f"simulate:status:{account_id}"), Button.inline("📊 Sim Stats", f"simulate:stats:{account_id}")],
-            [Button.inline("📋 Audit Log", f"audit:refresh:{account_id}:24")],
             [Button.inline("🔙 Back to Accounts", "menu:accounts")],
         ]
     
@@ -64,7 +63,6 @@ class MenuBuilders:
             buttons.append([Button.inline("🛡️ Set Password", f"otp_pwd:set:{account_id}")])
         buttons.extend([
             [Button.inline("📊 Password Status", f"otp_pwd:status:{account_id}")],
-            [Button.inline("📋 View Audit Log", f"otp:audit:{account_id}")],
             [Button.inline("🔙 Back to OTP Manager", "menu:otp")],
         ])
         return buttons

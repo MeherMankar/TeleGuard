@@ -16,13 +16,11 @@ Manage multiple Telegram accounts with advanced security features, automated wor
 - **OTP Destroyer** - Automatically invalidates login codes in real-time to prevent unauthorized access
 - **2FA Management** - Encrypted storage and management of two-factor authentication passwords
 - **Session Guardian** - Monitor and terminate suspicious login sessions instantly
-- **Audit Logging** - Complete activity tracking for all security events
 
 ### 📱 Account Management
 - **Multi-Account Support** - Manage up to 10 Telegram accounts from one interface
 - **Profile Manager** - Update names, usernames, bios, and profile photos
 - **Session Export** - Export session strings with DC information
-- **Account Age Tracking** - Automatic account age estimation and monitoring
 
 ### 💬 Messaging Tools
 - **Unified DM Management** - Centralized inbox with forum topics for all accounts
@@ -414,7 +412,6 @@ This tool is provided for **educational and research purposes only**. Users are 
 - 🛡️ Enhanced OTP Destroyer with temp bypass
 - 💬 Unified DM management system
 - 🧹 Advanced cleanup tools
-- 📊 Comprehensive audit logging
 
 ### v1.5.0
 - 🎭 Activity simulator
