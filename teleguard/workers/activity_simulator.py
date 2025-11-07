@@ -138,7 +138,7 @@ class ActivitySimulator:
                 weights=[5, 15, 25, 25, 15, 10, 5]
             )[0]
             # Log session start
-                        for i in range(num_actions):
+            for i in range(num_actions):
                 try:
                     # Select random activity based on weights
                     activity = random.choices(
@@ -156,7 +156,7 @@ class ActivitySimulator:
                     logger.error(f"Activity execution error for {account_name}: {e}")
                     await asyncio.sleep(30)
             # Log session end
-                    except Exception as e:
+        except Exception as e:
             logger.error(f"Activity burst error for {account_name}: {e}")
     async def _execute_activity(
         self, client, activity: str, account_id: int, user_id: int, account_name: str
@@ -219,7 +219,8 @@ class ActivitySimulator:
             read_time = random.uniform(5, 25)
             await asyncio.sleep(read_time)
             # Log the activity
-                            account_id, user_id, entity.name, message_count, read_time
+            await self._log_activity(
+                account_id, user_id, entity.name, message_count, read_time
             )
         except Exception as e:
             logger.error(f"View entity error for {account_name}: {e}")
@@ -248,7 +249,8 @@ class ActivitySimulator:
                 )
             )
             # Log the reaction
-                            account_id, user_id, entity.name, emoji, message.id
+            await self._log_activity(
+                account_id, user_id, entity.name, emoji, message.id
             )
         except Exception as e:
             logger.error(f"React error for {account_name}: {e}")
@@ -272,7 +274,8 @@ class ActivitySimulator:
             await asyncio.sleep(view_time)
             # Log profile view
             profile_name = user.first_name or "Unknown User"
-                            account_id, user_id, profile_name, view_time
+            await self._log_activity(
+                account_id, user_id, profile_name, view_time
             )
         except Exception as e:
             logger.error(f"Profile browse error for {account_name}: {e}")
@@ -304,7 +307,8 @@ class ActivitySimulator:
                                 )
                             )
                             # Log poll vote
-                                                            account_id,
+                            await self._log_activity(
+                                account_id,
                                 user_id,
                                 entity.name,
                                 poll.question,
@@ -333,7 +337,8 @@ class ActivitySimulator:
                     channel = random.choice(channels)
                     await client(functions.channels.JoinChannelRequest(channel))
                     # Log channel join
-                                            account_id, user_id, channel.title, channel.id
+                    await self._log_activity(
+                        account_id, user_id, channel.title, channel.id
                     )
             else:  # leave
                 dialogs = await client.get_dialogs(limit=100)
@@ -342,7 +347,8 @@ class ActivitySimulator:
                     channel = random.choice(old_channels)
                     await client(functions.channels.LeaveChannelRequest(channel))
                     # Log channel leave
-                                            account_id, user_id, channel.name, channel.id
+                    await self._log_activity(
+                        account_id, user_id, channel.name, channel.id
                     )
         except Exception as e:
             logger.error(f"Join/leave error for {account_name}: {e}")
@@ -375,7 +381,8 @@ class ActivitySimulator:
             message_text = random.choice(messages)
             sent_message = await client.send_message(group, message_text)
             # Log message sent
-                            account_id, user_id, group.name, message_text
+            await self._log_activity(
+                account_id, user_id, group.name, message_text
             )
         except Exception as e:
             logger.error(f"Send message error for {account_name}: {e}")
@@ -410,7 +417,8 @@ class ActivitySimulator:
                             channel, comment_text, reply_to=message.id
                         )
                         # Log comment posted
-                                                    account_id, user_id, channel.name, comment_text
+                        await self._log_activity(
+                            account_id, user_id, channel.name, comment_text
                         )
                         break
                     except Exception as e:
@@ -455,7 +463,8 @@ class ActivitySimulator:
                         
                         await asyncio.sleep(pause_time)
             # Log scrolling activity
-                            account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
+            await self._log_activity(
+                account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
             )
         except Exception as e:
             logger.error(f"Scroll and read error for {account_name}: {e}")
@@ -488,7 +497,8 @@ class ActivitySimulator:
                 )
             )
             # Log typing simulation
-                            account_id, user_id, f"Typing in {entity.name}", 1, typing_time
+            await self._log_activity(
+                account_id, user_id, f"Typing in {entity.name}", 1, typing_time
             )
         except Exception as e:
             logger.error(f"Typing simulation error for {account_name}: {e}")
@@ -598,3 +608,7 @@ class ActivitySimulator:
             delay += distraction_time
         
         return delay
+    
+    async def _log_activity(self, *args):
+        """Log activity (placeholder method)"""
+        pass
