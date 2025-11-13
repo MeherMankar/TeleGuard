@@ -1937,30 +1937,49 @@ class SessionLoginHandler:
             if format_type == 'file':
                 try:
                     import tempfile
-                    # Create temporary file
-                    with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as tmp_file:
-                        temp_path = tmp_file.name
+                    import time
+                    
+                    # Create unique temporary file name
+                    temp_name = f"session_{phone.replace('+', '')}_{int(time.time())}.session"
+                    temp_path = os.path.join(tempfile.gettempdir(), temp_name)
+                    
+                    logger.info(f"Creating session file at: {temp_path}")
                     
                     # Create file client with session data
                     file_client = TelegramClient(temp_path, config.telegram.api_id, config.telegram.api_hash)
+                    
+                    # Copy session data
                     file_client.session.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
                     file_client.session.auth_key = client.session.auth_key
+                    
+                    # Force save the session
                     file_client.session.save()
                     
-                    # Read the session file
+                    # Verify file was created and read it
                     if os.path.exists(temp_path):
-                        with open(temp_path, 'rb') as f:
-                            session_file_data = f.read()
+                        file_size = os.path.getsize(temp_path)
+                        logger.info(f"Session file created, size: {file_size} bytes")
+                        
+                        if file_size > 0:
+                            with open(temp_path, 'rb') as f:
+                                session_file_data = f.read()
+                            logger.info(f"Session file data read: {len(session_file_data)} bytes")
+                        else:
+                            logger.error("Session file is empty")
+                        
                         # Clean up temp file
                         try:
                             os.remove(temp_path)
-                        except Exception:
-                            pass
-                    
-                    logger.info(f"Session file created successfully, size: {len(session_file_data) if session_file_data else 0} bytes")
+                            logger.info("Temporary session file cleaned up")
+                        except Exception as cleanup_err:
+                            logger.warning(f"Failed to cleanup temp file: {cleanup_err}")
+                    else:
+                        logger.error(f"Session file was not created at {temp_path}")
                     
                 except Exception as file_err:
                     logger.error(f"Session file creation error: {file_err}")
+                    import traceback
+                    logger.error(f"Full traceback: {traceback.format_exc()}")
                     session_file_data = None
             
             await client.disconnect()
@@ -1987,14 +2006,10 @@ class SessionLoginHandler:
                     f"💾 Copy and save securely!\n"
                     f"🛡️ OTP Destroyer re-enabled"
                 )
-                # Send login notification
-                try:
-                    await self._send_login_notification(user_id, phone, "Session string created")
-                except Exception as notif_err:
-                    logger.error(f"Failed to send login notification: {notif_err}")
             elif format_type == 'file':
-                if session_file_data:
+                if session_file_data and len(session_file_data) > 0:
                     from telethon.tl.types import DocumentAttributeFilename
+                    await event.edit("✅ **Session file created! Sending...**")
                     await self.bot.send_message(
                         user_id,
                         f"📁 **Session File Created!**\n\n"
@@ -2002,26 +2017,27 @@ class SessionLoginHandler:
                         f"💾 Download and save securely!\n"
                         f"🛡️ OTP Destroyer re-enabled",
                         file=session_file_data,
-                        attributes=[DocumentAttributeFilename(f"{phone}.session")]
+                        attributes=[DocumentAttributeFilename(f"{phone.replace('+', '')}.session")]
                     )
-                    await event.delete()
-                    # Send login notification
                     try:
-                        await self._send_login_notification(user_id, phone, "Session file created")
-                    except Exception as notif_err:
-                        logger.error(f"Failed to send login notification: {notif_err}")
+                        await event.delete()
+                    except:
+                        pass
                 else:
+                    logger.error(f"Session file data is empty or None: {session_file_data}")
                     await event.edit(
-                        f"✅ **Session Created!**\n\n"
-                        f"❌ File generation failed, here's the string:\n\n"
+                        f"❌ **File generation failed**\n\n"
+                        f"Here's the session string instead:\n\n"
                         f"`{session_string}`\n\n"
                         f"🛡️ OTP Destroyer re-enabled"
                     )
-                    # Send login notification even if file failed
-                    try:
-                        await self._send_login_notification(user_id, phone, "Session created (file failed)")
-                    except Exception as notif_err:
-                        logger.error(f"Failed to send login notification: {notif_err}")
+            
+            # Always send login notification
+            try:
+                action = "Session file created" if format_type == 'file' and session_file_data else "Session string created"
+                await self._send_login_notification(user_id, phone, action)
+            except Exception as notif_err:
+                logger.error(f"Failed to send login notification: {notif_err}")
             
         except Exception as e:
             if client:
