@@ -662,28 +662,41 @@ class SessionExportHandler:
                 temp_session_path = f"fresh_{account_name}_{user_id}.session"
                 session_file_data = None
                 try:
-                    string_client = TelegramClient(StringSession(fresh_session), API_ID, API_HASH)
-                    await string_client.connect()
+                    logger.info(f"Creating session file for {account_name}...")
+                    # Create a temporary file-based client to generate .session file
                     file_client = TelegramClient(temp_session_path, API_ID, API_HASH)
+                    
+                    # Copy session data from authenticated client
                     file_client.session.set_dc(
-                        string_client.session.dc_id,
-                        string_client.session.server_address,
-                        string_client.session.port
+                        client.session.dc_id,
+                        client.session.server_address,
+                        client.session.port
                     )
-                    file_client.session.auth_key = string_client.session.auth_key
+                    file_client.session.auth_key = client.session.auth_key
+                    
+                    # Save the session to create the .session file
                     file_client.session.save()
-                    await string_client.disconnect()
+                    logger.info(f"Session file saved to {temp_session_path}")
+                    
+                    # Read the generated .session file
                     if os.path.exists(temp_session_path):
                         with open(temp_session_path, 'rb') as f:
                             session_file_data = f.read()
+                        logger.info(f"Session file read successfully: {len(session_file_data)} bytes")
+                    else:
+                        logger.error(f"Session file not found at {temp_session_path}")
+                        
                 except Exception as e:
                     logger.error(f"Session file creation error: {e}")
+                    import traceback
+                    logger.error(f"Session file creation traceback: {traceback.format_exc()}")
                 finally:
                     try:
                         if os.path.exists(temp_session_path):
                             os.remove(temp_session_path)
-                    except Exception:
-                        pass
+                            logger.info(f"Cleaned up temporary session file: {temp_session_path}")
+                    except Exception as cleanup_err:
+                        logger.error(f"Failed to cleanup session file: {cleanup_err}")
                 format_type = session_data.get('format_type', 'both')
                 # Send based on requested format
                 if format_type == 'string' or format_type == 'both':
@@ -734,6 +747,31 @@ class SessionExportHandler:
                             f"```",
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
+                        )
+                    else:
+                        # Fallback: If session file creation failed, send session string with instructions
+                        await self.bot.send_message(
+                            user_id,
+                            f"❌ **Session File Creation Failed - {account_name}**\n\n"
+                            f"Session file could not be created, but here's your session string:\n\n"
+                            f"**Session String:**\n"
+                            f"{fresh_session}\n\n"
+                            f"**To create .session file manually:**\n"
+                            f"```python\n"
+                            f"from telethon import TelegramClient\n"
+                            f"from telethon.sessions import StringSession\n\n"
+                            f"# Create client with string session\n"
+                            f"client = TelegramClient(\n"
+                            f"    StringSession('{fresh_session}'),\n"
+                            f"    api_id, api_hash\n"
+                            f")\n\n"
+                            f"# Save as .session file\n"
+                            f"await client.connect()\n"
+                            f"file_client = TelegramClient('{account_name}', api_id, api_hash)\n"
+                            f"file_client.session = client.session\n"
+                            f"file_client.session.save()\n"
+                            f"await client.disconnect()\n"
+                            f"```"
                         )
                 # Always send notification
                 try:
@@ -981,6 +1019,32 @@ class SessionExportHandler:
                             f"🔐 **2FA password securely stored for future use!**",
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
+                        )
+                    else:
+                        # Fallback: If session file creation failed, send session string with instructions
+                        await self.bot.send_message(
+                            user_id,
+                            f"❌ **Session File Creation Failed - {account_name}**\n\n"
+                            f"Session file could not be created, but here's your session string:\n\n"
+                            f"**Session String:**\n"
+                            f"{fresh_session}\n\n"
+                            f"**To create .session file manually:**\n"
+                            f"```python\n"
+                            f"from telethon import TelegramClient\n"
+                            f"from telethon.sessions import StringSession\n\n"
+                            f"# Create client with string session\n"
+                            f"client = TelegramClient(\n"
+                            f"    StringSession('{fresh_session}'),\n"
+                            f"    api_id, api_hash\n"
+                            f")\n\n"
+                            f"# Save as .session file\n"
+                            f"await client.connect()\n"
+                            f"file_client = TelegramClient('{account_name}', api_id, api_hash)\n"
+                            f"file_client.session = client.session\n"
+                            f"file_client.session.save()\n"
+                            f"await client.disconnect()\n"
+                            f"```\n\n"
+                            f"🔐 **2FA password securely stored for future use!**"
                         )
                 # Always send notification
                 try:

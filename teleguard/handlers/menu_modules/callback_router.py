@@ -37,7 +37,7 @@ class CallbackRouter:
             await self._route_menu(event, user_id, data)
         elif data.startswith("help:") or data.startswith("support:") or data.startswith("dev:"):
             await self._route_system(event, user_id, data)
-        elif data in ["session_login", "import_sessions", "export_sessions", "validate_session"]:
+        elif data in ["session_login", "import_sessions", "export_sessions", "validate_session"] or data.startswith(("export_session:", "export_string:", "export_file:", "export_fresh:", "export_all_sessions")):
             await self._route_session(event, user_id, data)
         else:
             await event.answer("Action processed", alert=False)
@@ -146,9 +146,17 @@ class CallbackRouter:
             await self._handle_export_sessions(event, user_id)
         elif data == "validate_session":
             await self._handle_validate_session(event, user_id)
+        elif data == "export_all_sessions":
+            await self._handle_export_all_sessions(event, user_id)
         elif data.startswith("export_session:"):
             account_name = data.split(":")[1]
             await self._handle_export_session_select(event, user_id, account_name)
+        elif data.startswith("export_string:"):
+            account_name = data.split(":")[1]
+            await self._handle_export_string_session(event, user_id, account_name)
+        elif data.startswith("export_file:"):
+            account_name = data.split(":")[1]
+            await self._handle_export_file_session(event, user_id, account_name)
         elif data.startswith("export_fresh:"):
             account_name = data.split(":")[1]
             await self._handle_export_fresh_session(event, user_id, account_name)
@@ -233,3 +241,36 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Export fresh session error: {e}")
             await event.answer("❌ Error creating fresh session")
+    
+    async def _handle_export_all_sessions(self, event, user_id):
+        """Handle export all sessions"""
+        try:
+            if hasattr(self.menu.account_manager, 'session_export_handler'):
+                await self.menu.account_manager.session_export_handler._export_all_sessions(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Export all sessions error: {e}")
+            await event.answer("❌ Error exporting sessions")
+    
+    async def _handle_export_string_session(self, event, user_id, account_name):
+        """Handle export string session"""
+        try:
+            if hasattr(self.menu.account_manager, 'session_export_handler'):
+                await self.menu.account_manager.session_export_handler._create_fresh_session(event, user_id, account_name, 'string')
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Export string session error: {e}")
+            await event.answer("❌ Error creating string session")
+    
+    async def _handle_export_file_session(self, event, user_id, account_name):
+        """Handle export file session"""
+        try:
+            if hasattr(self.menu.account_manager, 'session_export_handler'):
+                await self.menu.account_manager.session_export_handler._create_fresh_session(event, user_id, account_name, 'file')
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Export file session error: {e}")
+            await event.answer("❌ Error creating session file")
