@@ -96,8 +96,9 @@ class CallbackRouter:
             await self.menu._show_channel_statistics(user_id, event.message_id)
             await event.answer("📊 Statistics loaded")
         elif action == "search":
+            from telethon import Button
             text = "🔍 **Search Channels**\n\nChannel search functionality:\n\n• Search by name or username\n• Filter by type (channel/group)\n• Browse popular channels\n• Find recommended channels\n\nFeature coming soon!"
-            buttons = [[self.menu.bot.Button.inline("🔙 Back to Channels", "menu:channels")]]
+            buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
             await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             await event.answer("🔍 Search feature")
         else:
@@ -175,8 +176,9 @@ class CallbackRouter:
     async def _handle_import_sessions(self, event, user_id):
         """Handle session import"""
         try:
+            from telethon import Button
             text = "📥 **Import Sessions**\n\nSession import functionality:\n\n• Import .session files\n• Import session strings\n• Bulk session import\n• Session validation\n\nFeature coming soon!"
-            buttons = [[self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+            buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
             await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             await event.answer("📥 Import feature")
         except Exception as e:
@@ -185,19 +187,20 @@ class CallbackRouter:
     async def _handle_export_sessions(self, event, user_id):
         """Handle session export menu"""
         try:
+            from telethon import Button
             from ...core.mongo_database import mongodb
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
             if not accounts:
                 text = "✨ **Fresh Sessions**\n\n❌ No accounts found. Add accounts first to create fresh sessions."
-                buttons = [[self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                buttons = [[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
             else:
                 text = "✨ **Fresh Sessions**\n\nSelect account to create fresh session for:"
                 buttons = []
                 for account in accounts:
                     status = "🟢" if account.get("is_active", False) else "🔴"
                     display_name = self.menu.format_display_name(account)
-                    buttons.append([self.menu.bot.Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
-                buttons.append([self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")])
+                    buttons.append([Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
+                buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
             await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Export sessions error: {e}")
@@ -223,9 +226,10 @@ class CallbackRouter:
                 return
             display_name = self.menu.format_display_name(account)
             text = f"✨ **Fresh Session: {display_name}**\n\nThis will create a completely new session:"
+            from telethon import Button
             buttons = [
-                [self.menu.bot.Button.inline("✨ Create Fresh Session", f"export_fresh:{account_name}")],
-                [self.menu.bot.Button.inline("🔙 Back to Export", "export_sessions")]
+                [Button.inline("✨ Create Fresh Session", f"export_fresh:{account_name}")],
+                [Button.inline("🔙 Back to Export", "export_sessions")]
             ]
             await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         except Exception as e:
