@@ -10,6 +10,108 @@ class CallbackHandlers:
         self.bot = menu_system.bot
         self.account_manager = menu_system.account_manager
     
+    async def handle_account_callback(self, event, user_id, data):
+        """Handle account-related callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else "0"
+        
+        try:
+            if action == "manage":
+                await self.menu.send_account_management(user_id, account_id, event.message_id)
+            elif action == "add":
+                await self._handle_add_account(event, user_id)
+            elif action == "remove":
+                await self._handle_remove_account(event, user_id)
+            elif action == "refresh":
+                await self.menu.handlers.handle_account_settings(event)
+            elif action == "list":
+                await self.menu.send_accounts_list(user_id, event.message_id)
+        except Exception as e:
+            logger.error(f"Account callback error: {e}")
+            await event.answer("❌ Error processing account request")
+    
+    async def _handle_add_account(self, event, user_id):
+        """Handle add account request"""
+        try:
+            from ...core.config import MAX_ACCOUNTS
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            if not user:
+                await event.answer("🚀 Please start the bot first")
+                return
+            account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+            if account_count >= MAX_ACCOUNTS:
+                await event.answer(f"⚠️ Maximum account limit ({MAX_ACCOUNTS}) reached")
+                return
+            if self.account_manager:
+                self.account_manager.pending_actions[user_id] = {"action": "add_account"}
+                text = "➕ **Add New Account**\n\nReply with the phone number for the new account.\n\n📞 Format: +1234567890 (include country code)\n💡 Tip: Enter OTP codes as 1-2-3-4-5 (with hyphens)"
+                await event.answer("➕ Reply with phone number")
+                await self.bot.send_message(user_id, text)
+            else:
+                await event.answer("❌ Service unavailable")
+        except Exception as e:
+            logger.error(f"Failed to handle add account: {e}")
+            await event.answer("❌ Error processing request")
+    
+    async def _handle_remove_account(self, event, user_id):
+        """Handle remove account request"""
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                await self.bot.send_message(user_id, "❌ No accounts to remove.")
+                return
+            text = "🗑️ **Remove Account**\n\nSelect an account to remove:"
+            buttons = []
+            for account in accounts:
+                display_name = self.menu.format_display_name(account)
+                phone = account.get('phone', 'Unknown')
+                buttons.append([self.bot.Button.inline(f"🗑️ {display_name} ({phone})", f"remove:confirm:{account['_id']}")])
+            buttons.append([self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")])
+            await self.bot.send_message(user_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Failed to handle remove account: {e}")
+            await event.reply("⚠️ Error processing remove account request")
+    
+    async def handle_remove_callback(self, event, user_id, data):
+        """Handle remove account confirmation"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else "0"
+        
+        if action == "confirm":
+            await self._execute_remove_account(event, user_id, account_id)
+    
+    async def _execute_remove_account(self, event, user_id, account_id):
+        """Execute account removal"""
+        try:
+            if self.account_manager:
+                try:
+                    from ...core.database_manager import db_manager
+                    await db_manager.remove_2fa_password(user_id, account_id)
+                except Exception:
+                    pass
+                success, message = await self.account_manager.remove_account_by_id(user_id, account_id)
+                if success:
+                    await event.answer("✅ Account removed successfully!")
+                    await self.bot.edit_message(
+                        user_id, event.message_id,
+                        "✅ **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\n🔐 Session terminated from Telegram\n🔐 Stored 2FA password also removed for security",
+                        buttons=[[self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                    )
+                else:
+                    await event.answer(f"❌ Failed to remove account: {message}")
+                    await self.bot.edit_message(
+                        user_id, event.message_id,
+                        f"❌ **Removal Failed**\n\n{message}",
+                        buttons=[[self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                    )
+            else:
+                await event.answer("❌ Service unavailable")
+        except Exception as e:
+            logger.error(f"Failed to execute remove account: {e}")
+            await event.reply("⚠️ Error executing account removal")
+    
     async def handle_otp_callback(self, event, user_id, data):
         parts = data.split(":")
         action = parts[1]

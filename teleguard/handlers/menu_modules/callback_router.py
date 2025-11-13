@@ -29,6 +29,8 @@ class CallbackRouter:
             await self._route_channel(event, user_id, data)
         elif data.startswith("cleanup:"):
             await self.menu._handle_cleanup_callback(event, user_id, data)
+        elif data.startswith("remove:"):
+            await self.menu.callback_handlers.handle_remove_callback(event, user_id, data)
         elif data.startswith("contacts:") or data.startswith("sync:"):
             await self._route_contacts(event, user_id, data)
         elif data.startswith("menu:"):
@@ -41,17 +43,7 @@ class CallbackRouter:
             await event.answer("Action processed", alert=False)
     
     async def _route_account(self, event, user_id, data):
-        if data == "account:add":
-            await self.menu._handle_add_account(event, user_id)
-        elif data.startswith("account:manage:"):
-            account_id = data.split(":")[2]
-            await self.menu.send_account_management(user_id, account_id, event.message_id)
-        elif data == "account:list":
-            await self.menu._handle_account_settings(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.send_message(user_id, x, buttons=buttons)})())
-        elif data == "account:remove":
-            await self.menu._handle_remove_account(event, user_id)
-        elif data == "account:refresh":
-            await self.menu._handle_account_settings(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.menu.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        await self.menu.callback_handlers.handle_account_callback(event, user_id, data)
     
     async def _route_otp(self, event, user_id, data):
         if data.startswith("otp_setting:"):
@@ -147,22 +139,97 @@ class CallbackRouter:
     
     async def _route_session(self, event, user_id, data):
         if data == "session_login":
-            await self.menu.missing_handlers.handle_session_login(event, user_id)
+            await self._handle_session_login(event, user_id)
         elif data == "import_sessions":
-            await self.menu.missing_handlers.handle_import_sessions(event, user_id)
+            await self._handle_import_sessions(event, user_id)
         elif data == "export_sessions":
-            session_handler = None
-            if hasattr(self.menu.account_manager, 'bot_manager') and hasattr(self.menu.account_manager.bot_manager, 'session_login_handler'):
-                session_handler = self.menu.account_manager.bot_manager.session_login_handler
-            elif hasattr(self.menu.account_manager, 'session_login_handler'):
-                session_handler = self.menu.account_manager.session_login_handler
-            if session_handler:
-                await session_handler._start_session_creation(event, user_id)
-            else:
-                await event.answer("❌ Session creation not available")
+            await self._handle_export_sessions(event, user_id)
         elif data == "validate_session":
+            await self._handle_validate_session(event, user_id)
+        elif data.startswith("export_session:"):
+            account_name = data.split(":")[1]
+            await self._handle_export_session_select(event, user_id, account_name)
+        elif data.startswith("export_fresh:"):
+            account_name = data.split(":")[1]
+            await self._handle_export_fresh_session(event, user_id, account_name)
+    
+    async def _handle_session_login(self, event, user_id):
+        """Handle session login"""
+        try:
+            if hasattr(self.menu.account_manager, 'session_login_handler'):
+                await self.menu.account_manager.session_login_handler._start_session_creation(event, user_id)
+            else:
+                await event.answer("❌ Session login not available")
+        except Exception as e:
+            logger.error(f"Session login error: {e}")
+            await event.answer("❌ Error starting session login")
+    
+    async def _handle_import_sessions(self, event, user_id):
+        """Handle session import"""
+        try:
+            text = "📥 **Import Sessions**\n\nSession import functionality:\n\n• Import .session files\n• Import session strings\n• Bulk session import\n• Session validation\n\nFeature coming soon!"
+            buttons = [[self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            await event.answer("📥 Import feature")
+        except Exception as e:
+            logger.error(f"Import sessions error: {e}")
+    
+    async def _handle_export_sessions(self, event, user_id):
+        """Handle session export menu"""
+        try:
+            from ...core.mongo_database import mongodb
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                text = "✨ **Fresh Sessions**\n\n❌ No accounts found. Add accounts first to create fresh sessions."
+                buttons = [[self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+            else:
+                text = "✨ **Fresh Sessions**\n\nSelect account to create fresh session for:"
+                buttons = []
+                for account in accounts:
+                    status = "🟢" if account.get("is_active", False) else "🔴"
+                    display_name = self.menu.format_display_name(account)
+                    buttons.append([self.menu.bot.Button.inline(f"{status} {display_name}", f"export_session:{account['name']}")])
+                buttons.append([self.menu.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")])
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Export sessions error: {e}")
+    
+    async def _handle_validate_session(self, event, user_id):
+        """Handle session validation"""
+        try:
             if self.menu.account_manager:
                 self.menu.account_manager.pending_actions[user_id] = {"action": "validate_session_string"}
                 text = "🔍 **Session String Validator**\n\nReply with a session string to validate and see DC information (DC1, DC2, DC3, DC4, or DC5):"
                 await self.menu.bot.send_message(user_id, text)
                 await event.answer("🔍 Send session string to validate")
+        except Exception as e:
+            logger.error(f"Validate session error: {e}")
+    
+    async def _handle_export_session_select(self, event, user_id, account_name):
+        """Handle export session selection"""
+        try:
+            from ...core.mongo_database import mongodb
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            display_name = self.menu.format_display_name(account)
+            text = f"✨ **Fresh Session: {display_name}**\n\nThis will create a completely new session:"
+            buttons = [
+                [self.menu.bot.Button.inline("✨ Create Fresh Session", f"export_fresh:{account_name}")],
+                [self.menu.bot.Button.inline("🔙 Back to Export", "export_sessions")]
+            ]
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Export session select error: {e}")
+    
+    async def _handle_export_fresh_session(self, event, user_id, account_name):
+        """Handle fresh session creation"""
+        try:
+            if hasattr(self.menu.account_manager, 'session_export_handler'):
+                await self.menu.account_manager.session_export_handler._create_fresh_session(event, user_id, account_name, 'both')
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Export fresh session error: {e}")
+            await event.answer("❌ Error creating fresh session")
