@@ -309,13 +309,21 @@ class SessionExportHandler:
                     'previous_destroyer_state': previous_destroyer_state,
                     'format_type': format_type,
                 }
-                # Set session creation protection flags
+                # Disable OTP destroyer and forwarding during session creation
                 try:
+                    # Store original OTP settings
+                    original_destroyer = account.get('otp_destroyer_enabled', False)
+                    original_forward = account.get('otp_forward_enabled', False)
+                    
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
                         {"$set": {
                             "pending_fresh_session": True,
-                            "session_creation_in_progress": True
+                            "session_creation_in_progress": True,
+                            "otp_destroyer_enabled": False,  # Disable destroyer during session creation
+                            "otp_forward_enabled": False,   # Disable forwarding to prevent code sharing
+                            "original_destroyer_state": original_destroyer,
+                            "original_forward_state": original_forward
                         }}
                     )
                     
@@ -326,7 +334,7 @@ class SessionExportHandler:
                         "account_name": account_name
                     }
                     
-                    logger.info(f"Session creation protection enabled for {phone}")
+                    logger.info(f"Session creation started for {phone} - OTP destroyer and forwarding disabled")
                 except Exception:
                     pass
                 # Request the OTP from Telegram and store phone_code_hash
@@ -382,14 +390,22 @@ class SessionExportHandler:
                         await temp_client.disconnect()
                     except Exception:
                         pass
-                    # Clear protection flags
+                    # Clear protection flags and restore OTP settings
                     try:
                         await mongodb.db.accounts.update_one(
                             {"user_id": user_id, "name": account_name},
-                            {"$unset": {
-                                "pending_fresh_session": "",
-                                "session_creation_in_progress": ""
-                            }}
+                            {
+                                "$unset": {
+                                    "pending_fresh_session": "",
+                                    "session_creation_in_progress": "",
+                                    "original_destroyer_state": "",
+                                    "original_forward_state": ""
+                                },
+                                "$set": {
+                                    "otp_destroyer_enabled": previous_destroyer_state,
+                                    "otp_forward_enabled": False  # Reset to safe state
+                                }
+                            }
                         )
                         self.bot_manager.pending_actions.pop(user_id, None)
                     except Exception:
@@ -455,14 +471,22 @@ class SessionExportHandler:
                     await temp_client.disconnect()
                 except Exception:
                     pass
-                # Clear protection flags
+                # Clear protection flags and restore OTP settings
                 try:
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {
-                            "pending_fresh_session": "",
-                            "session_creation_in_progress": ""
-                        }}
+                        {
+                            "$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            },
+                            "$set": {
+                                "otp_destroyer_enabled": previous_destroyer_state,
+                                "otp_forward_enabled": False  # Reset to safe state
+                            }
+                        }
                     )
                     self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
@@ -705,18 +729,31 @@ class SessionExportHandler:
                         )
                 # Send notification
                 await self._send_login_notification(user_id, account_name, "Fresh session created via OTP")
-                # Clear session creation protection
+                # Clear session creation protection and restore OTP settings
                 try:
+                    # Get original states
+                    account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    original_destroyer = account_data.get('original_destroyer_state', False) if account_data else False
+                    original_forward = account_data.get('original_forward_state', False) if account_data else False
+                    
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {
-                            "pending_fresh_session": "",
-                            "session_creation_in_progress": ""
-                        }}
+                        {
+                            "$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            },
+                            "$set": {
+                                "otp_destroyer_enabled": original_destroyer,
+                                "otp_forward_enabled": original_forward
+                            }
+                        }
                     )
                     # Clear pending action
                     self.bot_manager.pending_actions.pop(user_id, None)
-                    logger.info(f"Session creation protection cleared for {phone}")
+                    logger.info(f"Session creation completed for {phone} - OTP settings restored")
                 except Exception:
                     logger.exception("Failed to clear protection flags after successful session creation")
                 try:
@@ -731,18 +768,31 @@ class SessionExportHandler:
                     pass
                 return True
             except Exception as e:
-                # Clear session creation protection on failure
+                # Clear session creation protection on failure and restore OTP settings
                 try:
+                    # Get original states
+                    account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    original_destroyer = account_data.get('original_destroyer_state', False) if account_data else False
+                    original_forward = account_data.get('original_forward_state', False) if account_data else False
+                    
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {
-                            "pending_fresh_session": "",
-                            "session_creation_in_progress": ""
-                        }}
+                        {
+                            "$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            },
+                            "$set": {
+                                "otp_destroyer_enabled": original_destroyer,
+                                "otp_forward_enabled": original_forward
+                            }
+                        }
                     )
                     # Clear pending action
                     self.bot_manager.pending_actions.pop(user_id, None)
-                    logger.info(f"Session creation protection cleared after failure for {phone}")
+                    logger.info(f"Session creation failed for {phone} - OTP settings restored")
                 except Exception:
                     logger.exception("Failed to clear protection flags after session creation failure")
                 try:
@@ -923,14 +973,27 @@ class SessionExportHandler:
                         )
                 # Send notification
                 await self._send_login_notification(user_id, account_name, "Fresh session created with 2FA")
-                # Clear protection flags
+                # Clear protection flags and restore OTP settings
                 try:
+                    # Get original states
+                    account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    original_destroyer = account_data.get('original_destroyer_state', False) if account_data else False
+                    original_forward = account_data.get('original_forward_state', False) if account_data else False
+                    
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {
-                            "pending_fresh_session": "",
-                            "session_creation_in_progress": ""
-                        }}
+                        {
+                            "$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            },
+                            "$set": {
+                                "otp_destroyer_enabled": original_destroyer,
+                                "otp_forward_enabled": original_forward
+                            }
+                        }
                     )
                     self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
@@ -939,14 +1002,27 @@ class SessionExportHandler:
                 del self.bot_manager.pending_fresh_sessions[user_id]
                 return True
             except Exception as e:
-                # Clear protection flags on failure
+                # Clear protection flags on failure and restore OTP settings
                 try:
+                    # Get original states
+                    account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                    original_destroyer = account_data.get('original_destroyer_state', False) if account_data else False
+                    original_forward = account_data.get('original_forward_state', False) if account_data else False
+                    
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {
-                            "pending_fresh_session": "",
-                            "session_creation_in_progress": ""
-                        }}
+                        {
+                            "$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": "",
+                                "original_destroyer_state": "",
+                                "original_forward_state": ""
+                            },
+                            "$set": {
+                                "otp_destroyer_enabled": original_destroyer,
+                                "otp_forward_enabled": original_forward
+                            }
+                        }
                     )
                     self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
