@@ -315,6 +315,20 @@ class SessionExportHandler:
                         {"user_id": user_id, "name": account_name},
                         {"$set": {"pending_fresh_session": True, "otp_destroyer_enabled": False}}
                     )
+                    
+                    # Add temporary OTP protection to prevent destruction
+                    import time
+                    await mongodb.db.otp_protections.update_one(
+                        {"phone": phone, "wildcard": True},
+                        {"$set": {
+                            "phone": phone,
+                            "wildcard": True,
+                            "expires_at": int(time.time()) + 300,  # 5 minutes
+                            "reason": "session_creation"
+                        }},
+                        upsert=True
+                    )
+                    logger.info(f"OTP Destroyer temporarily disabled for {phone} during session creation")
                 except Exception:
                     pass
                 # Request the OTP from Telegram and store phone_code_hash
@@ -695,13 +709,11 @@ class SessionExportHandler:
                             "$set": {"otp_destroyer_enabled": self.bot_manager.pending_fresh_sessions[user_id].get('previous_destroyer_state', False)}
                         },
                     )
-                except Exception:
-                    pass
-                # Remove wildcard otp_protection for this phone (cleanup)
-                try:
+                    # Remove wildcard otp_protection for this phone (cleanup)
                     await mongodb.db.otp_protections.delete_many({"phone": phone, "wildcard": True})
+                    logger.info(f"OTP Destroyer re-enabled for {phone} after successful session creation")
                 except Exception:
-                    logger.exception("Failed to remove otp_protections wildcard on success")
+                    logger.exception("Failed to restore DB flags after successful session creation")
                 try:
                     await client.disconnect()
                 except Exception:
@@ -726,6 +738,9 @@ class SessionExportHandler:
                             "$set": {"otp_destroyer_enabled": prev_state if prev_state is not None else False}
                         }
                     )
+                    # Remove OTP protection
+                    await mongodb.db.otp_protections.delete_many({"phone": phone, "wildcard": True})
+                    logger.info(f"OTP Destroyer re-enabled for {phone} after session creation failure")
                 except Exception:
                     logger.exception("Failed to clear pending_fresh_session flag in DB on failure")
                 try:

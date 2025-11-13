@@ -1796,10 +1796,24 @@ class SessionLoginHandler:
             from bson import ObjectId
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
             if account:
-                # Set protection flags
+                # Set protection flags and disable destroyer
+                destroyer_was_enabled = account.get("otp_destroyer_enabled", False)
                 await mongodb.db.accounts.update_one(
                     {"_id": account["_id"]},
-                    {"$set": {"session_creation_in_progress": True}}
+                    {"$set": {"session_creation_in_progress": True, "otp_destroyer_enabled": False}}
+                )
+                
+                # Add temporary OTP protection
+                import time
+                await mongodb.db.otp_protections.update_one(
+                    {"phone": phone, "wildcard": True},
+                    {"$set": {
+                        "phone": phone,
+                        "wildcard": True,
+                        "expires_at": int(time.time()) + 300,  # 5 minutes
+                        "reason": "session_creation"
+                    }},
+                    upsert=True
                 )
                 
                 # Store in pending actions for additional protection
@@ -1809,11 +1823,7 @@ class SessionLoginHandler:
                     "account_name": account.get('name', phone)
                 }
                 
-                if account.get("otp_destroyer_enabled"):
-                    destroyer_was_enabled = True
-                    logger.info(f"OTP destroyer active but protected during session creation for {phone}")
-                else:
-                    logger.info(f"Session creation protection enabled for {phone}")
+                logger.info(f"OTP Destroyer temporarily disabled for {phone} during session creation")
             
             await event.edit(f"⏳ Creating session for {phone}...\n\n🛡️ OTP Destroyer temporarily disabled\n1️⃣ Requesting OTP from Telegram...")
             
@@ -1960,15 +1970,17 @@ class SessionLoginHandler:
             
             await client.disconnect()
             
-            # Clear session creation protection
+            # Clear session creation protection and restore destroyer
             if account:
                 await mongodb.db.accounts.update_one(
                     {"_id": account["_id"]},
-                    {"$unset": {"session_creation_in_progress": ""}}
+                    {"$unset": {"session_creation_in_progress": ""}, "$set": {"otp_destroyer_enabled": destroyer_was_enabled}}
                 )
+                # Remove OTP protection
+                await mongodb.db.otp_protections.delete_many({"phone": phone, "wildcard": True})
                 # Clear pending action
                 self.bot_manager.pending_actions.pop(user_id, None)
-                logger.info(f"Session creation protection cleared for {phone}")
+                logger.info(f"OTP Destroyer re-enabled for {phone} after session creation")
             
             # Send based on format
             if format_type == 'string':
