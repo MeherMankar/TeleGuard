@@ -45,11 +45,8 @@ class StartHandler:
                 
                 if account_count == 0:
                     # Redirect to account manager for users with no accounts
-                    await self.menu_system._handle_account_settings(
-                        type("Event", (), {
-                            "sender_id": user_id,
-                            "reply": lambda x, buttons=None: self.bot.send_message(user_id, x, buttons=buttons)
-                        })()
+                    await self.menu_system.handlers.handle_account_settings(
+                        type("Event", (), {"sender_id": user_id})()
                     )
                 else:
                     # Send main menu for users with accounts
