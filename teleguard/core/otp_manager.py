@@ -437,10 +437,15 @@ class OTPManager:
             return False
         
         expiry = temp_data.get("expiry", temp_data) if isinstance(temp_data, dict) else temp_data
-        if time.time() > expiry:
-            self.temp_passthrough.get(user_id, {}).pop(temp_key, None)
-            if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
-                del self.temp_passthrough[user_id]
+        current_time = time.time()
+        if current_time > expiry:
+            # Clean up expired entry
+            try:
+                self.temp_passthrough.get(user_id, {}).pop(temp_key, None)
+                if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
+                    del self.temp_passthrough[user_id]
+            except Exception as e:
+                logger.error(f"Error cleaning up expired temp passthrough: {e}")
             return False
         return True
     async def _cleanup_temp_passthrough(
@@ -613,8 +618,13 @@ class OTPManager:
                         }}
                     }
                 )
-                self.register_handlers()
-                logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
+                # Re-register handlers to ensure OTP destroyer works
+                try:
+                    self.register_handlers()
+                    logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
+                except Exception as handler_error:
+                    logger.error(f"Failed to re-register handlers: {handler_error}")
+                
                 # Log to logs bot
                 try:
                     phone = account.get('phone', 'Unknown')
@@ -679,8 +689,12 @@ class OTPManager:
                         "$push": {"audit_log": {"action": "forwarding_enabled", "timestamp": timestamp}}
                     }
                 )
-                self.register_handlers()
-                logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
+                # Re-register handlers to ensure OTP forwarding works
+                try:
+                    self.register_handlers()
+                    logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
+                except Exception as handler_error:
+                    logger.error(f"Failed to re-register handlers: {handler_error}")
                 message = "✅ OTP Forwarding enabled\n✅ Handlers re-registered"
             else:
                 await mongodb.db.accounts.update_one(
@@ -710,8 +724,9 @@ class OTPManager:
             if not account.get("otp_destroyer_enabled", False):
                 return False, "⚠️ OTP Destroyer is not enabled"
             
+            account_name = account.get('name') or account.get('phone') or 'Unknown'
             expiry_time = time.time() + 300
-            self.temp_passthrough.setdefault(user_id, {})[f"{account['name']}_destroyer_disabled"] = expiry_time
+            self.temp_passthrough.setdefault(user_id, {})[f"{account_name}_destroyer_disabled"] = expiry_time
             
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},
@@ -721,6 +736,23 @@ class OTPManager:
                     "timestamp": int(time.time())
                 }}}
             )
+            
+            # Schedule cleanup after 5 minutes
+            import asyncio
+            async def cleanup_temp_disable():
+                await asyncio.sleep(300)  # 5 minutes
+                try:
+                    temp_key = f"{account_name}_destroyer_disabled"
+                    if user_id in self.temp_passthrough and temp_key in self.temp_passthrough[user_id]:
+                        del self.temp_passthrough[user_id][temp_key]
+                        if not self.temp_passthrough[user_id]:
+                            del self.temp_passthrough[user_id]
+                        logger.info(f"Cleaned up temp destroyer disable for user {user_id}, account {account_name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Error cleaning up temp destroyer disable: {cleanup_error}")
+            
+            asyncio.create_task(cleanup_temp_disable())
+            
             return True, "⏰ OTP Destroyer paused for 5 minutes\n🔓 You can now receive OTPs"
         except Exception as e:
             logger.error(f"Error disabling destroyer temp: {e}")
@@ -732,10 +764,15 @@ class OTPManager:
         if not expiry:
             return False
         
-        if time.time() > expiry:
-            self.temp_passthrough.get(user_id, {}).pop(key, None)
-            if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
-                del self.temp_passthrough[user_id]
+        current_time = time.time()
+        if current_time > expiry:
+            # Clean up expired entry
+            try:
+                self.temp_passthrough.get(user_id, {}).pop(key, None)
+                if user_id in self.temp_passthrough and not self.temp_passthrough[user_id]:
+                    del self.temp_passthrough[user_id]
+            except Exception as e:
+                logger.error(f"Error cleaning up expired temp disable: {e}")
             return False
         return True
     
@@ -766,6 +803,21 @@ class OTPManager:
                     "timestamp": int(time.time())
                 }}}
             )
+            
+            # Schedule cleanup after 5 minutes
+            import asyncio
+            async def cleanup_temp_otp():
+                await asyncio.sleep(300)  # 5 minutes
+                try:
+                    if user_id in self.temp_passthrough and temp_key in self.temp_passthrough[user_id]:
+                        del self.temp_passthrough[user_id][temp_key]
+                        if not self.temp_passthrough[user_id]:
+                            del self.temp_passthrough[user_id]
+                        logger.info(f"Cleaned up temp OTP for user {user_id}, account {account_name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Error cleaning up temp OTP: {cleanup_error}")
+            
+            asyncio.create_task(cleanup_temp_otp())
             
             return True, f"⏰ **Temp OTP Enabled!**\n\n🔓 OTP Destroyer paused for 5 minutes\n📨 OTP codes will be forwarded to you\n\n⏱️ Expires in 5 minutes"
         except Exception as e:

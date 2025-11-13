@@ -20,108 +20,13 @@ class MessagingManager:
         self.bot_manager = bot_manager
         self.bot = bot_manager.bot
         self.user_clients = bot_manager.user_clients
-    async def create_template(self, user_id: int, name: str, content: str, 
-                            category: str = "General", media_url: str = None, 
-                            buttons: List[Dict] = None) -> str:
-        """Create a new message template"""
-        try:
-            template_data = {
-                "user_id": user_id,
-                "name": name,
-                "content": content,
-                "category": category,
-                "media_url": media_url,
-                "buttons": buttons or [],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-            encrypted_data = DataEncryption.encrypt_settings_data(template_data)
-            result = await mongodb.db.message_templates.insert_one(encrypted_data)
-            logger.info(f"Template created: {name} for user {user_id}")
-            return str(result.inserted_id)
-        except Exception as e:
-            logger.error(f"Failed to create template: {e}")
-            raise
-    async def update_template(self, template_id: str, updates: Dict) -> bool:
-        """Update an existing template"""
-        try:
-            from bson import ObjectId
-            updates["updated_at"] = datetime.utcnow()
-            encrypted_updates = DataEncryption.encrypt_settings_data(updates)
-            result = await mongodb.db.message_templates.update_one(
-                {"_id": ObjectId(template_id)},
-                {"$set": encrypted_updates}
-            )
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"Failed to update template: {e}")
-            return False
-    async def get_template(self, template_id: str) -> Optional[Dict]:
-        """Get a template by ID"""
-        try:
-            from bson import ObjectId
-            template = await mongodb.db.message_templates.find_one(
-                {"_id": ObjectId(template_id)}
-            )
-            if template:
-                if any(k.endswith('_enc') for k in template.keys()):
-                    return DataEncryption.decrypt_settings_data(template)
-                else:
-                    return template
-            return None
-        except Exception as e:
-            logger.error(f"Failed to get template: {e}")
-            return None
-    async def get_user_templates(self, user_id: int) -> List[Dict]:
-        """Get all templates for a user"""
-        try:
-            cursor = mongodb.db.message_templates.find({"user_id": user_id})
-            templates_raw = await cursor.to_list(length=None)
-            templates = []
-            for template in templates_raw:
-                if any(k.endswith('_enc') for k in template.keys()):
-                    # Encrypted template
-                    decrypted = DataEncryption.decrypt_settings_data(template)
-                    decrypted["_id"] = str(template["_id"])
-                    templates.append(decrypted)
-                else:
-                    # Unencrypted template (legacy)
-                    template["_id"] = str(template["_id"])
-                    templates.append(template)
-            return templates
-        except Exception as e:
-            logger.error(f"Failed to get user templates: {e}")
-            return []
-    async def get_templates_by_category(self, user_id: int, category: str) -> List[Dict]:
-        """Get templates filtered by category"""
-        try:
-            all_templates = await self.get_user_templates(user_id)
-            # Filter by category
-            templates = [t for t in all_templates if t.get("category", "General") == category]
-            return templates
-        except Exception as e:
-            logger.error(f"Failed to get templates by category: {e}")
-            return []
-    async def get_template_categories(self, user_id: int) -> List[str]:
-        """Get all unique categories for a user"""
-        try:
-            templates = await self.get_user_templates(user_id)
-            categories = list(set(template.get("category", "General") for template in templates))
-            return sorted(categories)
-        except Exception as e:
-            logger.error(f"Failed to get template categories: {e}")
-            return ["General"]
-    async def delete_template(self, template_id: str) -> bool:
-        """Delete a template"""
-        try:
-            from bson import ObjectId
-            result = await mongodb.db.message_templates.delete_one(
-                {"_id": ObjectId(template_id)}
-            )
-            return result.deleted_count > 0
-        except Exception as e:
-            logger.error(f"Failed to delete template: {e}")
-            return False
+
+
+
+
+
+
+
     def _replace_variables(self, content: str, target_info: Dict = None) -> str:
         """Replace template variables with actual values"""
         try:
@@ -293,74 +198,14 @@ class MessagingManager:
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
             active_accounts = sum(1 for acc in accounts if acc.get("is_active", False))
-            templates = await self.get_user_templates(user_id)
             return {
                 "total_messages_sent": 0,
                 "auto_replies_sent": 0,
                 "active_accounts": active_accounts,
-                "dm_topics_created": 0,
-                "templates_count": len(templates)
+                "dm_topics_created": 0
             }
         except Exception as e:
             logger.error(f"Failed to get messaging statistics: {e}")
             return {"total_messages_sent": 0, "auto_replies_sent": 0, "active_accounts": 0, "dm_topics_created": 0}
     
-    async def send_template(self, user_id: int, account_name: str, target: str, template_id: str) -> bool:
-        """Send a template message with human-like behavior"""
-        try:
-            template = await self.get_template(template_id)
-            if not template:
-                return False
-            if user_id not in self.user_clients or account_name not in self.user_clients[user_id]:
-                return False
-            client = self.user_clients[user_id][account_name]
-            if not client or not client.is_connected():
-                return False
-            target_info = None
-            try:
-                if target.startswith("@"):
-                    target_entity = await client.get_entity(target)
-                else:
-                    target_entity = await client.get_entity(int(target))
-                target_info = {
-                    "first_name": getattr(target_entity, "first_name", ""),
-                    "last_name": getattr(target_entity, "last_name", ""),
-                    "username": getattr(target_entity, "username", "")
-                }
-            except:
-                pass
-            # Replace variables in content
-            content = self._replace_variables(template["content"], target_info)
-            # Prepare buttons
-            buttons = None
-            if template.get("buttons"):
-                from telethon.tl.custom import Button
-                button_rows = []
-                for btn in template["buttons"]:
-                    if btn.get("url"):
-                        button_rows.append([Button.url(btn["text"], btn["url"])])
-                    else:
-                        button_rows.append([Button.inline(btn["text"], f"template_btn:{btn['text']}")])
-                buttons = button_rows
-            # Extremely realistic human typing behavior
-            await self._simulate_human_message_behavior(client, target, content)
-            
-            # Send message
-            if template.get("media_url"):
-                await client.send_file(
-                    target,
-                    template["media_url"],
-                    caption=content,
-                    buttons=buttons
-                )
-            else:
-                await client.send_message(
-                    target,
-                    content,
-                    buttons=buttons
-                )
-            logger.info(f"Template sent: {template['name']} to {target}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send template: {e}")
-            return False
+

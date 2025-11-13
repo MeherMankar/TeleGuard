@@ -593,17 +593,24 @@ class BotManager:
             "twofa_commands", TwoFACommands, self.bot, self
         )
         
-        # Initialize template handler
-        from ..handlers.template_handler import TemplateHandler
-        self.template_handler = await self.component_manager.initialize_component(
-            "template_handler", TemplateHandler, self
-        )
+
         
         # Initialize auto-reply handler
         from ..handlers.auto_reply_handler import AutoReplyHandler
         self.auto_reply_handler = await self.component_manager.initialize_component(
             "auto_reply_handler", AutoReplyHandler, self
         )
+        
+        # Set up auto-reply handlers for existing clients
+        if self.auto_reply_handler:
+            try:
+                self.auto_reply_handler.setup_auto_reply_handlers()
+                handler_count = len(self.auto_reply_handler.handled_clients)
+                print(f"  Auto-reply system ready ({handler_count} handlers)")
+                logger.info(f"Auto-reply handlers set up for existing clients: {handler_count}")
+            except Exception as e:
+                logger.warning(f"Failed to set up auto-reply handlers: {e}")
+                print("  Auto-reply system ready (no handlers yet)")
         
         # Initialize bulk sender
         from ..handlers.bulk_sender import BulkSender
@@ -851,6 +858,102 @@ class BotManager:
                 await event.reply(f"Cleanup error: {e}")
                 logger.error(f"Account cleanup error: {e}")
         
+        @self.bot.on(events.NewMessage(pattern=r'/auto_reply_debug'))
+        async def auto_reply_debug_handler(event):
+            """Debug auto-reply functionality"""
+            user_id = event.sender_id
+            
+            try:
+                # Check auto-reply handler status
+                handler_status = "❌ Not initialized"
+                handled_clients_count = 0
+                
+                if self.auto_reply_handler:
+                    handler_status = "✅ Initialized"
+                    handled_clients_count = len(self.auto_reply_handler.handled_clients)
+                
+                # Check user accounts and settings
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id})
+                
+                account_info = []
+                for account in accounts:
+                    name = account.get('name', 'Unknown')
+                    enabled = "✅" if account.get('auto_reply_enabled') else "❌"
+                    handler_key = f"{user_id}:{name}"
+                    handler_registered = "✅" if self.auto_reply_handler and handler_key in self.auto_reply_handler.handled_clients else "❌"
+                    account_info.append(f"  {name}: Enabled {enabled} | Handler {handler_registered}")
+                
+                # Check active clients
+                user_clients = self.user_clients.get(user_id, {})
+                client_info = []
+                for name, client in user_clients.items():
+                    connected = "✅" if client and hasattr(client, 'is_connected') and client.is_connected() else "❌"
+                    client_info.append(f"  {name}: {connected}")
+                
+                # Settings info
+                keyword_enabled = "✅" if settings and settings.get('keyword_replies_enabled') else "❌"
+                time_enabled = "✅" if settings and settings.get('time_based_replies_enabled') else "❌"
+                keywords_count = len(settings.get('keywords', {})) if settings else 0
+                
+                debug_msg = f"""🤖 **Auto-Reply Debug Info**
+
+**Handler Status:** {handler_status}
+**Handled Clients:** {handled_clients_count}
+
+**Your Accounts ({len(accounts)}):**
+{chr(10).join(account_info) if account_info else "  No accounts found"}
+
+**Active Clients ({len(user_clients)}):**
+{chr(10).join(client_info) if client_info else "  No clients connected"}
+
+**Settings:**
+  Keyword Replies: {keyword_enabled}
+  Time-based Replies: {time_enabled}
+  Keywords Count: {keywords_count}
+
+**Next Steps:**
+- Enable auto-reply for accounts in settings
+- Configure keywords or time-based replies
+- Check that accounts are connected"""
+                
+                await event.reply(debug_msg)
+                
+            except Exception as e:
+                await event.reply(f"Debug error: {e}")
+                logger.error(f"Auto-reply debug error: {e}")
+        
+        @self.bot.on(events.NewMessage(pattern=r'/auto_reply_fix'))
+        async def auto_reply_fix_handler(event):
+            """Force re-setup auto-reply handlers"""
+            user_id = event.sender_id
+            
+            try:
+                if self.auto_reply_handler:
+                    old_count = len(self.auto_reply_handler.handled_clients)
+                    
+                    # Clear existing handlers for this user
+                    await self.auto_reply_handler.force_cleanup_user_handlers(user_id)
+                    
+                    # Re-setup handlers
+                    self.auto_reply_handler.setup_auto_reply_handlers()
+                    
+                    new_count = len([k for k in self.auto_reply_handler.handled_clients if k.startswith(f"{user_id}:")])
+                    
+                    await event.reply(
+                        f"🔧 **Auto-Reply Fix Applied**\n\n"
+                        f"Handlers before: {old_count}\n"
+                        f"Your handlers now: {new_count}\n\n"
+                        f"Auto-reply should now work for enabled accounts!"
+                    )
+                    logger.info(f"Auto-reply handlers re-setup for user {user_id}: {new_count} handlers")
+                else:
+                    await event.reply("❌ Auto-Reply Handler not available")
+                    
+            except Exception as e:
+                await event.reply(f"Fix error: {e}")
+                logger.error(f"Auto-reply fix error: {e}")
+        
         from ..handlers.spam_appeal_handler import SpamAppealHandler
         self.spam_appeal_handler = await self.component_manager.initialize_component(
             "spam_appeal_handler", SpamAppealHandler, self
@@ -962,6 +1065,19 @@ class BotManager:
                     logger.info(f"DM handler setup and refresh completed for {account_name}")
                 except Exception as dm_error:
                     logger.error(f"Failed to setup DM handler for {account_name}: {dm_error}")
+            
+            # Setup auto-reply handler for the new client
+            if self.auto_reply_handler and client:
+                try:
+                    await self.auto_reply_handler.setup_new_client_handler(user_id, account_name, client)
+                    logger.info(f"Auto-reply handler setup completed for {account_name}")
+                except Exception as auto_reply_error:
+                    logger.error(f"Failed to setup auto-reply handler for {account_name}: {auto_reply_error}")
+            
+            # Keep account active for 10 minutes to establish connection
+            if client:
+                asyncio.create_task(self._keep_account_active(user_id, account_name, client))
+                logger.info(f"Started 10-minute activity period for {account_name}")
             logger.info(LogFormatter.format_user_action(
                 user_id, "account_added", {"account_name": account_name}
             ))
@@ -1473,4 +1589,29 @@ class BotManager:
                 )
         except Exception as e:
             logger.error(f"Failed to handle session invalidation: {e}")
+    
+    async def _keep_account_active(self, user_id: int, account_name: str, client):
+        """Keep account active for 10 minutes after adding"""
+        try:
+            from telethon.tl.functions.account import UpdateStatusRequest
+            
+            # Send periodic status updates for 10 minutes
+            for i in range(20):  # 20 iterations * 30 seconds = 10 minutes
+                if not client.is_connected():
+                    break
+                    
+                try:
+                    # Update online status
+                    await client(UpdateStatusRequest(offline=False))
+                    logger.debug(f"Sent activity ping {i+1}/20 for {account_name}")
+                except Exception as e:
+                    logger.debug(f"Activity ping failed for {account_name}: {e}")
+                    break
+                
+                await asyncio.sleep(30)  # Wait 30 seconds between pings
+            
+            logger.info(f"Completed 10-minute activity period for {account_name}")
+            
+        except Exception as e:
+            logger.error(f"Error keeping account {account_name} active: {e}")
 

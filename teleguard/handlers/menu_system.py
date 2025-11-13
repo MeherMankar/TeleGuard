@@ -707,7 +707,12 @@ class MenuSystem:
         from teleguard_modular.menu_delegation import handle_dm_reply_menu
         await handle_dm_reply_menu(self.bot, event.sender_id, event, self.account_manager)
     async def _handle_otp_callback(self, event, user_id: int, data: str):
-        await self.callback_handlers.handle_otp_callback(event, user_id, data)
+        """Handle OTP-related callbacks with proper error handling"""
+        try:
+            await self.callback_handlers.handle_otp_callback(event, user_id, data)
+        except Exception as e:
+            logger.error(f"OTP callback error: {e}")
+            await event.answer("❌ Error processing OTP request")
     
     async def _handle_otp_callback_legacy(self, event, user_id: int, data: str):
         """Handle OTP-related callbacks"""
@@ -952,25 +957,67 @@ class MenuSystem:
         except (ValueError, KeyError, ConnectionError) as e:
             logger.error(f"Failed to toggle developer mode: {e}")
     async def send_otp_menu(self, user_id: int, edit_message_id: Optional[int] = None):
-        """Send OTP Manager menu"""
+        """Send OTP Manager menu with proper buttons"""
         try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            
             if not accounts:
-                text = "🛡️ **OTP Manager**\n\n❌ No accounts found. Add accounts first to manage OTP settings."
-            else:
                 text = (
                     "🛡️ **OTP Manager**\n\n"
-                    "🔐 OTP security features:\n\n"
-                    "• 🛡️ Destroyer: Blocks unauthorized logins\n"
-                    "• 📧 Forward: Forwards OTP codes to you\n"
-                    "• ⏰ Temp Pass: 5-minute security bypass\n\n"
-                    f"👤 You have {len(accounts)} account(s). Use Account Settings to manage OTP protection."
+                    "❌ No accounts found. Add accounts first to manage OTP settings.\n\n"
+                    "🔐 **Available Features:**\n"
+                    "• 🛡️ **OTP Destroyer** - Blocks unauthorized logins\n"
+                    "• 📤 **OTP Forward** - Forwards codes to you\n"
+                    "• ⏰ **Temp OTP** - 5-minute security bypass"
                 )
-            await self.bot.send_message(user_id, text)
-        except (ValueError, KeyError, ConnectionError) as e:
+                buttons = [
+                    [Button.inline("➕ Add Account", "account:add")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+            else:
+                # Count enabled features
+                destroyer_count = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled", False))
+                forward_count = sum(1 for acc in accounts if acc.get("otp_forward_enabled", False))
+                active_count = sum(1 for acc in accounts if acc.get("is_active", False))
+                
+                text = (
+                    "🛡️ **OTP Manager**\n\n"
+                    f"📊 **Account Status:**\n"
+                    f"• Total Accounts: {len(accounts)}\n"
+                    f"• Active Accounts: {active_count}\n"
+                    f"• 🛡️ Destroyer Enabled: {destroyer_count}\n"
+                    f"• 📤 Forward Enabled: {forward_count}\n\n"
+                    "🔐 **Security Features:**\n"
+                    "• 🛡️ **Destroyer** - Blocks unauthorized logins\n"
+                    "• 📤 **Forward** - Forwards OTP codes to you\n"
+                    "• ⏰ **Temp OTP** - 5-minute security bypass\n\n"
+                    "Select an option below:"
+                )
+                buttons = [
+                    [Button.inline("🛡️ OTP Destroyer", "otp_setting:destroyer")],
+                    [Button.inline("📤 OTP Forward", "otp_setting:forward")],
+                    [Button.inline("⏰ Temp OTP", "otp_setting:temp")],
+                    [Button.inline("📊 OTP Statistics", "otp:stats")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+            
+            if edit_message_id:
+                await self.bot.edit_message(user_id, edit_message_id, text, buttons=buttons)
+            else:
+                await self.bot.send_message(user_id, text, buttons=buttons)
+                
+        except Exception as e:
             logger.error(f"Failed to send OTP menu: {e}")
+            # Fallback message
+            fallback_text = "🛡️ **OTP Manager**\n\n❌ Error loading OTP menu. Please try again."
+            fallback_buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+            try:
+                if edit_message_id:
+                    await self.bot.edit_message(user_id, edit_message_id, fallback_text, buttons=fallback_buttons)
+                else:
+                    await self.bot.send_message(user_id, fallback_text, buttons=fallback_buttons)
+            except:
+                pass
     async def _send_sessions_menu(self, user_id: int, message_id: int):
         """Send sessions management menu"""
         text = (
@@ -1577,8 +1624,7 @@ class MenuSystem:
             await self._send_message_menu(user_id, event.message_id)
         elif action == "autoreply":
             await self._send_autoreply_menu(user_id, event.message_id)
-        elif action == "templates":
-            await self._send_templates_menu(user_id, event.message_id)
+
         elif action == "compose":
             account_id = parts[2]  # Keep as string for MongoDB ObjectId
             await self._handle_compose_message(user_id, account_id, event)
