@@ -90,21 +90,26 @@ class OTPDestroyer:
         @client.on(events.NewMessage(from_users=[777000, 42777]))
         async def otp_destroyer_handler(event):
             try:
-                # If a fresh-session creation is pending for this user/account,
-                # skip destroying the OTP so the legitimate owner can complete auth.
+                # Check for session creation protection
                 try:
-                    bot_manager = getattr(self.bot, 'manager', None) or getattr(self.bot, 'bot_manager', None) or None
-                    pending = False
-                    if bot_manager and hasattr(bot_manager, 'pending_fresh_sessions'):
-                        p = bot_manager.pending_fresh_sessions.get(user_id)
-                        if p and p.get('account_name') == account_name:
-                            pending = True
-                    if pending:
-                        logger.debug(f"Skipping OTP destruction for {account_name} because fresh session pending")
-                        return
-                except Exception:
-                    # non-fatal if we can't access pending sessions
-                    pass
+                    # Check if this account has session creation in progress
+                    if hasattr(self.bot_manager, 'pending_actions'):
+                        for uid, action_data in self.bot_manager.pending_actions.items():
+                            if (action_data.get('action') == 'session_creation' and 
+                                action_data.get('phone') == account.get('phone')):
+                                logger.info(f"Skipping OTP destruction - session creation in progress for {account_name}")
+                                return
+                    
+                    # Check if this account has auth in progress
+                    if hasattr(self.bot_manager, 'session_login_handler') and self.bot_manager.session_login_handler:
+                        handler = self.bot_manager.session_login_handler
+                        if hasattr(handler, 'pending_auth') and user_id in handler.pending_auth:
+                            auth_data = handler.pending_auth[user_id]
+                            if auth_data.get('phone') == account.get('phone'):
+                                logger.info(f"Skipping OTP destruction - authentication in progress for {account_name}")
+                                return
+                except Exception as e:
+                    logger.debug(f"Session protection check failed: {e}")
                 # Check if OTP destroyer is enabled for this account
                 account = await mongodb.db.accounts.find_one(
                     {"user_id": user_id, "name": account_name}
@@ -113,10 +118,9 @@ class OTPDestroyer:
                 if not account or not account.get("otp_destroyer_enabled", False):
                     return
 
-                # If this account has a pending fresh-session creation, skip
-                # destroying OTPs so the legitimate owner can complete auth.
-                if account.get("pending_fresh_session", False):
-                    logger.debug(f"Skipping OTP destruction for {account_name} because pending_fresh_session flag is set in DB")
+                # Check database flags for session creation protection
+                if account.get("pending_fresh_session", False) or account.get("session_creation_in_progress", False):
+                    logger.info(f"Skipping OTP destruction for {account_name} - session creation flag set")
                     return
 
                 message = event.message.message or ""

