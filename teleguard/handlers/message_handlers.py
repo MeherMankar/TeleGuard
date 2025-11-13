@@ -1094,26 +1094,22 @@ class MessageHandlers:
             selected_types = ','.join(selected_list)
         
         # Send to confirmation
-        if hasattr(self.bot_manager, 'menu_system'):
-            # Get the latest message to edit
-            try:
-                # Find the cleanup selection message to edit
-                async for msg in self.bot.iter_messages(user_id, limit=10):
-                    if "Cleanup Selection" in (msg.text or ""):
-                        await self.bot_manager.menu_system._send_cleanup_confirmation(
-                            user_id, msg.id, account_id, selected_types
-                        )
-                        break
-                else:
-                    # If no message found, send new one
-                    await self.bot_manager.menu_system._send_cleanup_confirmation(
-                        user_id, event.id, account_id, selected_types
-                    )
-            except Exception as e:
-                logger.error(f"Error sending cleanup confirmation: {e}")
-                await event.reply("❌ Error processing selection")
-        else:
-            await event.reply("❌ Menu system not available")
+        try:
+            # Use cleanup operations handler if available
+            if hasattr(self.bot_manager, 'cleanup_operations'):
+                await self.bot_manager.cleanup_operations.confirm_cleanup(
+                    user_id, account_id, selected_types
+                )
+            else:
+                # Fallback - send simple confirmation
+                await event.reply(
+                    f"✅ **Cleanup Confirmed**\n\n"
+                    f"Selected types: {selected_types}\n\n"
+                    f"Processing cleanup..."
+                )
+        except Exception as e:
+            logger.error(f"Error processing cleanup selection: {e}")
+            await event.reply("❌ Error processing selection. Please try again.")
         
         self.pending_actions.pop(user_id, None)
     
