@@ -93,8 +93,12 @@ class SessionLoginHandler:
             user_id = event.sender_id
             phone = event.pattern_match.group(1).decode()
             format_type = event.pattern_match.group(2).decode()
-            logger.info(f"Session creation requested - Phone: {phone}, Format: {format_type}")
+            logger.info(f"Session creation requested - Phone: {phone}, Format: '{format_type}'")
             await event.answer("⏳ Creating session...")
+            # Force format type to ensure it's correct
+            if format_type not in ['string', 'file']:
+                format_type = 'string'
+                logger.warning(f"Invalid format type detected, defaulting to 'string'")
             await self._execute_session_creation(event, user_id, phone, format_type)
         
 
