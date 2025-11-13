@@ -50,7 +50,7 @@ class CleanupOperations:
             await self.bot.edit_message(user_id, event.message_id, f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below", buttons=None)
         except Exception:
             pass
-        from teleguard.core.account_cleaner import AccountCleaner
+        from ...core.account_cleaner import AccountCleaner
         cleaner = AccountCleaner()
         import time
         last_update_time = time.time()
@@ -74,4 +74,15 @@ class CleanupOperations:
                 await event.answer("✅ Cleanup completed successfully!")
             except:
                 pass
-        await mongodb.add_audit_entry(account_id, {"action": "cleanup_completed", "cleanup_types": cleanup_types, "timestamp": int(time.time()), "result": "success"})
+        try:
+            await mongodb.db.accounts.update_one(
+                {"_id": ObjectId(account_id)},
+                {"$push": {"audit_log": {
+                    "action": "cleanup_completed",
+                    "cleanup_types": cleanup_types,
+                    "timestamp": int(time.time()),
+                    "result": "success"
+                }}}
+            )
+        except Exception as e:
+            logger.error(f"Failed to add audit entry: {e}")

@@ -343,9 +343,13 @@ class MenuSystem:
     
     async def _send_cleanup_selection(self, user_id: int, message_id: int, account_id: str):
         """Send cleanup type selection - delegated to CleanupOperations"""
-        from .menu_modules import CleanupOperations
-        ops = CleanupOperations(self)
-        await ops.send_cleanup_selection(user_id, message_id, account_id)
+        try:
+            from .menu_modules.cleanup_operations import CleanupOperations
+            ops = CleanupOperations(self)
+            await ops.send_cleanup_selection(user_id, message_id, account_id)
+        except Exception as e:
+            logger.error(f"Cleanup selection error: {e}")
+            await self.bot.edit_message(user_id, message_id, "❌ Error loading cleanup options", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
     
     async def _send_cleanup_confirmation(self, user_id: int, message_id: int, account_id: str, cleanup_types: str):
         """Send cleanup confirmation with selected options"""
@@ -409,9 +413,13 @@ class MenuSystem:
     
     async def _execute_cleanup(self, event, user_id: int, account_id: str, cleanup_types: str):
         """Execute account cleanup - delegated to CleanupOperations"""
-        from .menu_modules import CleanupOperations
-        ops = CleanupOperations(self)
-        await ops.execute_cleanup(event, user_id, account_id, cleanup_types)
+        try:
+            from .menu_modules.cleanup_operations import CleanupOperations
+            ops = CleanupOperations(self)
+            await ops.execute_cleanup(event, user_id, account_id, cleanup_types)
+        except Exception as e:
+            logger.error(f"Cleanup execution error: {e}")
+            await event.answer("❌ Error executing cleanup")
     
     async def _handle_cleanup_selection_callback(self, event, user_id: int, data: str):
         """Handle cleanup selection text input"""
