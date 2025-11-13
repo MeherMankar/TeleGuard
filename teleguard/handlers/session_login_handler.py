@@ -1617,6 +1617,12 @@ class SessionLoginHandler:
                 logger.error(f"Session string details - Length: {len(session_string) if session_string else 0}, Type: {type(session_string)}, Valid: {bool(session_string)}")
                 raise client_error
             
+            # Send login notification
+            try:
+                await self._send_login_notification(user_id, name, "Account imported via session string")
+            except Exception as notif_err:
+                logger.error(f"Failed to send login notification: {notif_err}")
+            
             # Update account with real name from Telegram (like OTP login does)
             if not is_fast_import:
                 await self._fetch_and_store_account_name(user_id, name, phone)
@@ -1929,44 +1935,33 @@ class SessionLoginHandler:
             # Generate session file if requested
             session_file_data = None
             if format_type == 'file':
-                file_client = None
-                temp_path = None
                 try:
-                    temp_path = f"temp_{phone}_{user_id}.session"
+                    import tempfile
+                    # Create temporary file
+                    with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as tmp_file:
+                        temp_path = tmp_file.name
+                    
+                    # Create file client with session data
                     file_client = TelegramClient(temp_path, config.telegram.api_id, config.telegram.api_hash)
                     file_client.session.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
                     file_client.session.auth_key = client.session.auth_key
                     file_client.session.save()
                     
-                    # Disconnect and cleanup file_client
-                    if file_client:
-                        try:
-                            await file_client.disconnect()
-                        except:
-                            pass
-                        del file_client
-                    
-                    await asyncio.sleep(0.5)
-                    
+                    # Read the session file
                     if os.path.exists(temp_path):
                         with open(temp_path, 'rb') as f:
                             session_file_data = f.read()
+                        # Clean up temp file
                         try:
                             os.remove(temp_path)
-                        except Exception as del_err:
-                            logger.warning(f"Could not delete temp file immediately: {del_err}")
-                            try:
-                                await asyncio.sleep(1)
-                                os.remove(temp_path)
-                            except:
-                                pass
+                        except Exception:
+                            pass
+                    
+                    logger.info(f"Session file created successfully, size: {len(session_file_data) if session_file_data else 0} bytes")
+                    
                 except Exception as file_err:
                     logger.error(f"Session file creation error: {file_err}")
-                    if file_client:
-                        try:
-                            await file_client.disconnect()
-                        except:
-                            pass
+                    session_file_data = None
             
             await client.disconnect()
             
@@ -1992,6 +1987,11 @@ class SessionLoginHandler:
                     f"💾 Copy and save securely!\n"
                     f"🛡️ OTP Destroyer re-enabled"
                 )
+                # Send login notification
+                try:
+                    await self._send_login_notification(user_id, phone, "Session string created")
+                except Exception as notif_err:
+                    logger.error(f"Failed to send login notification: {notif_err}")
             elif format_type == 'file':
                 if session_file_data:
                     from telethon.tl.types import DocumentAttributeFilename
@@ -2005,6 +2005,11 @@ class SessionLoginHandler:
                         attributes=[DocumentAttributeFilename(f"{phone}.session")]
                     )
                     await event.delete()
+                    # Send login notification
+                    try:
+                        await self._send_login_notification(user_id, phone, "Session file created")
+                    except Exception as notif_err:
+                        logger.error(f"Failed to send login notification: {notif_err}")
                 else:
                     await event.edit(
                         f"✅ **Session Created!**\n\n"
@@ -2012,6 +2017,11 @@ class SessionLoginHandler:
                         f"`{session_string}`\n\n"
                         f"🛡️ OTP Destroyer re-enabled"
                     )
+                    # Send login notification even if file failed
+                    try:
+                        await self._send_login_notification(user_id, phone, "Session created (file failed)")
+                    except Exception as notif_err:
+                        logger.error(f"Failed to send login notification: {notif_err}")
             
         except Exception as e:
             if client:
@@ -2027,6 +2037,24 @@ class SessionLoginHandler:
                 self.bot_manager.pending_actions.pop(user_id, None)
             logger.error(f"Session creation error: {e}")
             await event.edit(f"❌ Error: {e}")
+    
+    async def _send_login_notification(self, user_id, phone, action):
+        """Send login notification to user"""
+        try:
+            import time
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            notification = (
+                f"🔔 **Login Activity Alert**\n\n"
+                f"📱 **Phone:** {phone}\n"
+                f"🕑 **Time:** {timestamp}\n"
+                f"⚙️ **Action:** {action}\n"
+                f"📍 **Location:** Session Creation\n\n"
+                f"ℹ️ This is a security notification for session creation activity."
+            )
+            await self.bot.send_message(user_id, notification)
+            logger.info(f"Login notification sent for {phone}: {action}")
+        except Exception as e:
+            logger.error(f"Failed to send login notification: {e}")
     
     async def _fetch_otp_from_telegram(self, user_id, target_phone):
         """Fetch OTP code from Telegram (777000) using existing accounts"""

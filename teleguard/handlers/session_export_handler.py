@@ -549,7 +549,15 @@ class SessionExportHandler:
                     # Handle 2FA requirement
                     if type(e).__name__ == "SessionPasswordNeededError":
                         from ..core.database_manager import db_manager
-                        stored_password = await db_manager.get_2fa_password_by_phone(user_id, phone)
+                        # Try to get stored password by account ID first
+                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                        stored_password = None
+                        if account:
+                            stored_password = await db_manager.get_2fa_password(user_id, str(account['_id']))
+                        # Fallback to phone lookup
+                        if not stored_password:
+                            stored_password = await db_manager.get_2fa_password_by_phone(user_id, phone)
+                        
                         if stored_password:
                             try:
                                 # Ensure client is still connected
@@ -727,8 +735,11 @@ class SessionExportHandler:
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
                         )
-                # Send notification
-                await self._send_login_notification(user_id, account_name, "Fresh session created via OTP")
+                # Always send notification
+                try:
+                    await self._send_login_notification(user_id, account_name, "Fresh session created via OTP")
+                except Exception as notif_err:
+                    logger.error(f"Failed to send login notification: {notif_err}")
                 # Clear session creation protection and restore OTP settings
                 try:
                     # Get original states
@@ -971,8 +982,11 @@ class SessionExportHandler:
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
                         )
-                # Send notification
-                await self._send_login_notification(user_id, account_name, "Fresh session created with 2FA")
+                # Always send notification
+                try:
+                    await self._send_login_notification(user_id, account_name, "Fresh session created with 2FA")
+                except Exception as notif_err:
+                    logger.error(f"Failed to send login notification: {notif_err}")
                 # Clear protection flags and restore OTP settings
                 try:
                     # Get original states
