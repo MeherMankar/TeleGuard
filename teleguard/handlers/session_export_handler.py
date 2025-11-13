@@ -309,26 +309,24 @@ class SessionExportHandler:
                     'previous_destroyer_state': previous_destroyer_state,
                     'format_type': format_type,
                 }
-                # Now mark DB pending state and temporarily disable destroyer
+                # Set session creation protection flags
                 try:
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$set": {"pending_fresh_session": True, "otp_destroyer_enabled": False}}
+                        {"$set": {
+                            "pending_fresh_session": True,
+                            "session_creation_in_progress": True
+                        }}
                     )
                     
-                    # Add temporary OTP protection to prevent destruction
-                    import time
-                    await mongodb.db.otp_protections.update_one(
-                        {"phone": phone, "wildcard": True},
-                        {"$set": {
-                            "phone": phone,
-                            "wildcard": True,
-                            "expires_at": int(time.time()) + 300,  # 5 minutes
-                            "reason": "session_creation"
-                        }},
-                        upsert=True
-                    )
-                    logger.info(f"OTP Destroyer temporarily disabled for {phone} during session creation")
+                    # Set pending action for additional protection
+                    self.bot_manager.pending_actions[user_id] = {
+                        "action": "session_creation",
+                        "phone": phone,
+                        "account_name": account_name
+                    }
+                    
+                    logger.info(f"Session creation protection enabled for {phone}")
                 except Exception:
                     pass
                 # Request the OTP from Telegram and store phone_code_hash
@@ -384,14 +382,18 @@ class SessionExportHandler:
                         await temp_client.disconnect()
                     except Exception:
                         pass
-                    # Clear DB and in-memory pending state
+                    # Clear protection flags
                     try:
                         await mongodb.db.accounts.update_one(
                             {"user_id": user_id, "name": account_name},
-                            {"$unset": {"pending_fresh_session": ""}, "$set": {"otp_destroyer_enabled": previous_destroyer_state}}
+                            {"$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": ""
+                            }}
                         )
+                        self.bot_manager.pending_actions.pop(user_id, None)
                     except Exception:
-                        logger.exception("Failed to restore DB flags after send_code_request failure")
+                        logger.exception("Failed to clear protection flags after send_code_request failure")
                     self.bot_manager.pending_fresh_sessions.pop(user_id, None)
                     
                     # Provide more specific error messages
@@ -453,14 +455,18 @@ class SessionExportHandler:
                     await temp_client.disconnect()
                 except Exception:
                     pass
-                # Clear DB and in-memory pending state
+                # Clear protection flags
                 try:
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {"$unset": {"pending_fresh_session": ""}, "$set": {"otp_destroyer_enabled": previous_destroyer_state}}
+                        {"$unset": {
+                            "pending_fresh_session": "",
+                            "session_creation_in_progress": ""
+                        }}
                     )
+                    self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
-                    logger.exception("Failed to restore DB flags after fresh session startup failure")
+                    logger.exception("Failed to clear protection flags after fresh session startup failure")
                 self.bot_manager.pending_fresh_sessions.pop(user_id, None)
                 # Provide detailed error information
                 error_details = (
@@ -699,21 +705,20 @@ class SessionExportHandler:
                         )
                 # Send notification
                 await self._send_login_notification(user_id, account_name, "Fresh session created via OTP")
-                # Restore DB flags and pending session
+                # Clear session creation protection
                 try:
-                    # unset pending flag and restore otp_destroyer_enabled
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {"pending_fresh_session": ""},
-                            "$set": {"otp_destroyer_enabled": self.bot_manager.pending_fresh_sessions[user_id].get('previous_destroyer_state', False)}
-                        },
+                        {"$unset": {
+                            "pending_fresh_session": "",
+                            "session_creation_in_progress": ""
+                        }}
                     )
-                    # Remove wildcard otp_protection for this phone (cleanup)
-                    await mongodb.db.otp_protections.delete_many({"phone": phone, "wildcard": True})
-                    logger.info(f"OTP Destroyer re-enabled for {phone} after successful session creation")
+                    # Clear pending action
+                    self.bot_manager.pending_actions.pop(user_id, None)
+                    logger.info(f"Session creation protection cleared for {phone}")
                 except Exception:
-                    logger.exception("Failed to restore DB flags after successful session creation")
+                    logger.exception("Failed to clear protection flags after successful session creation")
                 try:
                     await client.disconnect()
                 except Exception:
@@ -726,23 +731,20 @@ class SessionExportHandler:
                     pass
                 return True
             except Exception as e:
-                # Clear DB flag and pending session on failure and restore destroyer state
+                # Clear session creation protection on failure
                 try:
-                    prev_state = None
-                    if self.bot_manager.pending_fresh_sessions.get(user_id):
-                        prev_state = self.bot_manager.pending_fresh_sessions[user_id].get('previous_destroyer_state', False)
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {"pending_fresh_session": ""},
-                            "$set": {"otp_destroyer_enabled": prev_state if prev_state is not None else False}
-                        }
+                        {"$unset": {
+                            "pending_fresh_session": "",
+                            "session_creation_in_progress": ""
+                        }}
                     )
-                    # Remove OTP protection
-                    await mongodb.db.otp_protections.delete_many({"phone": phone, "wildcard": True})
-                    logger.info(f"OTP Destroyer re-enabled for {phone} after session creation failure")
+                    # Clear pending action
+                    self.bot_manager.pending_actions.pop(user_id, None)
+                    logger.info(f"Session creation protection cleared after failure for {phone}")
                 except Exception:
-                    logger.exception("Failed to clear pending_fresh_session flag in DB on failure")
+                    logger.exception("Failed to clear protection flags after session creation failure")
                 try:
                     await client.disconnect()
                 except Exception:
@@ -921,31 +923,32 @@ class SessionExportHandler:
                         )
                 # Send notification
                 await self._send_login_notification(user_id, account_name, "Fresh session created with 2FA")
-                # Restore DB flags
+                # Clear protection flags
                 try:
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {"pending_fresh_session": ""},
-                            "$set": {"otp_destroyer_enabled": session_data.get('previous_destroyer_state', False)}
-                        }
+                        {"$unset": {
+                            "pending_fresh_session": "",
+                            "session_creation_in_progress": ""
+                        }}
                     )
+                    self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
                     pass
                 await client.disconnect()
                 del self.bot_manager.pending_fresh_sessions[user_id]
                 return True
             except Exception as e:
-                # Clear DB flag on failure
+                # Clear protection flags on failure
                 try:
-                    prev_state = session_data.get('previous_destroyer_state', False)
                     await mongodb.db.accounts.update_one(
                         {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {"pending_fresh_session": ""},
-                            "$set": {"otp_destroyer_enabled": prev_state}
-                        }
+                        {"$unset": {
+                            "pending_fresh_session": "",
+                            "session_creation_in_progress": ""
+                        }}
                     )
+                    self.bot_manager.pending_actions.pop(user_id, None)
                 except Exception:
                     pass
                 await client.disconnect()
