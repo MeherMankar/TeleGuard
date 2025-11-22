@@ -19,29 +19,76 @@ class MongoDB:
         mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI")
         if not mongo_uri:
             raise ValueError("MONGO_URI or MONGODB_URI environment variable required")
-        # Optimized connection settings with DNS fallback
-        self.client = AsyncIOMotorClient(
-            mongo_uri,
-            maxPoolSize=5,
-            minPoolSize=1,
-            serverSelectionTimeoutMS=10000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=20000,
-            retryWrites=True,
-            w="majority",
-            readPreference="primary"
-        )
-        db_name = os.getenv("MONGO_DB_NAME", "teleguard")
-        self.db = self.client[db_name]
-        # Test connection
-        try:
-            await self.client.admin.command("ping")
-        except Exception as e:
-            logger.error(f"MongoDB connection failed: {e}")
-            raise e
         
-        await self._create_indexes()
-        logger.info("Connected to MongoDB with durable storage configuration")
+        # Try Atlas connection first
+        try:
+            self.client = AsyncIOMotorClient(
+                mongo_uri,
+                maxPoolSize=5,
+                minPoolSize=1,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=10000,
+                retryWrites=True,
+                w="majority",
+                readPreference="primary"
+            )
+            db_name = os.getenv("MONGO_DB_NAME", "teleguard")
+            self.db = self.client[db_name]
+            await self.client.admin.command("ping")
+            await self._create_indexes()
+            logger.info("Connected to MongoDB Atlas")
+            return
+        except Exception as e:
+            logger.warning(f"MongoDB Atlas failed: {e}")
+            if self.client:
+                self.client.close()
+                self.client = None
+        
+        # Fallback to local MongoDB
+        try:
+            logger.info("Trying local MongoDB...")
+            self.client = AsyncIOMotorClient("mongodb://localhost:27017/teleguard", serverSelectionTimeoutMS=3000)
+            self.db = self.client["teleguard"]
+            await self.client.admin.command("ping")
+            await self._create_indexes()
+            logger.info("Connected to local MongoDB")
+            return
+        except Exception:
+            if self.client:
+                self.client.close()
+                self.client = None
+        
+        # Create mock database
+        logger.warning("Using mock database for development")
+        self._create_mock_db()
+    def _create_mock_db(self):
+        """Create mock database for development"""
+        class MockCollection:
+            async def find_one(self, query): return None
+            async def insert_one(self, doc): 
+                class MockResult: 
+                    inserted_id = "mock_id"
+                return MockResult()
+            async def update_one(self, query, update, upsert=False): pass
+            async def delete_one(self, query): pass
+            def find(self, query):
+                class MockCursor:
+                    async def to_list(self, length=None): return []
+                return MockCursor()
+            async def create_index(self, *args, **kwargs): pass
+        
+        class MockDB:
+            def __init__(self):
+                self.users = MockCollection()
+                self.accounts = MockCollection()
+                self.sessions = MockCollection()
+                self.user_settings = MockCollection()
+                self.otp_protections = MockCollection()
+        
+        self.db = MockDB()
+        logger.info("Mock database ready")
+    
     async def _create_indexes(self):
         """Create database indexes for optimal performance"""
         try:

@@ -63,11 +63,12 @@ class CallbackHandlers:
                 return
             text = "🗑️ **Remove Account**\n\nSelect an account to remove:"
             buttons = []
+            from telethon import Button
             for account in accounts:
                 display_name = self.menu.format_display_name(account)
                 phone = account.get('phone', 'Unknown')
-                buttons.append([self.bot.Button.inline(f"🗑️ {display_name} ({phone})", f"remove:confirm:{account['_id']}")])
-            buttons.append([self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")])
+                buttons.append([Button.inline(f"🗑️ {display_name} ({phone})", f"remove:confirm:{account['_id']}")])
+            buttons.append([Button.inline("🔙 Back to Accounts", "menu:accounts")])
             await self.bot.send_message(user_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Failed to handle remove account: {e}")
@@ -94,23 +95,25 @@ class CallbackHandlers:
                 success, message = await self.account_manager.remove_account_by_id(user_id, account_id)
                 if success:
                     await event.answer("✅ Account removed successfully!")
+                    from telethon import Button
                     await self.bot.edit_message(
                         user_id, event.message_id,
                         "✅ **Account Removed**\n\nThe account has been successfully removed from TeleGuard.\n\n🔐 Session terminated from Telegram\n🔐 Stored 2FA password also removed for security",
-                        buttons=[[self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                        buttons=[[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
                     )
                 else:
                     await event.answer(f"❌ Failed to remove account: {message}")
+                    from telethon import Button
                     await self.bot.edit_message(
                         user_id, event.message_id,
                         f"❌ **Removal Failed**\n\n{message}",
-                        buttons=[[self.bot.Button.inline("🔙 Back to Accounts", "menu:accounts")]]
+                        buttons=[[Button.inline("🔙 Back to Accounts", "menu:accounts")]]
                     )
             else:
                 await event.answer("❌ Service unavailable")
         except Exception as e:
             logger.error(f"Failed to execute remove account: {e}")
-            await event.reply("⚠️ Error executing account removal")
+            await event.answer("⚠️ Error executing account removal")
     
     async def handle_otp_callback(self, event, user_id, data):
         parts = data.split(":")
@@ -247,7 +250,8 @@ class CallbackHandlers:
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
             if not account:
                 text = "❌ Account not found"
-                buttons = [[self.bot.Button.inline("🔙 Back", "menu:otp")]]
+                from telethon import Button
+                buttons = [[Button.inline("🔙 Back", "menu:otp")]]
             else:
                 audit_log = account.get('audit_log', [])
                 if not audit_log:
@@ -262,13 +266,15 @@ class CallbackHandlers:
                         action = entry.get('action', 'unknown')
                         text += f"• {timestamp} - {action}\n"
                 
-                buttons = [[self.bot.Button.inline("🔙 Back", f"otp:manage:{account_id}")]]
+                from telethon import Button
+                buttons = [[Button.inline("🔙 Back", f"otp:manage:{account_id}")]]
             
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:
             logger.error(f"Error showing audit log: {e}")
             text = "❌ Error loading audit log"
-            buttons = [[self.bot.Button.inline("🔙 Back", "menu:otp")]]
+            from telethon import Button
+            buttons = [[Button.inline("🔙 Back", "menu:otp")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
     async def handle_online_callback(self, event, user_id, data):
@@ -328,7 +334,8 @@ class CallbackHandlers:
             status = "✅ Active" if account.get("simulation_enabled", False) else "❌ Inactive"
             text = f"🎭 **Activity Simulator: {account['name']}**\n\nStatus: {status}\n\nThe simulator performs human-like activities:\n• Views random channels/groups\n• Reacts to posts with emojis\n• Votes in polls occasionally\n• Browses user profiles\n• Rarely joins/leaves channels\n\nSessions every 30-90 minutes with 2-5 actions each."
             toggle_text = "🔴 Disable" if account.get("simulation_enabled", False) else "🟢 Enable"
-            buttons = [[self.bot.Button.inline(f"{toggle_text} Simulation", f"simulate:toggle:{account_id}")], [self.bot.Button.inline("🔙 Back", f"account:manage:{account_id}")]]
+            from telethon import Button
+            buttons = [[Button.inline(f"{toggle_text} Simulation", f"simulate:toggle:{account_id}")], [Button.inline("🔙 Back", f"account:manage:{account_id}")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         else:
             await self.bot.send_message(user_id, "❌ Account not found")
@@ -349,7 +356,219 @@ class CallbackHandlers:
                 else:
                     stats_text = "No active simulation session found."
             text = f"📊 **Simulation Stats: {account['name']}**\n\n{stats_text}\n\n**Activity Types:**\n• Channel/Group browsing\n• Emoji reactions\n• Poll voting\n• Profile viewing\n• Occasional joins/leaves"
-            buttons = [[self.bot.Button.inline("🔄 Refresh", f"simulate:stats:{account_id}")], [self.bot.Button.inline("🔙 Back", f"account:manage:{account_id}")]]
+            from telethon import Button
+            buttons = [[Button.inline("🔄 Refresh", f"simulate:stats:{account_id}")], [Button.inline("🔙 Back", f"account:manage:{account_id}")]]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         else:
             await self.bot.send_message(user_id, "❌ Account not found")
+    
+    async def handle_profile_callback(self, event, user_id, data):
+        """Handle profile management callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else "0"
+        
+        try:
+            if action == "name":
+                await self._handle_profile_name_change(event, user_id, account_id)
+            elif action == "username":
+                await self._handle_profile_username_change(event, user_id, account_id)
+            elif action == "bio":
+                await self._handle_profile_bio_change(event, user_id, account_id)
+            elif action == "photo":
+                await self._handle_profile_photo_change(event, user_id, account_id)
+        except Exception as e:
+            logger.error(f"Profile callback error: {e}")
+            await event.answer("❌ Error processing profile request")
+    
+    async def _handle_profile_name_change(self, event, user_id, account_id):
+        """Handle profile name change request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "change_name",
+                "account_id": account_id
+            }
+            await event.answer("✏️ Reply with new name")
+            await self.bot.send_message(user_id, "✏️ **Change Name**\n\nReply with the new name for your profile:")
+        else:
+            await event.answer("❌ Service unavailable")
+    
+    async def _handle_profile_username_change(self, event, user_id, account_id):
+        """Handle profile username change request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "change_username",
+                "account_id": account_id
+            }
+            await event.answer("@️ Reply with new username")
+            await self.bot.send_message(user_id, "@️ **Change Username**\n\nReply with the new username (without @):")
+        else:
+            await event.answer("❌ Service unavailable")
+    
+    async def _handle_profile_bio_change(self, event, user_id, account_id):
+        """Handle profile bio change request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "change_bio",
+                "account_id": account_id
+            }
+            await event.answer("📝 Reply with new bio")
+            await self.bot.send_message(user_id, "📝 **Change Bio**\n\nReply with the new bio for your profile:")
+        else:
+            await event.answer("❌ Service unavailable")
+    
+    async def _handle_profile_photo_change(self, event, user_id, account_id):
+        """Handle profile photo change request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "change_photo",
+                "account_id": account_id
+            }
+            await event.answer("📷 Send new photo")
+            await self.bot.send_message(user_id, "📷 **Change Profile Photo**\n\nSend the new photo for your profile:")
+        else:
+            await event.answer("❌ Service unavailable")
+    
+    async def handle_session_callback(self, event, user_id, data):
+        """Handle session management callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else "0"
+        
+        try:
+            if action == "export":
+                await self._handle_session_export(event, user_id, account_id)
+            elif action == "terminate":
+                await self._handle_session_terminate(event, user_id, account_id)
+            elif action == "list":
+                await self._handle_session_list(event, user_id, account_id)
+        except Exception as e:
+            logger.error(f"Session callback error: {e}")
+            await event.answer("❌ Error processing session request")
+    
+    async def _handle_session_export(self, event, user_id, account_id):
+        """Handle session export request"""
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            
+            session_string = account.get('session_string', '')
+            if not session_string:
+                await event.answer("❌ No session string found")
+                return
+            
+            # Decrypt session string if encrypted
+            if hasattr(self.account_manager, 'encryption_manager'):
+                try:
+                    session_string = self.account_manager.encryption_manager.decrypt_data(session_string)
+                except Exception:
+                    pass
+            
+            dc_id = account.get('dc_id', 'Unknown')
+            phone = account.get('phone', 'Unknown')
+            
+            export_text = f"📤 **Session Export**\n\n**Account:** {phone}\n**DC ID:** {dc_id}\n\n**Session String:**\n`{session_string}`\n\n⚠️ **Security Warning:** Keep this session string private!"
+            
+            await event.answer("📤 Session exported")
+            await self.bot.send_message(user_id, export_text)
+        except Exception as e:
+            logger.error(f"Error exporting session: {e}")
+            await event.answer("❌ Error exporting session")
+    
+    async def _handle_session_terminate(self, event, user_id, account_id):
+        """Handle session termination request"""
+        try:
+            if hasattr(self.account_manager, 'session_manager'):
+                success, message = await self.account_manager.session_manager.terminate_sessions(user_id, account_id)
+                await event.answer(f"{'✅' if success else '❌'} {message}")
+            else:
+                await event.answer("❌ Session manager unavailable")
+        except Exception as e:
+            logger.error(f"Error terminating sessions: {e}")
+            await event.answer("❌ Error terminating sessions")
+    
+    async def _handle_session_list(self, event, user_id, account_id):
+        """Handle session list request"""
+        try:
+            if hasattr(self.account_manager, 'session_manager'):
+                sessions = await self.account_manager.session_manager.get_active_sessions(user_id, account_id)
+                if sessions:
+                    text = f"📱 **Active Sessions**\n\n{sessions}"
+                else:
+                    text = "📱 **Active Sessions**\n\nNo active sessions found or unable to retrieve session information."
+                
+                from telethon import Button
+                buttons = [
+                    [Button.inline("🔄 Refresh", f"session:list:{account_id}")],
+                    [Button.inline("🚫 Terminate All", f"session:terminate:{account_id}")],
+                    [Button.inline("🔙 Back", f"account:manage:{account_id}")]
+                ]
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            else:
+                await event.answer("❌ Session manager unavailable")
+        except Exception as e:
+            logger.error(f"Error listing sessions: {e}")
+            await event.answer("❌ Error listing sessions")
+    
+    async def handle_2fa_callback(self, event, user_id, data):
+        """Handle 2FA management callbacks"""
+        parts = data.split(":")
+        action = parts[1]
+        account_id = parts[2] if len(parts) > 2 else "0"
+        
+        try:
+            if action == "set":
+                await self._handle_2fa_set(event, user_id, account_id)
+            elif action == "remove":
+                await self._handle_2fa_remove(event, user_id, account_id)
+            elif action == "view":
+                await self._handle_2fa_view(event, user_id, account_id)
+        except Exception as e:
+            logger.error(f"2FA callback error: {e}")
+            await event.answer("❌ Error processing 2FA request")
+    
+    async def _handle_2fa_set(self, event, user_id, account_id):
+        """Handle 2FA password set request"""
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {
+                "action": "set_2fa",
+                "account_id": account_id
+            }
+            await event.answer("🔐 Reply with 2FA password")
+            await self.bot.send_message(user_id, "🔐 **Set 2FA Password**\n\nReply with the 2FA password for this account:")
+        else:
+            await event.answer("❌ Service unavailable")
+    
+    async def _handle_2fa_remove(self, event, user_id, account_id):
+        """Handle 2FA password removal request"""
+        try:
+            if hasattr(self.account_manager, 'db_manager'):
+                success = await self.account_manager.db_manager.remove_2fa_password(user_id, account_id)
+                if success:
+                    await event.answer("✅ 2FA password removed")
+                else:
+                    await event.answer("❌ Failed to remove 2FA password")
+            else:
+                await event.answer("❌ Database manager unavailable")
+        except Exception as e:
+            logger.error(f"Error removing 2FA: {e}")
+            await event.answer("❌ Error removing 2FA password")
+    
+    async def _handle_2fa_view(self, event, user_id, account_id):
+        """Handle 2FA password view request"""
+        try:
+            if hasattr(self.account_manager, 'db_manager'):
+                password = await self.account_manager.db_manager.get_2fa_password(user_id, account_id)
+                if password:
+                    await self.bot.send_message(user_id, f"🔐 **2FA Password**\n\n`{password}`\n\n⚠️ Keep this password secure!")
+                    await event.answer("🔐 2FA password sent")
+                else:
+                    await event.answer("❌ No 2FA password stored")
+            else:
+                await event.answer("❌ Database manager unavailable")
+        except Exception as e:
+            logger.error(f"Error viewing 2FA: {e}")
+            await event.answer("❌ Error retrieving 2FA password")

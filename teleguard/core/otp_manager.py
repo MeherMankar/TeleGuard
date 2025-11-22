@@ -83,7 +83,16 @@ class OTPManager:
                 user_id, account_name, account = account_info
                 # Extract the OTP code first
                 otp_code = self._extract_otp_code(message_text)
-                # PRIORITY 0: Check if this OTP is for fresh session creation
+                # PRIORITY 0: Check if this account is in session creation mode
+                if account.get('session_creation_in_progress') or account.get('pending_fresh_session'):
+                    logger.info(f"Session creation in progress for {account_name}, allowing OTP: {otp_code}")
+                    try:
+                        await event.delete()
+                    except:
+                        pass
+                    return
+                
+                # PRIORITY 0.5: Check if this OTP is for fresh session creation
                 fresh_session_key = f"{account.get('phone')}:{otp_code}"
                 if fresh_session_key in self.fresh_session_otps:
                     await event.delete()

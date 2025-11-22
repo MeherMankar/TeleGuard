@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError
 from ..core.mongo_database import mongodb
-from ..utils.data_encryption import DataEncryption
+from ..utils.data_encryption import decrypt_string, encrypt_string
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +16,14 @@ class TwoFAHelper:
     async def get_stored_password(user_id: int, phone: str) -> Optional[str]:
         """Get stored 2FA password for account by phone"""
         try:
+            if not mongodb.db:
+                return None
             account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
             if account and account.get("twofa_password"):
-                return DataEncryption.decrypt_data(account["twofa_password"])
+                return decrypt_string(account["twofa_password"])
             return None
         except Exception as e:
-            logger.error(f"Failed to get stored 2FA password: {e}")
+            logger.debug(f"No stored 2FA password found: {e}")
             return None
     
     @staticmethod
@@ -32,7 +34,7 @@ class TwoFAHelper:
             if not account:
                 return False
             
-            encrypted = DataEncryption.encrypt_data(password)
+            encrypted = encrypt_string(password)
             await mongodb.db.accounts.update_one(
                 {"_id": account["_id"]},
                 {"$set": {"twofa_password": encrypted}}

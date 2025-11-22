@@ -159,7 +159,9 @@ class MenuSystem:
             text = event.text.strip()
             user_id = event.sender_id
             
-            logger.info(f"Menu button clicked: '{text}' from user {user_id}")
+            # Safe logging without Unicode emojis
+            safe_text = text.encode('ascii', errors='replace').decode('ascii')
+            logger.info(f"Menu button clicked: '{safe_text}' from user {user_id}")
             
             try:
                 if text in ["📱 Account Settings", "Account Settings"]:

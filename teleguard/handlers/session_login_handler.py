@@ -1738,7 +1738,7 @@ class SessionLoginHandler:
                     pass
                 return
             
-            buttons = [[Button.inline(f"📱 {acc.get('name', acc['phone'])}", f"create_sess:{acc['phone']}".encode())] for acc in accounts[:10]]
+            buttons = [[Button.inline(f"📱 {acc.get('name', acc['phone'])}", f"create_sess:{acc['phone']}")] for acc in accounts[:10]]
             buttons.append([Button.inline("🔙 Back", "session_login")])
             
             text = (
@@ -1787,15 +1787,25 @@ class SessionLoginHandler:
             )
             
             buttons = [
-                [Button.inline("📝 String Session", f"create_sess_fmt:{phone}:string".encode())],
-                [Button.inline("📁 Session File", f"create_sess_fmt:{phone}:file".encode())],
+                [Button.inline("📝 String Session", f"create_sess_fmt:{phone}:string")],
+                [Button.inline("📁 Session File", f"create_sess_fmt:{phone}:file")],
                 [Button.inline("🔙 Back", "menu:accounts")]
             ]
             
-            await event.edit(text, buttons=buttons)
+            try:
+                await event.edit(text, buttons=buttons)
+            except Exception as edit_err:
+                if "Content of the message was not modified" in str(edit_err):
+                    # Message is already correct, just answer the callback
+                    await event.answer("📦 Choose format")
+                else:
+                    raise edit_err
         except Exception as e:
             logger.error(f"Format selection error: {e}")
-            await event.edit("❌ Error showing format selection")
+            try:
+                await event.edit("❌ Error showing format selection")
+            except:
+                await event.answer("❌ Error showing format selection")
     
     async def _execute_session_creation(self, event, user_id, phone, format_type='string'):
         """Execute session creation with auto OTP"""
@@ -1863,16 +1873,49 @@ class SessionLoginHandler:
                 await event.edit(f"❌ Failed to request OTP: {req_error}")
                 return
             
-            await event.edit(f"⏳ Creating session for {phone}...\n\n2️⃣ Waiting for OTP to arrive...")
-            await asyncio.sleep(5)
+            await event.edit(f"⏳ Creating session for {phone}...\n\n2️⃣ Waiting for OTP from Telegram...")
             
-            otp_code = await self._fetch_otp_from_telegram(user_id, phone)
+            # Start checking for OTP immediately
+            otp_code = None
+            for attempt in range(15):  # More attempts for real-time fetching
+                await event.edit(f"⏳ Creating session for {phone}...\n\n2️⃣ Waiting for fresh OTP (attempt {attempt + 1}/15)...")
+                
+                otp_code = await self._fetch_otp_from_telegram(user_id, phone)
+                if otp_code:
+                    logger.info(f"Fresh OTP fetched on attempt {attempt + 1}: {otp_code}")
+                    break
+                
+                # Short wait between checks for real-time detection
+                await asyncio.sleep(2)
+            
+            # If no fresh OTP found, try checking older messages as fallback
+            if not otp_code:
+                await event.edit(f"⏳ Creating session for {phone}...\n\n🔍 Checking for recent OTP codes...")
+                otp_code = await self._fetch_otp_fallback(user_id, phone)
+                if otp_code:
+                    logger.info(f"Found recent OTP code: {otp_code}")
             
             if not otp_code:
                 await client.disconnect()
                 if destroyer_was_enabled and account:
                     await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$set": {"otp_destroyer_enabled": True}})
-                await event.edit("❌ Could not fetch OTP automatically.")
+                
+                # Clear pending actions
+                self.bot_manager.pending_actions.pop(user_id, None)
+                
+                await event.edit(
+                    "❌ **Could not fetch OTP automatically**\n\n"
+                    "💡 **Possible reasons:**\n"
+                    "• No other accounts logged in to fetch OTP\n"
+                    "• OTP Destroyer is blocking codes\n"
+                    "• Network connectivity issues\n"
+                    "• OTP not received yet\n\n"
+                    "🔄 **Try these solutions:**\n"
+                    "• Wait a moment and try again\n"
+                    "• Use manual login instead\n"
+                    "• Check your other accounts are working\n"
+                    "• Temporarily disable OTP Destroyer"
+                )
                 return
             
             await event.edit(f"⏳ Creating session for {phone}...\n\n3️⃣ Signing in with OTP: {otp_code}...")
@@ -2094,43 +2137,183 @@ class SessionLoginHandler:
             target_phone_clean = target_phone.replace("+", "")
             logger.info(f"Fetching OTP for {target_phone} from {len(self.user_clients[user_id])} accounts")
             
-            # Try multiple times with delays
-            for attempt in range(3):
-                for account_name, client in self.user_clients[user_id].items():
-                    if not client or not client.is_connected():
-                        continue
-                    
-                    try:
-                        messages = await client.get_messages(777000, limit=15)
-                        
-                        for msg in messages:
-                            if not msg.message:
-                                continue
-                            
-                            # Check if message is recent (within last 60 seconds)
-                            import time as time_module
-                            if hasattr(msg, 'date') and (time_module.time() - msg.date.timestamp()) > 60:
-                                continue
-                            
-                            # Check if message contains target phone or is login code
-                            if target_phone_clean in msg.message or "Login code" in msg.message:
-                                import re
-                                code_match = re.search(r'\b(\d{5})\b', msg.message)
-                                if code_match:
-                                    code = code_match.group(1)
-                                    # Safe logging with Unicode handling
-                                    safe_name = account_name.encode('ascii', errors='replace').decode('ascii')
-                                    logger.info(f"Found OTP {code} from {safe_name}")
-                                    return code
-                    except Exception as e:
-                        logger.debug(f"Failed to fetch from {account_name}: {e}")
-                        continue
-                
-                if attempt < 2:
-                    await asyncio.sleep(2)
+            # Get current time for filtering recent messages
+            import time as time_module
+            current_time = time_module.time()
             
-            logger.warning(f"No OTP found for {target_phone} after 3 attempts")
+            for account_name, client in self.user_clients[user_id].items():
+                if not client or not client.is_connected():
+                    continue
+                
+                try:
+                    # Get recent messages from Telegram service (777000)
+                    messages = await asyncio.wait_for(client.get_messages(777000, limit=50), timeout=10.0)
+                    
+                    for msg in messages:
+                        if not msg.message:
+                            continue
+                        
+                        # Check message age - prioritize newest messages
+                        msg_age = 0
+                        if hasattr(msg, 'date'):
+                            msg_age = current_time - msg.date.timestamp()
+                            # For fresh OTP, check very recent messages first (30 seconds)
+                            if msg_age > 30:
+                                continue
+                        
+                        message_text = msg.message.lower()
+                        original_message = msg.message
+                        
+                        # Log all recent messages for debugging (safe encoding)
+                        safe_message = original_message[:100].encode('ascii', errors='replace').decode('ascii')
+                        logger.info(f"Checking message (age: {msg_age:.1f}s): {safe_message}...")
+                        
+                        # Enhanced patterns to match OTP messages
+                        is_otp_message = any([
+                            "login code" in message_text,
+                            "verification code" in message_text,
+                            "telegram code" in message_text,
+                            "your code" in message_text,
+                            "authentication code" in message_text,
+                            "confirmation code" in message_text,
+                            target_phone_clean in original_message,
+                            "код" in message_text,  # Russian
+                            "code:" in message_text,
+                            "confirm" in message_text and "code" in message_text,
+                            "sign" in message_text and "code" in message_text,
+                            "telegram" in message_text and any(d in original_message for d in "0123456789")
+                        ])
+                        
+                        if is_otp_message:
+                            import re
+                            safe_message = original_message.encode('ascii', errors='replace').decode('ascii')
+                            logger.info(f"OTP message detected: {safe_message}")
+                            
+                            # Enhanced regex patterns for different OTP formats
+                            patterns = [
+                                r'Login code: (\d{4,6})',          # "Login code: 12345"
+                                r'Code: (\d{4,6})',               # "Code: 12345"
+                                r'code[:\s]+(\d{4,6})',            # "code: 12345"
+                                r'\b(\d{5})\b',                    # exactly 5 digits
+                                r'(\d{1,2}-\d{1,2}-\d{1,2}-\d{1,2}-\d{1,2})',  # hyphenated format
+                            ]
+                            
+                            # Try each pattern and log attempts
+                            for i, pattern in enumerate(patterns):
+                                logger.info(f"Trying pattern {i+1}: {pattern}")
+                                code_match = re.search(pattern, original_message)
+                                if code_match:
+                                    code = code_match.group(1).replace('-', '')
+                                    logger.info(f"Pattern {i+1} matched: {code}")
+                                    if len(code) >= 4 and len(code) <= 6 and code.isdigit():
+                                        safe_name = account_name.encode('ascii', errors='replace').decode('ascii')
+                                        logger.info(f"Found valid OTP {code} from {safe_name} (message age: {msg_age:.1f}s)")
+                                        return code
+                                    else:
+                                        logger.info(f"Code {code} invalid length or not digits")
+                                else:
+                                    logger.info(f"Pattern {i+1} no match")
+                            
+                            # Manual check for the exact format we saw
+                            if "Login code:" in original_message:
+                                import re
+                                manual_match = re.search(r'Login code: (\d+)', original_message)
+                                if manual_match:
+                                    code = manual_match.group(1)
+                                    logger.info(f"Manual pattern found code: {code}")
+                                    if len(code) >= 4 and len(code) <= 6 and code.isdigit():
+                                        safe_name = account_name.encode('ascii', errors='replace').decode('ascii')
+                                        logger.info(f"Found OTP via manual check {code} from {safe_name}")
+                                        return code
+                except asyncio.TimeoutError:
+                    logger.debug(f"Timeout fetching messages from {account_name}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"Failed to fetch from {account_name}: {e}")
+                    continue
+            
+            logger.warning(f"No fresh OTP found for {target_phone}")
             return None
         except Exception as e:
             logger.error(f"OTP fetch error: {e}")
             return None
+    
+    async def _fetch_otp_fallback(self, user_id, target_phone):
+        """Fallback OTP fetch for recent messages (up to 5 minutes old)"""
+        try:
+            if user_id not in self.user_clients:
+                return None
+            
+            target_phone_clean = target_phone.replace("+", "")
+            import time as time_module
+            current_time = time_module.time()
+            
+            for account_name, client in self.user_clients[user_id].items():
+                if not client or not client.is_connected():
+                    continue
+                
+                try:
+                    messages = await asyncio.wait_for(client.get_messages(777000, limit=30), timeout=5.0)
+                    
+                    for msg in messages:
+                        if not msg.message:
+                            continue
+                        
+                        # Check recent messages (up to 5 minutes)
+                        if hasattr(msg, 'date'):
+                            msg_age = current_time - msg.date.timestamp()
+                            if msg_age > 300:  # Skip messages older than 5 minutes
+                                continue
+                        
+                        message_text = msg.message.lower()
+                        original_message = msg.message
+                        
+                        # Check for OTP messages
+                        if "login code" in message_text:
+                            import re
+                            code_match = re.search(r'Login code: (\d{4,6})', original_message)
+                            if code_match:
+                                code = code_match.group(1)
+                                if len(code) >= 4 and len(code) <= 6 and code.isdigit():
+                                    logger.info(f"Found recent OTP {code} (age: {msg_age:.1f}s)")
+                                    return code
+                except Exception:
+                    continue
+            
+            return None
+        except Exception as e:
+            logger.error(f"Fallback OTP fetch error: {e}")
+            return None
+    
+    async def _debug_telegram_messages(self, user_id, target_phone):
+        """Debug function to check what messages are in Telegram service"""
+        try:
+            if user_id not in self.user_clients:
+                logger.info("No clients available for debugging")
+                return
+            
+            target_phone_clean = target_phone.replace("+", "")
+            import time as time_module
+            current_time = time_module.time()
+            
+            for account_name, client in self.user_clients[user_id].items():
+                if not client or not client.is_connected():
+                    continue
+                
+                try:
+                    messages = await asyncio.wait_for(client.get_messages(777000, limit=10), timeout=5.0)
+                    logger.info(f"Debug - Found {len(messages)} messages from 777000 via {account_name}")
+                    
+                    for i, msg in enumerate(messages):
+                        if msg.message:
+                            msg_age = current_time - msg.date.timestamp() if hasattr(msg, 'date') else 0
+                            safe_message = msg.message[:200].encode('ascii', errors='replace').decode('ascii')
+                            logger.info(f"Debug - Message {i+1} (age: {msg_age:.1f}s): {safe_message}")
+                        else:
+                            logger.info(f"Debug - Message {i+1}: No text content")
+                    break  # Only debug from first working client
+                except Exception as e:
+                    logger.debug(f"Debug failed for {account_name}: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Debug function error: {e}")

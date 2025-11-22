@@ -82,51 +82,101 @@ class OTPDestroyer:
         
         logger.info(f"🛡️ Setting up OTP destroyer listener for {account_name}")
         
+        # Clear any leftover session creation flags
+        try:
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {"$unset": {
+                    "pending_fresh_session": "",
+                    "session_creation_in_progress": ""
+                }}
+            )
+            logger.info(f"Cleared session creation flags for {account_name}")
+        except Exception as e:
+            logger.debug(f"Failed to clear session flags: {e}")
+        
         # Ensure client is connected
         if not client or not hasattr(client, 'is_connected') or not client.is_connected():
             logger.warning(f"Client not connected for {account_name}, cannot setup OTP listener")
             return
+            
+        # Clear any OTP protections that might be blocking
+        try:
+            await mongodb.db.otp_protections.delete_many({
+                "phone": {"$exists": True},
+                "expires_at": {"$lt": int(time.time())}
+            })
+            logger.info(f"Cleared expired OTP protections")
+        except Exception as e:
+            logger.debug(f"Failed to clear OTP protections: {e}")
 
         @client.on(events.NewMessage(from_users=[777000, 42777]))
         async def otp_destroyer_handler(event):
             try:
                 # Check for session creation protection
                 try:
-                    # Check if this account has session creation in progress
+                    # Check if any session creation is in progress for THIS account only
                     if hasattr(self.bot_manager, 'pending_actions'):
                         for uid, action_data in self.bot_manager.pending_actions.items():
                             if (action_data.get('action') == 'session_creation' and 
-                                action_data.get('phone') == account.get('phone')):
+                                action_data.get('account_name') == account_name):
                                 logger.info(f"Skipping OTP destruction - session creation in progress for {account_name}")
                                 return
                     
-                    # Check if this account has auth in progress
-                    if hasattr(self.bot_manager, 'session_login_handler') and self.bot_manager.session_login_handler:
-                        handler = self.bot_manager.session_login_handler
-                        if hasattr(handler, 'pending_auth') and user_id in handler.pending_auth:
-                            auth_data = handler.pending_auth[user_id]
-                            if auth_data.get('phone') == account.get('phone'):
-                                logger.info(f"Skipping OTP destruction - authentication in progress for {account_name}")
-                                return
+                    # Check database for session creation flags for THIS account only
+                    account_check = await mongodb.db.accounts.find_one({
+                        "user_id": user_id,
+                        "name": account_name,
+                        "$or": [
+                            {"pending_fresh_session": True},
+                            {"session_creation_in_progress": True}
+                        ]
+                    })
+                    if account_check:
+                        logger.info(f"Skipping OTP destruction - session creation flag set for {account_name}")
+                        return
+                        
                 except Exception as e:
                     logger.debug(f"Session protection check failed: {e}")
+                    # Continue with OTP destruction if protection check fails
+                    pass
                 # Check if OTP destroyer is enabled for this account
                 account = await mongodb.db.accounts.find_one(
                     {"user_id": user_id, "name": account_name}
                 )
 
-                if not account or not account.get("otp_destroyer_enabled", False):
+                if not account:
+                    logger.debug(f"Account {account_name} not found in database")
                     return
+                    
+                if not account.get("otp_destroyer_enabled", False):
+                    logger.debug(f"OTP Destroyer disabled for {account_name}")
+                    return
+                    
+                logger.info(f"OTP Destroyer active for {account_name} - processing message")
 
-                # Check database flags for session creation protection
+                # Double-check database flags (should be cleared by setup)
                 if account.get("pending_fresh_session", False) or account.get("session_creation_in_progress", False):
-                    logger.info(f"Skipping OTP destruction for {account_name} - session creation flag set")
+                    logger.warning(f"Session creation flags still set for {account_name} - clearing them")
+                    try:
+                        await mongodb.db.accounts.update_one(
+                            {"_id": account["_id"]},
+                            {"$unset": {
+                                "pending_fresh_session": "",
+                                "session_creation_in_progress": ""
+                            }}
+                        )
+                    except Exception:
+                        pass
                     return
 
                 message = event.message.message or ""
+                logger.info(f"Received message from 777000 for {account_name}: {message[:100]}...")
+                
                 codes = self.extract_codes_from_message(message)
 
                 if not codes:
+                    logger.debug(f"No OTP codes found in message for {account_name}")
                     return
 
                 logger.info(

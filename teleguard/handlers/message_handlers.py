@@ -139,11 +139,37 @@ class MessageHandlers:
         except Exception:
             pass
         
+        # Auto-detect OTP codes from Telegram (777000) during session creation
+        if event.chat_id == 777000 and hasattr(self.bot_manager, 'pending_fresh_sessions'):
+            if user_id in self.bot_manager.pending_fresh_sessions:
+                # Extract OTP code from message
+                import re
+                otp_match = re.search(r'\b(\d{5,7})\b', message)
+                if otp_match:
+                    otp_code = otp_match.group(1)
+                    logger.info(f"Auto-detected OTP code {otp_code} from 777000 for session creation")
+                    # Process the OTP automatically
+                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                    if success:
+                        self.pending_actions.pop(user_id, None)
+                    return
+        
         if message.startswith("/"):
             # Clear pending actions for certain commands
             if message in ["/start", "/cancel", "/help"]:
                 self.pending_actions.pop(user_id, None)
             return
+        
+        # Auto-process OTP codes that look like verification codes during session creation
+        if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
+            # Check if message looks like an OTP code
+            import re
+            if re.match(r'^\d{5,7}$', message.strip()):
+                logger.info(f"Auto-processing OTP code {message.strip()} for session creation")
+                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
+                if success:
+                    self.pending_actions.pop(user_id, None)
+                return
         logger.info("User sent a message for pending action")
         if hasattr(self.bot_manager, 'session_export_handler') and hasattr(self.bot_manager, 'pending_fresh_sessions'):
             if user_id in self.bot_manager.pending_fresh_sessions:
