@@ -143,8 +143,9 @@ class CallbackRouter:
             
             account_name = ":".join(parts[1:])  # Handle account names with colons
             
-            if hasattr(self.menu.bot_manager, 'session_export_handler'):
-                await self.menu.bot_manager.session_export_handler._toggle_account_selection(event, user_id, account_name)
+            bot_manager = getattr(self.menu, 'account_manager', None)
+            if bot_manager and hasattr(bot_manager, 'session_export_handler'):
+                await bot_manager.session_export_handler._toggle_account_selection(event, user_id, account_name)
             else:
                 await event.answer("❌ Session export not available")
                 
@@ -155,8 +156,9 @@ class CallbackRouter:
     async def handle_create_selected_sessions_callback(self, event, user_id: int, data: str):
         """Handle create selected sessions callback"""
         try:
-            if hasattr(self.menu.bot_manager, 'session_export_handler'):
-                await self.menu.bot_manager.session_export_handler._create_selected_sessions(event, user_id)
+            bot_manager = getattr(self.menu, 'account_manager', None)
+            if bot_manager and hasattr(bot_manager, 'session_export_handler'):
+                await bot_manager.session_export_handler._create_selected_sessions(event, user_id)
             else:
                 await event.answer("❌ Session export not available")
                 
@@ -167,8 +169,9 @@ class CallbackRouter:
     async def handle_toggle_all_sessions_callback(self, event, user_id: int, data: str):
         """Handle toggle all sessions callback"""
         try:
-            if hasattr(self.menu.bot_manager, 'session_export_handler'):
-                await self.menu.bot_manager.session_export_handler._toggle_all_sessions(event, user_id)
+            bot_manager = getattr(self.menu, 'account_manager', None)
+            if bot_manager and hasattr(bot_manager, 'session_export_handler'):
+                await bot_manager.session_export_handler._toggle_all_sessions(event, user_id)
             else:
                 await event.answer("❌ Session export not available")
         except Exception as e:
@@ -184,12 +187,18 @@ class CallbackRouter:
                 return
             
             session_type = parts[1]
-            if hasattr(self.menu.bot_manager, 'session_export_handler'):
-                await self.menu.bot_manager.session_export_handler._show_account_selection(event, user_id, session_type)
-            else:
+            bot_manager = getattr(self.menu, 'account_manager', None)
+            if not bot_manager:
+                logger.error("account_manager not found on menu")
                 await event.answer("❌ Session export not available")
+                return
+            if not hasattr(bot_manager, 'session_export_handler'):
+                logger.error("session_export_handler not found on account_manager")
+                await event.answer("❌ Session export not available")
+                return
+            await bot_manager.session_export_handler._show_account_selection(event, user_id, session_type)
         except Exception as e:
-            logger.error(f"Session type callback error: {e}")
+            logger.error(f"Session type callback error: {e}", exc_info=True)
             await event.answer("❌ Error selecting type")
 
     

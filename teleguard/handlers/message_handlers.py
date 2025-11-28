@@ -258,9 +258,13 @@ class MessageHandlers:
         if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
             import re
             if re.match(r'^\d{5,7}$', message.strip()):
+                logger.info(f"Processing manual OTP {message.strip()} for user {user_id}")
                 success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
                 if success:
                     self.pending_actions.pop(user_id, None)
+                    logger.info(f"OTP processed successfully for user {user_id}")
+                else:
+                    logger.error(f"OTP processing failed for user {user_id}")
                 return
         
         if message.startswith("/"):

@@ -278,9 +278,11 @@ class SessionExportHandler:
         session_type = batch_data.get('session_type', 'file')
         
         class DummyEvent:
+            def __init__(self, chat_id):
+                self.chat_id = chat_id
             async def edit(self, text, buttons=None): pass
         
-        await self._create_fresh_session(DummyEvent(), user_id, account_name, format_type=session_type)
+        await self._create_fresh_session(DummyEvent(user_id), user_id, account_name, format_type=session_type)
     
 
 
@@ -560,17 +562,22 @@ class SessionExportHandler:
                 authenticated = False
                 
                 try:
+                    logger.info(f"Attempting sign-in for {account_name} with OTP: {otp_code}")
+                    
                     # Ensure client is still connected before sign in
                     if not client.is_connected():
+                        logger.info("Client disconnected, reconnecting...")
                         await client.connect()
                     
-                    # Use explicit keyword args to avoid positional mismatches
-                    phone_code_hash = None
-                    if sent_code and hasattr(sent_code, 'phone_code_hash'):
-                        phone_code_hash = getattr(sent_code, 'phone_code_hash')
+                    # Sign in with OTP code using sent_code object
+                    if sent_code:
+                        logger.info(f"Using phone_code_hash from sent_code")
+                        result = await client.sign_in(phone, code=otp_code, phone_code_hash=sent_code.phone_code_hash)
+                    else:
+                        logger.error("No sent_code object available!")
+                        result = await client.sign_in(phone, code=otp_code)
                     
-                    result = await client.sign_in(phone=phone, code=otp_code, phone_code_hash=phone_code_hash)
-                    logger.info(f"Sign-in result for {account_name}: {type(result).__name__}")
+                    logger.info(f"Sign-in successful for {account_name}: {type(result).__name__}")
                     authenticated = True
                     
                 except Exception as e:
