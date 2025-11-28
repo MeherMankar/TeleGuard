@@ -27,8 +27,9 @@ class CallbackRouter:
             "import": self.handle_import_callback,
             "export": self.handle_export_callback,
             "toggle_session": self.handle_toggle_session_callback,
+            "toggle_all_sessions": self.handle_toggle_all_sessions_callback,
             "create_selected_sessions": self.handle_create_selected_sessions_callback,
-            "clear_session_selection": self.handle_clear_session_selection_callback,
+            "session_type": self.handle_session_type_callback,
             "cleanup": self.handle_cleanup_callback,
             "session_login": self.handle_session_login_callback,
             "login_session_file": self.handle_session_login_callback,
@@ -163,17 +164,33 @@ class CallbackRouter:
             logger.error(f"Create selected sessions callback error: {e}")
             await event.answer("❌ Error creating sessions")
     
-    async def handle_clear_session_selection_callback(self, event, user_id: int, data: str):
-        """Handle clear session selection callback"""
+    async def handle_toggle_all_sessions_callback(self, event, user_id: int, data: str):
+        """Handle toggle all sessions callback"""
         try:
             if hasattr(self.menu.bot_manager, 'session_export_handler'):
-                await self.menu.bot_manager.session_export_handler._clear_session_selection(event, user_id)
+                await self.menu.bot_manager.session_export_handler._toggle_all_sessions(event, user_id)
             else:
                 await event.answer("❌ Session export not available")
-                
         except Exception as e:
-            logger.error(f"Clear session selection callback error: {e}")
-            await event.answer("❌ Error clearing selection")
+            logger.error(f"Toggle all sessions callback error: {e}")
+            await event.answer("❌ Error toggling all")
+    
+    async def handle_session_type_callback(self, event, user_id: int, data: str):
+        """Handle session type selection callback"""
+        try:
+            parts = data.split(":")
+            if len(parts) < 2:
+                await event.answer("❌ Invalid session type")
+                return
+            
+            session_type = parts[1]
+            if hasattr(self.menu.bot_manager, 'session_export_handler'):
+                await self.menu.bot_manager.session_export_handler._show_account_selection(event, user_id, session_type)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Session type callback error: {e}")
+            await event.answer("❌ Error selecting type")
 
     
     async def handle_cleanup_callback(self, event, user_id: int, data: str):

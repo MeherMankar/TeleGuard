@@ -80,7 +80,10 @@ class SessionLoginHandler:
         @self.bot.on(events.CallbackQuery(pattern=r"^export_sessions$"))
         async def create_session_menu(event):
             user_id = event.sender_id
-            await self._start_session_creation(event, user_id)
+            if hasattr(self.bot_manager, 'session_export_handler'):
+                await self.bot_manager.session_export_handler._show_export_menu(event, user_id)
+            else:
+                await self._start_session_creation(event, user_id)
         
         @self.bot.on(events.CallbackQuery(pattern=rb"^create_sess:(.+)$"))
         async def create_session_execute(event):

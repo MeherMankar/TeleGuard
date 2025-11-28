@@ -212,25 +212,23 @@ class MenuSystem:
         self._callback_handler = direct_callback_handler
     
     async def _handle_account_settings(self, event):
-        """Handle Account Settings menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_account_settings
-        await handle_account_settings(self.bot, event.sender_id, event)
+        """Handle Account Settings menu"""
+        await self.account_operations.show_account_list(event.sender_id, event.message_id)
+    
     async def _handle_otp_manager(self, event):
-        """Handle OTP Manager menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_otp_manager
-        await handle_otp_manager(self.bot, event.sender_id, event)
+        """Handle OTP Manager menu"""
+        await event.answer("OTP Manager - use main menu")
+    
     async def _handle_messaging(self, event):
-        """Handle Messaging menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_messaging_menu
-        await handle_messaging_menu(self.bot, event.sender_id, event)
+        """Handle Messaging menu"""
+        await self.messaging_operations.show_messaging_menu(event.sender_id, event.message_id)
+    
     async def _handle_channels(self, event):
-        """Handle Channels menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_channels_menu
-        await handle_channels_menu(self.bot, event.sender_id, event)
+        """Handle Channels menu"""
+        await event.answer("Channel management - use main menu")
     async def _handle_contacts(self, event):
-        """Handle Contacts menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_contacts_menu
-        await handle_contacts_menu(self.bot, event.sender_id, event, self.account_manager)
+        """Handle Contacts menu"""
+        await event.answer("Contact management - use contact export from main menu")
     
     async def _handle_spam_master(self, event):
         """Handle SpamMaster menu - redirect to advanced spam handler"""
@@ -687,12 +685,11 @@ class MenuSystem:
             await event.answer("? Error loading spam appeal")
     async def _handle_help(self, event):
         """Handle Help menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_help_menu
-        await handle_help_menu(self.bot, event.sender_id, event)
+        await event.answer("Help menu - use /help command")
+    
     async def _handle_support(self, event):
-        """Handle Support menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_support_menu
-        await handle_support_menu(self.bot, event.sender_id, event)
+        """Handle Support menu"""
+        await event.answer("Support - contact @ContactXYZrobot")
 
     
 
@@ -705,9 +702,8 @@ class MenuSystem:
 
 
     async def _handle_developer(self, event):
-        """Handle Developer menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_developer_menu
-        await handle_developer_menu(self.bot, event.sender_id, event)
+        """Handle Developer menu"""
+        await event.answer("Developer tools - use /start menu")
     
     async def _handle_help_callback(self, event, user_id: int, data: str):
         """Handle help-related callbacks"""
@@ -721,9 +717,8 @@ class MenuSystem:
         """Handle developer-related callbacks"""
         await self.help_callbacks.handle_developer_callback(event, user_id, data)
     async def _handle_dm_reply(self, event):
-        """Handle DM Reply menu - delegated to modular handler"""
-        from teleguard_modular.menu_delegation import handle_dm_reply_menu
-        await handle_dm_reply_menu(self.bot, event.sender_id, event, self.account_manager)
+        """Handle DM Reply menu"""
+        await event.answer("DM Reply - use main menu")
     async def _handle_otp_callback(self, event, user_id: int, data: str):
         """Handle OTP-related callbacks with proper error handling"""
         try:

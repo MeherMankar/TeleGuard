@@ -29,9 +29,9 @@ class SessionExportHandler:
                 [Button.inline("🔙 Back", "menu:accounts")]
             ]
             await event.edit(
-                "✨ **Fresh Session Creation**\n\n"
+                "✨ **Session Creation**\n\n"
                 "📋 **Step 1: Choose Session Type**\n\n"
-                "Select the format you want to export:",
+                "Select the format you want:",
                 buttons=buttons
             )
         except Exception:
@@ -59,26 +59,26 @@ class SessionExportHandler:
             for account in accounts:
                 account_name = account.get('name') or account.get('phone', 'Unknown')
                 is_selected = account_name in selected_accounts
-                prefix = "✅" if is_selected else "📱"
+                prefix = "✅" if is_selected else "⬜"
                 buttons.append([Button.inline(f"{prefix} {account_name}", f"toggle_session:{account_name}")])
             
-            buttons.append([Button.inline("✅ Done (Create Sessions)", "create_selected_sessions")])
-            buttons.append([Button.inline("🔄 Clear Selection", "clear_session_selection")])
+            all_selected = len(selected_accounts) == len(accounts)
+            select_all_text = "❌ Deselect All" if all_selected else "✅ Select All"
+            buttons.append([Button.inline(select_all_text, "toggle_all_sessions")])
+            buttons.append([Button.inline("✅ Done", "create_selected_sessions")])
             buttons.append([Button.inline("🔙 Back", "export_sessions")])
             
             selected_count = len(selected_accounts)
             type_text = "String" if session_type == 'string' else "File"
-            selection_text = f"\n\n📋 **Selected:** {selected_count} account(s)" if selected_count > 0 else ""
+            output_text = "Direct file" if selected_count == 1 else "ZIP file" if selected_count > 1 else "None"
             
             await event.edit(
-                f"✨ **Fresh Session Creation**\n\n"
+                f"✨ **Session Creation**\n\n"
                 f"📋 **Step 2: Select Accounts**\n"
-                f"📝 **Type:** {type_text}\n\n"
-                "Select accounts to create sessions:\n"
-                "• Click to select/deselect\n"
-                "• Press Done when ready\n"
-                "• Multiple = ZIP file"
-                f"{selection_text}",
+                f"📝 **Type:** {type_text}\n"
+                f"📦 **Output:** {output_text}\n\n"
+                f"📋 **Selected:** {selected_count}/{len(accounts)}\n\n"
+                "Click accounts to select/deselect",
                 buttons=buttons
             )
         except Exception:
@@ -113,6 +113,29 @@ class SessionExportHandler:
         except Exception:
             await event.edit("❌ Error clearing selection.")
     
+    async def _toggle_all_sessions(self, event, user_id):
+        """Toggle select/deselect all accounts"""
+        try:
+            if not hasattr(self.bot_manager, 'session_selections') or user_id not in self.bot_manager.session_selections:
+                await event.answer("❌ Session expired. Please start again.")
+                return
+            
+            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
+            selected_data = self.bot_manager.session_selections[user_id]
+            selected_accounts = selected_data['accounts']
+            session_type = selected_data['type']
+            
+            if len(selected_accounts) == len(accounts):
+                selected_accounts.clear()
+            else:
+                for account in accounts:
+                    account_name = account.get('name') or account.get('phone', 'Unknown')
+                    selected_accounts.add(account_name)
+            
+            await self._show_account_selection(event, user_id, session_type)
+        except Exception:
+            await event.edit("❌ Error toggling all.")
+    
     async def _create_selected_sessions(self, event, user_id):
         """Create sessions for all selected accounts"""
         try:
@@ -125,7 +148,7 @@ class SessionExportHandler:
             session_type = selected_data['type']
             
             if not selected_accounts:
-                await event.edit("❌ No accounts selected. Please select at least one account.")
+                await event.answer("❌ Please select at least one account", alert=True)
                 return
             
             self.bot_manager.session_selections[user_id]['accounts'].clear()
@@ -145,6 +168,7 @@ class SessionExportHandler:
             await event.edit(
                 f"🔄 **Creating {len(account_names)} Sessions**\n\n"
                 f"📝 **Type:** {type_text}\n"
+                f"📦 **Output:** ZIP file\n"
                 f"📋 **Accounts:** {', '.join(account_names[:3])}{'...' if len(account_names) > 3 else ''}\n\n"
                 f"⏳ Starting batch creation...\n"
                 f"You will receive OTP codes for each account."
@@ -214,7 +238,6 @@ class SessionExportHandler:
             
             import zipfile
             import tempfile
-            import os
             
             with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
                 zip_path = temp_zip.name
@@ -224,21 +247,20 @@ class SessionExportHandler:
                     ext = '.txt' if session_type == 'string' else '.session'
                     zip_file.writestr(f"{account_name}{ext}", session_data)
             
-            with open(zip_path, 'rb') as zip_file:
-                zip_data = zip_file.read()
-            
             from telethon.tl.types import DocumentAttributeFilename
             type_text = "String" if session_type == 'string' else "File"
-            await self.bot.send_message(
+            await self.bot.send_file(
                 user_id,
-                f"📦 **Batch Export Complete**\n\n"
-                f"✅ **Created:** {len(completed_sessions)} sessions\n"
-                f"📝 **Type:** {type_text}\n"
-                f"📁 **Format:** ZIP\n\n"
-                f"**Accounts:**\n" + "\n".join([f"• {name}" for name in list(completed_sessions.keys())[:10]]) + 
-                (f"\n... and {len(completed_sessions) - 10} more" if len(completed_sessions) > 10 else "") + "\n\n"
-                f"⚠️ **Keep secure!**",
-                file=zip_data,
+                zip_path,
+                caption=(
+                    f"📦 **Batch Export Complete**\n\n"
+                    f"✅ **Created:** {len(completed_sessions)} sessions\n"
+                    f"📝 **Type:** {type_text}\n"
+                    f"📁 **Format:** ZIP\n\n"
+                    f"**Accounts:**\n" + "\n".join([f"• {name}" for name in list(completed_sessions.keys())[:10]]) + 
+                    (f"\n... and {len(completed_sessions) - 10} more" if len(completed_sessions) > 10 else "") + "\n\n"
+                    f"⚠️ **Keep secure!**"
+                ),
                 attributes=[DocumentAttributeFilename(f"sessions_{int(time.time())}.zip")]
             )
             
@@ -254,156 +276,17 @@ class SessionExportHandler:
             return
         batch_data = self.bot_manager.batch_sessions[user_id]
         session_type = batch_data.get('session_type', 'file')
-        await self._create_fresh_session(None, user_id, account_name, format_type=session_type)
+        
+        class DummyEvent:
+            async def edit(self, text, buttons=None): pass
+        
+        await self._create_fresh_session(DummyEvent(), user_id, account_name, format_type=session_type)
     
-    async def _export_all_sessions(self, event, user_id):
-        """Show bulk fresh session creation info"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-            if not accounts:
-                await event.edit("❌ No accounts found.")
-                return
-            
-            from telethon import Button
-            message = (
-                f"📦 **Bulk Fresh Session Creation**\n\n"
-                f"📊 **Available Accounts:** {len(accounts)}\n\n"
-                f"🔐 **Security Notice:**\n"
-                f"Bulk session creation requires individual OTP authentication for each account.\n\n"
-                f"⚠️ **Important:**\n"
-                f"Each account will need separate OTP verification.\n"
-                f"This ensures maximum security for all sessions.\n\n"
-                f"**Recommendation:**\n"
-                f"Create sessions individually for better control."
-            )
-            
-            buttons = [
-                [Button.inline("📱 Create Individual Sessions", "export_sessions")],
-                [Button.inline("🔙 Back to Export Menu", "export_sessions")]
-            ]
-            await event.edit(message, buttons=buttons)
-        except Exception:
-            await event.edit("❌ Error loading bulk export info")
-    async def _send_string_session(self, event, user_id, account_name):
-        """Send string session format"""
-        try:
-            await self._create_fresh_session(event, user_id, account_name, format_type='string')
-            return
-            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-            phone = account.get('phone', 'Unknown') if account else 'Unknown'
-            from telethon import Button
-            message = (
-                f"📝 **String Session - {account_name}**\n\n"
-                f"📱 **Account:** {account_name}\n"
-                f"📞 **Phone:** {phone}\n"
-                f"🕑 **Generated:** {asyncio.get_event_loop().time()}\n\n"
-                f"**Session String:**\n"
-                f"```\n{session_string}\n```\n\n"
-                f"**Python Usage:**\n"
-                f"```python\n"
-                f"from telethon import TelegramClient\n"
-                f"from telethon.sessions import StringSession\n\n"
-                f"client = TelegramClient(\n"
-                f"    StringSession('{session_string}'),\n"
-                f"    api_id, api_hash\n"
-                f")\n"
-                f"await client.start()\n"
-                f"```\n\n"
-                f"⚠️ **Keep this session string secure!**"
-            )
-            buttons = [
-                [Button.inline("🔄 Generate New String", f"export_string:{account_name}")],
-                [Button.inline("🔙 Back to Options", f"export_session:{account_name}")]
-            ]
-            await event.edit(message, buttons=buttons)
-            # Send login notification
-            await self._send_login_notification(user_id, account_name, "String session exported")
-        except Exception:
-            await event.edit("❌ Error exporting string session")
-    async def _send_file_session(self, event, user_id, account_name):
-        """Send .session file format"""
-        try:
-            await self._create_fresh_session(event, user_id, account_name, format_type='file')
-            return
-            import tempfile
-            temp_session_path = f"temp_{account_name}_{user_id}_{int(asyncio.get_event_loop().time())}.session"
-            try:
-                from telethon import TelegramClient
-                from telethon.sessions import StringSession
-                from ..core.config import API_ID, API_HASH
-                temp_client = TelegramClient(temp_session_path, API_ID, API_HASH)
-                temp_client.session = StringSession(session_string)
-                await temp_client.connect()
-                await temp_client.disconnect()
-                # Read the generated .session file
-                session_file_data = None
-                if os.path.exists(temp_session_path):
-                    with open(temp_session_path, 'rb') as f:
-                        session_file_data = f.read()
-                    os.remove(temp_session_path)  # Clean up
-                if session_file_data:
-                    account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                    phone = account.get('phone', 'Unknown') if account else 'Unknown'
-                    # Send file
-                    await event.respond(
-                        f"📁 **Session File - {account_name}**\n\n"
-                        f"📱 **Account:** {account_name}\n"
-                        f"📞 **Phone:** {phone}\n"
-                        f"🕑 **Generated:** Fresh session file\n\n"
-                        f"**Usage:** Use this file with Telethon:\n"
-                        f"```python\n"
-                        f"from telethon import TelegramClient\n\n"
-                        f"client = TelegramClient('{account_name}', api_id, api_hash)\n"
-                        f"await client.start()\n"
-                        f"```\n\n"
-                        f"⚠️ **Keep this file secure!**",
-                        file=session_file_data,
-                        attributes=[DocumentAttributeFilename(f"{account_name}.session")]
-                    )
-                    from telethon import Button
-                    from telethon.tl.types import DocumentAttributeFilename
-                    buttons = [
-                        [Button.inline("🔄 Generate New File", f"export_file:{account_name}")],
-                        [Button.inline("🔙 Back to Options", f"export_session:{account_name}")]
-                    ]
-                    await event.edit("✅ **Session file sent above!**", buttons=buttons)
-                    # Send login notification
-                    await self._send_login_notification(user_id, account_name, "Session file exported")
-                else:
-                    await event.edit("❌ Failed to generate session file.")
-            except Exception:
-                await event.edit("❌ Error generating session file")
-        except Exception:
-            await event.edit("❌ Error exporting session file")
-    async def _send_login_notification(self, user_id, account_name, action):
-        """Send login notification to user"""
-        try:
-            import time
-            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            notification = (
-                f"🔔 **Login Activity Alert**\n\n"
-                f"📱 **Account:** {account_name}\n"
-                f"🕑 **Time:** {timestamp}\n"
-                f"⚙️ **Action:** {action}\n"
-                f"📍 **Location:** Session Export\n\n"
-                f"ℹ️ This is a security notification for session export activity."
-            )
-            await self.bot.send_message(user_id, notification)
-        except Exception:
-            pass
-    async def _copy_string_handler(self, event, account_name):
-        """Handle copy string callback"""
-        try:
-            user_id = event.sender_id
-            user_clients = self.user_clients.get(user_id, {})
-            client = user_clients.get(account_name)
-            if client and client.is_connected():
-                session_string = client.session.save()
-                await event.answer(f"Session string copied for {account_name}!", alert=True)
-            else:
-                await event.answer("❌ Account not connected!", alert=True)
-        except Exception:
-            await event.answer("❌ Error copying session string!", alert=True)
+
+
+
+
+
     async def _create_fresh_session(self, event, user_id, account_name, format_type='both'):
         """Create fresh session by re-authenticating existing account"""
         try:
@@ -952,11 +835,7 @@ class SessionExportHandler:
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
                         )
-                # Always send notification
-                try:
-                    await self._send_login_notification(user_id, account_name, "Fresh session created via OTP")
-                except Exception as notif_err:
-                    logger.error(f"Failed to send login notification: {notif_err}")
+
                 # Clear session creation protection and restore OTP settings
                 try:
                     # Get original states
@@ -1271,11 +1150,7 @@ class SessionExportHandler:
                             file=session_file_data,
                             attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")]
                         )
-                # Always send notification
-                try:
-                    await self._send_login_notification(user_id, account_name, "Fresh session created with 2FA")
-                except Exception as notif_err:
-                    logger.error(f"Failed to send login notification: {notif_err}")
+
                 # Clear protection flags and restore OTP settings
                 try:
                     # Get original states

@@ -10,7 +10,7 @@ class CleanupOperations:
     def __init__(self, menu_system):
         self.menu = menu_system
         self.bot = menu_system.bot
-        self.bot_manager = menu_system.bot_manager
+        self.bot_manager = menu_system.account_manager  # account_manager IS bot_manager
     
     async def send_bulk_cleanup_selection(self, user_id, message_id):
         """Send bulk cleanup selection for all accounts"""
@@ -135,53 +135,88 @@ class CleanupOperations:
     
     async def execute_cleanup(self, event, user_id, account_id, cleanup_types):
         from bson import ObjectId
+        logger.info(f"execute_cleanup called: user={user_id}, account={account_id}, types={cleanup_types}")
+        
         account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
         if not account:
-            await event.answer("❌ Account not found")
+            logger.error(f"Account not found: {account_id}")
+            await self.bot.send_message(user_id, "❌ Account not found")
             return
+        
         if not self.bot_manager:
-            await event.answer("❌ Service unavailable")
+            logger.error("Bot manager not available")
+            await self.bot.send_message(user_id, "❌ Service unavailable")
             return
+        
         client = None
         if hasattr(self.bot_manager, 'user_clients') and user_id in self.bot_manager.user_clients:
             account_name = account.get('name')
             client = self.bot_manager.user_clients[user_id].get(account_name)
+            logger.info(f"Found client for account {account_name}: {client is not None}")
+        
         if not client or not client.is_connected():
-            await event.answer("❌ Account not connected. Please ensure account is active.")
+            logger.error(f"Client not connected for account {account.get('name')}")
+            await self.bot.send_message(user_id, "❌ Account not connected. Please ensure account is active.")
             return
+        
         display_name = format_display_name(account)
         cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
         if 'all' in cleanup_list:
             cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
-        cleanup_settings = {'personal_chats': 'personal' in cleanup_list, 'bot_chats': 'bots' in cleanup_list, 'telegram_chat': 'telegram' in cleanup_list, 'spambot_chat': 'spambot' in cleanup_list, 'channels': 'channels' in cleanup_list, 'groups': 'groups' in cleanup_list, 'owned_groups': 'owned_groups' in cleanup_list, 'owned_channels': 'owned_channels' in cleanup_list}
-        try:
-            await self.bot.edit_message(user_id, event.message_id, f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below", buttons=None)
-        except Exception:
-            pass
+        
+        cleanup_settings = {
+            'personal_chats': 'personal' in cleanup_list,
+            'bot_chats': 'bots' in cleanup_list,
+            'telegram_chat': 'telegram' in cleanup_list,
+            'spambot_chat': 'spambot' in cleanup_list,
+            'channels': 'channels' in cleanup_list,
+            'groups': 'groups' in cleanup_list,
+            'owned_groups': 'owned_groups' in cleanup_list,
+            'owned_channels': 'owned_channels' in cleanup_list
+        }
+        
+        logger.info(f"Cleanup settings: {cleanup_settings}")
+        
+        # Send initial status message
+        status_msg = await self.bot.send_message(
+            user_id,
+            f"🚀 **Starting cleanup for {display_name}**\n\n⏳ Analyzing account...\n📊 Progress will be shown below"
+        )
+        
         from ...core.account_cleaner import AccountCleaner
         cleaner = AccountCleaner()
         import time
         last_update_time = time.time()
+        
         async def progress_callback(text):
             nonlocal last_update_time
             current_time = time.time()
             if current_time - last_update_time < 2:
                 return
             try:
-                await self.bot.edit_message(user_id, event.message_id, f"🚀 **Cleaning {display_name}**\n\n{text}", buttons=None)
+                await status_msg.edit(f"🚀 **Cleaning {display_name}**\n\n{text}")
                 last_update_time = current_time
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Progress update error: {e}")
+        
+        logger.info("Starting cleanup_account...")
         result = await cleaner.cleanup_account(client, cleanup_settings, progress_callback)
+        logger.info(f"Cleanup completed with result: {result[:100]}...")
+        
         result_text = f"✅ **Cleanup completed!**\n\n📱 Account: {display_name}\n\n📊 **Results:**\n{result}\n\n🔒 All operations completed securely"
         buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+        
         try:
-            await self.bot.edit_message(user_id, event.message_id, result_text, buttons=buttons)
-        except Exception:
+            await status_msg.edit(result_text, buttons=buttons)
+            logger.info("Final result message sent successfully")
+        except Exception as e:
+            logger.error(f"Failed to edit final message: {e}")
             try:
-                await event.answer("✅ Cleanup completed successfully!")
-            except:
-                pass
+                await self.bot.send_message(user_id, result_text, buttons=buttons)
+            except Exception as e2:
+                logger.error(f"Failed to send new message: {e2}")
+        
+        # Add audit log
         try:
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)},

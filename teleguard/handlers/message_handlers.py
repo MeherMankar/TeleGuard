@@ -131,7 +131,7 @@ class MessageHandlers:
         except Exception as e:
             logger.error(f"Error fetching recent OTP: {e}")
             return False
-        
+    
         @self.bot.on(events.NewMessage(incoming=True))
         async def reply_handler(event):
             try:
@@ -235,6 +235,10 @@ class MessageHandlers:
         """Handle user text replies for pending actions"""
         user_id = event.sender_id
         message = event.raw_text.strip()
+        logger.info(f"=== MESSAGE HANDLER === User {user_id} sent: '{message}'")
+        logger.info(f"Pending actions keys: {list(self.pending_actions.keys())}")
+        if user_id in self.pending_actions:
+            logger.info(f"User {user_id} pending action: {self.pending_actions[user_id]}")
         
         # Skip messages in admin group (forum topics) - they're handled by unified_messaging
         try:
@@ -297,10 +301,11 @@ class MessageHandlers:
                         self.pending_actions.pop(user_id, None)
                     return
         if user_id not in self.pending_actions:
-            logger.info("User sent message but no action was pending")
+            logger.warning(f"!!! User {user_id} sent '{message}' but NO pending action found !!!")
+            logger.warning(f"Current pending_actions: {dict(self.pending_actions)}")
             return
         action = self.pending_actions[user_id]["action"]
-        logger.info(f"Processing user action: {action.replace('_', ' ').title()}")
+        logger.info(f"Processing user action for {user_id}: {action}")
         user = await mongodb.get_user(user_id)
         if not user:
             await event.reply("Please start the bot first with /start")
@@ -353,6 +358,7 @@ class MessageHandlers:
         elif action == "validate_session_string":
             await self._handle_session_validation(event, user, action, message)
         elif action == "cleanup_selection":
+            logger.info(f"Routing to cleanup_selection handler for user {user_id}")
             await self._handle_cleanup_selection(event, user, action, message)
         elif action == "bulk_cleanup_selection":
             await self._handle_bulk_cleanup_selection(event, user, action, message)
@@ -1207,6 +1213,8 @@ class MessageHandlers:
     async def _handle_cleanup_selection(self, event, user, action, message):
         """Handle cleanup selection input"""
         user_id = event.sender_id
+        logger.info(f"Cleanup selection handler called for user {user_id}, message: {message}")
+        logger.info(f"Pending actions: {self.pending_actions.get(user_id)}")
         account_id = self.pending_actions[user_id].get("account_id")
         
         if not account_id:
@@ -1233,27 +1241,32 @@ class MessageHandlers:
             
             selected_types = ','.join(selected_list)
         
+        logger.info(f"Validated cleanup types: {selected_types} for account {account_id}")
+        
         # Clear pending action before executing cleanup
         self.pending_actions.pop(user_id, None)
         
         # Delegate to cleanup operations module
         try:
             if hasattr(self.bot_manager, 'menu_system') and hasattr(self.bot_manager.menu_system, 'cleanup_operations'):
+                logger.info(f"Executing cleanup via menu_system.cleanup_operations")
                 # Create a mock event object for execute_cleanup
                 class MockEvent:
                     def __init__(self, message_id):
                         self.message_id = message_id
                     async def answer(self, text):
-                        pass
+                        logger.info(f"MockEvent answer: {text}")
                 
                 mock_event = MockEvent(event.id)
                 await self.bot_manager.menu_system.cleanup_operations.execute_cleanup(
                     mock_event, user_id, account_id, selected_types
                 )
+                logger.info(f"Cleanup execution completed")
             else:
+                logger.error("Cleanup service not available - menu_system or cleanup_operations not found")
                 await event.reply("❌ Cleanup service not available")
         except Exception as e:
-            logger.error(f"Error executing cleanup: {e}")
+            logger.error(f"Error executing cleanup: {e}", exc_info=True)
             await event.reply(f"❌ Error executing cleanup: {str(e)}")
     
     async def _handle_bulk_cleanup_selection(self, event, user, action, message):
