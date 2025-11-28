@@ -62,7 +62,7 @@ class CommandHandlers:
                 )
         
         # Add account command
-        @self.bot.on(events.NewMessage(pattern=r"/add"))
+        @self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))
         async def add_handler(event):
             user_id = event.sender_id
             
