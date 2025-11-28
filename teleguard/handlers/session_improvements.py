@@ -35,15 +35,30 @@ class SessionImprovements:
         
         async def otp_listener(msg_event):
             nonlocal otp_code
-            # Only process messages after request time
-            if msg_event.date > request_time:
-                for pattern in self.OTP_PATTERNS:
-                    match = re.search(pattern, msg_event.text, re.IGNORECASE)
-                    if match:
-                        otp_code = match.group(1)
-                        logger.info(f"Event listener caught OTP: {otp_code}")
-                        otp_received.set()
-                        break
+            try:
+                msg_text = (msg_event.text[:50] if msg_event.text else 'No text').encode('ascii', errors='replace').decode('ascii')
+                logger.info(f"OTP listener: sender={msg_event.sender_id}, text={msg_text}")
+                
+                # Make request_time timezone-aware if needed
+                if msg_event.date.tzinfo and not request_time.tzinfo:
+                    from datetime import timezone
+                    request_time_aware = request_time.replace(tzinfo=timezone.utc)
+                    time_check = msg_event.date > request_time_aware
+                else:
+                    time_check = msg_event.date > request_time
+                
+                logger.info(f"Time check: {time_check}")
+                
+                if time_check and msg_event.text:
+                    for pattern in self.OTP_PATTERNS:
+                        match = re.search(pattern, msg_event.text, re.IGNORECASE)
+                        if match:
+                            otp_code = match.group(1)
+                            logger.info(f"OTP found: {otp_code}")
+                            otp_received.set()
+                            break
+            except Exception as e:
+                logger.error(f"OTP listener error: {e}")
         
         # Register listener
         user_client.add_event_handler(otp_listener, events.NewMessage(from_users=[777000, 42777]))
