@@ -37,7 +37,8 @@ class SessionExportHandler:
                 "Select the format you want:",
                 buttons=buttons
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error loading export menu: {e}")
             await event.edit("❌ Error loading export menu.")
     
     async def _show_account_selection(self, event, user_id, session_type):
