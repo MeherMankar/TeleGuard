@@ -12,6 +12,114 @@ class CleanupOperations:
         self.bot = menu_system.bot
         self.account_manager = menu_system.account_manager
     
+    async def send_bulk_cleanup_selection(self, user_id, message_id):
+        """Send bulk cleanup selection for all accounts"""
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+        if not accounts:
+            await self.bot.edit_message(user_id, message_id, "❌ No accounts found", buttons=[[Button.inline("🔙 Back", "cleanup:menu")]])
+            return
+        
+        active_accounts = [acc for acc in accounts if acc.get('is_active', False)]
+        text = f"🧹 **Bulk Cleanup - All Accounts**\n\n📊 **Accounts:** {len(active_accounts)} active / {len(accounts)} total\n\n📋 **What would you like to clean?**\n\nThis will clean ALL your accounts at once.\n\n💬 **Personal chats** - Direct messages\n🤖 **Bot chats** - Bot conversations\n📢 **Telegram official** - Service chats\n🚫 **Spambot chats** - @spambot\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete your groups\n📺 **Delete owned channels** - Delete your channels\n\n⚠️ **WARNING**: This affects ALL accounts!"
+        
+        if self.account_manager:
+            self.account_manager.pending_actions[user_id] = {"action": "bulk_cleanup_selection"}
+        
+        await self.bot.edit_message(user_id, message_id, text)
+        await self.bot.send_message(user_id, "📝 **Reply with cleanup type:**\n\n**Examples:**\n• `personal,bots`\n• `channels,groups`\n• `all`\n\n**Options:** `personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`")
+    
+    async def execute_bulk_cleanup(self, user_id, cleanup_types):
+        """Execute cleanup on all user accounts"""
+        from bson import ObjectId
+        import asyncio
+        
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+        if not accounts:
+            await self.bot.send_message(user_id, "❌ No accounts found")
+            return
+        
+        active_accounts = [acc for acc in accounts if acc.get('is_active', False)]
+        if not active_accounts:
+            await self.bot.send_message(user_id, "❌ No active accounts found")
+            return
+        
+        # Parse cleanup settings
+        cleanup_list = [t.strip().lower() for t in cleanup_types.split(',')]
+        if 'all' in cleanup_list:
+            cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
+        
+        cleanup_settings = {
+            'personal_chats': 'personal' in cleanup_list,
+            'bot_chats': 'bots' in cleanup_list,
+            'telegram_chat': 'telegram' in cleanup_list,
+            'spambot_chat': 'spambot' in cleanup_list,
+            'channels': 'channels' in cleanup_list,
+            'groups': 'groups' in cleanup_list,
+            'owned_groups': 'owned_groups' in cleanup_list,
+            'owned_channels': 'owned_channels' in cleanup_list
+        }
+        
+        status_msg = await self.bot.send_message(
+            user_id,
+            f"🚀 **Bulk Cleanup Started**\n\n📊 Processing {len(active_accounts)} accounts...\n⏳ Please wait..."
+        )
+        
+        from ...core.account_cleaner import AccountCleaner
+        cleaner = AccountCleaner()
+        
+        results = []
+        for i, account in enumerate(active_accounts, 1):
+            account_name = account.get('name')
+            display_name = format_display_name(account)
+            
+            # Get client
+            client = None
+            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
+                client = self.account_manager.user_clients[user_id].get(account_name)
+            
+            if not client or not client.is_connected():
+                results.append(f"❌ {display_name}: Not connected")
+                continue
+            
+            try:
+                await status_msg.edit(
+                    f"🚀 **Bulk Cleanup**\n\n📊 Progress: {i}/{len(active_accounts)}\n🧹 Cleaning: {display_name}\n⏳ Please wait..."
+                )
+                
+                result = await cleaner.cleanup_account(client, cleanup_settings, None)
+                results.append(f"✅ {display_name}: Completed")
+                
+                # Log cleanup
+                import time
+                await mongodb.db.accounts.update_one(
+                    {"_id": account['_id']},
+                    {"$push": {"audit_log": {
+                        "action": "bulk_cleanup_completed",
+                        "cleanup_types": cleanup_types,
+                        "timestamp": int(time.time()),
+                        "result": "success"
+                    }}}
+                )
+            except Exception as e:
+                logger.error(f"Cleanup failed for {display_name}: {e}")
+                results.append(f"❌ {display_name}: {str(e)[:50]}")
+        
+        # Send final results
+        result_text = (
+            f"✅ **Bulk Cleanup Completed!**\n\n"
+            f"📊 **Summary:**\n"
+            f"• Total: {len(active_accounts)} accounts\n"
+            f"• Success: {sum(1 for r in results if r.startswith('✅'))}\n"
+            f"• Failed: {sum(1 for r in results if r.startswith('❌'))}\n\n"
+            f"**Results:**\n" + "\n".join(results[:10])
+        )
+        
+        if len(results) > 10:
+            result_text += f"\n\n... and {len(results) - 10} more"
+        
+        buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
+        await status_msg.edit(result_text, buttons=buttons)
+    
     async def send_cleanup_selection(self, user_id, message_id, account_id):
         from bson import ObjectId
         account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})

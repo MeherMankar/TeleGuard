@@ -350,6 +350,8 @@ class MessageHandlers:
             await self._handle_session_validation(event, user, action, message)
         elif action == "cleanup_selection":
             await self._handle_cleanup_selection(event, user, action, message)
+        elif action == "bulk_cleanup_selection":
+            await self._handle_bulk_cleanup_selection(event, user, action, message)
         elif action == "session_creation_2fa_password":
             await self._handle_session_creation_2fa(event, user, action, message)
         else:
@@ -1249,6 +1251,39 @@ class MessageHandlers:
         except Exception as e:
             logger.error(f"Error executing cleanup: {e}")
             await event.reply(f"❌ Error executing cleanup: {str(e)}")
+    
+    async def _handle_bulk_cleanup_selection(self, event, user, action, message):
+        """Handle bulk cleanup selection input"""
+        user_id = event.sender_id
+        cleanup_types = message.strip().lower()
+        valid_types = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels', 'all']
+        
+        if cleanup_types == 'all':
+            selected_types = 'all'
+        else:
+            selected_list = [t.strip() for t in cleanup_types.split(',')]
+            invalid_types = [t for t in selected_list if t not in valid_types]
+            
+            if invalid_types:
+                await event.reply(
+                    f"❌ Invalid cleanup types: {', '.join(invalid_types)}\n\n"
+                    f"Valid options: {', '.join(valid_types)}"
+                )
+                return
+            
+            selected_types = ','.join(selected_list)
+        
+        self.pending_actions.pop(user_id, None)
+        
+        try:
+            if hasattr(self.bot_manager, 'menu_system') and hasattr(self.bot_manager.menu_system, 'cleanup_operations'):
+                await self.bot_manager.menu_system.cleanup_operations.execute_bulk_cleanup(user_id, selected_types)
+            else:
+                await event.reply("❌ Cleanup service not available")
+        except Exception as e:
+            logger.error(f"Error executing bulk cleanup: {e}")
+            await event.reply(f"❌ Error: {str(e)}")
+    
     
     async def _fetch_and_store_account_name(self, user_id: int, phone: str):
         """Fetch real account name from Telegram and store in database"""

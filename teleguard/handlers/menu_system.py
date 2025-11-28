@@ -292,7 +292,9 @@ class MenuSystem:
                     "👤 **Select Account to Clean:**"
                 )
                 
-                buttons = []
+                buttons = [
+                    [Button.inline("🧹 Cleanup All Accounts", "cleanup:bulk_all")]
+                ]
                 for account in accounts:
                     status = "✅" if account.get("is_active", False) else "🔴"
                     display_name = format_display_name(account)
@@ -316,6 +318,8 @@ class MenuSystem:
         if action == "menu":
             # Redirect to main cleanup handler
             await self._handle_cleanup(type("Event", (), {"sender_id": user_id, "reply": lambda x, buttons=None: self.bot.edit_message(user_id, event.message_id, x, buttons=buttons)})())
+        elif action == "bulk_all":
+            await self._send_bulk_cleanup_selection(user_id, event.message_id)
         elif action == "select":
             account_id = parts[2] if len(parts) > 2 else None
             if account_id:
