@@ -63,7 +63,7 @@ class SecurityConfig:
 @dataclass
 class PerformanceConfig:
     """Performance and limits configuration"""
-    max_accounts: int = 10
+    max_accounts: int = 999999
     rate_limit_requests: int = 30
     rate_limit_window: int = 60
     database_pool_size: int = 10
@@ -72,8 +72,8 @@ class PerformanceConfig:
     keep_alive_interval: int = 3600
     def __post_init__(self):
         """Validate performance configuration"""
-        if self.max_accounts <= 0 or self.max_accounts > 50:
-            raise ConfigurationError("MAX_ACCOUNTS must be between 1 and 50")
+        if self.max_accounts <= 0:
+            raise ConfigurationError("MAX_ACCOUNTS must be greater than 0")
 @dataclass
 class CacheConfig:
     """Cache TTL configuration"""
@@ -212,7 +212,7 @@ class ConfigManager:
     def _load_performance_config(self) -> PerformanceConfig:
         """Load and validate performance configuration"""
         return PerformanceConfig(
-            max_accounts=self._get_int_env(ConfigKeys.MAX_ACCOUNTS, 10),
+            max_accounts=self._get_int_env(ConfigKeys.MAX_ACCOUNTS, 999999),
             rate_limit_requests=self._get_int_env("RATE_LIMIT_REQUESTS", 30),
             rate_limit_window=self._get_int_env("RATE_LIMIT_WINDOW", 60),
             database_pool_size=self._get_int_env("DATABASE_POOL_SIZE", 10),
