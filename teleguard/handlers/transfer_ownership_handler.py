@@ -141,3 +141,159 @@ class TransferOwnershipHandler:
             await event.answer()
         except Exception as e:
             logger.error(f"Update menu error: {e}")
+    
+    async def process_user_input(self, event, user_id: int, message: str):
+        """Process user ID/username input for transfer or co-owner"""
+        try:
+            # Check if this is for transfer or co-owner
+            if user_id in self.pending_transfers:
+                await self._process_transfer(event, user_id, message)
+            elif user_id in self.pending_coowner:
+                await self._process_coowner(event, user_id, message)
+        except Exception as e:
+            logger.error(f"Process user input error: {e}")
+            await event.reply(f"Error: {str(e)}")
+    
+    async def _process_transfer(self, event, user_id: int, target_input: str):
+        """Process transfer ownership"""
+        try:
+            selected = self.pending_transfers[user_id]["selected_accounts"]
+            if not selected:
+                await event.reply("No accounts selected!")
+                return
+            
+            # Parse target user
+            target_user_id = await self._parse_user_id(target_input)
+            if not target_user_id:
+                await event.reply("Invalid user ID or username. Try again:")
+                return
+            
+            # Verify target user exists in database
+            target_user = await mongodb.db.users.find_one({"telegram_id": target_user_id})
+            if not target_user:
+                await event.reply(f"User {target_input} hasn't started the bot. They must use /start first.")
+                return
+            
+            # Transfer accounts
+            from ..utils.data_encryption import decrypt_string
+            transferred = []
+            
+            for account_id in selected:
+                account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+                if account:
+                    # Get 2FA password if exists
+                    twofa_password = None
+                    if account.get('twofa_password'):
+                        try:
+                            twofa_password = decrypt_string(account['twofa_password'])
+                        except:
+                            pass
+                    
+                    # Update ownership
+                    await mongodb.db.accounts.update_one(
+                        {"_id": ObjectId(account_id)},
+                        {"$set": {"user_id": target_user_id}}
+                    )
+                    
+                    # Remove from original owner's client list
+                    if user_id in self.bot_manager.user_clients:
+                        account_name = account.get('name') or account.get('phone')
+                        self.bot_manager.user_clients[user_id].pop(account_name, None)
+                    
+                    transferred.append({
+                        "name": account.get('name', 'Unknown'),
+                        "phone": account.get('phone', 'Unknown'),
+                        "twofa": twofa_password
+                    })
+            
+            # Notify both users
+            await event.reply(f"✅ Transferred {len(transferred)} account(s) to user {target_input}")
+            
+            # Notify recipient
+            msg = f"📱 **Account Transfer Received**\n\nYou received {len(transferred)} account(s):\n\n"
+            for acc in transferred:
+                msg += f"• {acc['name']} ({acc['phone']})\n"
+                if acc['twofa']:
+                    msg += f"  🔐 2FA: `{acc['twofa']}`\n"
+            msg += "\nUse /accs to view your accounts."
+            
+            await self.bot.send_message(target_user_id, msg)
+            
+            del self.pending_transfers[user_id]
+            
+        except Exception as e:
+            logger.error(f"Transfer error: {e}")
+            await event.reply(f"Transfer failed: {str(e)}")
+    
+    async def _process_coowner(self, event, user_id: int, target_input: str):
+        """Process add co-owner"""
+        try:
+            # Parse target user
+            target_user_id = await self._parse_user_id(target_input)
+            if not target_user_id:
+                await event.reply("Invalid user ID or username. Try again:")
+                return
+            
+            # Verify target user exists
+            target_user = await mongodb.db.users.find_one({"telegram_id": target_user_id})
+            if not target_user:
+                await event.reply(f"User {target_input} hasn't started the bot. They must use /start first.")
+                return
+            
+            # Add to co-owners list
+            await mongodb.db.users.update_one(
+                {"telegram_id": user_id},
+                {"$addToSet": {"co_owners": target_user_id}}
+            )
+            
+            # Share all current accounts
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            from ..utils.data_encryption import decrypt_string
+            
+            for account in accounts:
+                await mongodb.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {"$addToSet": {"co_owners": target_user_id}}
+                )
+            
+            # Notify both users
+            await event.reply(f"✅ Added {target_input} as co-owner\n\nThey now have access to all {len(accounts)} account(s)")
+            
+            # Notify co-owner
+            msg = f"👥 **Co-Owner Access Granted**\n\nYou now have co-owner access to {len(accounts)} account(s):\n\n"
+            for acc in accounts:
+                name = acc.get('name', 'Unknown')
+                phone = acc.get('phone', 'Unknown')
+                msg += f"• {name} ({phone})\n"
+                if acc.get('twofa_password'):
+                    try:
+                        twofa = decrypt_string(acc['twofa_password'])
+                        msg += f"  🔐 2FA: `{twofa}`\n"
+                    except:
+                        pass
+            msg += "\nYou'll automatically get access to all future accounts too!"
+            
+            await self.bot.send_message(target_user_id, msg)
+            
+            del self.pending_coowner[user_id]
+            
+        except Exception as e:
+            logger.error(f"Co-owner error: {e}")
+            await event.reply(f"Failed to add co-owner: {str(e)}")
+    
+    async def _parse_user_id(self, input_str: str) -> int:
+        """Parse user ID from input (ID or username)"""
+        try:
+            # Try as numeric ID
+            if input_str.isdigit():
+                return int(input_str)
+            
+            # Try as username
+            username = input_str.replace('@', '')
+            try:
+                entity = await self.bot.get_entity(username)
+                return entity.id
+            except:
+                return None
+        except:
+            return None
