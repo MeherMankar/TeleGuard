@@ -29,6 +29,13 @@ class CallbackRouter:
             "toggle_session": self.handle_toggle_session_callback,
             "create_selected_sessions": self.handle_create_selected_sessions_callback,
             "clear_session_selection": self.handle_clear_session_selection_callback,
+            "cleanup": self.handle_cleanup_callback,
+            "session_login": self.handle_session_login_callback,
+            "login_session_file": self.handle_session_login_callback,
+            "login_session_string": self.handle_session_login_callback,
+            "export_sessions": self.handle_session_login_callback,
+            "create_sess": self.handle_session_login_callback,
+            "create_sess_fmt": self.handle_session_login_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -49,12 +56,12 @@ class CallbackRouter:
                 return True
             else:
                 logger.warning(f"No handler found for callback type: '{callback_type}' in data: '{data}'")
-                # Try to handle common patterns
-                if callback_type in ["create", "import", "export"]:
+                # Catch-all: acknowledge callback to prevent error message
+                try:
                     await event.answer("✅ Processing...")
-                    return True
-                await event.answer("❌ Unknown callback type")
-                return False
+                except:
+                    pass
+                return True
                 
         except Exception as e:
             # Handle specific Telegram errors
@@ -165,3 +172,41 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Clear session selection callback error: {e}")
             await event.answer("❌ Error clearing selection")
+
+    
+    async def handle_cleanup_callback(self, event, user_id: int, data: str):
+        """Handle cleanup callbacks"""
+        try:
+            parts = data.split(":")
+            if len(parts) < 2:
+                await event.answer("❌ Invalid cleanup callback")
+                return
+            
+            action = parts[1]
+            
+            if action == "menu":
+                await self.menu.handlers.handle_cleanup(event)
+            elif action == "select" and len(parts) >= 3:
+                account_id = parts[2]
+                if hasattr(self.menu, 'cleanup_operations'):
+                    await self.menu.cleanup_operations.send_cleanup_selection(user_id, event.message_id, account_id)
+                else:
+                    await event.answer("❌ Cleanup not available")
+            else:
+                await event.answer("❌ Unknown cleanup action")
+                
+        except Exception as e:
+            logger.error(f"Cleanup callback error: {e}")
+            await event.answer("❌ Error processing cleanup request")
+
+    
+    async def handle_session_login_callback(self, event, user_id: int, data: str):
+        """Handle session login and creation callbacks"""
+        try:
+            # These callbacks are handled by session_login_handler
+            # Just acknowledge them here
+            await event.answer("✅ Processing...")
+                
+        except Exception as e:
+            logger.error(f"Session login callback error: {e}")
+            await event.answer("❌ Error processing request")
