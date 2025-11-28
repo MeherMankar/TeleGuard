@@ -40,14 +40,9 @@ class SessionImprovements:
                 if not message_text:
                     return
                 
-                logger.info(f"OTP listener got message from {event.sender_id}")
+                logger.info(f"OTP listener triggered")
                 
-                # Check if message is after request time
-                if event.date <= request_time:
-                    logger.info("Message too old, skipping")
-                    return
-                
-                # Extract OTP
+                # Extract OTP without time check (like OTP forward)
                 for pattern in self.OTP_PATTERNS:
                     match = re.search(pattern, message_text, re.IGNORECASE)
                     if match:
