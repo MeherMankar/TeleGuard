@@ -395,18 +395,21 @@ class SessionExportHandler:
                     f"📱 **OTP Sent - {account_name}**\n\n"
                     f"📞 **Phone:** {phone}\n\n"
                     f"✅ **OTP code sent to your Telegram account**\n\n"
+                    f"🔍 **Checking for recent OTP messages...**\n\n"
                     f"Please send the OTP code you received.\n"
                     f"Format: Just the numbers (e.g., 12345)\n\n"
                     f"⏰ **Waiting for your OTP...**"
                 )
-                # Mark account as having a pending fresh session (DB flag)
+                
+                # Try to fetch recent OTP messages
                 try:
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {"$set": {"pending_fresh_session": True}}
-                    )
-                except Exception:
-                    pass
+                    if hasattr(self.bot_manager, 'message_handlers'):
+                        found_otp = await self.bot_manager.message_handlers.fetch_recent_otp(user_id)
+                        if found_otp:
+                            return  # OTP was found and processed
+                except Exception as fetch_err:
+                    logger.error(f"Error fetching recent OTP: {fetch_err}")
+
                 # Store pending session creation
                 if not hasattr(self.bot_manager, 'pending_fresh_sessions'):
                     self.bot_manager.pending_fresh_sessions = {}
@@ -627,42 +630,18 @@ class SessionExportHandler:
                 session_file_data = None
                 if format_type in ['file', 'both']:
                     import tempfile
-                    import sqlite3
                     
                     try:
                         logger.info(f"Creating session file for {account_name}...")
                         
-                        # Create temporary session file
+                        # Create temporary session file using Telethon's built-in method
                         with tempfile.NamedTemporaryFile(suffix='.session', delete=False) as temp_file:
                             temp_session_path = temp_file.name
                         
-                        # Create SQLite session file manually
-                        conn = sqlite3.connect(temp_session_path)
-                        conn.execute('''
-                            CREATE TABLE sessions (
-                                dc_id INTEGER PRIMARY KEY,
-                                server_address TEXT,
-                                port INTEGER,
-                                auth_key BLOB
-                            )
-                        ''')
-                        conn.execute('''
-                            CREATE TABLE version (version INTEGER)
-                        ''')
-                        conn.execute('INSERT INTO version VALUES (8)')
-                        
-                        # Insert session data
-                        conn.execute('''
-                            INSERT INTO sessions (dc_id, server_address, port, auth_key)
-                            VALUES (?, ?, ?, ?)
-                        ''', (
-                            client.session.dc_id,
-                            client.session.server_address,
-                            client.session.port,
-                            client.session.auth_key.key if client.session.auth_key else None
-                        ))
-                        conn.commit()
-                        conn.close()
+                        # Create a new client with the fresh session string and save as file
+                        file_client = TelegramClient(temp_session_path, API_ID, API_HASH)
+                        file_client.session = StringSession(fresh_session)
+                        file_client.session.save()
                         
                         # Read the session file
                         if os.path.exists(temp_session_path):

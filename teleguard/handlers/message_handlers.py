@@ -27,6 +27,111 @@ class MessageHandlers:
         @self.bot.on(events.NewMessage(func=lambda e: e.document))
         async def document_handler(event):
             await self._handle_document_upload(event)
+        
+        # OTP auto-fetch handler for session creation
+        @self.bot.on(events.NewMessage(chats=[777000, 42777]))
+        async def otp_fetch_handler(event):
+            try:
+                message = event.raw_text.strip()
+                
+                # Extract OTP code with multiple patterns
+                otp_code = None
+                
+                # Pattern 1: "Login code: 12345"
+                otp_match = re.search(r'Login code: (\d{5,7})', message)
+                if otp_match:
+                    otp_code = otp_match.group(1)
+                
+                # Pattern 2: Any 5-7 digit number
+                if not otp_code:
+                    otp_match = re.search(r'\b(\d{5,7})\b', message)
+                    if otp_match:
+                        otp_code = otp_match.group(1)
+                
+                if otp_code:
+                    logger.info(f"Detected OTP code: {otp_code} from Telegram")
+                    
+                    # Check all pending fresh sessions
+                    if hasattr(self.bot_manager, 'pending_fresh_sessions'):
+                        for user_id, session_data in list(self.bot_manager.pending_fresh_sessions.items()):
+                            try:
+                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                                if success:
+                                    self.pending_actions.pop(user_id, None)
+                                    await self.bot.send_message(user_id, f"✅ OTP {otp_code} auto-detected and processed!")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"Failed to process OTP for user {user_id}: {e}")
+                                continue
+            except Exception as e:
+                logger.error(f"OTP fetch error: {e}")
+    
+    async def fetch_recent_otp(self, user_id):
+        """Fetch recent OTP messages from Telegram official account"""
+        try:
+            if user_id not in self.bot_manager.pending_fresh_sessions:
+                return False
+            
+            # Check both recent messages and unread messages from Telegram official accounts
+            telegram_accounts = [777000, 42777]  # Telegram official accounts
+            
+            for account_id in telegram_accounts:
+                try:
+                    # Check recent messages (last 10 minutes)
+                    from datetime import datetime, timedelta
+                    async for message in self.bot.iter_messages(
+                        account_id,
+                        limit=20,
+                        offset_date=datetime.now() - timedelta(minutes=10)
+                    ):
+                        if message.text:
+                            # Look for OTP patterns
+                            otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                            if not otp_match:
+                                otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                            
+                            if otp_match:
+                                otp_code = otp_match.group(1)
+                                logger.info(f"Found recent OTP {otp_code} from {account_id}")
+                                
+                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                                if success:
+                                    return True
+                    
+                    # Also check unread messages specifically
+                    try:
+                        dialogs = await self.bot.get_dialogs(limit=None)
+                        for dialog in dialogs:
+                            if dialog.entity.id == account_id and dialog.unread_count > 0:
+                                # Get unread messages
+                                async for message in self.bot.iter_messages(
+                                    account_id,
+                                    limit=dialog.unread_count
+                                ):
+                                    if message.text:
+                                        otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                                        if not otp_match:
+                                            otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                                        
+                                        if otp_match:
+                                            otp_code = otp_match.group(1)
+                                            logger.info(f"Found unread OTP {otp_code} from {account_id}")
+                                            
+                                            success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                                            if success:
+                                                return True
+                                break
+                    except Exception as unread_err:
+                        logger.debug(f"Could not check unread messages from {account_id}: {unread_err}")
+                        
+                except Exception as account_err:
+                    logger.debug(f"Could not check messages from {account_id}: {account_err}")
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error fetching recent OTP: {e}")
+            return False
+        
         @self.bot.on(events.NewMessage(incoming=True))
         async def reply_handler(event):
             try:
@@ -139,20 +244,16 @@ class MessageHandlers:
         except Exception:
             pass
         
-        # Auto-detect OTP codes from Telegram (777000) during session creation
-        if event.chat_id == 777000 and hasattr(self.bot_manager, 'pending_fresh_sessions'):
-            if user_id in self.bot_manager.pending_fresh_sessions:
-                # Extract OTP code from message
-                import re
-                otp_match = re.search(r'\b(\d{5,7})\b', message)
-                if otp_match:
-                    otp_code = otp_match.group(1)
-                    logger.info(f"Auto-detected OTP code {otp_code} from 777000 for session creation")
-                    # Process the OTP automatically
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
-                    if success:
-                        self.pending_actions.pop(user_id, None)
-                    return
+
+        
+        # Manual OTP input during session creation
+        if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
+            import re
+            if re.match(r'^\d{5,7}$', message.strip()):
+                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
+                if success:
+                    self.pending_actions.pop(user_id, None)
+                return
         
         if message.startswith("/"):
             # Clear pending actions for certain commands
@@ -160,16 +261,22 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
             return
         
-        # Auto-process OTP codes that look like verification codes during session creation
-        if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
-            # Check if message looks like an OTP code
-            import re
-            if re.match(r'^\d{5,7}$', message.strip()):
-                logger.info(f"Auto-processing OTP code {message.strip()} for session creation")
-                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
-                if success:
-                    self.pending_actions.pop(user_id, None)
-                return
+
+        # Check for OTP auto-fetch during session creation (additional fallback)
+        if hasattr(self.bot_manager, 'session_login_handler') and hasattr(self.bot_manager.session_login_handler, 'pending_auth'):
+            if user_id in self.bot_manager.session_login_handler.pending_auth:
+                auth_data = self.bot_manager.session_login_handler.pending_auth[user_id]
+                if auth_data.get('step') != '2fa':
+                    # This might be an OTP code
+                    import re
+                    if re.match(r'^\d{5,7}$', message.strip()):
+                        logger.info(f"Auto-processing OTP code {message.strip()} for session login")
+                        success, msg = await self.bot_manager.session_login_handler.process_verification_code(user_id, message.strip())
+                        await event.reply(msg)
+                        if user_id not in self.bot_manager.session_login_handler.pending_auth:
+                            self.pending_actions.pop(user_id, None)
+                        return
+        
         logger.info("User sent a message for pending action")
         if hasattr(self.bot_manager, 'session_export_handler') and hasattr(self.bot_manager, 'pending_fresh_sessions'):
             if user_id in self.bot_manager.pending_fresh_sessions:
