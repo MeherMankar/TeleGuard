@@ -494,27 +494,30 @@ class SessionExportHandler:
                 
                 if user_client and user_client.is_connected():
                     logger.info(f"Client connected, fetching OTP from 777000")
+                    from datetime import datetime, timedelta
+                    cutoff_time = datetime.now() - timedelta(seconds=10)
                     for attempt in range(5):
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(2)
                         logger.info(f"Fetch attempt {attempt+1}/5")
-                        async for msg in user_client.iter_messages(777000, limit=5):
-                            if msg.text:
-                                logger.info(f"Message: {msg.text[:50]}")
+                        async for msg in user_client.iter_messages(777000, limit=3):
+                            if msg.text and msg.date > cutoff_time:
+                                logger.info(f"Recent message ({msg.date}): {msg.text[:50]}")
                                 if 'Login code:' in msg.text:
                                     match = re.search(r'(\d{5,7})', msg.text)
                                     if match:
                                         otp = match.group(1)
-                                        logger.info(f"Found OTP: {otp}")
+                                        logger.info(f"Found fresh OTP: {otp}")
                                         await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
                                         await self.process_fresh_session_otp(user_id, otp)
                                         return
                 else:
                     logger.error(f"Client not found or not connected for {account_name}")
                 
+                logger.warning("Auto-fetch timeout - no recent OTP found")
                 await event.edit(
                     f"📱 **OTP Sent - {account_name}**\n\n"
                     f"📞 **Phone:** {phone}\n\n"
-                    f"Auto-fetch failed. Please send the OTP code.\n"
+                    f"Please send the OTP code.\n"
                     f"Format: Just numbers (e.g., 12345)"
                 )
             except Exception as e:
@@ -608,48 +611,29 @@ class SessionExportHandler:
                 except Exception as e:
                     # Handle 2FA requirement
                     if type(e).__name__ == "SessionPasswordNeededError":
-                        from ..core.database_manager import db_manager
-                        # Try to get stored password by account ID first
-                        account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                        stored_password = None
-                        if account:
-                            stored_password = await db_manager.get_2fa_password(user_id, str(account['_id']))
-                        # Fallback to phone lookup
-                        if not stored_password:
-                            stored_password = await db_manager.get_2fa_password_by_phone(user_id, phone)
+                        from ..utils.twofa_helper import twofa_helper
+                        # Try to sign in with stored 2FA password
+                        success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
                         
-                        if stored_password:
-                            try:
-                                # Ensure client is still connected
-                                if not client.is_connected():
-                                    await client.connect()
-                                # Use stored 2FA password
-                                await client.sign_in(password=stored_password)
-                                authenticated = True
-                            except Exception as pwd_err:
-                                logger.warning(f"Stored 2FA password failed: {pwd_err}")
-                                account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-                                if account:
-                                    await db_manager.remove_2fa_password(user_id, str(account['_id']))
-                                # Ask user for new 2FA password
+                        if success:
+                            authenticated = True
+                            logger.info(f"2FA authentication successful using stored password for {account_name}")
+                        else:
+                            # Ask user for 2FA password
+                            if error == "stored_password_invalid":
                                 await self.bot.send_message(
                                     user_id,
                                     f"🔐 **2FA Password Required - {account_name}**\n\n"
                                     f"Your stored 2FA password is invalid. Please send your current 2FA password.\n\n"
                                     f"💡 **Tip:** We'll securely store your new password for future use."
                                 )
-                                # Store pending 2FA request
-                                session_data['waiting_for_2fa'] = True
-                                self.bot_manager.pending_fresh_sessions[user_id] = session_data
-                                return False
-                        else:
-                            # Ask user for 2FA password
-                            await self.bot.send_message(
-                                user_id,
-                                f"🔐 **2FA Password Required - {account_name}**\n\n"
-                                f"Your account has 2FA enabled. Please send your 2FA password.\n\n"
-                                f"💡 **Tip:** After successful login, we'll securely store your 2FA password for future use."
-                            )
+                            else:
+                                await self.bot.send_message(
+                                    user_id,
+                                    f"🔐 **2FA Password Required - {account_name}**\n\n"
+                                    f"Your account has 2FA enabled. Please send your 2FA password.\n\n"
+                                    f"💡 **Tip:** After successful login, we'll securely store your 2FA password for future use."
+                                )
                             # Store pending 2FA request
                             session_data['waiting_for_2fa'] = True
                             self.bot_manager.pending_fresh_sessions[user_id] = session_data
@@ -994,11 +978,11 @@ class SessionExportHandler:
                 
                 # Sign in with 2FA password
                 await client.sign_in(password=password)
+                logger.info(f"2FA authentication successful for {account_name}")
                 # Store 2FA password for future use
-                from ..core.database_manager import db_manager
-                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                if account:
-                    await db_manager.store_2fa_password(user_id, str(account['_id']), password)
+                from ..utils.twofa_helper import twofa_helper
+                await twofa_helper.store_password(user_id, phone, password)
+                logger.info(f"Stored 2FA password for {account_name}")
                 
                 # Ensure we have a valid session before saving
                 if not client.is_connected():
