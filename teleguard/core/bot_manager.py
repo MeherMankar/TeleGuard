@@ -128,6 +128,13 @@ class BotManager:
             await self._initialize_bot_client()
             # Initialize BotLogger with bot instance
             await BotLogger.init(self.bot)
+            # Register bot commands with BotFather
+            try:
+                from ..utils.command_registration import register_bot_commands
+                await register_bot_commands(self.bot)
+                print("Bot commands registered")
+            except Exception as e:
+                logger.warning(f"Failed to register commands: {e}")
             await self._load_existing_sessions()
             await self._initialize_components()
             # Initialize account invalidation handler
