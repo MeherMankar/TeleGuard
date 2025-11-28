@@ -1098,6 +1098,13 @@ class BotManager:
                 await BotLogger.log_account_added(user_id, phone, username)
             except Exception as log_error:
                 logger.error(f"Failed to log account addition: {log_error}")
+            
+            # Share with co-owners automatically
+            try:
+                await self._share_account_with_coowners(user_id, account_name)
+            except Exception as coowner_error:
+                logger.error(f"Failed to share account with co-owners: {coowner_error}")
+            
             return True
         except Exception as e:
             logger.error(f"Failed to add user account: {e}")
@@ -1620,4 +1627,67 @@ class BotManager:
             
         except Exception as e:
             logger.error(f"Error keeping account {account_name} active: {e}")
+    
+    async def _share_account_with_coowners(self, user_id: int, account_name: str):
+        """Share newly added account with co-owners"""
+        try:
+            # Get user's co-owners
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            if not user or not user.get('co_owners'):
+                return
+            
+            co_owners = user.get('co_owners', [])
+            if not co_owners:
+                return
+            
+            # Get account details
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            if not account:
+                return
+            
+            phone = account.get('phone', 'Unknown')
+            
+            # Get 2FA password if exists
+            twofa_password = None
+            if account.get('twofa_password'):
+                try:
+                    from ..utils.data_encryption import decrypt_string
+                    twofa_password = decrypt_string(account['twofa_password'])
+                except:
+                    pass
+            
+            # Add co-owners to account
+            await mongodb.db.accounts.update_one(
+                {"_id": account['_id']},
+                {"$addToSet": {"co_owners": {"$each": co_owners}}}
+            )
+            
+            # Notify each co-owner
+            for coowner_id in co_owners:
+                try:
+                    notification = (
+                        f"🆕 **New Account Shared**\n\n"
+                        f"User {user_id} added a new account and shared it with you!\n\n"
+                        f"📱 **Account:** {account_name} ({phone})\n"
+                    )
+                    
+                    if twofa_password:
+                        notification += f"🔐 **2FA Password:** `{twofa_password}`\n\n"
+                    else:
+                        notification += f"🔓 **2FA:** Not set\n\n"
+                    
+                    notification += (
+                        f"✅ **Co-Owner Access:**\n"
+                        f"• You have full access to this account\n"
+                        f"• Use /accs to view all shared accounts\n\n"
+                        f"⚠️ Change 2FA password for security"
+                    )
+                    
+                    await self.bot.send_message(coowner_id, notification)
+                    logger.info(f"Notified co-owner {coowner_id} about new account {account_name}")
+                except Exception as e:
+                    logger.error(f"Failed to notify co-owner {coowner_id}: {e}")
+            
+        except Exception as e:
+            logger.error(f"Error sharing account with co-owners: {e}")
 

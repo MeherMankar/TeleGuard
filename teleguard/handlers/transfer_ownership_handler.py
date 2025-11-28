@@ -11,9 +11,208 @@ class TransferOwnershipHandler:
         self.bot_manager = bot_manager
         self.bot = bot_manager.bot
         self.pending_transfers = {}  # {user_id: {selected_accounts: [], target_user: None}}
+        self.pending_coowner = {}  # {user_id: target_user_id}
     
     def register_handlers(self):
-        """Register transfer ownership command and callbacks"""
+        """Register transfer ownership and co-owner commands and callbacks"""
+        
+        @self.bot.on(events.NewMessage(pattern=r"/addcoowner"))
+        async def addcoowner_command(event):
+            user_id = event.sender_id
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                if not accounts:
+                    await event.reply("❌ No accounts found. Add accounts first.")
+                    return
+                
+                text = (
+                    "👥 **Add Co-Owner**\n\n"
+                    f"📊 You have {len(accounts)} account(s)\n\n"
+                    "Reply with the user ID or username of the person you want to add as co-owner:\n\n"
+                    "Examples:\n"
+                    "• 123456789 (user ID)\n"
+                    "• @username\n\n"
+                    "⚠️ **Note:** Co-owner will have access to ALL current and future accounts!"
+                )
+                
+                self.pending_coowner[user_id] = None
+                await event.reply(text)
+            except Exception as e:
+                logger.error(f"Add co-owner command error: {e}")
+                await event.reply(f"❌ Error: {str(e)}")
+        
+        @self.bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and not e.text.startswith('/')))
+        async def handle_coowner_input(event):
+            user_id = event.sender_id
+            if user_id not in self.pending_coowner or self.pending_coowner[user_id] is not None:
+                return
+            
+            text = event.text.strip()
+            target_user_id = None
+            
+            try:
+                if text.isdigit():
+                    target_user_id = int(text)
+                elif text.startswith('@'):
+                    username = text[1:]
+                    try:
+                        entity = await self.bot.get_entity(username)
+                        target_user_id = entity.id
+                    except:
+                        await event.reply("❌ User not found. Make sure they have started the bot.")
+                        return
+                else:
+                    await event.reply("❌ Invalid format. Use user ID (123456789) or username (@username)")
+                    return
+                
+                target_user = await mongodb.get_user(target_user_id)
+                if not target_user:
+                    await event.reply("❌ User not found in bot database. They must start the bot first.")
+                    return
+                
+                try:
+                    target_entity = await self.bot.get_entity(target_user_id)
+                    target_name = target_entity.first_name or "Unknown"
+                    target_username = f"@{target_entity.username}" if target_entity.username else "No username"
+                except:
+                    target_name = "Unknown"
+                    target_username = "Unknown"
+                
+                self.pending_coowner[user_id] = target_user_id
+                
+                accounts_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+                
+                text = (
+                    "⚠️ **Confirm Co-Owner Addition**\n\n"
+                    f"Add co-owner to ALL accounts:\n\n"
+                    f"👤 Name: {target_name}\n"
+                    f"🆔 ID: {target_user_id}\n"
+                    f"📝 Username: {target_username}\n\n"
+                    f"User mention: [{target_name}](tg://user?id={target_user_id})\n\n"
+                    f"📊 **Scope:**\n"
+                    f"• Current accounts: {accounts_count}\n"
+                    f"• Future accounts: All new accounts\n\n"
+                    "⚠️ **WARNING:**\n"
+                    "• Co-owner will have full access to all accounts\n"
+                    "• Co-owner will receive 2FA passwords\n"
+                    "• This applies to future accounts automatically"
+                )
+                
+                buttons = [
+                    [Button.inline("✅ Confirm Add Co-Owner", "coowner_confirm")],
+                    [Button.inline("❌ Cancel", "coowner_cancel")]
+                ]
+                
+                await event.reply(text, buttons=buttons)
+                
+            except Exception as e:
+                logger.error(f"Co-owner input error: {e}")
+                await event.reply(f"❌ Error: {str(e)}")
+        
+        @self.bot.on(events.CallbackQuery(pattern=r"^coowner_confirm$"))
+        async def confirm_coowner(event):
+            user_id = event.sender_id
+            if user_id not in self.pending_coowner or self.pending_coowner[user_id] is None:
+                await event.answer("❌ Session expired. Use /addcoowner again.")
+                return
+            
+            target_user_id = self.pending_coowner[user_id]
+            await event.edit("⏳ Adding co-owner...")
+            
+            try:
+                # Store co-owner relationship in database
+                await mongodb.db.users.update_one(
+                    {"telegram_id": user_id},
+                    {"$addToSet": {"co_owners": target_user_id}},
+                    upsert=True
+                )
+                
+                # Get all current accounts
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                account_info = []
+                
+                for account in accounts:
+                    account_name = account.get('name', 'Unknown')
+                    phone = account.get('phone', 'Unknown')
+                    
+                    # Get 2FA password if exists
+                    twofa_password = None
+                    if account.get('twofa_password'):
+                        try:
+                            from ..utils.data_encryption import decrypt_string
+                            twofa_password = decrypt_string(account['twofa_password'])
+                        except:
+                            pass
+                    
+                    # Add co-owner to account
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account['_id']},
+                        {"$addToSet": {"co_owners": target_user_id}}
+                    )
+                    
+                    account_info.append({
+                        'name': account_name,
+                        'phone': phone,
+                        'twofa': twofa_password
+                    })
+                
+                # Notify co-owner
+                try:
+                    target_entity = await self.bot.get_entity(target_user_id)
+                    target_name = target_entity.first_name or "User"
+                    
+                    notification = (
+                        f"👥 **Co-Owner Access Granted**\n\n"
+                        f"User {user_id} has added you as co-owner!\n\n"
+                        f"📋 **Account Details ({len(account_info)} accounts):**\n\n"
+                    )
+                    
+                    for info in account_info:
+                        notification += f"📱 **{info['name']}** ({info['phone']})\n"
+                        if info['twofa']:
+                            notification += f"🔐 2FA Password: `{info['twofa']}`\n"
+                        else:
+                            notification += f"🔓 2FA: Not set\n"
+                        notification += "\n"
+                    
+                    notification += (
+                        f"\n✅ **Co-Owner Benefits:**\n"
+                        f"• Full access to all current accounts\n"
+                        f"• Automatic access to future accounts\n"
+                        f"• Receive 2FA passwords for new accounts\n\n"
+                        f"⚠️ **Important:** Change 2FA passwords for security"
+                    )
+                    
+                    await self.bot.send_message(target_user_id, notification)
+                except Exception as e:
+                    logger.error(f"Failed to notify co-owner: {e}")
+                
+                # Confirm to owner
+                result_text = (
+                    f"✅ **Co-Owner Added Successfully**\n\n"
+                    f"👤 Co-Owner: {target_name} (ID: {target_user_id})\n"
+                    f"📊 Accounts shared: {len(account_info)}\n\n"
+                    f"✅ **Active:**\n"
+                    f"• Co-owner has access to all current accounts\n"
+                    f"• Future accounts will be shared automatically\n"
+                    f"• 2FA passwords have been shared\n\n"
+                    f"💡 Use /removecoowner to revoke access"
+                )
+                
+                await event.edit(result_text)
+                del self.pending_coowner[user_id]
+                
+            except Exception as e:
+                logger.error(f"Co-owner addition error: {e}")
+                await event.edit(f"❌ Failed to add co-owner: {str(e)}")
+        
+        @self.bot.on(events.CallbackQuery(pattern=r"^coowner_cancel$"))
+        async def cancel_coowner(event):
+            user_id = event.sender_id
+            if user_id in self.pending_coowner:
+                del self.pending_coowner[user_id]
+            await event.edit("❌ Co-owner addition cancelled.")
+            await event.answer("Cancelled")
         
         @self.bot.on(events.NewMessage(pattern=r"/transfer"))
         async def transfer_command(event):
