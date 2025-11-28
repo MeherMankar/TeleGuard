@@ -501,17 +501,37 @@ class SessionExportHandler:
                     'format_type': format_type,
                 }
                 
-                # Auto-fetch OTP with improvements
-                logger.info(f"Looking for client: account_name={account_name}, phone={phone}")
-                logger.info(f"Available clients for user {user_id}: {list(self.user_clients.get(user_id, {}).keys())}")
-                
-                # Try multiple client keys
+                # Auto-fetch OTP - lookup by phone from database
                 user_client = None
-                for key in [account_name, phone, phone.replace('+', '')]:
-                    user_client = self.user_clients.get(user_id, {}).get(key)
-                    if user_client:
-                        logger.info(f"Found client with key: {key}")
-                        break
+                try:
+                    # Get account from DB using phone and user_id
+                    db_account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
+                    if db_account:
+                        # Try to get client using account name from DB
+                        db_account_name = db_account.get('name')
+                        user_clients_dict = self.user_clients.get(user_id, {})
+                        
+                        # Try multiple keys
+                        for key in [db_account_name, phone, phone.replace('+', '')]:
+                            user_client = user_clients_dict.get(key)
+                            if user_client:
+                                logger.info(f"Found client with key: {key}")
+                                break
+                        
+                        if not user_client:
+                            logger.error(f"No client found. DB name: {db_account_name}, Available: {list(user_clients_dict.keys())}")
+                    else:
+                        logger.error(f"No account found in DB for phone: {phone}")
+                except Exception as e:
+                    logger.error(f"Error looking up account: {e}")
+                
+                if user_client:
+                    if not user_client.is_connected():
+                        logger.warning("Client found but not connected, attempting reconnect")
+                        try:
+                            await user_client.connect()
+                        except:
+                            pass
                 
                 if user_client and user_client.is_connected():
                     try:
