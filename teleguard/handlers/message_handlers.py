@@ -303,7 +303,7 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
             return
         # Route to appropriate handler
-        if action in ["add_account", "verify_otp", "verify_2fa"]:
+        if action in ["add_account", "verify_otp", "verify_2fa", "2fa_password"]:
             await self._handle_auth_actions(event, user, action, message)
         elif action.startswith("2fa_") and action != "verify_2fa":
             await self._handle_2fa_actions(event, user, action, message)
@@ -379,7 +379,7 @@ class MessageHandlers:
             await self._process_add_account(event, user_id, message)
         elif action == "verify_otp":
             await self._process_verify_otp(event, user_id, message, user)
-        elif action == "verify_2fa":
+        elif action == "verify_2fa" or action == "2fa_password":
             await self._process_verify_2fa(event, user_id, message, user)
     async def _process_add_account(self, event, user_id, phone):
         """Process adding new account"""
@@ -516,8 +516,8 @@ class MessageHandlers:
             error_msg = str(e)
             
             if "Two-factor" in error_msg or "password" in error_msg.lower():
-                self.pending_actions[user_id]["action"] = "verify_2fa"
-                # Don't send message here - let auth_handler send the proper 2FA message with buttons
+                # Keep the action as 2fa_password (set by auth_handler)
+                # Don't send message here - auth_handler already sent the proper 2FA message
                 return
             elif "expired" in error_msg.lower():
                 await event.reply(
