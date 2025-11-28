@@ -20,22 +20,41 @@ class SessionExportHandler:
         # All session functionality moved to session_login_handler.py
         pass
     async def _show_export_menu(self, event, user_id):
-        """Show session export menu"""
+        """Show session type selection first"""
+        try:
+            from telethon import Button
+            buttons = [
+                [Button.inline("📝 String Session", "session_type:string")],
+                [Button.inline("📁 File Session (.session)", "session_type:file")],
+                [Button.inline("🔙 Back", "menu:accounts")]
+            ]
+            await event.edit(
+                "✨ **Fresh Session Creation**\n\n"
+                "📋 **Step 1: Choose Session Type**\n\n"
+                "Select the format you want to export:",
+                buttons=buttons
+            )
+        except Exception:
+            await event.edit("❌ Error loading export menu.")
+    
+    async def _show_account_selection(self, event, user_id, session_type):
+        """Show account selection after type is chosen"""
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
             if not accounts:
-                await event.edit("❌ No active accounts found to export sessions from.")
+                await event.edit("❌ No active accounts found.")
                 return
             
-            # Initialize selection state if not exists
             if not hasattr(self.bot_manager, 'session_selections'):
                 self.bot_manager.session_selections = {}
             if user_id not in self.bot_manager.session_selections:
-                self.bot_manager.session_selections[user_id] = set()
+                self.bot_manager.session_selections[user_id] = {'accounts': set(), 'type': session_type}
+            else:
+                self.bot_manager.session_selections[user_id]['type'] = session_type
             
             from telethon import Button
             buttons = []
-            selected_accounts = self.bot_manager.session_selections[user_id]
+            selected_accounts = self.bot_manager.session_selections[user_id]['accounts']
             
             for account in accounts:
                 account_name = account.get('name') or account.get('phone', 'Unknown')
@@ -43,51 +62,54 @@ class SessionExportHandler:
                 prefix = "✅" if is_selected else "📱"
                 buttons.append([Button.inline(f"{prefix} {account_name}", f"toggle_session:{account_name}")])
             
-            # Add control buttons
             buttons.append([Button.inline("✅ Done (Create Sessions)", "create_selected_sessions")])
             buttons.append([Button.inline("🔄 Clear Selection", "clear_session_selection")])
-            buttons.append([Button.inline("🔙 Back", "main_menu")])
+            buttons.append([Button.inline("🔙 Back", "export_sessions")])
             
             selected_count = len(selected_accounts)
+            type_text = "String" if session_type == 'string' else "File"
             selection_text = f"\n\n📋 **Selected:** {selected_count} account(s)" if selected_count > 0 else ""
             
             await event.edit(
-                "🔄 **Fresh Session Creation**\n\n"
-                "Select accounts to create fresh sessions:\n"
-                "• Click accounts to select/deselect\n"
-                "• Press Done to create sessions\n"
-                "• Multiple accounts will be sent as ZIP"
+                f"✨ **Fresh Session Creation**\n\n"
+                f"📋 **Step 2: Select Accounts**\n"
+                f"📝 **Type:** {type_text}\n\n"
+                "Select accounts to create sessions:\n"
+                "• Click to select/deselect\n"
+                "• Press Done when ready\n"
+                "• Multiple = ZIP file"
                 f"{selection_text}",
                 buttons=buttons
             )
         except Exception:
-            await event.edit("❌ Error loading export menu.")
+            await event.edit("❌ Error loading accounts.")
     async def _toggle_account_selection(self, event, user_id, account_name):
-        """Toggle account selection for batch session creation"""
+        """Toggle account selection"""
         try:
-            if not hasattr(self.bot_manager, 'session_selections'):
-                self.bot_manager.session_selections = {}
-            if user_id not in self.bot_manager.session_selections:
-                self.bot_manager.session_selections[user_id] = set()
+            if not hasattr(self.bot_manager, 'session_selections') or user_id not in self.bot_manager.session_selections:
+                await event.answer("❌ Session expired. Please start again.")
+                return
             
-            selected_accounts = self.bot_manager.session_selections[user_id]
+            selected_data = self.bot_manager.session_selections[user_id]
+            selected_accounts = selected_data['accounts']
+            session_type = selected_data['type']
             
             if account_name in selected_accounts:
                 selected_accounts.remove(account_name)
             else:
                 selected_accounts.add(account_name)
             
-            # Refresh the menu
-            await self._show_export_menu(event, user_id)
+            await self._show_account_selection(event, user_id, session_type)
         except Exception:
-            await event.edit("❌ Error toggling account selection.")
+            await event.edit("❌ Error toggling selection.")
     
     async def _clear_session_selection(self, event, user_id):
         """Clear all selected accounts"""
         try:
             if hasattr(self.bot_manager, 'session_selections') and user_id in self.bot_manager.session_selections:
-                self.bot_manager.session_selections[user_id].clear()
-            await self._show_export_menu(event, user_id)
+                session_type = self.bot_manager.session_selections[user_id]['type']
+                self.bot_manager.session_selections[user_id]['accounts'].clear()
+                await self._show_account_selection(event, user_id, session_type)
         except Exception:
             await event.edit("❌ Error clearing selection.")
     
@@ -98,35 +120,36 @@ class SessionExportHandler:
                 await event.edit("❌ No accounts selected.")
                 return
             
-            selected_accounts = list(self.bot_manager.session_selections[user_id])
+            selected_data = self.bot_manager.session_selections[user_id]
+            selected_accounts = list(selected_data['accounts'])
+            session_type = selected_data['type']
+            
             if not selected_accounts:
                 await event.edit("❌ No accounts selected. Please select at least one account.")
                 return
             
-            # Clear selection after starting
-            self.bot_manager.session_selections[user_id].clear()
+            self.bot_manager.session_selections[user_id]['accounts'].clear()
             
             if len(selected_accounts) == 1:
-                # Single account - create session directly
-                await self._create_fresh_session(event, user_id, selected_accounts[0], format_type='file')
+                await self._create_fresh_session(event, user_id, selected_accounts[0], format_type=session_type)
             else:
-                # Multiple accounts - batch process
-                await self._create_batch_sessions(event, user_id, selected_accounts)
+                await self._create_batch_sessions(event, user_id, selected_accounts, session_type)
                 
         except Exception as e:
             await event.edit(f"❌ Error creating sessions: {str(e)}")
     
-    async def _create_batch_sessions(self, event, user_id, account_names):
+    async def _create_batch_sessions(self, event, user_id, account_names, session_type):
         """Create sessions for multiple accounts and send as ZIP"""
         try:
+            type_text = "String" if session_type == 'string' else "File"
             await event.edit(
                 f"🔄 **Creating {len(account_names)} Sessions**\n\n"
-                f"📋 **Accounts:** {', '.join(account_names)}\n\n"
-                f"⏳ Starting batch session creation...\n"
+                f"📝 **Type:** {type_text}\n"
+                f"📋 **Accounts:** {', '.join(account_names[:3])}{'...' if len(account_names) > 3 else ''}\n\n"
+                f"⏳ Starting batch creation...\n"
                 f"You will receive OTP codes for each account."
             )
             
-            # Store batch session data
             if not hasattr(self.bot_manager, 'batch_sessions'):
                 self.bot_manager.batch_sessions = {}
             
@@ -134,14 +157,14 @@ class SessionExportHandler:
                 'accounts': account_names.copy(),
                 'completed': {},
                 'current_index': 0,
-                'total': len(account_names)
+                'total': len(account_names),
+                'session_type': session_type
             }
             
-            # Start with first account
             await self._process_next_batch_account(user_id)
             
         except Exception as e:
-            await event.edit(f"❌ Error starting batch session creation: {str(e)}")
+            await event.edit(f"❌ Error starting batch: {str(e)}")
     
     async def _process_next_batch_account(self, user_id):
         """Process next account in batch session creation"""
@@ -183,52 +206,55 @@ class SessionExportHandler:
             
             batch_data = self.bot_manager.batch_sessions[user_id]
             completed_sessions = batch_data['completed']
+            session_type = batch_data.get('session_type', 'file')
             
             if not completed_sessions:
-                await self.bot.send_message(user_id, "❌ No sessions were created successfully.")
+                await self.bot.send_message(user_id, "❌ No sessions created.")
                 return
             
             import zipfile
             import tempfile
             import os
             
-            # Create ZIP file
             with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
                 zip_path = temp_zip.name
             
             with zipfile.ZipFile(zip_path, 'w') as zip_file:
                 for account_name, session_data in completed_sessions.items():
-                    # Add session file to ZIP
-                    zip_file.writestr(f"{account_name}.session", session_data)
+                    ext = '.txt' if session_type == 'string' else '.session'
+                    zip_file.writestr(f"{account_name}{ext}", session_data)
             
-            # Send ZIP file
             with open(zip_path, 'rb') as zip_file:
                 zip_data = zip_file.read()
             
             from telethon.tl.types import DocumentAttributeFilename
+            type_text = "String" if session_type == 'string' else "File"
             await self.bot.send_message(
                 user_id,
-                f"📦 **Batch Session Export Complete**\n\n"
+                f"📦 **Batch Export Complete**\n\n"
                 f"✅ **Created:** {len(completed_sessions)} sessions\n"
-                f"📁 **Format:** ZIP archive\n\n"
-                f"**Accounts:**\n" + "\n".join([f"• {name}" for name in completed_sessions.keys()]) + "\n\n"
-                f"⚠️ **Keep these sessions secure!**",
+                f"📝 **Type:** {type_text}\n"
+                f"📁 **Format:** ZIP\n\n"
+                f"**Accounts:**\n" + "\n".join([f"• {name}" for name in list(completed_sessions.keys())[:10]]) + 
+                (f"\n... and {len(completed_sessions) - 10} more" if len(completed_sessions) > 10 else "") + "\n\n"
+                f"⚠️ **Keep secure!**",
                 file=zip_data,
-                attributes=[DocumentAttributeFilename(f"teleguard_sessions_{int(time.time())}.zip")]
+                attributes=[DocumentAttributeFilename(f"sessions_{int(time.time())}.zip")]
             )
             
-            # Cleanup
             os.remove(zip_path)
             del self.bot_manager.batch_sessions[user_id]
             
         except Exception as e:
-            logger.error(f"Error creating batch ZIP: {e}")
-            await self.bot.send_message(user_id, f"❌ Error creating ZIP file: {str(e)}")
+            logger.error(f"Batch ZIP error: {e}")
+            await self.bot.send_message(user_id, f"❌ ZIP error: {str(e)}")
     async def _create_fresh_session_batch(self, user_id, account_name):
         """Create fresh session for batch processing"""
-        # This is similar to _create_fresh_session but stores result in batch_sessions
-        # and continues to next account automatically
-        pass  # Implementation would be similar to _create_fresh_session
+        if not hasattr(self.bot_manager, 'batch_sessions') or user_id not in self.bot_manager.batch_sessions:
+            return
+        batch_data = self.bot_manager.batch_sessions[user_id]
+        session_type = batch_data.get('session_type', 'file')
+        await self._create_fresh_session(None, user_id, account_name, format_type=session_type)
     
     async def _export_all_sessions(self, event, user_id):
         """Show bulk fresh session creation info"""
