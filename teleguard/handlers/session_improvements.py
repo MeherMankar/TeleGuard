@@ -33,35 +33,33 @@ class SessionImprovements:
         otp_received = asyncio.Event()
         otp_code = None
         
-        async def otp_listener(msg_event):
+        async def otp_listener(event):
             nonlocal otp_code
             try:
-                msg_text = (msg_event.text[:50] if msg_event.text else 'No text').encode('ascii', errors='replace').decode('ascii')
-                logger.info(f"OTP listener: sender={msg_event.sender_id}, text={msg_text}")
+                message_text = event.message.message
+                if not message_text:
+                    return
                 
-                # Make request_time timezone-aware if needed
-                if msg_event.date.tzinfo and not request_time.tzinfo:
-                    from datetime import timezone
-                    request_time_aware = request_time.replace(tzinfo=timezone.utc)
-                    time_check = msg_event.date > request_time_aware
-                else:
-                    time_check = msg_event.date > request_time
+                logger.info(f"OTP listener got message from {event.sender_id}")
                 
-                logger.info(f"Time check: {time_check}")
+                # Check if message is after request time
+                if event.date <= request_time:
+                    logger.info("Message too old, skipping")
+                    return
                 
-                if time_check and msg_event.text:
-                    for pattern in self.OTP_PATTERNS:
-                        match = re.search(pattern, msg_event.text, re.IGNORECASE)
-                        if match:
-                            otp_code = match.group(1)
-                            logger.info(f"OTP found: {otp_code}")
-                            otp_received.set()
-                            break
+                # Extract OTP
+                for pattern in self.OTP_PATTERNS:
+                    match = re.search(pattern, message_text, re.IGNORECASE)
+                    if match:
+                        otp_code = match.group(1)
+                        logger.info(f"OTP found: {otp_code}")
+                        otp_received.set()
+                        break
             except Exception as e:
                 logger.error(f"OTP listener error: {e}")
         
-        # Register listener
-        user_client.add_event_handler(otp_listener, events.NewMessage(from_users=[777000, 42777]))
+        # Register listener - use chats parameter like OTP forward does
+        user_client.add_event_handler(otp_listener, events.NewMessage(chats=[777000, 42777]))
         self.otp_listeners[user_id] = (user_client, otp_listener)
         
         return otp_received, lambda: otp_code
