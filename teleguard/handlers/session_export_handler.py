@@ -504,10 +504,8 @@ class SessionExportHandler:
                 # Auto-fetch OTP - lookup by phone from database
                 user_client = None
                 try:
-                    # Get account from DB using phone and user_id
                     db_account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
                     if db_account:
-                        # Try to get client using account name from DB
                         db_account_name = db_account.get('name')
                         user_clients_dict = self.user_clients.get(user_id, {})
                         
@@ -518,8 +516,25 @@ class SessionExportHandler:
                                 logger.info(f"Found client with key: {key}")
                                 break
                         
+                        # If not found, try to load the client from session
+                        if not user_client and db_account.get('session_string'):
+                            logger.info(f"Client not loaded, attempting to connect from session")
+                            try:
+                                from telethon import TelegramClient
+                                from telethon.sessions import StringSession
+                                from ..core.config import config
+                                
+                                session_str = db_account.get('session_string')
+                                temp_user_client = TelegramClient(StringSession(session_str), config.telegram.api_id, config.telegram.api_hash)
+                                await temp_user_client.connect()
+                                if temp_user_client.is_connected():
+                                    user_client = temp_user_client
+                                    logger.info(f"Successfully connected client from session")
+                            except Exception as load_err:
+                                logger.error(f"Failed to load client from session: {load_err}")
+                        
                         if not user_client:
-                            logger.error(f"No client found. DB name: {db_account_name}, Available: {list(user_clients_dict.keys())}")
+                            logger.error(f"No client found. Available: {list(user_clients_dict.keys())}")
                     else:
                         logger.error(f"No account found in DB for phone: {phone}")
                 except Exception as e:
