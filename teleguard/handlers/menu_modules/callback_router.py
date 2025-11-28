@@ -26,6 +26,9 @@ class CallbackRouter:
             "create": self.handle_create_callback,
             "import": self.handle_import_callback,
             "export": self.handle_export_callback,
+            "toggle_session": self.handle_toggle_session_callback,
+            "create_selected_sessions": self.handle_create_selected_sessions_callback,
+            "clear_session_selection": self.handle_clear_session_selection_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -119,3 +122,46 @@ class CallbackRouter:
     async def handle_export_callback(self, event, user_id: int, data: str):
         """Handle export session callbacks"""
         await event.answer("✅ Exporting session...")
+    
+    async def handle_toggle_session_callback(self, event, user_id: int, data: str):
+        """Handle toggle session selection callbacks"""
+        try:
+            parts = data.split(":")
+            if len(parts) < 2:
+                await event.answer("❌ Invalid selection")
+                return
+            
+            account_name = ":".join(parts[1:])  # Handle account names with colons
+            
+            if hasattr(self.menu.bot_manager, 'session_export_handler'):
+                await self.menu.bot_manager.session_export_handler._toggle_account_selection(event, user_id, account_name)
+            else:
+                await event.answer("❌ Session export not available")
+                
+        except Exception as e:
+            logger.error(f"Toggle session callback error: {e}")
+            await event.answer("❌ Error toggling selection")
+    
+    async def handle_create_selected_sessions_callback(self, event, user_id: int, data: str):
+        """Handle create selected sessions callback"""
+        try:
+            if hasattr(self.menu.bot_manager, 'session_export_handler'):
+                await self.menu.bot_manager.session_export_handler._create_selected_sessions(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+                
+        except Exception as e:
+            logger.error(f"Create selected sessions callback error: {e}")
+            await event.answer("❌ Error creating sessions")
+    
+    async def handle_clear_session_selection_callback(self, event, user_id: int, data: str):
+        """Handle clear session selection callback"""
+        try:
+            if hasattr(self.menu.bot_manager, 'session_export_handler'):
+                await self.menu.bot_manager.session_export_handler._clear_session_selection(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+                
+        except Exception as e:
+            logger.error(f"Clear session selection callback error: {e}")
+            await event.answer("❌ Error clearing selection")

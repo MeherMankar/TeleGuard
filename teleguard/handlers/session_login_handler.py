@@ -183,25 +183,25 @@ class SessionLoginHandler:
             
             text = (
                 "📁 **Upload Session File**\n\n"
-                "Send your .session file as a document:\n\n"
+                "Send your .session file(s) as a document:\n\n"
                 "**Supported Files:**\n"
-                "• .session files from Telethon\n"
-                "• .session files from Pyrogram\n"
-                "• SQLite session databases\n"
-                "• TData files (not yet supported)\n\n"
+                "• Single .session file\n"
+                "• .zip file with multiple .session files\n"
+                "• Telethon & Pyrogram formats\n"
+                "• SQLite session databases\n\n"
+                "**Multi-Account Import:**\n"
+                "• Send .zip file with multiple sessions\n"
+                "• All accounts will be imported automatically\n"
+                "• Progress shown for each account\n\n"
                 "**Security:**\n"
                 "• Files are validated before use\n"
                 "• Temporary files are deleted\n"
                 "• Session data is encrypted\n\n"
-                "**How to Send:**\n"
-                "1. Send the file as document (not photo)\n"
-                "2. Bot will validate the session\n"
-                "3. Account will be added automatically\n\n"
-                "Send your .session file now:"
+                "Send your .session or .zip file now:"
             )
             
             await event.edit(text)
-            await event.answer("📁 Send session file")
+            await event.answer("📁 Send session file or ZIP")
         except Exception as e:
             logger.error(f"Start session file login error: {e}")
             await event.edit("❌ Error starting session file login.")
@@ -245,10 +245,14 @@ class SessionLoginHandler:
 
     
     async def process_session_file(self, user_id, file_path):
-        """Process uploaded session file"""
+        """Process uploaded session file or ZIP archive"""
         try:
             if not os.path.exists(file_path):
                 return False, "❌ Session file not found"
+            
+            # Check if it's a ZIP file
+            if file_path.endswith('.zip'):
+                return await self._process_zip_sessions(user_id, file_path)
             
             # Check file size (should be reasonable for a session file)
             file_size = os.path.getsize(file_path)
@@ -2317,3 +2321,130 @@ class SessionLoginHandler:
                     continue
         except Exception as e:
             logger.error(f"Debug function error: {e}")
+
+    
+    async def _process_zip_sessions(self, user_id, zip_path):
+        """Process ZIP file containing multiple session files"""
+        import zipfile
+        import tempfile
+        
+        try:
+            # Check ZIP file size
+            zip_size = os.path.getsize(zip_path)
+            if zip_size > 50 * 1024 * 1024:  # 50MB limit for ZIP
+                return False, "❌ ZIP file too large (max 50MB)"
+            
+            # Extract ZIP
+            temp_dir = tempfile.mkdtemp()
+            session_files = []
+            
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    # Get list of .session files
+                    for file_info in zip_ref.filelist:
+                        if file_info.filename.endswith('.session'):
+                            zip_ref.extract(file_info, temp_dir)
+                            session_files.append(os.path.join(temp_dir, file_info.filename))
+                
+                if not session_files:
+                    shutil.rmtree(temp_dir)
+                    return False, "❌ No .session files found in ZIP"
+                
+                # Send initial status
+                await self.bot.send_message(
+                    user_id,
+                    f"📦 **Processing ZIP Archive**\n\n"
+                    f"📁 Found {len(session_files)} session file(s)\n"
+                    f"⏳ Starting import...\n\n"
+                    f"Progress will be shown below:"
+                )
+                
+                # Process each session file
+                success_count = 0
+                failed_count = 0
+                results = []
+                
+                for i, session_file in enumerate(session_files, 1):
+                    file_name = os.path.basename(session_file)
+                    
+                    try:
+                        await self.bot.send_message(
+                            user_id,
+                            f"⏳ Processing {i}/{len(session_files)}: {file_name}..."
+                        )
+                        
+                        success, message = await self._process_single_session_file(user_id, session_file)
+                        
+                        if success:
+                            success_count += 1
+                            results.append(f"✅ {file_name}")
+                        else:
+                            failed_count += 1
+                            results.append(f"❌ {file_name}: {message}")
+                        
+                    except Exception as e:
+                        failed_count += 1
+                        results.append(f"❌ {file_name}: {str(e)}")
+                
+                # Clean up
+                shutil.rmtree(temp_dir)
+                os.remove(zip_path)
+                
+                # Send final summary
+                summary = (
+                    f"📊 **Import Complete**\n\n"
+                    f"✅ Success: {success_count}\n"
+                    f"❌ Failed: {failed_count}\n"
+                    f"📁 Total: {len(session_files)}\n\n"
+                    f"**Details:**\n" + "\n".join(results[:20])  # Limit to 20 results
+                )
+                
+                if len(results) > 20:
+                    summary += f"\n\n... and {len(results) - 20} more"
+                
+                await self.bot.send_message(user_id, summary)
+                
+                return True, f"✅ Imported {success_count}/{len(session_files)} accounts"
+                
+            except zipfile.BadZipFile:
+                shutil.rmtree(temp_dir)
+                return False, "❌ Invalid ZIP file format"
+            except Exception as extract_err:
+                shutil.rmtree(temp_dir)
+                return False, f"❌ ZIP extraction failed: {str(extract_err)}"
+                
+        except Exception as e:
+            logger.error(f"ZIP processing error: {e}")
+            try:
+                os.remove(zip_path)
+            except:
+                pass
+            return False, f"❌ ZIP processing failed: {str(e)}"
+    
+    async def _process_single_session_file(self, user_id, file_path):
+        """Process a single session file without cleanup"""
+        try:
+            if not os.path.exists(file_path):
+                return False, "File not found"
+            
+            file_size = os.path.getsize(file_path)
+            if file_size < 100:
+                return False, "File too small"
+            
+            if file_size > 10 * 1024 * 1024:
+                return False, "File too large"
+            
+            # Extract session string
+            session_string = await self._extract_session_from_file(file_path)
+            
+            if not session_string:
+                return False, "Could not extract session"
+            
+            # Validate and save
+            success, message = await self.process_session_string(user_id, session_string)
+            
+            return success, message
+            
+        except Exception as e:
+            logger.error(f"Single session file processing error: {e}")
+            return False, str(e)
