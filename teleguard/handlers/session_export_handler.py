@@ -473,14 +473,9 @@ class SessionExportHandler:
                     'format_type': format_type,
                 }
                 
-                await event.edit(
-                    f"📱 **OTP Sent - {account_name}**\n\n"
-                    f"📞 **Phone:** {phone}\n\n"
-                    f"🔍 **Auto-fetching OTP...**"
-                )
-                
                 # Auto-fetch OTP
                 import re
+                from datetime import datetime
                 logger.info(f"Looking for client: account_name={account_name}, phone={phone}")
                 logger.info(f"Available clients for user {user_id}: {list(self.user_clients.get(user_id, {}).keys())}")
                 
@@ -493,16 +488,26 @@ class SessionExportHandler:
                         break
                 
                 if user_client and user_client.is_connected():
-                    logger.info(f"Client connected, fetching OTP from 777000")
-                    from datetime import datetime, timedelta
-                    cutoff_time = datetime.now() - timedelta(seconds=10)
-                    for attempt in range(5):
-                        await asyncio.sleep(2)
-                        logger.info(f"Fetch attempt {attempt+1}/5")
+                    await event.edit(
+                        f"📱 **OTP Sent - {account_name}**\n\n"
+                        f"📞 **Phone:** {phone}\n\n"
+                        f"🔍 **Auto-fetching OTP...**"
+                    )
+                    logger.info(f"Client connected, waiting for new OTP from 777000")
+                    
+                    # Mark current time - only check messages AFTER this point
+                    request_time = datetime.now()
+                    logger.info(f"OTP request sent at: {request_time}")
+                    
+                    # Wait for NEW OTP message to arrive
+                    for attempt in range(6):
+                        await asyncio.sleep(3)
+                        logger.info(f"Fetch attempt {attempt+1}/6")
                         async for msg in user_client.iter_messages(777000, limit=3):
-                            if msg.text and msg.date > cutoff_time:
-                                logger.info(f"Recent message ({msg.date}): {msg.text[:50]}")
-                                if 'Login code:' in msg.text:
+                            # Only check messages received AFTER the OTP request
+                            if msg.text and msg.date > request_time:
+                                logger.info(f"New message received at {msg.date}: {msg.text[:50]}")
+                                if 'Login code:' in msg.text or 'code' in msg.text.lower():
                                     match = re.search(r'(\d{5,7})', msg.text)
                                     if match:
                                         otp = match.group(1)
@@ -510,15 +515,16 @@ class SessionExportHandler:
                                         await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
                                         await self.process_fresh_session_otp(user_id, otp)
                                         return
+                    logger.warning("Auto-fetch timeout - no new OTP message received")
                 else:
                     logger.error(f"Client not found or not connected for {account_name}")
                 
-                logger.warning("Auto-fetch timeout - no recent OTP found")
                 await event.edit(
                     f"📱 **OTP Sent - {account_name}**\n\n"
                     f"📞 **Phone:** {phone}\n\n"
-                    f"Please send the OTP code.\n"
-                    f"Format: Just numbers (e.g., 12345)"
+                    f"Please send the OTP code you received.\n"
+                    f"Format: Just the numbers (e.g., 12345)\n\n"
+                    f"⏰ Waiting for your OTP..."
                 )
             except Exception as e:
                 # Capture full traceback and return a clearer message
