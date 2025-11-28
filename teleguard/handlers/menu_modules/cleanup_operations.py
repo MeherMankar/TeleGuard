@@ -10,7 +10,7 @@ class CleanupOperations:
     def __init__(self, menu_system):
         self.menu = menu_system
         self.bot = menu_system.bot
-        self.account_manager = menu_system.account_manager
+        self.bot_manager = menu_system.bot_manager
     
     async def send_bulk_cleanup_selection(self, user_id, message_id):
         """Send bulk cleanup selection for all accounts"""
@@ -22,8 +22,8 @@ class CleanupOperations:
         active_accounts = [acc for acc in accounts if acc.get('is_active', False)]
         text = f"🧹 **Bulk Cleanup - All Accounts**\n\n📊 **Accounts:** {len(active_accounts)} active / {len(accounts)} total\n\n📋 **What would you like to clean?**\n\nThis will clean ALL your accounts at once.\n\n💬 **Personal chats** - Direct messages\n🤖 **Bot chats** - Bot conversations\n📢 **Telegram official** - Service chats\n🚫 **Spambot chats** - @spambot\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete your groups\n📺 **Delete owned channels** - Delete your channels\n\n⚠️ **WARNING**: This affects ALL accounts!"
         
-        if self.account_manager:
-            self.account_manager.pending_actions[user_id] = {"action": "bulk_cleanup_selection"}
+        if self.bot_manager:
+            self.bot_manager.pending_actions[user_id] = {"action": "bulk_cleanup_selection"}
         
         await self.bot.edit_message(user_id, message_id, text)
         await self.bot.send_message(user_id, "📝 **Reply with cleanup type:**\n\n**Examples:**\n• `personal,bots`\n• `channels,groups`\n• `all`\n\n**Options:** `personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`")
@@ -74,8 +74,8 @@ class CleanupOperations:
             
             # Get client
             client = None
-            if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
-                client = self.account_manager.user_clients[user_id].get(account_name)
+            if hasattr(self.bot_manager, 'user_clients') and user_id in self.bot_manager.user_clients:
+                client = self.bot_manager.user_clients[user_id].get(account_name)
             
             if not client or not client.is_connected():
                 results.append(f"❌ {display_name}: Not connected")
@@ -128,8 +128,8 @@ class CleanupOperations:
             return
         display_name = format_display_name(account)
         text = f"🧹 **Cleanup Selection - {display_name}**\n\n📋 **What would you like to clean?**\n\nSelect what to clean (you can choose multiple options):\n\n💬 **Personal chats** - Direct messages with users\n🤖 **Bot chats** - Conversations with bots\n📢 **Telegram official** - Telegram service chats\n🚫 **Spambot chats** - @spambot conversations\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete groups you own\n📺 **Delete owned channels** - Delete channels you own\n\n⚠️ **WARNING**: These actions cannot be undone!"
-        if self.account_manager:
-            self.account_manager.pending_actions[user_id] = {"action": "cleanup_selection", "account_id": account_id}
+        if self.bot_manager:
+            self.bot_manager.pending_actions[user_id] = {"action": "cleanup_selection", "account_id": account_id}
         await self.bot.edit_message(user_id, message_id, text)
         await self.bot.send_message(user_id, "📝 **Reply with your selection:**\n\nType what you want to clean, separated by commas:\n\n**Examples:**\n• `personal,bots` - Clean personal chats and bot chats\n• `channels,groups` - Exit all channels and groups\n• `all` - Clean everything\n\n**Available options:**\n`personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`")
     
@@ -139,13 +139,13 @@ class CleanupOperations:
         if not account:
             await event.answer("❌ Account not found")
             return
-        if not self.account_manager:
+        if not self.bot_manager:
             await event.answer("❌ Service unavailable")
             return
         client = None
-        if hasattr(self.account_manager, 'user_clients') and user_id in self.account_manager.user_clients:
+        if hasattr(self.bot_manager, 'user_clients') and user_id in self.bot_manager.user_clients:
             account_name = account.get('name')
-            client = self.account_manager.user_clients[user_id].get(account_name)
+            client = self.bot_manager.user_clients[user_id].get(account_name)
         if not client or not client.is_connected():
             await event.answer("❌ Account not connected. Please ensure account is active.")
             return
