@@ -514,46 +514,77 @@ class SessionExportHandler:
                         break
                 
                 if user_client and user_client.is_connected():
-                    # Ensure client is connected (9)
-                    if not await self.improvements.ensure_client_connected(user_client):
-                        logger.error("Failed to ensure client connection")
-                        user_client = None
-                
-                if user_client and user_client.is_connected():
-                    logger.info(f"Client connected, setting up event listener")
-                    request_time = datetime.now()
-                    
-                    # Setup event-based OTP listener (1)
-                    otp_event, get_otp = await self.improvements.setup_event_listener(
-                        user_client, user_id, request_time
-                    )
-                    
                     try:
-                        # Wait with progress countdown (1)
-                        result = await self.improvements.wait_with_progress(
-                            event, account_name, phone, otp_event, timeout=20
+                        # Ensure client is connected (9)
+                        if not await self.improvements.ensure_client_connected(user_client):
+                            logger.error("Failed to ensure client connection")
+                            raise Exception("Client connection failed")
+                        
+                        logger.info(f"Client connected, setting up event listener")
+                        request_time = datetime.now()
+                        
+                        # Setup event-based OTP listener (1)
+                        otp_event, get_otp = await self.improvements.setup_event_listener(
+                            user_client, user_id, request_time
                         )
                         
-                        if result:
-                            otp = get_otp()
-                            if otp:
-                                # Check OTP expiry (6)
-                                expiring, remaining = self.improvements.check_otp_expiry(request_time)
-                                if expiring:
-                                    logger.warning(f"OTP expiring soon: {remaining}s remaining")
-                                
-                                await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
-                                await self.process_fresh_session_otp(user_id, otp)
-                                return
+                        try:
+                            # Wait with progress countdown (1)
+                            result = await self.improvements.wait_with_progress(
+                                event, account_name, phone, otp_event, timeout=20
+                            )
+                            
+                            if result:
+                                otp = get_otp()
+                                if otp:
+                                    # Check OTP expiry (6)
+                                    expiring, remaining = self.improvements.check_otp_expiry(request_time)
+                                    if expiring:
+                                        logger.warning(f"OTP expiring soon: {remaining}s remaining")
+                                    
+                                    await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
+                                    await self.process_fresh_session_otp(user_id, otp)
+                                    return
+                            
+                            # Timeout - show resend options (4)
+                            logger.warning("OTP timeout - showing resend options")
+                            await self.improvements.show_resend_options(event, user_id, account_name, phone)
+                            return
+                            
+                        finally:
+                            # Cleanup listener
+                            self.improvements.cleanup_listener(user_id)
+                    
+                    except Exception as listener_err:
+                        logger.error(f"Event listener failed: {listener_err}, falling back to polling")
+                        # Fallback to improved polling
+                        import re
+                        request_time = datetime.now()
                         
-                        # Timeout - show resend options (4)
-                        logger.warning("OTP timeout - showing resend options")
+                        for attempt in range(6):
+                            remaining = 18 - (attempt * 3)
+                            await event.edit(
+                                f"📱 **OTP Sent - {account_name}**\n\n"
+                                f"📞 **Phone:** {phone}\n\n"
+                                f"🔍 **Waiting for OTP...**\n"
+                                f"⏱️ **Time remaining:** {remaining}s"
+                            )
+                            await asyncio.sleep(3)
+                            
+                            async for msg in user_client.iter_messages(777000, limit=3):
+                                if msg.text and msg.date > request_time:
+                                    for pattern in self.improvements.OTP_PATTERNS:
+                                        match = re.search(pattern, msg.text, re.IGNORECASE)
+                                        if match:
+                                            otp = match.group(1)
+                                            logger.info(f"Found OTP via polling: {otp}")
+                                            await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
+                                            await self.process_fresh_session_otp(user_id, otp)
+                                            return
+                        
+                        # Polling timeout - show resend options
                         await self.improvements.show_resend_options(event, user_id, account_name, phone)
                         return
-                        
-                    finally:
-                        # Cleanup listener
-                        self.improvements.cleanup_listener(user_id)
                 else:
                     logger.error(f"Client not found or not connected for {account_name}")
                 
