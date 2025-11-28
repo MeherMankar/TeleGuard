@@ -36,6 +36,8 @@ class CallbackRouter:
             "export_sessions": self.handle_session_login_callback,
             "create_sess": self.handle_session_login_callback,
             "create_sess_fmt": self.handle_session_login_callback,
+            "contacts": self.handle_contacts_callback,
+            "spam_master": self.handle_spam_master_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -209,4 +211,24 @@ class CallbackRouter:
                 
         except Exception as e:
             logger.error(f"Session login callback error: {e}")
+            await event.answer("❌ Error processing request")
+    
+    async def handle_contacts_callback(self, event, user_id: int, data: str):
+        """Handle contacts callbacks"""
+        try:
+            # Contacts callbacks are handled by contact_handler
+            # Just acknowledge them here
+            await event.answer("✅ Processing...")
+        except Exception as e:
+            logger.error(f"Contacts callback error: {e}")
+            await event.answer("❌ Error processing request")
+    
+    async def handle_spam_master_callback(self, event, user_id: int, data: str):
+        """Handle spam master callbacks"""
+        try:
+            # Spam master callbacks are handled by advanced_spam_handler
+            # Just acknowledge them here
+            await event.answer("✅ Processing...")
+        except Exception as e:
+            logger.error(f"Spam master callback error: {e}")
             await event.answer("❌ Error processing request")

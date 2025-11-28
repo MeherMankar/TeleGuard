@@ -35,6 +35,10 @@ class MenuSystem:
         self.router = CallbackRouter(self)
         self.account_ops = AccountOperations(self)
         self.callback_handlers = CallbackHandlers(self)
+        from .menu_modules import CleanupOperations, ProfileOperations, MessagingOperations
+        self.cleanup_operations = CleanupOperations(self)
+        self.profile_operations = ProfileOperations(self)
+        self.messaging_operations = MessagingOperations(self)
         # Initialize modular callbacks
         self.account_callbacks = AccountCallbacks(bot_instance, account_manager, self)
         self.otp_callbacks = OTPCallbacks(bot_instance, account_manager, self)
