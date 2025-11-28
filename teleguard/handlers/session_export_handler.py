@@ -4,10 +4,12 @@ import os
 import asyncio
 import time
 from datetime import datetime
-from telethon import events
+from telethon import events, Button
 from telethon.sessions import StringSession
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError
 from ..core.mongo_database import mongodb
+from .session_improvements import SessionImprovements
 
 logger = logging.getLogger(__name__)
 class SessionExportHandler:
@@ -15,6 +17,7 @@ class SessionExportHandler:
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
+        self.improvements = SessionImprovements(bot_manager)
     def register_handlers(self):
         """Register session export handlers - DEPRECATED"""
         # All session functionality moved to session_login_handler.py
@@ -199,6 +202,7 @@ class SessionExportHandler:
             batch_data = self.bot_manager.batch_sessions[user_id]
             current_index = batch_data['current_index']
             accounts = batch_data['accounts']
+            total = batch_data['total']
             
             if current_index >= len(accounts):
                 # All accounts processed - create ZIP
@@ -206,6 +210,9 @@ class SessionExportHandler:
                 return
             
             account_name = accounts[current_index]
+            
+            # Optimize batch delay (10)
+            await self.improvements.optimize_batch_delay(current_index, total)
             
             # Send status update
             await self.bot.send_message(
@@ -411,6 +418,27 @@ class SessionExportHandler:
                         logger.exception("Failed to write otp_protection entry")
                     
                 except Exception as send_err:
+                    # Handle FloodWait gracefully (7)
+                    if isinstance(send_err, FloodWaitError):
+                        logger.info(f"FloodWait detected: {send_err.seconds}s")
+                        retry = await self.improvements.handle_flood_wait(send_err, event, account_name)
+                        if retry:
+                            # Retry after wait
+                            try:
+                                sent_code = await temp_client.send_code_request(phone)
+                                logger.info(f"OTP request retry successful for {phone}")
+                            except Exception as retry_err:
+                                logger.error(f"Retry failed: {retry_err}")
+                                send_err = retry_err
+                            else:
+                                # Success after retry - continue normal flow
+                                try:
+                                    self.bot_manager.pending_fresh_sessions[user_id]['sent_code'] = sent_code
+                                except Exception:
+                                    pass
+                                # Continue to OTP fetching
+                                pass
+                    
                     # Clean up and surface a detailed error
                     logger.exception(f"send_code_request failed for {phone}: {send_err}")
                     try:
@@ -473,9 +501,7 @@ class SessionExportHandler:
                     'format_type': format_type,
                 }
                 
-                # Auto-fetch OTP
-                import re
-                from datetime import datetime
+                # Auto-fetch OTP with improvements
                 logger.info(f"Looking for client: account_name={account_name}, phone={phone}")
                 logger.info(f"Available clients for user {user_id}: {list(self.user_clients.get(user_id, {}).keys())}")
                 
@@ -488,37 +514,50 @@ class SessionExportHandler:
                         break
                 
                 if user_client and user_client.is_connected():
-                    await event.edit(
-                        f"📱 **OTP Sent - {account_name}**\n\n"
-                        f"📞 **Phone:** {phone}\n\n"
-                        f"🔍 **Auto-fetching OTP...**"
-                    )
-                    logger.info(f"Client connected, waiting for new OTP from 777000")
-                    
-                    # Mark current time - only check messages AFTER this point
+                    # Ensure client is connected (9)
+                    if not await self.improvements.ensure_client_connected(user_client):
+                        logger.error("Failed to ensure client connection")
+                        user_client = None
+                
+                if user_client and user_client.is_connected():
+                    logger.info(f"Client connected, setting up event listener")
                     request_time = datetime.now()
-                    logger.info(f"OTP request sent at: {request_time}")
                     
-                    # Wait for NEW OTP message to arrive
-                    for attempt in range(6):
-                        await asyncio.sleep(3)
-                        logger.info(f"Fetch attempt {attempt+1}/6")
-                        async for msg in user_client.iter_messages(777000, limit=3):
-                            # Only check messages received AFTER the OTP request
-                            if msg.text and msg.date > request_time:
-                                logger.info(f"New message received at {msg.date}: {msg.text[:50]}")
-                                if 'Login code:' in msg.text or 'code' in msg.text.lower():
-                                    match = re.search(r'(\d{5,7})', msg.text)
-                                    if match:
-                                        otp = match.group(1)
-                                        logger.info(f"Found fresh OTP: {otp}")
-                                        await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
-                                        await self.process_fresh_session_otp(user_id, otp)
-                                        return
-                    logger.warning("Auto-fetch timeout - no new OTP message received")
+                    # Setup event-based OTP listener (1)
+                    otp_event, get_otp = await self.improvements.setup_event_listener(
+                        user_client, user_id, request_time
+                    )
+                    
+                    try:
+                        # Wait with progress countdown (1)
+                        result = await self.improvements.wait_with_progress(
+                            event, account_name, phone, otp_event, timeout=20
+                        )
+                        
+                        if result:
+                            otp = get_otp()
+                            if otp:
+                                # Check OTP expiry (6)
+                                expiring, remaining = self.improvements.check_otp_expiry(request_time)
+                                if expiring:
+                                    logger.warning(f"OTP expiring soon: {remaining}s remaining")
+                                
+                                await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
+                                await self.process_fresh_session_otp(user_id, otp)
+                                return
+                        
+                        # Timeout - show resend options (4)
+                        logger.warning("OTP timeout - showing resend options")
+                        await self.improvements.show_resend_options(event, user_id, account_name, phone)
+                        return
+                        
+                    finally:
+                        # Cleanup listener
+                        self.improvements.cleanup_listener(user_id)
                 else:
                     logger.error(f"Client not found or not connected for {account_name}")
                 
+                # Fallback to manual entry
                 await event.edit(
                     f"📱 **OTP Sent - {account_name}**\n\n"
                     f"📞 **Phone:** {phone}\n\n"
@@ -709,6 +748,9 @@ class SessionExportHandler:
                 
                 safe_account_name = account_name.encode('ascii', errors='replace').decode('ascii')
                 logger.info(f"Generated session string for {safe_account_name}: {len(fresh_session)} characters")
+                
+                # Cache session temporarily (13)
+                self.improvements.cache_session(user_id, account_name, fresh_session)
                 from telethon import TelegramClient
                 from telethon.sessions import StringSession
                 from ..core.config import config
