@@ -1227,107 +1227,28 @@ class MessageHandlers:
             
             selected_types = ','.join(selected_list)
         
-        # Execute cleanup directly
+        # Clear pending action before executing cleanup
+        self.pending_actions.pop(user_id, None)
+        
+        # Delegate to cleanup operations module
         try:
-            from bson import ObjectId
-            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
-            if not account:
-                await event.reply("❌ Account not found")
-                self.pending_actions.pop(user_id, None)
-                return
-            
-            # Get client
-            client = None
-            if hasattr(self.bot_manager, 'user_clients') and user_id in self.bot_manager.user_clients:
-                account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-                client = self.bot_manager.user_clients[user_id].get(account_name)
-            
-            if not client or not client.is_connected():
-                await event.reply("❌ Account not connected. Please ensure account is active.")
-                self.pending_actions.pop(user_id, None)
-                return
-            
-            display_name = account.get('display_name') or account.get('name') or account.get('phone', 'Unknown')
-            
-            # Parse cleanup settings
-            cleanup_list = [t.strip().lower() for t in selected_types.split(',')]
-            if 'all' in cleanup_list:
-                cleanup_list = ['personal', 'bots', 'telegram', 'spambot', 'channels', 'groups', 'owned_groups', 'owned_channels']
-            
-            cleanup_settings = {
-                'personal_chats': 'personal' in cleanup_list,
-                'bot_chats': 'bots' in cleanup_list,
-                'telegram_chat': 'telegram' in cleanup_list,
-                'spambot_chat': 'spambot' in cleanup_list,
-                'channels': 'channels' in cleanup_list,
-                'groups': 'groups' in cleanup_list,
-                'owned_groups': 'owned_groups' in cleanup_list,
-                'owned_channels': 'owned_channels' in cleanup_list
-            }
-            
-            # Send initial status
-            status_msg = await event.reply(
-                f"🚀 **Starting cleanup for {display_name}**\n\n"
-                f"⏳ Analyzing account...\n"
-                f"📊 Progress will be shown below"
-            )
-            
-            # Execute cleanup
-            from ..core.account_cleaner import AccountCleaner
-            cleaner = AccountCleaner()
-            
-            import time
-            last_update_time = time.time()
-            
-            async def progress_callback(text):
-                nonlocal last_update_time
-                current_time = time.time()
-                if current_time - last_update_time < 2:
-                    return
-                try:
-                    await status_msg.edit(
-                        f"🚀 **Cleaning {display_name}**\n\n{text}"
-                    )
-                    last_update_time = current_time
-                except Exception:
-                    pass
-            
-            result = await cleaner.cleanup_account(client, cleanup_settings, progress_callback)
-            
-            # Send final result
-            result_text = (
-                f"✅ **Cleanup completed!**\n\n"
-                f"📱 Account: {display_name}\n\n"
-                f"📊 **Results:**\n{result}\n\n"
-                f"🔒 All operations completed securely"
-            )
-            
-            try:
-                await status_msg.edit(result_text)
-            except Exception:
-                await event.reply(result_text)
-            
-            # Log cleanup
-            try:
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {"$push": {
-                        "audit_log": {
-                            "action": "cleanup_completed",
-                            "cleanup_types": selected_types,
-                            "timestamp": int(time.time()),
-                            "result": "success"
-                        }
-                    }}
-                )
-            except Exception as e:
-                logger.error(f"Failed to add audit entry: {e}")
+            if hasattr(self.bot_manager, 'menu_system') and hasattr(self.bot_manager.menu_system, 'cleanup_operations'):
+                # Create a mock event object for execute_cleanup
+                class MockEvent:
+                    def __init__(self, message_id):
+                        self.message_id = message_id
+                    async def answer(self, text):
+                        pass
                 
+                mock_event = MockEvent(event.id)
+                await self.bot_manager.menu_system.cleanup_operations.execute_cleanup(
+                    mock_event, user_id, account_id, selected_types
+                )
+            else:
+                await event.reply("❌ Cleanup service not available")
         except Exception as e:
             logger.error(f"Error executing cleanup: {e}")
             await event.reply(f"❌ Error executing cleanup: {str(e)}")
-        
-        self.pending_actions.pop(user_id, None)
     
     async def _fetch_and_store_account_name(self, user_id: int, phone: str):
         """Fetch real account name from Telegram and store in database"""
