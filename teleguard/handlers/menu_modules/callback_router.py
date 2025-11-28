@@ -39,6 +39,9 @@ class CallbackRouter:
             "create_sess_fmt": self.handle_session_login_callback,
             "contacts": self.handle_contacts_callback,
             "spam_master": self.handle_spam_master_callback,
+            "manual_otp": self.handle_manual_otp_callback,
+            "resend_otp": self.handle_resend_otp_callback,
+            "cancel_session": self.handle_cancel_session_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -258,3 +261,40 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Spam master callback error: {e}")
             await event.answer("❌ Error processing request")
+    
+    async def handle_manual_otp_callback(self, event, user_id: int, data: str):
+        """Handle manual OTP entry callback"""
+        try:
+            parts = data.split(":")
+            account_name = ":".join(parts[1:]) if len(parts) > 1 else "Unknown"
+            
+            await event.edit(
+                f"📱 **Manual OTP Entry - {account_name}**\n\n"
+                f"Please send the OTP code you received.\n"
+                f"Format: Just the numbers (e.g., 12345)"
+            )
+        except Exception as e:
+            logger.error(f"Manual OTP callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_resend_otp_callback(self, event, user_id: int, data: str):
+        """Handle resend OTP callback"""
+        try:
+            await event.answer("🔄 Resending OTP...")
+            await event.edit("🔄 **Resending OTP...**\n\nPlease wait...")
+            # The actual resend logic would be in session_export_handler
+        except Exception as e:
+            logger.error(f"Resend OTP callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_cancel_session_callback(self, event, user_id: int, data: str):
+        """Handle cancel session callback"""
+        try:
+            await event.edit("❌ **Session Creation Cancelled**")
+            # Clean up any pending session data
+            bot_manager = getattr(self.menu, 'account_manager', None)
+            if bot_manager and hasattr(bot_manager, 'pending_fresh_sessions'):
+                bot_manager.pending_fresh_sessions.pop(user_id, None)
+        except Exception as e:
+            logger.error(f"Cancel session callback error: {e}")
+            await event.answer("❌ Error")
