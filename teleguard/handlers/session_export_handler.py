@@ -467,34 +467,43 @@ class SessionExportHandler:
                     f"🔍 **Auto-fetching OTP...**"
                 )
                 
-                # Try to auto-fetch OTP from user's account client
+                # Try to auto-fetch OTP from user's account client with retries
+                otp_found = False
                 try:
                     user_client = self.user_clients.get(user_id, {}).get(account_name)
                     if user_client and user_client.is_connected():
                         logger.info(f"Attempting to auto-fetch OTP for {account_name}")
                         import re
-                        async for message in user_client.iter_messages(777000, limit=5):
-                            if message.text:
-                                otp_match = re.search(r'Login code: (\d{5,7})', message.text)
-                                if not otp_match:
-                                    otp_match = re.search(r'\b(\d{5,7})\b', message.text)
-                                if otp_match:
-                                    otp_code = otp_match.group(1)
-                                    logger.info(f"Auto-fetched OTP: {otp_code}")
-                                    await event.edit(f"✅ **OTP Auto-Detected: {otp_code}**\n\nProcessing...")
-                                    success = await self.process_fresh_session_otp(user_id, otp_code)
-                                    if success:
-                                        return
+                        for attempt in range(3):
+                            await asyncio.sleep(2)
+                            async for message in user_client.iter_messages(777000, limit=10):
+                                if message.text:
+                                    otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                                    if not otp_match:
+                                        otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                                    if otp_match:
+                                        otp_code = otp_match.group(1)
+                                        logger.info(f"Auto-fetched OTP: {otp_code}")
+                                        await event.edit(f"✅ **OTP Auto-Detected: {otp_code}**\n\nProcessing...")
+                                        success = await self.process_fresh_session_otp(user_id, otp_code)
+                                        if success:
+                                            otp_found = True
+                                            return
+                            if otp_found:
+                                break
+                    else:
+                        logger.warning(f"User client not found or disconnected for {account_name}")
                 except Exception as e:
                     logger.error(f"Auto-fetch failed: {e}")
                 
-                await event.edit(
-                    f"📱 **OTP Sent - {account_name}**\n\n"
-                    f"📞 **Phone:** {phone}\n\n"
-                    f"Please send the OTP code you received.\n"
-                    f"Format: Just the numbers (e.g., 12345)\n\n"
-                    f"⏰ **Waiting for your OTP...**"
-                )
+                if not otp_found:
+                    await event.edit(
+                        f"📱 **OTP Sent - {account_name}**\n\n"
+                        f"📞 **Phone:** {phone}\n\n"
+                        f"Please send the OTP code you received.\n"
+                        f"Format: Just the numbers (e.g., 12345)\n\n"
+                        f"⏰ **Waiting for your OTP...**"
+                    )
 
                 # Store pending session creation
                 if not hasattr(self.bot_manager, 'pending_fresh_sessions'):
