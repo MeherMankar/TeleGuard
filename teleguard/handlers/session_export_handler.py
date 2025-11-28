@@ -464,20 +464,37 @@ class SessionExportHandler:
                     f"📱 **OTP Sent - {account_name}**\n\n"
                     f"📞 **Phone:** {phone}\n\n"
                     f"✅ **OTP code sent to your Telegram account**\n\n"
-                    f"🔍 **Checking for recent OTP messages...**\n\n"
+                    f"🔍 **Auto-fetching OTP...**"
+                )
+                
+                # Try to auto-fetch OTP from user's account client
+                try:
+                    user_client = self.user_clients.get(user_id, {}).get(account_name)
+                    if user_client and user_client.is_connected():
+                        logger.info(f"Attempting to auto-fetch OTP for {account_name}")
+                        import re
+                        async for message in user_client.iter_messages(777000, limit=5):
+                            if message.text:
+                                otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                                if not otp_match:
+                                    otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                                if otp_match:
+                                    otp_code = otp_match.group(1)
+                                    logger.info(f"Auto-fetched OTP: {otp_code}")
+                                    await event.edit(f"✅ **OTP Auto-Detected: {otp_code}**\n\nProcessing...")
+                                    success = await self.process_fresh_session_otp(user_id, otp_code)
+                                    if success:
+                                        return
+                except Exception as e:
+                    logger.error(f"Auto-fetch failed: {e}")
+                
+                await event.edit(
+                    f"📱 **OTP Sent - {account_name}**\n\n"
+                    f"📞 **Phone:** {phone}\n\n"
                     f"Please send the OTP code you received.\n"
                     f"Format: Just the numbers (e.g., 12345)\n\n"
                     f"⏰ **Waiting for your OTP...**"
                 )
-                
-                # Try to fetch recent OTP messages
-                try:
-                    if hasattr(self.bot_manager, 'message_handlers'):
-                        found_otp = await self.bot_manager.message_handlers.fetch_recent_otp(user_id)
-                        if found_otp:
-                            return  # OTP was found and processed
-                except Exception as fetch_err:
-                    logger.error(f"Error fetching recent OTP: {fetch_err}")
 
                 # Store pending session creation
                 if not hasattr(self.bot_manager, 'pending_fresh_sessions'):
