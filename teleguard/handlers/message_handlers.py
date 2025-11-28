@@ -244,13 +244,13 @@ class MessageHandlers:
         except Exception:
             pass
         
-        # Check for transfer ownership or co-owner input
+        # Check for transfer ownership or co-owner input FIRST (before OTP check)
         if hasattr(self.bot_manager, 'transfer_ownership_handler'):
             if user_id in self.bot_manager.transfer_ownership_handler.pending_transfers or user_id in self.bot_manager.transfer_ownership_handler.pending_coowner:
                 await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
                 return
         
-        # Manual OTP input during session creation
+        # Manual OTP input during session creation (only if not in transfer mode)
         if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
             import re
             if re.match(r'^\d{5,7}$', message.strip()):

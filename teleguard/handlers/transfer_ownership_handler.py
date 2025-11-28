@@ -145,19 +145,29 @@ class TransferOwnershipHandler:
     async def process_user_input(self, event, user_id: int, message: str):
         """Process user ID/username input for transfer or co-owner"""
         try:
+            logger.info(f"Transfer handler processing input from user {user_id}: {message}")
+            logger.info(f"Pending transfers: {list(self.pending_transfers.keys())}")
+            logger.info(f"Pending coowners: {list(self.pending_coowner.keys())}")
+            
             # Check if this is for transfer or co-owner
             if user_id in self.pending_transfers:
+                logger.info(f"Processing transfer for user {user_id}")
                 await self._process_transfer(event, user_id, message)
             elif user_id in self.pending_coowner:
+                logger.info(f"Processing co-owner for user {user_id}")
                 await self._process_coowner(event, user_id, message)
+            else:
+                logger.warning(f"User {user_id} not in pending transfers or coowners")
         except Exception as e:
-            logger.error(f"Process user input error: {e}")
+            logger.error(f"Process user input error: {e}", exc_info=True)
             await event.reply(f"Error: {str(e)}")
     
     async def _process_transfer(self, event, user_id: int, target_input: str):
         """Process transfer ownership"""
         try:
+            logger.info(f"Starting transfer process for user {user_id}, target: {target_input}")
             selected = self.pending_transfers[user_id]["selected_accounts"]
+            logger.info(f"Selected accounts: {selected}")
             if not selected:
                 await event.reply("No accounts selected!")
                 return
