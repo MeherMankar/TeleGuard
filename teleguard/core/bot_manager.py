@@ -593,6 +593,12 @@ class BotManager:
             "twofa_commands", TwoFACommands, self.bot, self
         )
         
+        # Initialize transfer ownership handler
+        from ..handlers.transfer_ownership_handler import TransferOwnershipHandler
+        self.transfer_ownership_handler = await self.component_manager.initialize_component(
+            "transfer_ownership_handler", TransferOwnershipHandler, self
+        )
+        
 
         
         # Initialize auto-reply handler
