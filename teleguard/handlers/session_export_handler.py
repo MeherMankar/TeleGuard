@@ -520,8 +520,6 @@ class SessionExportHandler:
                         if not user_client and db_account.get('session_string'):
                             logger.info(f"Client not loaded, attempting to connect from session")
                             try:
-                                from telethon import TelegramClient
-                                from telethon.sessions import StringSession
                                 from ..core.config import config
                                 
                                 session_str = db_account.get('session_string')
