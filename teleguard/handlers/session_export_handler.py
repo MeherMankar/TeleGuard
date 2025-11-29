@@ -504,50 +504,53 @@ class SessionExportHandler:
                 
                 # Auto-fetch OTP - lookup by phone from database
                 user_client = None
-                try:
-                    db_account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
-                    if db_account:
-                        db_account_name = db_account.get('name')
-                        user_clients_dict = self.user_clients.get(user_id, {})
-                        available_keys = list(user_clients_dict.keys())
-                        logger.info(f"Looking for '{db_account_name}' in: {available_keys}")
-                        
-                        # Try multiple keys
-                        for key in [db_account_name, phone, phone.replace('+', '')]:
-                            user_client = user_clients_dict.get(key)
-                            if user_client:
-                                logger.info(f"✅ Found client with key: {key}")
-                                break
-                        
-                        # If not found, try to load the client from session
-                        if not user_client and db_account.get('session_string'):
-                            logger.info(f"Client not loaded, attempting to connect from session")
-                            try:
-                                from ..core.config import config
-                                
-                                session_str = db_account.get('session_string')
-                                temp_user_client = TelegramClient(StringSession(session_str), config.telegram.api_id, config.telegram.api_hash)
-                                await temp_user_client.connect()
-                                if temp_user_client.is_connected():
-                                    user_client = temp_user_client
-                                    logger.info(f"✅ Successfully connected client from session")
-                            except Exception as load_err:
-                                logger.error(f"Failed to load client from session: {load_err}")
-                        
-                        if not user_client:
-                            logger.warning(f"❌ Key mismatch! Looking for '{db_account_name}' but found: {available_keys}")
-                    else:
-                        logger.warning(f"❌ No account found in DB for phone: {phone}")
-                except Exception as e:
-                    logger.error(f"Error looking up account: {e}")
+                user_clients_dict = self.user_clients.get(user_id, {})
+                available_keys = list(user_clients_dict.keys())
+                logger.info(f"Looking for '{account_name}' in: {available_keys}")
                 
+                # Try exact name match
+                user_client = user_clients_dict.get(account_name)
                 if user_client:
-                    if not user_client.is_connected():
-                        logger.warning("⚠️ Client found but disconnected, attempting reconnect...")
-                        try:
+                    logger.info(f"Found client by name: {account_name}")
+                else:
+                    # Fallback: Search by phone
+                    clean_phone = phone.replace(' ', '').replace('-', '')
+                    for key, client in user_clients_dict.items():
+                        clean_key = key.replace(' ', '').replace('-', '')
+                        if clean_key == clean_phone or clean_key == clean_phone.lstrip('+'):
+                            user_client = client
+                            logger.info(f"Found client by phone match: {key}")
+                            break
+                
+                # Load from database if not in memory
+                if not user_client:
+                    logger.warning(f"Client not in RAM. Loading from DB for {phone}...")
+                    try:
+                        db_account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
+                        if db_account and db_account.get('session_string'):
+                            from ..core.config import config
+                            session_str = db_account.get('session_string')
+                            user_client = TelegramClient(StringSession(session_str), config.telegram.api_id, config.telegram.api_hash)
                             await user_client.connect()
-                        except:
-                            pass
+                            
+                            if await user_client.is_user_authorized():
+                                logger.info(f"Successfully loaded client from DB for {phone}")
+                                # Add to memory
+                                if user_id not in self.user_clients:
+                                    self.user_clients[user_id] = {}
+                                self.user_clients[user_id][account_name] = user_client
+                            else:
+                                logger.error("Session from DB is invalid/revoked")
+                                user_client = None
+                    except Exception as e:
+                        logger.error(f"Failed to load client from DB: {e}")
+                        user_client = None
+                
+                if user_client and not user_client.is_connected():
+                    try:
+                        await user_client.connect()
+                    except:
+                        pass
                 
                 if user_client and user_client.is_connected():
                     try:
