@@ -262,12 +262,40 @@ class MessageHandlers:
                 # This is a 2FA password
                 logger.info(f"Processing 2FA password for user {user_id}")
                 try:
-                    await event.delete()  # Delete password message for security
-                except:
+                    # Attempt to delete the password message for security
+                    await event.delete()
+                except Exception:
                     pass
-                success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
+
+                # Send a short acknowledgement so the user knows input was received
+                ack_msg = None
+                try:
+                    ack_msg = await self.bot.send_message(user_id, "🔐 Processing your 2FA password now...")
+                except Exception:
+                    pass
+
+                success = False
+                try:
+                    success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
+                except Exception as e:
+                    logger.error(f"Error while processing 2FA for user {user_id}: {e}")
+                    try:
+                        await self.bot.send_message(user_id, f"❌ Error processing 2FA: {e}")
+                    except Exception:
+                        pass
+
+                # Remove acknowledgement message if possible
+                try:
+                    if ack_msg:
+                        await ack_msg.delete()
+                except Exception:
+                    pass
+
                 if success:
-                    self.pending_actions.pop(user_id, None)
+                    try:
+                        self.pending_actions.pop(user_id, None)
+                    except Exception:
+                        pass
                 return
             else:
                 # This is an OTP code - accept both "12345" and "/12345" formats
@@ -315,9 +343,42 @@ class MessageHandlers:
                 session_data = self.bot_manager.pending_fresh_sessions[user_id]
                 if session_data.get('waiting_for_2fa'):
                     # This is a 2FA password for fresh session creation
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
-                    self.pending_actions.pop(user_id, None)
-                    return
+                        logger.info(f"Pending fresh session 2FA received from {user_id}; session_data keys={list(session_data.keys())}")
+                        try:
+                            try:
+                                await event.delete()
+                            except Exception:
+                                pass
+
+                            # Acknowledge receipt so user sees activity
+                            ack_msg = None
+                            try:
+                                ack_msg = await self.bot.send_message(user_id, "🔐 Processing your 2FA password now...")
+                            except Exception:
+                                pass
+
+                            success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
+
+                            try:
+                                if ack_msg:
+                                    await ack_msg.delete()
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            logger.error(f"Error processing 2FA for user {user_id}: {e}")
+                            success = False
+                        # Clear pending_fresh_sessions and any pending_actions set by the flow
+                        try:
+                            if user_id in self.bot_manager.pending_fresh_sessions:
+                                del self.bot_manager.pending_fresh_sessions[user_id]
+                        except Exception:
+                            pass
+                        try:
+                            self.pending_actions.pop(user_id, None)
+                        except Exception:
+                            pass
+                        logger.info(f"2FA processing result for {user_id}: {success}")
+                        return
                 else:
                     # This is an OTP for fresh session creation - accept both "12345" and "/12345" formats
                     otp_code = message.strip().lstrip('/')
@@ -325,9 +386,24 @@ class MessageHandlers:
                     if success:
                         self.pending_actions.pop(user_id, None)
                     return
+        # If there's no explicit pending action, check whether this looks like
+        # a 2FA password (alphanumeric, length >=6). If so, provide clear
+        # feedback to the user instead of silently doing nothing.
         if user_id not in self.pending_actions:
             logger.warning(f"!!! User {user_id} sent '{message}' but NO pending action found !!!")
-            logger.warning(f"Current pending_actions: {dict(self.pending_actions)}")
+            logger.debug(f"Current pending_actions: {dict(self.pending_actions)}")
+
+            import re as _re
+            # common 2FA password pattern: mixed alnum and symbols, length >=6
+            if _re.match(r'^[A-Za-z0-9@#\$%\^&\-_]{6,}$', message):
+                try:
+                    await event.reply(
+                        "⚠️ No active authentication flow found. If you were asked for a 2FA password, please restart the login process and try again."
+                    )
+                except Exception:
+                    pass
+                return
+
             return
         action = self.pending_actions[user_id]["action"]
         logger.info(f"Processing user action for {user_id}: {action}")
@@ -395,8 +471,34 @@ class MessageHandlers:
                     session_data = self.bot_manager.pending_fresh_sessions[user_id]
                     if session_data.get('waiting_for_2fa'):
                         # This is a 2FA password for fresh session creation
-                        success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
-                        self.pending_actions.pop(user_id, None)
+                        try:
+                            try:
+                                await event.delete()
+                            except Exception:
+                                pass
+
+                            ack_msg = None
+                            try:
+                                ack_msg = await self.bot.send_message(user_id, "🔐 Processing your 2FA password now...")
+                            except Exception:
+                                pass
+
+                            success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
+
+                            try:
+                                if ack_msg:
+                                    await ack_msg.delete()
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            logger.error(f"Error processing fresh-session 2FA (fallback branch) for {user_id}: {e}")
+                            success = False
+
+                        try:
+                            self.pending_actions.pop(user_id, None)
+                        except Exception:
+                            pass
+
                         return
                     else:
                         # This is an OTP for fresh session creation
