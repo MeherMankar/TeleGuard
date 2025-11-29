@@ -390,9 +390,15 @@ class AuthManager:
                 except PhoneCodeInvalidError:
                     raise ValueError("❌ The code you entered is invalid or expired. Please try again.")
                 except PhoneCodeExpiredError:
-                    # Clear the auth and force restart
+                    # Telegram server killed the code (security measure)
                     self.cancel_auth(user_id)
-                    raise ValueError("❌ The confirmation code has expired. Please restart the login process.")
+                    raise ValueError(
+                        "❌ **Code Expired (Telegram Security)**\n\n"
+                        "Telegram's server detected a plain text code and invalidated it immediately.\n\n"
+                        "**The Fix:** Send your code with a `/` prefix.\n"
+                        "Example: If your code is `12345`, send `/12345`\n\n"
+                        "This format bypasses Telegram's phishing detection while still allowing copy-paste."
+                    )
                 except SessionPasswordNeededError:
                     # 2FA required - check if we have stored password first
                     from ..utils.twofa_helper import twofa_helper

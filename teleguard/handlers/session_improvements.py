@@ -53,14 +53,14 @@ class SessionImprovements:
                 if not message_text:
                     return
                 
-                logger.info(f"📩 OTP message from {event.sender_id}")
+                logger.info(f"OTP message from {event.sender_id}")
                 
                 # Extract OTP
                 for pattern in self.OTP_PATTERNS:
                     match = re.search(pattern, message_text, re.IGNORECASE)
                     if match:
                         otp_code = match.group(1)
-                        logger.info(f"✅ OTP found: {otp_code}")
+                        logger.info(f"OTP found: {otp_code}")
                         otp_received.set()
                         break
             except Exception as e:

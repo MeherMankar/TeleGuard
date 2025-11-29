@@ -44,6 +44,10 @@ class SessionExportHandler:
     async def _show_account_selection(self, event, user_id, session_type):
         """Show account selection after type is chosen"""
         try:
+            # Sync account names before showing list
+            from .account_sync import sync_account_names
+            await sync_account_names(self.bot_manager, user_id)
+            
             accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
             if not accounts:
                 await event.edit("❌ No active accounts found.")
@@ -506,7 +510,8 @@ class SessionExportHandler:
                 user_client = None
                 user_clients_dict = self.user_clients.get(user_id, {})
                 available_keys = list(user_clients_dict.keys())
-                logger.info(f"Looking for '{account_name}' in: {available_keys}")
+                safe_name = account_name.encode('ascii', errors='replace').decode('ascii')
+                logger.info(f"Looking for '{safe_name}' in: {available_keys}")
                 
                 # Try exact name match
                 user_client = user_clients_dict.get(account_name)
@@ -1082,9 +1087,14 @@ class SessionExportHandler:
         """Process 2FA password for fresh session creation"""
         try:
             if not hasattr(self.bot_manager, 'pending_fresh_sessions'):
+                logger.error(f"No pending_fresh_sessions attribute for user {user_id}")
                 return False
             session_data = self.bot_manager.pending_fresh_sessions.get(user_id)
-            if not session_data or not session_data.get('waiting_for_2fa'):
+            if not session_data:
+                logger.error(f"No session_data for user {user_id}")
+                return False
+            if not session_data.get('waiting_for_2fa'):
+                logger.error(f"waiting_for_2fa flag not set for user {user_id}. Session data: {session_data.keys()}")
                 return False
             client = session_data['client']
             phone = session_data['phone']

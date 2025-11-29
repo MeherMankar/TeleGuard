@@ -254,18 +254,37 @@ class MessageHandlers:
                 await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
                 return
         
-        # Manual OTP input during session creation (only if not in transfer mode)
+        # Manual OTP or 2FA input during session creation (only if not in transfer mode)
         if hasattr(self.bot_manager, 'pending_fresh_sessions') and user_id in self.bot_manager.pending_fresh_sessions:
-            import re
-            if re.match(r'^\d{5,7}$', message.strip()):
-                logger.info(f"Processing manual OTP {message.strip()} for user {user_id}")
-                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
+            session_data = self.bot_manager.pending_fresh_sessions.get(user_id, {})
+            logger.info(f"Fresh session data for {user_id}: waiting_for_2fa={session_data.get('waiting_for_2fa')}")
+            if session_data.get('waiting_for_2fa'):
+                # This is a 2FA password
+                logger.info(f"Processing 2FA password for user {user_id}")
+                try:
+                    await event.delete()  # Delete password message for security
+                except:
+                    pass
+                success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(user_id, message.strip())
                 if success:
                     self.pending_actions.pop(user_id, None)
-                    logger.info(f"OTP processed successfully for user {user_id}")
-                else:
-                    logger.error(f"OTP processing failed for user {user_id}")
                 return
+            else:
+                # This is an OTP code - accept both "12345" and "/12345" formats
+                import re
+                # Strip leading slash if present
+                otp_code = message.strip().lstrip('/')
+                if re.match(r'^\d{5,7}$', otp_code):
+                    logger.info(f"Processing manual OTP {otp_code} for user {user_id}")
+                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                    if success:
+                        self.pending_actions.pop(user_id, None)
+                        logger.info(f"OTP processed successfully for user {user_id}")
+                    else:
+                        logger.error(f"OTP processing failed for user {user_id}")
+                    return
+                else:
+                    logger.warning(f"Message '{message}' doesn't match OTP pattern and not waiting for 2FA")
         
         if message.startswith("/"):
             # Clear pending actions for certain commands
@@ -279,11 +298,12 @@ class MessageHandlers:
             if user_id in self.bot_manager.session_login_handler.pending_auth:
                 auth_data = self.bot_manager.session_login_handler.pending_auth[user_id]
                 if auth_data.get('step') != '2fa':
-                    # This might be an OTP code
+                    # This might be an OTP code - accept both "12345" and "/12345" formats
                     import re
-                    if re.match(r'^\d{5,7}$', message.strip()):
-                        logger.info(f"Auto-processing OTP code {message.strip()} for session login")
-                        success, msg = await self.bot_manager.session_login_handler.process_verification_code(user_id, message.strip())
+                    otp_code = message.strip().lstrip('/')
+                    if re.match(r'^\d{5,7}$', otp_code):
+                        logger.info(f"Auto-processing OTP code {otp_code} for session login")
+                        success, msg = await self.bot_manager.session_login_handler.process_verification_code(user_id, otp_code)
                         await event.reply(msg)
                         if user_id not in self.bot_manager.session_login_handler.pending_auth:
                             self.pending_actions.pop(user_id, None)
@@ -299,8 +319,9 @@ class MessageHandlers:
                     self.pending_actions.pop(user_id, None)
                     return
                 else:
-                    # This is an OTP for fresh session creation
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, message.strip())
+                    # This is an OTP for fresh session creation - accept both "12345" and "/12345" formats
+                    otp_code = message.strip().lstrip('/')
+                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
                     if success:
                         self.pending_actions.pop(user_id, None)
                     return
@@ -439,7 +460,7 @@ class MessageHandlers:
                 "otp_destroyer": False,
             }
             await event.reply(
-                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n\nBoth formats work!\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
+                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n• Format 3: /12345 (recommended if code expires)\n\nAll formats work!\n\n💡 **Tip:** If your code expires immediately, use the `/` prefix (e.g., `/12345`) to bypass Telegram's security detection.\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
             )
         except (ValueError, ConnectionError, TimeoutError) as e:
             error_msg = str(e)
@@ -471,8 +492,8 @@ class MessageHandlers:
         """Process OTP verification"""
         phone = self.pending_actions[user_id].get("phone")
         
-        # Normalize OTP code format - handle both "12345" and "1-2-3-4-5" formats
-        normalized_code = code.replace("-", "").replace(" ", "").strip()
+        # Normalize OTP code format - handle "12345", "1-2-3-4-5", and "/12345" formats
+        normalized_code = code.replace("-", "").replace(" ", "").strip().lstrip('/')
         
         logger.info(f"User is verifying OTP code: {normalized_code}")
         await event.reply(f"Verifying OTP {normalized_code}...")
