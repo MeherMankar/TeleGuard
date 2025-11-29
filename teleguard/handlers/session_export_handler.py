@@ -509,12 +509,14 @@ class SessionExportHandler:
                     if db_account:
                         db_account_name = db_account.get('name')
                         user_clients_dict = self.user_clients.get(user_id, {})
+                        available_keys = list(user_clients_dict.keys())
+                        logger.info(f"Looking for '{db_account_name}' in: {available_keys}")
                         
                         # Try multiple keys
                         for key in [db_account_name, phone, phone.replace('+', '')]:
                             user_client = user_clients_dict.get(key)
                             if user_client:
-                                logger.info(f"Found client with key: {key}")
+                                logger.info(f"✅ Found client with key: {key}")
                                 break
                         
                         # If not found, try to load the client from session
@@ -528,20 +530,20 @@ class SessionExportHandler:
                                 await temp_user_client.connect()
                                 if temp_user_client.is_connected():
                                     user_client = temp_user_client
-                                    logger.info(f"Successfully connected client from session")
+                                    logger.info(f"✅ Successfully connected client from session")
                             except Exception as load_err:
                                 logger.error(f"Failed to load client from session: {load_err}")
                         
                         if not user_client:
-                            logger.error(f"No client found. Available: {list(user_clients_dict.keys())}")
+                            logger.warning(f"❌ Key mismatch! Looking for '{db_account_name}' but found: {available_keys}")
                     else:
-                        logger.error(f"No account found in DB for phone: {phone}")
+                        logger.warning(f"❌ No account found in DB for phone: {phone}")
                 except Exception as e:
                     logger.error(f"Error looking up account: {e}")
                 
                 if user_client:
                     if not user_client.is_connected():
-                        logger.warning("Client found but not connected, attempting reconnect")
+                        logger.warning("⚠️ Client found but disconnected, attempting reconnect...")
                         try:
                             await user_client.connect()
                         except:

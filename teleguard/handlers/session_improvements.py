@@ -29,32 +29,45 @@ class SessionImprovements:
         self.session_cache = {}  # Cache sessions temporarily (13)
     
     async def setup_event_listener(self, user_client, user_id, request_time):
-        """Setup event-based OTP listener (1)"""
+        """Setup event-based OTP listener with robust connection checks"""
         otp_received = asyncio.Event()
         otp_code = None
+        
+        # Check connection state before setting up listener
+        if not user_client.is_connected():
+            logger.warning(f"Client disconnected, attempting reconnect...")
+            try:
+                await user_client.connect()
+            except Exception as e:
+                logger.error(f"Failed to reconnect: {e}")
+                return None, None
         
         async def otp_listener(event):
             nonlocal otp_code
             try:
+                # Check sender ID directly (bypass entity resolution)
+                if event.sender_id not in [777000, 42777]:
+                    return
+                
                 message_text = event.message.message
                 if not message_text:
                     return
                 
-                logger.info(f"OTP listener triggered")
+                logger.info(f"📩 OTP message from {event.sender_id}")
                 
-                # Extract OTP without time check (like OTP forward)
+                # Extract OTP
                 for pattern in self.OTP_PATTERNS:
                     match = re.search(pattern, message_text, re.IGNORECASE)
                     if match:
                         otp_code = match.group(1)
-                        logger.info(f"OTP found: {otp_code}")
+                        logger.info(f"✅ OTP found: {otp_code}")
                         otp_received.set()
                         break
             except Exception as e:
                 logger.error(f"OTP listener error: {e}")
         
-        # Register listener - use chats parameter like OTP forward does
-        user_client.add_event_handler(otp_listener, events.NewMessage(chats=[777000, 42777]))
+        # Use incoming=True to bypass entity resolution issues
+        user_client.add_event_handler(otp_listener, events.NewMessage(incoming=True))
         self.otp_listeners[user_id] = (user_client, otp_listener)
         
         return otp_received, lambda: otp_code
