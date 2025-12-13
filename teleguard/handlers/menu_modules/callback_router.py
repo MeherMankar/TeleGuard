@@ -17,6 +17,7 @@ class CallbackRouter:
             "account": self.handlers.handle_account_callback,
             "remove": self.handlers.handle_remove_callback,
             "otp": self.handlers.handle_otp_callback,
+            "otp_setting": self.handle_otp_setting_callback,
             "online": self.handlers.handle_online_callback,
             "simulate": self.handlers.handle_simulate_callback,
             "profile": self.handlers.handle_profile_callback,
@@ -112,11 +113,13 @@ class CallbackRouter:
             elif menu_type == "channels":
                 await self.menu.handlers.handle_channels(event)
             elif menu_type == "contacts":
-                await self.menu.handlers.handle_contacts(event)
+                await self.menu._handle_contacts(event)
             elif menu_type == "cleanup":
                 await self.menu.handlers.handle_cleanup(event)
             elif menu_type == "main":
-                await self.menu.handlers.handle_start(event)
+                # Send main menu instead of calling non-existent handle_start
+                await self.menu.send_main_menu(user_id)
+                await event.answer("🏠 Main menu")
             else:
                 await event.answer(f"❌ Unknown menu: {menu_type}")
                 
@@ -298,3 +301,11 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Cancel session callback error: {e}")
             await event.answer("❌ Error")
+    
+    async def handle_otp_setting_callback(self, event, user_id: int, data: str):
+        """Handle OTP setting callbacks (destroyer, forward, temp)"""
+        try:
+            await self.menu._handle_otp_setting_callback(event, user_id, data)
+        except Exception as e:
+            logger.error(f"OTP setting callback error: {e}")
+            await event.answer("❌ Error processing OTP setting")

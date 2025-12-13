@@ -191,6 +191,9 @@ class MenuSystem:
                         await self.handlers.handle_developer(event)
                     else:
                         await event.reply("🚫 Access denied")
+            except AttributeError as e:
+                logger.error(f"Handler method not found for '{text}': {e}", exc_info=True)
+                await event.reply(f"⚠️ Feature temporarily unavailable")
             except Exception as e:
                 logger.error(f"Menu handler error for '{text}': {e}", exc_info=True)
                 await event.reply("⚠️ Error processing menu action")
