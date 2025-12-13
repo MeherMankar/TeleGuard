@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Menu text handlers"""
 import logging
 from telethon import Button

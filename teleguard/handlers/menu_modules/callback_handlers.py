@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Callback handlers for various actions"""
 import logging
 from ...core.mongo_database import mongodb

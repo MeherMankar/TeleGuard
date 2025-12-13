@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Inline menu system for account management
 Developed by:
 - @Meher_Mankar

@@ -81,10 +81,17 @@ class SafeConsoleHandler(logging.StreamHandler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Remove problematic Unicode characters for Windows console
+            # Only strip emojis from console logs, not from actual bot messages
             if sys.platform == 'win32':
-                msg = msg.encode('ascii', errors='replace').decode('ascii')
-            self.stream.write(msg + '\n')
+                try:
+                    # Try UTF-8 first
+                    self.stream.write(msg + '\n')
+                except UnicodeEncodeError:
+                    # Fallback to ASCII only for console
+                    msg = msg.encode('ascii', errors='replace').decode('ascii')
+                    self.stream.write(msg + '\n')
+            else:
+                self.stream.write(msg + '\n')
             self.flush()
         except Exception:
             pass

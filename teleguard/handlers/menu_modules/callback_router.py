@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Callback router for handling different callback types"""
 import logging
 from typing import Dict, Callable, Any
