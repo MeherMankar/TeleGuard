@@ -68,7 +68,7 @@ class CallbackRouter:
             "export_acc": self.handle_contacts_callback,
             "device": self.handle_device_callback,
             "back": self.handle_back_callback,
-            "toggle_otp": self.handle_otp_callback,
+            "toggle_otp": self.handlers.handle_otp_callback,
             "manage": self.handle_manage_callback,
             "export_session": self.handle_export_session_callback,
             "export_fresh": self.handle_export_fresh_callback,
