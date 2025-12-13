@@ -61,18 +61,20 @@ class UnifiedMessagingSystem:
                 me = await client.get_me()
                 is_bot = getattr(sender, 'bot', False)
                 is_telegram_official = sender.id in [777000, 42777]  # Telegram and Telegram Notifications
+                
+                # Send Telegram official messages via bot, ignore other bots
                 if is_telegram_official:
-                    return  # Let OTP manager handle Telegram messages
-                elif is_bot:
-                    # Send bot messages directly via bot instead of topics
                     await self._send_bot_message_directly(user_id, sender, me, event)
-                else:
-                    admin_group_id = await self._get_user_admin_group(user_id)
-                    if admin_group_id:
-                        # Auto-create topic and forward message
-                        await self._handle_incoming_dm(
-                            admin_group_id, event, sender, me, user_id
-                        )
+                    return
+                elif is_bot:
+                    return  # Ignore other bot messages
+                
+                admin_group_id = await self._get_user_admin_group(user_id)
+                if admin_group_id:
+                    # Auto-create topic and forward message
+                    await self._handle_incoming_dm(
+                        admin_group_id, event, sender, me, user_id
+                    )
                 if not is_bot and not is_telegram_official:
                     await self._handle_auto_reply(client, event, user_id, account_name)
             except Exception as e:
