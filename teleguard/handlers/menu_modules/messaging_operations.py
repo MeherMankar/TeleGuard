@@ -122,7 +122,7 @@ class MessagingOperations:
                         text += f"   Failed: {job['failed']}\n"
                     text += "\n"
                     if job['status'] == 'running':
-                        buttons.append([Button.inline(f"⏹️ Stop {job['id'][:8]}", f"bulk:stop:{str(job['id'])}")])]
+                        buttons.append([Button.inline(f"⏹️ Stop {job['id'][:8]}", f"bulk:stop:{str(job['id'])}")])
                 buttons.append([Button.inline("🔄 Refresh", "bulk:jobs")])
                 buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
