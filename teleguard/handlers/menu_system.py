@@ -113,9 +113,9 @@ class MenuSystem:
             if user and user.get("main_menu_message_id"):
                 try:
                     await self.bot.delete_messages(user_id, user["main_menu_message_id"])
-                except (ConnectionError, ValueError):
-                    pass  # Message might already be deleted
-        except (ConnectionError, ValueError) as e:
+                except Exception:
+                    pass  # Message might be service message or already deleted
+        except Exception as e:
             logger.debug(f"Cleanup old messages error: {e}")
     async def send_accounts_list(
         self, user_id: int, edit_message_id: Optional[int] = None
