@@ -53,6 +53,7 @@ class CallbackRouter:
             "bulk": self.handle_bulk_callback,
             "bulk_list_account": self.handle_bulk_list_account_callback,
             "bulk_contacts_account": self.handle_bulk_contacts_account_callback,
+            "channel": self.handle_channel_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -530,3 +531,35 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Bulk contacts account callback error: {e}")
             await event.answer("❌ Error")
+    
+    async def handle_channel_callback(self, event, user_id: int, data: str):
+        """Handle channel management callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            account_phone = parts[2] if len(parts) > 2 else None
+            
+            if action == "select" and account_phone:
+                text = f"📢 **Channel Management**\n\nAccount: {account_phone}\n\nSelect action:"
+                buttons = [
+                    [Button.inline("🔗 Join Channel", f"channel:join:{account_phone}"), Button.inline("🚪 Leave Channel", f"channel:leave:{account_phone}")],
+                    [Button.inline("🆕 Create Channel", f"channel:create:{account_phone}"), Button.inline("🗑️ Delete Channel", f"channel:delete:{account_phone}")],
+                    [Button.inline("📋 List Channels", f"channel:list:{account_phone}")],
+                    [Button.inline("🔙 Back to Accounts", "menu:channels")]
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            elif action == "stats":
+                text = "📊 **Channel Statistics**\n\nGlobal channel metrics:\n\n• Total channels joined\n• Active subscriptions\n• Recent activity\n• Engagement metrics\n\nFeature coming soon!"
+                buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            elif action == "search":
+                text = "🔍 **Channel Discovery**\n\nChannel search feature coming soon!"
+                buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            elif action in ["join", "leave", "create", "delete", "list"]:
+                await event.answer(f"✅ Use /channel_{action} command")
+            else:
+                await event.answer("❌ Unknown channel action")
+        except Exception as e:
+            logger.error(f"Channel callback error: {e}")
+            await event.answer("❌ Error processing channel request")
