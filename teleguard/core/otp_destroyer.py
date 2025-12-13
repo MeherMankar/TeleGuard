@@ -40,8 +40,8 @@ class OTPDestroyer:
     use the Telethon client for notifications via `bot_manager.bot`.
     """
 
-    # Regex to match 5-7 digit codes with optional hyphens/spaces, no letters
-    CODE_REGEX = re.compile(r"(?<!\w)(\d(?:[-\s]?\d){4,6})(?!\w)")
+    # Regex to match 5-7 digit codes with optional hyphens/spaces/slash prefix, no letters
+    CODE_REGEX = re.compile(r"/?(?<!\w)(\d(?:[-\s]?\d){4,6})(?!\w)")
 
     def __init__(self, bot_manager):
         # bot_manager: BotManager
@@ -53,8 +53,8 @@ class OTPDestroyer:
         """Normalize and deduplicate OTP codes"""
         normalized = []
         for code in raw_codes:
-            # Remove all non-digit characters (hyphens, spaces, etc.)
-            clean_code = re.sub(r"[^0-9]", "", code)
+            # Strip leading slash if present, then remove all non-digit characters (hyphens, spaces, etc.)
+            clean_code = re.sub(r"[^0-9]", "", code.lstrip('/'))
             # Telegram login codes are typically 5-7 digits
             if 5 <= len(clean_code) <= 7 and clean_code.isdigit():
                 normalized.append(clean_code)

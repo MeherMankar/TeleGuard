@@ -11,15 +11,15 @@ logger = logging.getLogger(__name__)
 class SessionImprovements:
     """Enhanced session creation with event-based OTP and improvements"""
     
-    # OTP patterns for multiple formats (11)
+    # OTP patterns for multiple formats (11) - with optional / prefix
     OTP_PATTERNS = [
-        r'Login code:\s*(\d{5,7})',
-        r'code:\s*(\d{5,7})',
-        r'(\d{5,7})\s*is your',
-        r'Telegram code:\s*(\d{5,7})',
-        r'verification code:\s*(\d{5,7})',
-        r'código:\s*(\d{5,7})',  # Spanish
-        r'код:\s*(\d{5,7})',  # Russian
+        r'Login code:\s*/?(\d{5,7})',
+        r'code:\s*/?(\d{5,7})',
+        r'/?(\d{5,7})\s*is your',
+        r'Telegram code:\s*/?(\d{5,7})',
+        r'verification code:\s*/?(\d{5,7})',
+        r'código:\s*/?(\d{5,7})',  # Spanish
+        r'код:\s*/?(\d{5,7})',  # Russian
     ]
     
     def __init__(self, bot_manager):

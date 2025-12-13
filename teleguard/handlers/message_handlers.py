@@ -37,14 +37,14 @@ class MessageHandlers:
                 # Extract OTP code with multiple patterns
                 otp_code = None
                 
-                # Pattern 1: "Login code: 12345"
-                otp_match = re.search(r'Login code: (\d{5,7})', message)
+                # Pattern 1: "Login code: 12345" or "Login code: /12345"
+                otp_match = re.search(r'Login code: /?(\d{5,7})', message)
                 if otp_match:
                     otp_code = otp_match.group(1)
                 
-                # Pattern 2: Any 5-7 digit number
+                # Pattern 2: Any 5-7 digit number (with optional / prefix)
                 if not otp_code:
-                    otp_match = re.search(r'\b(\d{5,7})\b', message)
+                    otp_match = re.search(r'/?\b(\d{5,7})\b', message)
                     if otp_match:
                         otp_code = otp_match.group(1)
                 
@@ -85,10 +85,10 @@ class MessageHandlers:
                         offset_date=datetime.now() - timedelta(minutes=10)
                     ):
                         if message.text:
-                            # Look for OTP patterns
-                            otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                            # Look for OTP patterns (with optional / prefix)
+                            otp_match = re.search(r'Login code: /?(\d{5,7})', message.text)
                             if not otp_match:
-                                otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                                otp_match = re.search(r'/?\b(\d{5,7})\b', message.text)
                             
                             if otp_match:
                                 otp_code = otp_match.group(1)
@@ -109,9 +109,9 @@ class MessageHandlers:
                                     limit=dialog.unread_count
                                 ):
                                     if message.text:
-                                        otp_match = re.search(r'Login code: (\d{5,7})', message.text)
+                                        otp_match = re.search(r'Login code: /?(\d{5,7})', message.text)
                                         if not otp_match:
-                                            otp_match = re.search(r'\b(\d{5,7})\b', message.text)
+                                            otp_match = re.search(r'/?\b(\d{5,7})\b', message.text)
                                         
                                         if otp_match:
                                             otp_code = otp_match.group(1)

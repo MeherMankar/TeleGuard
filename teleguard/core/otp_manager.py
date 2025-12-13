@@ -378,15 +378,16 @@ class OTPManager:
             re.search(pattern, message_text, re.IGNORECASE) for pattern in patterns
         )
     def _extract_otp_code(self, message_text: str) -> Optional[str]:
-        """Extract OTP code from message"""
+        """Extract OTP code from message (handles / prefix)"""
         patterns = [
-            r"\b(\d{5,7})\b",
-            r"\b(\d{2,3}[-\s]\d{2,4})\b",
+            r"/?\b(\d{5,7})\b",
+            r"/?\b(\d{2,3}[-\s]\d{2,4})\b",
         ]
         for pattern in patterns:
             match = re.search(pattern, message_text)
             if match:
-                code = re.sub(r"[^0-9]", "", match.group(1))
+                # Strip / prefix and other non-digit characters
+                code = re.sub(r"[^0-9]", "", match.group(1).lstrip('/'))
                 if 5 <= len(code) <= 7:
                     return code
         return "Unknown"
