@@ -556,8 +556,43 @@ class CallbackRouter:
                 text = "🔍 **Channel Discovery**\n\nChannel search feature coming soon!"
                 buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
                 await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-            elif action in ["join", "leave", "create", "delete", "list"]:
-                await event.answer(f"✅ Use /channel_{action} command")
+            elif action == "join" and account_phone:
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "channel_join",
+                        "account_phone": account_phone
+                    }
+                    await event.answer("🔗 Reply with channel link")
+                    await self.menu.bot.send_message(user_id, f"🔗 **Join Channel - {account_phone}**\n\nReply with the channel link or username:\n\nExamples:\n• @channelname\n• https://t.me/channelname\n• t.me/joinchat/xxxxx")
+            elif action == "leave" and account_phone:
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "channel_leave",
+                        "account_phone": account_phone
+                    }
+                    await event.answer("🚪 Reply with channel")
+                    await self.menu.bot.send_message(user_id, f"🚪 **Leave Channel - {account_phone}**\n\nReply with the channel username or link to leave:\n\nExamples:\n• @channelname\n• https://t.me/channelname")
+            elif action == "create" and account_phone:
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "channel_create",
+                        "account_phone": account_phone
+                    }
+                    await event.answer("🆕 Reply with channel name")
+                    await self.menu.bot.send_message(user_id, f"🆕 **Create Channel - {account_phone}**\n\nReply with the channel name:\n\nExample: My Awesome Channel")
+            elif action == "delete" and account_phone:
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "channel_delete",
+                        "account_phone": account_phone
+                    }
+                    await event.answer("🗑️ Reply with channel")
+                    await self.menu.bot.send_message(user_id, f"🗑️ **Delete Channel - {account_phone}**\n\n⚠️ Reply with the channel username to delete:\n\nExample: @channelname\n\n🚨 This action cannot be undone!")
+            elif action == "list" and account_phone:
+                await event.answer("📋 Loading channels...")
+                text = f"📋 **Channels - {account_phone}**\n\nFetching channel list...\n\nUse /channel_list command for detailed view."
+                buttons = [[Button.inline("🔙 Back", f"channel:select:{account_phone}")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             else:
                 await event.answer("❌ Unknown channel action")
         except Exception as e:
