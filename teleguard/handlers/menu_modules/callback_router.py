@@ -19,9 +19,11 @@ class CallbackRouter:
             "remove": self.handlers.handle_remove_callback,
             "otp": self.handlers.handle_otp_callback,
             "otp_setting": self.handle_otp_setting_callback,
+            "otp_pwd": self.handle_otp_pwd_callback,
             "online": self.handlers.handle_online_callback,
             "simulate": self.handlers.handle_simulate_callback,
             "profile": self.handlers.handle_profile_callback,
+            "sessions": self.handlers.handle_session_callback,
             "session": self.handlers.handle_session_callback,
             "2fa": self.handlers.handle_2fa_callback,
             "menu": self.handle_menu_callback,
@@ -310,3 +312,43 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"OTP setting callback error: {e}")
             await event.answer("❌ Error processing OTP setting")
+    
+    async def handle_otp_pwd_callback(self, event, user_id: int, data: str):
+        """Handle OTP password callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "status"
+            account_id = parts[2] if len(parts) > 2 else "0"
+            
+            if action == "set":
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "set_otp_disable_password",
+                        "account_id": account_id
+                    }
+                    await event.answer("🔒 Reply with password")
+                    await self.menu.bot.send_message(user_id, "🔒 **Set Disable Password**\n\nReply with a password that will be required to disable OTP Destroyer.\n\n⚠️ Minimum 6 characters required.")
+            elif action == "change":
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "change_otp_disable_password",
+                        "account_id": account_id
+                    }
+                    await event.answer("🔒 Reply with new password")
+                    await self.menu.bot.send_message(user_id, "🔒 **Change Disable Password**\n\nReply with the new password.")
+            elif action == "remove":
+                from bson import ObjectId
+                await self.menu.account_manager.db_manager.accounts.update_one(
+                    {"_id": ObjectId(account_id)},
+                    {"$unset": {"otp_destroyer_disable_auth": ""}}
+                )
+                await event.answer("✅ Password removed")
+                await self.menu.send_otp_account_management(user_id, account_id, event.message_id)
+            elif action == "status":
+                from bson import ObjectId
+                account = await self.menu.account_manager.db_manager.accounts.find_one({"_id": ObjectId(account_id)})
+                has_pwd = "✅ Set" if account and account.get("otp_destroyer_disable_auth") else "❌ Not Set"
+                await event.answer(f"Password Status: {has_pwd}")
+        except Exception as e:
+            logger.error(f"OTP password callback error: {e}")
+            await event.answer("❌ Error processing password request")
