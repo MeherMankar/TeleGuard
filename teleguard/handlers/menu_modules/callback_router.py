@@ -54,6 +54,35 @@ class CallbackRouter:
             "bulk_list_account": self.handle_bulk_list_account_callback,
             "bulk_contacts_account": self.handle_bulk_contacts_account_callback,
             "channel": self.handle_channel_callback,
+            "help": self.handle_help_callback,
+            "support": self.handle_support_callback,
+            "dev": self.handle_dev_callback,
+            "appeal_account_id": self.handle_appeal_callback,
+            "advanced_spam": self.handle_spam_master_callback,
+            "accept_spam_warning": self.handle_spam_master_callback,
+            "decline_spam_warning": self.handle_spam_master_callback,
+            "contact": self.handle_contacts_callback,
+            "sync": self.handle_contacts_callback,
+            "group": self.handle_contacts_callback,
+            "tag": self.handle_contacts_callback,
+            "export_acc": self.handle_contacts_callback,
+            "device": self.handle_device_callback,
+            "back": self.handle_back_callback,
+            "toggle_otp": self.handle_otp_callback,
+            "manage": self.handle_manage_callback,
+            "export_session": self.handle_export_session_callback,
+            "export_fresh": self.handle_export_fresh_callback,
+            "export_string": self.handle_export_string_callback,
+            "export_file": self.handle_export_file_callback,
+            "export_contacts": self.handle_export_contacts_callback,
+            "session_info": self.handle_session_login_callback,
+            "session_operations": self.handle_session_login_callback,
+            "session_op": self.handle_session_login_callback,
+            "session_delete": self.handle_session_login_callback,
+            "session_export_string": self.handle_session_login_callback,
+            "autoreply": self.handle_auto_reply_callback,
+            "channels": self.handle_channel_callback,
+            "import_sessions": self.handle_session_login_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -598,3 +627,134 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Channel callback error: {e}")
             await event.answer("❌ Error processing channel request")
+    
+    async def handle_help_callback(self, event, user_id: int, data: str):
+        """Handle help callbacks"""
+        try:
+            if hasattr(self.menu, 'help_callbacks'):
+                await self.menu.help_callbacks.handle_callback(event, user_id, data)
+            else:
+                await event.answer("✅ Use /help command")
+        except Exception as e:
+            logger.error(f"Help callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_support_callback(self, event, user_id: int, data: str):
+        """Handle support callbacks"""
+        try:
+            if hasattr(self.menu, 'help_callbacks'):
+                await self.menu.help_callbacks.handle_support_callback(event, user_id, data)
+            else:
+                await event.answer("✅ Use /help command")
+        except Exception as e:
+            logger.error(f"Support callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_dev_callback(self, event, user_id: int, data: str):
+        """Handle developer callbacks"""
+        try:
+            if hasattr(self.menu, 'help_callbacks'):
+                await self.menu.help_callbacks.handle_developer_callback(event, user_id, data)
+            else:
+                await event.answer("✅ Use /help command")
+        except Exception as e:
+            logger.error(f"Dev callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_appeal_callback(self, event, user_id: int, data: str):
+        """Handle spam appeal callbacks"""
+        try:
+            parts = data.split(":")
+            account_id = parts[1] if len(parts) > 1 else None
+            if account_id:
+                await event.answer("📝 Starting spam appeal...")
+                # Delegate to spam appeal handler if available
+                if hasattr(self.menu.account_manager, 'spam_appeal_handler'):
+                    await self.menu.account_manager.spam_appeal_handler.start_appeal(user_id, account_id)
+                else:
+                    await self.menu.bot.send_message(user_id, "📝 **Spam Appeal**\n\nManual steps:\n1. Go to @spambot\n2. Send /start\n3. Follow the appeal process")
+            else:
+                await event.answer("❌ Invalid account")
+        except Exception as e:
+            logger.error(f"Appeal callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_device_callback(self, event, user_id: int, data: str):
+        """Handle device management callbacks"""
+        try:
+            await event.answer("✅ Use /device command")
+        except Exception as e:
+            logger.error(f"Device callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_back_callback(self, event, user_id: int, data: str):
+        """Handle back button callbacks"""
+        try:
+            parts = data.split(":")
+            destination = parts[1] if len(parts) > 1 else "main"
+            if destination == "accounts":
+                await self.menu.handlers.handle_account_settings(event)
+            else:
+                await self.menu.send_main_menu(user_id)
+                await event.answer("🏠 Main menu")
+        except Exception as e:
+            logger.error(f"Back callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_manage_callback(self, event, user_id: int, data: str):
+        """Handle manage callbacks"""
+        try:
+            parts = data.split(":")
+            account_phone = parts[1] if len(parts) > 1 else None
+            if account_phone:
+                await self.handle_channel_callback(event, user_id, f"channel:select:{account_phone}")
+            else:
+                await event.answer("❌ Invalid account")
+        except Exception as e:
+            logger.error(f"Manage callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_export_session_callback(self, event, user_id: int, data: str):
+        """Handle export session callbacks"""
+        try:
+            await event.answer("✅ Use session export feature")
+        except Exception as e:
+            logger.error(f"Export session callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_export_fresh_callback(self, event, user_id: int, data: str):
+        """Handle export fresh session callbacks"""
+        try:
+            parts = data.split(":")
+            account_name = parts[1] if len(parts) > 1 else None
+            if account_name and hasattr(self.menu, '_handle_export_fresh_session'):
+                await self.menu._handle_export_fresh_session(event, user_id, account_name)
+            else:
+                await event.answer("✅ Processing...")
+        except Exception as e:
+            logger.error(f"Export fresh callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_export_string_callback(self, event, user_id: int, data: str):
+        """Handle export string callbacks"""
+        try:
+            await event.answer("✅ Use session export feature")
+        except Exception as e:
+            logger.error(f"Export string callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_export_file_callback(self, event, user_id: int, data: str):
+        """Handle export file callbacks"""
+        try:
+            await event.answer("✅ Use session export feature")
+        except Exception as e:
+            logger.error(f"Export file callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_export_contacts_callback(self, event, user_id: int, data: str):
+        """Handle export contacts callbacks"""
+        try:
+            await event.answer("✅ Use /export_contacts command")
+        except Exception as e:
+            logger.error(f"Export contacts callback error: {e}")
+            await event.answer("❌ Error")
