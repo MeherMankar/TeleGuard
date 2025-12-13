@@ -51,6 +51,8 @@ class CallbackRouter:
             "dm_reply": self.handle_dm_reply_callback,
             "template": self.handle_template_callback,
             "bulk": self.handle_bulk_callback,
+            "bulk_list_account": self.handle_bulk_list_account_callback,
+            "bulk_contacts_account": self.handle_bulk_contacts_account_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -369,6 +371,17 @@ class CallbackRouter:
                     await self.menu.messaging_operations.send_message_menu(user_id, event.message_id)
                 else:
                     await event.answer("❌ Messaging not available")
+            elif action == "compose":
+                account_id = parts[2] if len(parts) > 2 else None
+                if account_id and self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {
+                        "action": "compose_message_target",
+                        "account_id": account_id
+                    }
+                    await event.answer("📝 Reply with target")
+                    await self.menu.bot.send_message(user_id, "📝 **Compose Message**\n\nReply with the target (username, phone, or chat ID):\n\nExamples:\n• @username\n• +1234567890\n• -1001234567890 (for groups/channels)")
+                else:
+                    await event.answer("❌ Invalid account")
             elif action == "bulk":
                 if hasattr(self.menu, 'messaging_operations'):
                     await self.menu.messaging_operations.send_bulk_sender_menu(user_id, event.message_id)
@@ -451,3 +464,39 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"Bulk callback error: {e}")
             await event.answer("❌ Error processing bulk request")
+    
+    async def handle_bulk_list_account_callback(self, event, user_id: int, data: str):
+        """Handle bulk list account selection"""
+        try:
+            parts = data.split(":")
+            account_id = parts[1] if len(parts) > 1 else None
+            if account_id and self.menu.account_manager:
+                self.menu.account_manager.pending_actions[user_id] = {
+                    "action": "bulk_list_targets",
+                    "account_id": account_id
+                }
+                await event.answer("📝 Reply with targets")
+                await self.menu.bot.send_message(user_id, "📝 **Bulk Send to List**\n\nStep 2: Reply with target usernames/IDs (comma-separated):\n\nExamples:\n• @user1,@user2,@user3\n• +1234567890,@username,123456789")
+            else:
+                await event.answer("❌ Invalid account")
+        except Exception as e:
+            logger.error(f"Bulk list account callback error: {e}")
+            await event.answer("❌ Error")
+    
+    async def handle_bulk_contacts_account_callback(self, event, user_id: int, data: str):
+        """Handle bulk contacts account selection"""
+        try:
+            parts = data.split(":")
+            account_id = parts[1] if len(parts) > 1 else None
+            if account_id and self.menu.account_manager:
+                self.menu.account_manager.pending_actions[user_id] = {
+                    "action": "bulk_contacts_message",
+                    "account_id": account_id
+                }
+                await event.answer("📝 Reply with message")
+                await self.menu.bot.send_message(user_id, "📝 **Bulk Send to Contacts**\n\nStep 2: Reply with the message to send to all contacts.")
+            else:
+                await event.answer("❌ Invalid account")
+        except Exception as e:
+            logger.error(f"Bulk contacts account callback error: {e}")
+            await event.answer("❌ Error")

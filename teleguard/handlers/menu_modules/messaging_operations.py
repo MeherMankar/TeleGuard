@@ -22,7 +22,7 @@ class MessagingOperations:
             for account in accounts:
                 status = "✅" if account.get("is_active", False) else "❌"
                 button_text = f"{status} {account['name']}"
-                buttons.append([Button.inline(button_text, f"msg:compose:{account['_id']}")])
+                buttons.append([Button.inline(button_text, f"msg:compose:{str(account['_id'])}")])
             buttons.append([Button.inline("🔙 Back", "menu:messaging")])
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
     
@@ -68,7 +68,10 @@ class MessagingOperations:
             await event.answer("❌ No accounts found")
             return
         text = "📋 **Bulk Send to List**\n\nStep 1: Select account to send from:\n\n"
-        buttons = [[Button.inline(f"{'✅' if acc.get('is_active', False) else '❌'} {acc['name']}", f"bulk_list_account:{acc['_id']}") for acc in accounts]]
+        buttons = []
+        for acc in accounts:
+            status = '✅' if acc.get('is_active', False) else '❌'
+            buttons.append([Button.inline(f"{status} {acc['name']}", f"bulk_list_account:{str(acc['_id'])}")])
         buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
         await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         await event.answer("📋 Select account")
@@ -79,7 +82,10 @@ class MessagingOperations:
             await event.answer("❌ No accounts found")
             return
         text = "👥 **Bulk Send to Contacts**\n\nStep 1: Select account to send from:\n\nThis will send to ALL contacts of the selected account."
-        buttons = [[Button.inline(f"{'✅' if acc.get('is_active', False) else '❌'} {acc['name']}", f"bulk_contacts_account:{acc['_id']}") for acc in accounts]]
+        buttons = []
+        for acc in accounts:
+            status = '✅' if acc.get('is_active', False) else '❌'
+            buttons.append([Button.inline(f"{status} {acc['name']}", f"bulk_contacts_account:{str(acc['_id'])}")])
         buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
         await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
         await event.answer("👥 Select account")
@@ -116,7 +122,7 @@ class MessagingOperations:
                         text += f"   Failed: {job['failed']}\n"
                     text += "\n"
                     if job['status'] == 'running':
-                        buttons.append([Button.inline(f"⏹️ Stop {job['id'][:8]}", f"bulk:stop:{job['id']}")])
+                        buttons.append([Button.inline(f"⏹️ Stop {job['id'][:8]}", f"bulk:stop:{str(job['id'])}")])]
                 buttons.append([Button.inline("🔄 Refresh", "bulk:jobs")])
                 buttons.append([Button.inline("🔙 Back to Bulk Sender", "msg:bulk")])
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
