@@ -46,6 +46,11 @@ class CallbackRouter:
             "manual_otp": self.handle_manual_otp_callback,
             "resend_otp": self.handle_resend_otp_callback,
             "cancel_session": self.handle_cancel_session_callback,
+            "msg": self.handle_messaging_callback,
+            "auto_reply": self.handle_auto_reply_callback,
+            "dm_reply": self.handle_dm_reply_callback,
+            "template": self.handle_template_callback,
+            "bulk": self.handle_bulk_callback,
         }
     
     async def route_callback(self, event, user_id: int, data: str) -> bool:
@@ -352,3 +357,97 @@ class CallbackRouter:
         except Exception as e:
             logger.error(f"OTP password callback error: {e}")
             await event.answer("❌ Error processing password request")
+    
+    async def handle_messaging_callback(self, event, user_id: int, data: str):
+        """Handle messaging callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            
+            if action == "send":
+                if hasattr(self.menu, 'messaging_operations'):
+                    await self.menu.messaging_operations.send_message_menu(user_id, event.message_id)
+                else:
+                    await event.answer("❌ Messaging not available")
+            elif action == "bulk":
+                if hasattr(self.menu, 'messaging_operations'):
+                    await self.menu.messaging_operations.send_bulk_sender_menu(user_id, event.message_id)
+                else:
+                    await event.answer("❌ Bulk messaging not available")
+            elif action == "templates":
+                await event.answer("📝 Use /templates command")
+            elif action == "stats":
+                await self.menu._show_messaging_statistics(user_id, event.message_id)
+            elif action == "history":
+                await self.menu._show_message_history(user_id, event.message_id)
+            elif action == "settings":
+                await self.menu._show_messaging_settings(user_id, event.message_id)
+            else:
+                await event.answer("❌ Unknown messaging action")
+        except Exception as e:
+            logger.error(f"Messaging callback error: {e}")
+            await event.answer("❌ Error processing messaging request")
+    
+    async def handle_auto_reply_callback(self, event, user_id: int, data: str):
+        """Handle auto-reply callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            
+            if action == "main":
+                if hasattr(self.menu, 'messaging_operations'):
+                    await self.menu.messaging_operations.send_autoreply_menu(user_id, event.message_id)
+                else:
+                    await event.answer("❌ Auto-reply not available")
+            else:
+                await event.answer("✅ Processing...")
+        except Exception as e:
+            logger.error(f"Auto-reply callback error: {e}")
+            await event.answer("❌ Error processing auto-reply")
+    
+    async def handle_dm_reply_callback(self, event, user_id: int, data: str):
+        """Handle DM reply callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            
+            if action == "main":
+                await event.answer("📨 Use /dm_reply command for DM management")
+            else:
+                await event.answer("✅ Processing...")
+        except Exception as e:
+            logger.error(f"DM reply callback error: {e}")
+            await event.answer("❌ Error processing DM reply")
+    
+    async def handle_template_callback(self, event, user_id: int, data: str):
+        """Handle template callbacks"""
+        try:
+            await event.answer("📝 Use /templates command for template management")
+        except Exception as e:
+            logger.error(f"Template callback error: {e}")
+            await event.answer("❌ Error processing template")
+    
+    async def handle_bulk_callback(self, event, user_id: int, data: str):
+        """Handle bulk messaging callbacks"""
+        try:
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            
+            if hasattr(self.menu, 'messaging_operations'):
+                if action == "send_list":
+                    await self.menu.messaging_operations.start_bulk_list_flow(user_id, event)
+                elif action == "send_contacts":
+                    await self.menu.messaging_operations.start_bulk_contacts_flow(user_id, event)
+                elif action == "send_all":
+                    await self.menu.messaging_operations.start_bulk_all_flow(user_id, event)
+                elif action == "jobs":
+                    await self.menu.messaging_operations.show_bulk_jobs(user_id, event.message_id)
+                elif action == "help":
+                    await self.menu.messaging_operations.show_bulk_help(user_id, event.message_id)
+                else:
+                    await event.answer("❌ Unknown bulk action")
+            else:
+                await event.answer("❌ Bulk messaging not available")
+        except Exception as e:
+            logger.error(f"Bulk callback error: {e}")
+            await event.answer("❌ Error processing bulk request")
