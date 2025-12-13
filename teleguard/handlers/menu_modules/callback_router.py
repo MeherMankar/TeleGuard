@@ -425,7 +425,23 @@ class CallbackRouter:
             action = parts[1] if len(parts) > 1 else "main"
             
             if action == "main":
-                await event.answer("📨 Use /dm_reply command for DM management")
+                # Show DM reply menu instead of just telling them to use command
+                accounts = await self.menu.account_manager.db_manager.accounts.find({"user_id": user_id}).to_list(None)
+                if not accounts:
+                    text = "📨 **Unified DM Manager**\n\n❌ No accounts found. Add accounts first."
+                    buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
+                else:
+                    text = f"📨 **Unified DM Manager**\n\n📊 Manage all your DMs in one place\n\n📝 **Features:**\n• Centralized inbox for all accounts\n• Forum-based organization\n• Quick reply system\n• Message filtering\n\n📱 Accounts: {len(accounts)}\n\nUse /dm_reply command for full setup and management."
+                    buttons = [
+                        [Button.inline("⚙️ Setup DM Manager", "dm_reply:setup")],
+                        [Button.inline("📊 View Status", "dm_reply:status")],
+                        [Button.inline("🔙 Back", "menu:messaging")]
+                    ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            elif action == "setup":
+                await event.answer("⚙️ Use /dm_reply command for setup")
+            elif action == "status":
+                await event.answer("📊 Use /dm_reply command for status")
             else:
                 await event.answer("✅ Processing...")
         except Exception as e:
@@ -435,7 +451,21 @@ class CallbackRouter:
     async def handle_template_callback(self, event, user_id: int, data: str):
         """Handle template callbacks"""
         try:
-            await event.answer("📝 Use /templates command for template management")
+            parts = data.split(":")
+            action = parts[1] if len(parts) > 1 else "main"
+            
+            if action == "main":
+                text = "📝 **Advanced Message Templates**\n\n✨ Create reusable message templates with:\n\n🔹 **Features:**\n• Dynamic variables ({name}, {username})\n• Rich media support\n• Template categories\n• Quick reply buttons\n\n📚 Use /templates command for full template management."
+                buttons = [
+                    [Button.inline("🆕 Create Template", "template:create")],
+                    [Button.inline("📚 View Templates", "template:list")],
+                    [Button.inline("🔙 Back", "menu:messaging")]
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            elif action in ["create", "list"]:
+                await event.answer("📝 Use /templates command")
+            else:
+                await event.answer("📝 Use /templates command for template management")
         except Exception as e:
             logger.error(f"Template callback error: {e}")
             await event.answer("❌ Error processing template")
