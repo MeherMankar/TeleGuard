@@ -251,10 +251,6 @@ class DatabaseManager:
     async def get_audit_logs(self, user_id: int, limit: int = 100) -> List[dict]:
         """Get audit logs from MongoDB"""
         return await self.mongo.get_audit_logs(user_id, limit)
-    # Legacy compatibility methods
-    async def add_audit_entry(self, account_id: str, entry: dict):
-        """Legacy audit entry method"""
-        await self.mongo.add_audit_entry(account_id, entry)
     # Backup and Recovery (MongoDB - Durable)
     async def create_backup_snapshot(self, user_id: int) -> dict:
         """Create backup snapshot"""
@@ -314,11 +310,4 @@ async def init_database_manager():
 async def get_db_manager() -> DatabaseManager:
     """Get the database manager instance"""
     return db_manager
-# Legacy compatibility exports
-async def init_db():
-    """Legacy compatibility - initialize MongoDB only"""
-    from .mongo_database import init_db as mongo_init_db
-    await mongo_init_db()
-async def get_session():
-    """Legacy compatibility - get database manager"""
-    return db_manager
+

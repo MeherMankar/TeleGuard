@@ -9,15 +9,12 @@ from telethon.sessions import StringSession
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
 from ..core.mongo_database import mongodb
-from .session_improvements import SessionImprovements
-
 logger = logging.getLogger(__name__)
 class SessionExportHandler:
     def __init__(self, bot_manager):
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
-        self.improvements = SessionImprovements(bot_manager)
     def register_handlers(self):
         """Register session export handlers - DEPRECATED"""
         # All session functionality moved to session_login_handler.py
@@ -216,8 +213,8 @@ class SessionExportHandler:
             
             account_name = accounts[current_index]
             
-            # Optimize batch delay (10)
-            await self.improvements.optimize_batch_delay(current_index, total)
+            # Optimize batch delay
+            await asyncio.sleep(0.5)
             
             # Send status update
             await self.bot.send_message(
@@ -423,26 +420,14 @@ class SessionExportHandler:
                         logger.exception("Failed to write otp_protection entry")
                     
                 except Exception as send_err:
-                    # Handle FloodWait gracefully (7)
+                    # Handle FloodWait gracefully
                     if isinstance(send_err, FloodWaitError):
                         logger.info(f"FloodWait detected: {send_err.seconds}s")
-                        retry = await self.improvements.handle_flood_wait(send_err, event, account_name)
-                        if retry:
-                            # Retry after wait
-                            try:
-                                sent_code = await temp_client.send_code_request(phone)
-                                logger.info(f"OTP request retry successful for {phone}")
-                            except Exception as retry_err:
-                                logger.error(f"Retry failed: {retry_err}")
-                                send_err = retry_err
-                            else:
-                                # Success after retry - continue normal flow
-                                try:
-                                    self.bot_manager.pending_fresh_sessions[user_id]['sent_code'] = sent_code
-                                except Exception:
-                                    pass
-                                # Continue to OTP fetching
-                                pass
+                        # Store sent_code if available
+                        try:
+                            self.bot_manager.pending_fresh_sessions[user_id]['sent_code'] = None
+                        except Exception:
+                            pass
                     
                     # Clean up and surface a detailed error
                     logger.exception(f"send_code_request failed for {phone}: {send_err}")
@@ -559,45 +544,30 @@ class SessionExportHandler:
                 
                 if user_client and user_client.is_connected():
                     try:
-                        # Ensure client is connected (9)
-                        if not await self.improvements.ensure_client_connected(user_client):
-                            logger.error("Failed to ensure client connection")
-                            raise Exception("Client connection failed")
-                        
-                        logger.info(f"Client connected, setting up event listener")
+                        logger.info(f"Client connected, attempting OTP fetch")
                         request_time = datetime.now()
                         
-                        # Setup event-based OTP listener (1)
-                        otp_event, get_otp = await self.improvements.setup_event_listener(
-                            user_client, user_id, request_time
-                        )
-                        
-                        try:
-                            # Wait with progress countdown (1)
-                            result = await self.improvements.wait_with_progress(
-                                event, account_name, phone, otp_event, timeout=20
-                            )
-                            
-                            if result:
-                                otp = get_otp()
-                                if otp:
-                                    # Check OTP expiry (6)
-                                    expiring, remaining = self.improvements.check_otp_expiry(request_time)
-                                    if expiring:
-                                        logger.warning(f"OTP expiring soon: {remaining}s remaining")
-                                    
-                                    await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
-                                    await self.process_fresh_session_otp(user_id, otp)
-                                    return
-                            
-                            # Timeout - show resend options (4)
-                            logger.warning("OTP timeout - showing resend options")
-                            await self.improvements.show_resend_options(event, user_id, account_name, phone)
-                            return
-                            
-                        finally:
-                            # Cleanup listener
-                            self.improvements.cleanup_listener(user_id)
+                        # Simple OTP fetch without complex event handling
+                        otp_found = False
+                        for attempt in range(6):
+                            await asyncio.sleep(3)
+                            async for msg in user_client.iter_messages(777000, limit=3):
+                                if msg.text and msg.date > request_time:
+                                    import re
+                                    patterns = [r'code[:\s]+([0-9]{5,6})', r'([0-9]{5,6})']
+                                    for pattern in patterns:
+                                        match = re.search(pattern, msg.text, re.IGNORECASE)
+                                        if match:
+                                            otp = match.group(1)
+                                            logger.info(f"Found OTP: {otp}")
+                                            await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
+                                            await self.process_fresh_session_otp(user_id, otp)
+                                            otp_found = True
+                                            break
+                                if otp_found:
+                                    break
+                            if otp_found:
+                                return
                     
                     except Exception as listener_err:
                         logger.error(f"Event listener failed: {listener_err}, falling back to polling")
@@ -626,8 +596,8 @@ class SessionExportHandler:
                                             await self.process_fresh_session_otp(user_id, otp)
                                             return
                         
-                        # Polling timeout - show resend options
-                        await self.improvements.show_resend_options(event, user_id, account_name, phone)
+                        # Polling timeout
+                        logger.warning("OTP polling timeout")
                         return
                 else:
                     logger.error(f"Client not found or not connected for {account_name}")
@@ -824,8 +794,7 @@ class SessionExportHandler:
                 safe_account_name = account_name.encode('ascii', errors='replace').decode('ascii')
                 logger.info(f"Generated session string for {safe_account_name}: {len(fresh_session)} characters")
                 
-                # Cache session temporarily (13)
-                self.improvements.cache_session(user_id, account_name, fresh_session)
+                # Session generated successfully
                 from telethon import TelegramClient
                 from telethon.sessions import StringSession
                 from ..core.config import config

@@ -121,14 +121,7 @@ for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "ur
 logger = get_logger(__name__)
 logger.info("Logging system configured with UTF-8 support")
 
-# Global database instance
-db = None
 
-
-def initialize_database():
-    """Initialize database backend (legacy compatibility)"""
-    logger.info("Legacy database initialization skipped - using MongoDB")
-    return None
 
 
 async def perform_startup_checks() -> bool:
@@ -357,7 +350,6 @@ async def main() -> None:
         logger.info("💾 Initializing database connections...")
         print("Connecting to database...")
         await init_database_manager()
-        db_instance = initialize_database()
         
         health = await db_manager.health_check()
         if health.get('mongodb') and health.get('redis'):

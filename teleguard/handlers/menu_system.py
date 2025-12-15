@@ -13,7 +13,6 @@ from telethon import Button, events
 from ..core.config import ADMIN_IDS
 from ..core.mongo_database import mongodb
 from .secure_2fa_handlers import Secure2FAHandlers
-from .missing_handlers import MissingHandlers, register_missing_handlers
 from ..utils.network_helpers import format_display_name, format_phone_number
 from .menu_callbacks import (
     AccountCallbacks, OTPCallbacks, MessagingCallbacks,
@@ -27,7 +26,6 @@ class MenuSystem:
         self.bot = bot_instance
         self.account_manager = account_manager
         self.secure_2fa_handlers = Secure2FAHandlers(bot_instance, account_manager)
-        self.missing_handlers = None
         self._menu_text_handler = None
         self._callback_handler = None
         # Initialize modular components
@@ -155,9 +153,6 @@ class MenuSystem:
     
     def setup_menu_handlers(self):
         """Set up menu text handlers - DIRECT FIX for non-working buttons"""
-        # Register missing handlers
-        register_missing_handlers(self)
-        
         # DIRECT TEXT HANDLER - Simple and reliable
         @self.bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and e.text))
         async def direct_menu_handler(event):
