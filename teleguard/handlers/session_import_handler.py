@@ -34,6 +34,11 @@ class SessionImportHandler:
             user_id = event.sender_id
             await self._import_session_file(event, user_id)
         
+        @self.bot.on(events.CallbackQuery(pattern=r"^import_zip$"))
+        async def import_zip_sessions(event):
+            user_id = event.sender_id
+            await self._import_zip_sessions(event, user_id)
+        
         @self.bot.on(events.CallbackQuery(pattern=r"^import_formats$"))
         async def show_supported_formats(event):
             await self._show_supported_formats(event)
@@ -62,6 +67,7 @@ class SessionImportHandler:
             buttons = [
                 [Button.inline("📝 Import Session String", "import_string")],
                 [Button.inline("📁 Import Session File", "import_file")],
+                [Button.inline("📦 Import ZIP (Bulk)", "import_zip")],
                 [Button.inline("📊 View Supported Formats", "import_formats")],
                 [Button.inline("🔙 Back to Account Settings", "menu:accounts")]
             ]
@@ -119,6 +125,33 @@ class SessionImportHandler:
         except Exception as e:
             logger.error(f"Import session file error: {e}")
             await event.edit("❌ Error setting up file import.")
+    
+    async def _import_zip_sessions(self, event, user_id):
+        """Import multiple accounts via ZIP file"""
+        try:
+            if self.bot_manager:
+                self.bot_manager.pending_actions[user_id] = {
+                    "action": "import_zip_sessions"
+                }
+            text = (
+                "📦 **Bulk Session Import (ZIP)**\n\n"
+                "Send a ZIP file containing multiple session files:\n\n"
+                "**📱 Supported:**\n"
+                "• Multiple `.session` files\n"
+                "• Mixed Telethon/Pyrogram sessions\n"
+                "• Automatic format detection\n\n"
+                "**🔍 Process:**\n"
+                "1. Send ZIP file as document\n"
+                "2. Auto-extract all sessions\n"
+                "3. Import each valid session\n"
+                "4. Get detailed report\n\n"
+                "**⚡ Fast:** Import 10+ accounts in seconds!"
+            )
+            await event.edit(text)
+            await event.answer("📦 Send ZIP file with sessions")
+        except Exception as e:
+            logger.error(f"Import ZIP error: {e}")
+            await event.edit("❌ Error setting up ZIP import.")
     
     async def _show_supported_formats(self, event):
         """Show detailed list of supported session formats"""
@@ -228,4 +261,58 @@ class SessionImportHandler:
         except Exception as e:
             logger.error(f"Session file import error: {e}")
             return False, f"❌ File import failed: {str(e)}"
-
+    
+    async def process_zip_sessions(self, user_id, zip_path):
+        """Process bulk ZIP session import"""
+        import zipfile
+        import tempfile
+        import shutil
+        
+        try:
+            if not os.path.exists(zip_path):
+                return False, "❌ ZIP file not found"
+            
+            extract_dir = tempfile.mkdtemp(prefix="sessions_")
+            imported = []
+            failed = []
+            
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                
+                for root, dirs, files in os.walk(extract_dir):
+                    for filename in files:
+                        if filename.endswith('.session'):
+                            file_path = os.path.join(root, filename)
+                            success, message = await self.process_session_file(user_id, file_path)
+                            
+                            if success:
+                                imported.append(filename)
+                            else:
+                                failed.append((filename, message))
+                
+                result_text = f"✅ **Bulk Import Complete**\n\n"
+                result_text += f"✅ **Imported:** {len(imported)} sessions\n"
+                
+                if imported:
+                    result_text += "\n**Successful:**\n"
+                    for name in imported[:10]:
+                        result_text += f"• {name}\n"
+                    if len(imported) > 10:
+                        result_text += f"... and {len(imported) - 10} more\n"
+                
+                if failed:
+                    result_text += f"\n❌ **Failed:** {len(failed)}\n"
+                    for name, error in failed[:5]:
+                        result_text += f"• {name}: {error[:50]}\n"
+                
+                return True, result_text
+            
+            finally:
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+        
+        except Exception as e:
+            logger.error(f"ZIP import error: {e}")
+            return False, f"❌ ZIP import failed: {str(e)}"

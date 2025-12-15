@@ -193,7 +193,7 @@ class MessageHandlers:
                 await event.reply("❌ Account not found")
             self.pending_actions.pop(user_id, None)
     async def _handle_document_upload(self, event):
-        """Handle document uploads for session file imports"""
+        """Handle document uploads for session file imports and ZIP bulk imports"""
         user_id = event.sender_id
         if user_id not in self.pending_actions:
             return
@@ -230,6 +230,43 @@ class MessageHandlers:
             except (OSError, IOError, ValueError) as e:
                 logger.error(f"Unexpected session file error: {e}")
                 await event.reply("❌ Error processing session file")
+            self.pending_actions.pop(user_id, None)
+        
+        elif action == "import_zip_sessions":
+            try:
+                if event.document and event.document.attributes:
+                    filename = None
+                    for attr in event.document.attributes:
+                        if hasattr(attr, 'file_name'):
+                            filename = attr.file_name
+                            break
+                    
+                    if filename and filename.endswith('.zip'):
+                        import tempfile
+                        import os
+                        
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+                            zip_path = tmp.name
+                        
+                        await event.reply("⏳ Downloading ZIP file...")
+                        zip_path = await event.download_media(file=zip_path)
+                        
+                        if zip_path and os.path.exists(zip_path):
+                            if hasattr(self.bot_manager, 'session_import_handler'):
+                                await event.reply("📦 Processing sessions...")
+                                success, msg = await self.bot_manager.session_import_handler.process_zip_sessions(user_id, zip_path)
+                                await event.reply(msg)
+                            else:
+                                await event.reply("❌ Session import not available")
+                        else:
+                            await event.reply("❌ Invalid file path")
+                    else:
+                        await event.reply("❌ Please send a .zip file")
+                else:
+                    await event.reply("❌ Invalid document format")
+            except Exception as e:
+                logger.error(f"ZIP import error: {e}")
+                await event.reply(f"❌ Error processing ZIP file: {str(e)}")
             self.pending_actions.pop(user_id, None)
     async def _handle_user_reply(self, event):
         """Handle user text replies for pending actions"""
