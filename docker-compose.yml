@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  teleguard:
+    build: .
+    container_name: teleguard_bot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    volumes:
+      - ./sessions:/app/sessions
+      - ./logs:/app/logs
+    depends_on:
+      - mongodb
+    networks:
+      - teleguard_network
+
+  mongodb:
+    image: mongo:6.0
+    container_name: teleguard_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: teleguard
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - teleguard_network
+
+volumes:
+  mongodb_data:
+
+networks:
+  teleguard_network:
+    driver: bridge
