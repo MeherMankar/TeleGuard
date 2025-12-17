@@ -51,6 +51,9 @@ class ProxyHandler:
                     await self._delete_proxy(event, user_id, proxy_id)
                 elif action == 'assign':
                     await self._show_account_selection(event, user_id)
+                elif action == 'assign_new':
+                    proxy_id = parts[2] if len(parts) > 2 else None
+                    await self._show_account_selection_for_proxy(event, user_id, proxy_id)
                 elif action == 'assign_to':
                     account_id = parts[2] if len(parts) > 2 else None
                     await self._show_proxy_selection_for_account(event, user_id, account_id)
@@ -211,17 +214,33 @@ class ProxyHandler:
                 # Test proxy
                 test_success, test_msg, response_time = await proxy_manager.test_proxy(proxy_id, self.bot_manager)
                 
+                # Check if user has accounts
+                accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
+                
                 if test_success:
-                    await self.bot.send_message(
-                        user_id,
-                        f"✅ **Proxy Test Successful!**\n\n"
-                        f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
-                        f"**Response Time:** {response_time:.2f}s\n"
-                        f"**Status:** ✅ Working\n\n"
-                        f"🔗 You can now assign this proxy to your accounts.\n"
-                        f"💡 Proxies help bypass restrictions and improve privacy.",
-                        buttons=[[Button.inline("🔗 Assign to Account", "proxy:assign")], [Button.inline("📋 View All Proxies", "proxy:list")]]
-                    )
+                    if accounts:
+                        await self.bot.send_message(
+                            user_id,
+                            f"✅ **Proxy Test Successful!**\n\n"
+                            f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
+                            f"**Response Time:** {response_time:.2f}s\n"
+                            f"**Status:** ✅ Working\n\n"
+                            f"❓ Do you want to assign this proxy to an account now?",
+                            buttons=[
+                                [Button.inline("✅ Yes, Assign Now", f"proxy:assign_new:{proxy_id}")],
+                                [Button.inline("❌ No, Maybe Later", "proxy:list")]
+                            ]
+                        )
+                    else:
+                        await self.bot.send_message(
+                            user_id,
+                            f"✅ **Proxy Test Successful!**\n\n"
+                            f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
+                            f"**Response Time:** {response_time:.2f}s\n"
+                            f"**Status:** ✅ Working\n\n"
+                            f"💡 Add an account first to use this proxy.",
+                            buttons=[[Button.inline("📋 View Proxies", "proxy:list")]]
+                        )
                 else:
                     await self.bot.send_message(
                         user_id,
@@ -315,6 +334,47 @@ class ProxyHandler:
             )])
         
         buttons.append([Button.inline("🔙 Back", "proxy:menu")])
+        
+        await self._safe_edit(event, text, buttons=buttons)
+    
+    async def _show_account_selection_for_proxy(self, event, user_id, proxy_id):
+        """Show account selection for newly added proxy"""
+        from bson import ObjectId
+        
+        accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
+        proxy = await mongodb.db.proxies.find_one({'_id': ObjectId(proxy_id), 'user_id': user_id})
+        
+        if not accounts:
+            await self._safe_edit(
+                event,
+                "❌ No accounts found",
+                buttons=[[Button.inline("🔙 Back", "proxy:list")]]
+            )
+            return
+        
+        if not proxy:
+            await self._safe_edit(
+                event,
+                "❌ Proxy not found",
+                buttons=[[Button.inline("🔙 Back", "proxy:list")]]
+            )
+            return
+        
+        proxy_info = f"{proxy['server']}:{proxy['port']}"
+        text = f"🔗 **Assign Proxy to Account**\n\n**Proxy:** {proxy_info}\n\nSelect an account:"
+        buttons = []
+        
+        for account in accounts:
+            display_name = format_display_name(account)
+            has_proxy = "🌐" if account.get('proxy_id') else "⚪"
+            account_id = str(account['_id'])
+            
+            buttons.append([Button.inline(
+                f"{has_proxy} {display_name}",
+                f"proxy:set:{account_id}:{proxy_id}"
+            )])
+        
+        buttons.append([Button.inline("❌ Skip", "proxy:list")])
         
         await self._safe_edit(event, text, buttons=buttons)
     
