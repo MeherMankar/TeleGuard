@@ -403,18 +403,11 @@ class BotManager:
                 **device_params
             }
             
-            # Handle MTProto proxy with custom connection
+            # Handle MTProto proxy
             if proxy_dict and proxy_dict.get('type') == 'mtproto':
                 from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
-                # For MTProto, we need to create a custom connection that includes proxy info
-                # The proxy tuple (ip, port, secret) is passed to the connection, not TelegramClient
-                import functools
-                connection_class = functools.partial(
-                    ConnectionTcpMTProxyRandomizedIntermediate,
-                    proxy=(proxy_dict['addr'], proxy_dict['port'], proxy_dict['secret'])
-                )
-                client_params['connection'] = connection_class
-                logger.info(f"Using MTProto proxy for {account_name}")
+                client_params['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+                logger.info(f"Using MTProto proxy {proxy_dict['addr']}:{proxy_dict['port']} for {account_name}")
             elif proxy_dict:
                 client_params['proxy'] = proxy_dict
             
@@ -424,6 +417,14 @@ class BotManager:
                 config.telegram.api_hash,
                 **client_params
             )
+            
+            # For MTProto proxy, override all DC addresses to use proxy server
+            if proxy_dict and proxy_dict.get('type') == 'mtproto':
+                # Set proxy as the connection point for all DCs
+                for dc_id in range(1, 6):
+                    client.session.set_dc(dc_id, proxy_dict['addr'], proxy_dict['port'])
+                # Store the secret in session for MTProto
+                client.session._secret = proxy_dict['secret']
             
             # Connect with shorter timeout and comprehensive error handling
             try:
