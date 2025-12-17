@@ -327,6 +327,16 @@ class ProxyManager:
             if not proxy:
                 return None
             
+            # MTProto proxies need special format
+            if proxy['type'] == 'mtproto':
+                return {
+                    'proxy_type': 'mtproto',
+                    'addr': proxy['server'],
+                    'port': proxy['port'],
+                    'secret': proxy.get('secret', '')
+                }
+            
+            # SOCKS5/HTTP proxies
             proxy_dict = {
                 'proxy_type': proxy['type'],
                 'addr': proxy['server'],
@@ -337,8 +347,6 @@ class ProxyManager:
                 proxy_dict['username'] = proxy['username']
             if proxy.get('password'):
                 proxy_dict['password'] = proxy['password']
-            if proxy.get('secret'):
-                proxy_dict['secret'] = proxy['secret']
             
             return proxy_dict
         except Exception as e:
