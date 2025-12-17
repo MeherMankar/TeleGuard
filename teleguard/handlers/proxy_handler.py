@@ -15,6 +15,15 @@ class ProxyHandler:
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
     
+    async def _safe_edit(self, event, text, buttons=None):
+        """Safely edit message, ignoring 'content not modified' errors"""
+        try:
+            await event.edit(text, buttons=buttons)
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.error(f"Edit error: {e}")
+                raise
+    
     def register_handlers(self):
         """Register proxy callback handlers"""
         from telethon import events
@@ -93,7 +102,7 @@ class ProxyHandler:
             [Button.inline("🔙 Back to Main Menu", "menu:main")]
         ]
         
-        await event.edit(text, buttons=buttons)
+        await self._safe_edit(event, text, buttons=buttons)
     
     async def _show_proxy_list(self, event, user_id):
         """Show list of proxies"""
@@ -105,7 +114,7 @@ class ProxyHandler:
                 [Button.inline("➕ Add Proxy", "proxy:add")],
                 [Button.inline("🔙 Back", "proxy:menu")]
             ]
-            await event.edit(text, buttons=buttons)
+            await self._safe_edit(event, text, buttons=buttons)
             return
         
         text = f"📋 **Your Proxies** ({len(proxies)})\n\n"
@@ -137,7 +146,7 @@ class ProxyHandler:
         buttons.append([Button.inline("➕ Add Proxy", "proxy:add")])
         buttons.append([Button.inline("🔙 Back", "proxy:menu")])
         
-        await event.edit(text, buttons=buttons)
+        await self._safe_edit(event, text, buttons=buttons)
     
     async def _start_add_proxy(self, event, user_id):
         """Start adding proxy"""
@@ -157,7 +166,7 @@ class ProxyHandler:
             "Or send /cancel to cancel"
         )
         
-        await event.edit(text, buttons=[[Button.inline("❌ Cancel", "proxy:menu")]])
+        await self._safe_edit(event, text, buttons=[[Button.inline("❌ Cancel", "proxy:menu")]])
     
     async def process_proxy_input(self, event, user_id, text):
         """Process proxy input from user"""
@@ -200,7 +209,7 @@ class ProxyHandler:
                 )
                 
                 # Test proxy
-                test_success, test_msg, response_time = await proxy_manager.test_proxy(proxy_id)
+                test_success, test_msg, response_time = await proxy_manager.test_proxy(proxy_id, self.bot_manager)
                 
                 if test_success:
                     await self.bot.send_message(
@@ -252,7 +261,7 @@ class ProxyHandler:
         except:
             pass
         
-        success, message, response_time = await proxy_manager.test_proxy(proxy_id)
+        success, message, response_time = await proxy_manager.test_proxy(proxy_id, self.bot_manager)
         
         try:
             if success:
@@ -285,7 +294,8 @@ class ProxyHandler:
         accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
         
         if not accounts:
-            await event.edit(
+            await self._safe_edit(
+                event,
                 "❌ No accounts found",
                 buttons=[[Button.inline("🔙 Back", "proxy:menu")]]
             )
@@ -306,7 +316,7 @@ class ProxyHandler:
         
         buttons.append([Button.inline("🔙 Back", "proxy:menu")])
         
-        await event.edit(text, buttons=buttons)
+        await self._safe_edit(event, text, buttons=buttons)
     
     async def _show_proxy_selection_for_account(self, event, user_id, account_id):
         """Show proxy selection for specific account"""
@@ -323,7 +333,8 @@ class ProxyHandler:
         proxies = await proxy_manager.get_user_proxies(user_id)
         
         if not proxies:
-            await event.edit(
+            await self._safe_edit(
+                event,
                 "❌ No proxies available. Add a proxy first!",
                 buttons=[
                     [Button.inline("➕ Add Proxy", "proxy:add")],
@@ -361,7 +372,7 @@ class ProxyHandler:
         
         buttons.append([Button.inline("🔙 Back", "proxy:assign")])
         
-        await event.edit(text, buttons=buttons)
+        await self._safe_edit(event, text, buttons=buttons)
     
     async def _assign_proxy(self, event, user_id, account_id, proxy_id):
         """Assign proxy to account"""
@@ -429,7 +440,8 @@ class ProxyHandler:
         accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
         
         if not accounts:
-            await event.edit(
+            await self._safe_edit(
+                event,
                 "❌ No accounts found",
                 buttons=[[Button.inline("🔙 Back", "proxy:menu")]]
             )
@@ -463,4 +475,4 @@ class ProxyHandler:
             [Button.inline("🔙 Back", "proxy:menu")]
         ]
         
-        await event.edit(text, buttons=buttons)
+        await self._safe_edit(event, text, buttons=buttons)

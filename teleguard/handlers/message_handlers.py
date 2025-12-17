@@ -272,6 +272,11 @@ class MessageHandlers:
         """Handle user text replies for pending actions"""
         user_id = event.sender_id
         message = event.raw_text.strip()
+        
+        # Skip all commands - let command handlers process them
+        if message.startswith("/"):
+            return
+        
         logger.info(f"=== MESSAGE HANDLER === User {user_id} sent: '{message}'")
         logger.info(f"Pending actions keys: {list(self.pending_actions.keys())}")
         if user_id in self.pending_actions:
