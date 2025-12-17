@@ -395,7 +395,58 @@ class BotManager:
                 logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
                 raise ValueError(f"Invalid session string format: {e}")
             
-            # Create client with optional proxy
+            # Use Pyrogram for MTProto proxy connection, then convert to Telethon
+            if proxy_dict and proxy_dict.get('type') == 'mtproto':
+                try:
+                    from pyrogram import Client
+                    import tempfile
+                    import os
+                    
+                    logger.info(f"Using Pyrogram for MTProto proxy {proxy_dict['addr']}:{proxy_dict['port']}")
+                    
+                    # Create temp session file
+                    temp_session = tempfile.mktemp(suffix=".session")
+                    
+                    # Pyrogram proxy format
+                    pyrogram_proxy = {
+                        "scheme": "mtproto",
+                        "hostname": proxy_dict['addr'],
+                        "port": proxy_dict['port'],
+                        "secret": proxy_dict['secret'].hex() if isinstance(proxy_dict['secret'], bytes) else proxy_dict['secret']
+                    }
+                    
+                    # Connect with Pyrogram to establish session through MTProto proxy
+                    pyro_client = Client(
+                        temp_session,
+                        api_id=config.telegram.api_id,
+                        api_hash=config.telegram.api_hash,
+                        session_string=session_string,
+                        proxy=pyrogram_proxy,
+                        in_memory=True
+                    )
+                    
+                    await pyro_client.start()
+                    # Get session string from Pyrogram
+                    new_session_string = await pyro_client.export_session_string()
+                    await pyro_client.stop()
+                    
+                    # Clean up temp file
+                    try:
+                        if os.path.exists(temp_session):
+                            os.remove(temp_session)
+                    except:
+                        pass
+                    
+                    # Now use Telethon with the session (proxy already connected)
+                    string_session = StringSession(new_session_string)
+                    proxy_dict = None  # Don't pass proxy to Telethon
+                    logger.info(f"MTProto proxy connected via Pyrogram, switching to Telethon")
+                    
+                except Exception as e:
+                    logger.error(f"Pyrogram MTProto connection failed: {e}")
+                    raise
+            
+            # Create Telethon client
             client_params = {
                 'connection_retries': 2,
                 'retry_delay': 2,
@@ -403,12 +454,7 @@ class BotManager:
                 **device_params
             }
             
-            # Handle MTProto proxy
-            if proxy_dict and proxy_dict.get('type') == 'mtproto':
-                from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
-                client_params['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
-                logger.info(f"Using MTProto proxy {proxy_dict['addr']}:{proxy_dict['port']} for {account_name}")
-            elif proxy_dict:
+            if proxy_dict:
                 client_params['proxy'] = proxy_dict
             
             client = TelegramClient(
@@ -417,14 +463,6 @@ class BotManager:
                 config.telegram.api_hash,
                 **client_params
             )
-            
-            # For MTProto proxy, override all DC addresses to use proxy server
-            if proxy_dict and proxy_dict.get('type') == 'mtproto':
-                # Set proxy as the connection point for all DCs
-                for dc_id in range(1, 6):
-                    client.session.set_dc(dc_id, proxy_dict['addr'], proxy_dict['port'])
-                # Store the secret in session for MTProto
-                client.session._secret = proxy_dict['secret']
             
             # Connect with shorter timeout and comprehensive error handling
             try:
