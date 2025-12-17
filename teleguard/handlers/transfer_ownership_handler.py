@@ -169,13 +169,17 @@ class TransferOwnershipHandler:
             selected = self.pending_transfers[user_id]["selected_accounts"]
             logger.info(f"Selected accounts: {selected}")
             if not selected:
-                await event.reply("No accounts selected!")
+                await event.reply("❌ No accounts selected!")
+                del self.pending_transfers[user_id]
                 return
+            
+            # Send processing message
+            await event.reply(f"🔄 Processing transfer to user {target_input}...")
             
             # Parse target user
             target_user_id = await self._parse_user_id(target_input)
             if not target_user_id:
-                await event.reply("Invalid user ID or username. Try again:")
+                await event.reply("❌ Invalid user ID or username. Try again:")
                 return
             
             # Verify target user exists in database
@@ -216,18 +220,32 @@ class TransferOwnershipHandler:
                         "twofa": twofa_password
                     })
             
-            # Notify both users
-            await event.reply(f"✅ Transferred {len(transferred)} account(s) to user {target_input}")
+            # Notify sender
+            sender_msg = (
+                f"✅ **Transfer Complete!**\n\n"
+                f"Successfully transferred {len(transferred)} account(s) to user {target_input}\n\n"
+                f"**Transferred Accounts:**\n"
+            )
+            for acc in transferred:
+                sender_msg += f"• {acc['name']} ({acc['phone']})\n"
+            sender_msg += f"\n🔔 Recipient has been notified"
+            
+            await event.reply(sender_msg)
             
             # Notify recipient
-            msg = f"📱 **Account Transfer Received**\n\nYou received {len(transferred)} account(s):\n\n"
+            recipient_msg = f"📱 **Account Transfer Received**\n\nYou received {len(transferred)} account(s):\n\n"
             for acc in transferred:
-                msg += f"• {acc['name']} ({acc['phone']})\n"
+                recipient_msg += f"• {acc['name']} ({acc['phone']})\n"
                 if acc['twofa']:
-                    msg += f"  🔐 2FA: `{acc['twofa']}`\n"
-            msg += "\nUse /accs to view your accounts."
+                    recipient_msg += f"  🔐 2FA: `{acc['twofa']}`\n"
+            recipient_msg += "\n✅ Use /accs to view your accounts\n⚠️ Change 2FA passwords for security"
             
-            await self.bot.send_message(target_user_id, msg)
+            try:
+                await self.bot.send_message(target_user_id, recipient_msg)
+                logger.info(f"Notified recipient {target_user_id} about transfer")
+            except Exception as notify_error:
+                logger.error(f"Failed to notify recipient: {notify_error}")
+                await event.reply(f"⚠️ Transfer complete but failed to notify recipient: {notify_error}")
             
             del self.pending_transfers[user_id]
             

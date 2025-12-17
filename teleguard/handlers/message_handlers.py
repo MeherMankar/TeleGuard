@@ -348,14 +348,16 @@ class MessageHandlers:
                     else:
                         logger.error(f"OTP processing failed for user {user_id}")
                     return
-                else:
-                    logger.warning(f"Message '{message}' doesn't match OTP pattern and not waiting for 2FA")
+                # If not OTP, continue to pending action check
         
+        # Skip command processing if user has pending action (except for cancel commands)
         if message.startswith("/"):
             # Clear pending actions for certain commands
             if message in ["/start", "/cancel", "/help"]:
                 self.pending_actions.pop(user_id, None)
-            return
+            # Don't return early if user has pending action - let it process
+            if user_id not in self.pending_actions:
+                return
         
 
         # Check for OTP auto-fetch during session creation (additional fallback)
@@ -429,18 +431,6 @@ class MessageHandlers:
         if user_id not in self.pending_actions:
             logger.warning(f"!!! User {user_id} sent '{message}' but NO pending action found !!!")
             logger.debug(f"Current pending_actions: {dict(self.pending_actions)}")
-
-            import re as _re
-            # common 2FA password pattern: mixed alnum and symbols, length >=6
-            if _re.match(r'^[A-Za-z0-9@#\$%\^&\-_]{6,}$', message):
-                try:
-                    await event.reply(
-                        "⚠️ No active authentication flow found. If you were asked for a 2FA password, please restart the login process and try again."
-                    )
-                except Exception:
-                    pass
-                return
-
             return
         action = self.pending_actions[user_id]["action"]
         logger.info(f"Processing user action for {user_id}: {action}")
@@ -502,6 +492,8 @@ class MessageHandlers:
             await self._handle_bulk_cleanup_selection(event, user, action, message)
         elif action == "session_creation_2fa_password":
             await self._handle_session_creation_2fa(event, user, action, message)
+        elif action == "add_proxy":
+            await self._handle_add_proxy(event, user, action, message)
         else:
             if hasattr(self.bot_manager, 'session_export_handler') and hasattr(self.bot_manager, 'pending_fresh_sessions'):
                 if user_id in self.bot_manager.pending_fresh_sessions:
@@ -1598,3 +1590,13 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
             if hasattr(self.bot_manager, 'session_login_handler'):
                 self.bot_manager.session_login_handler.pending_auth.pop(user_id, None)
+
+    async def _handle_add_proxy(self, event, user, action, message):
+        """Handle proxy input from user"""
+        user_id = event.sender_id
+        
+        if hasattr(self.bot_manager, 'menu_system') and hasattr(self.bot_manager.menu_system, 'proxy_handler'):
+            await self.bot_manager.menu_system.proxy_handler.process_proxy_input(event, user_id, message.strip())
+        else:
+            await event.reply("❌ Proxy management not available")
+            self.pending_actions.pop(user_id, None)

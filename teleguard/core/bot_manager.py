@@ -323,6 +323,19 @@ class BotManager:
                 logger.warning(f"Session pre-validation failed for {account_name}: {e}")
                 # Continue with conversion attempt if it's a Pyrogram session
             
+            # Get proxy if assigned to account
+            proxy_dict = None
+            try:
+                from .proxy_manager import proxy_manager
+                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if account and account.get('proxy_id'):
+                    proxy = await proxy_manager.get_account_proxy(str(account['_id']))
+                    if proxy:
+                        proxy_dict = proxy_manager.build_telethon_proxy(proxy)
+                        logger.info(f"Using proxy {proxy['server']}:{proxy['port']} for {account_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load proxy for {account_name}: {e}")
+            
             # Create client with session string and device spoofing
             from .device_snooper import DeviceSnooper
             device_params = DeviceSnooper.get_spoofed_device_params()
@@ -371,14 +384,21 @@ class BotManager:
                 logger.error(f"Session string details - Length: {len(session_string)}, Type: {type(session_string)}, Valid: {session_string.isprintable() if isinstance(session_string, str) else False}")
                 raise ValueError(f"Invalid session string format: {e}")
             
+            # Create client with optional proxy
+            client_params = {
+                'connection_retries': 2,
+                'retry_delay': 2,
+                'timeout': 10,
+                **device_params
+            }
+            if proxy_dict:
+                client_params['proxy'] = proxy_dict
+            
             client = TelegramClient(
                 string_session, 
                 config.telegram.api_id, 
                 config.telegram.api_hash,
-                connection_retries=2,
-                retry_delay=2,
-                timeout=10,
-                **device_params
+                **client_params
             )
             
             # Connect with shorter timeout and comprehensive error handling

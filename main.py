@@ -462,9 +462,10 @@ async def main() -> None:
             await graceful_shutdown()
         except Exception as shutdown_error:
             logger.error("💥 Shutdown error: %s", str(shutdown_error))
-        # Keep health server running
-        while True:
-            await asyncio.sleep(60)
+        
+        # Exit immediately on fatal startup errors
+        print("\n⚠️ Bot process will exit due to fatal error")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

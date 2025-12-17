@@ -3,6 +3,7 @@ import logging
 from telethon import Button, events
 from ..core.config import MAX_ACCOUNTS
 from ..core.mongo_database import mongodb
+from ..core.proxy_manager import proxy_manager
 from ..utils.network_helpers import format_phone_number
 logger = logging.getLogger(__name__)
 class CommandHandlers:
@@ -119,6 +120,40 @@ class CommandHandlers:
                 await event.reply(msg)
             except Exception as e:
                 await event.reply(f"❌ Reconnection failed: {str(e)}")
+        
+        # Proxy command
+        @self.bot.on(events.NewMessage(pattern=r"/proxy"))
+        async def proxy_handler(event):
+            user_id = event.sender_id
+            if hasattr(self.menu_system, 'proxy_handler'):
+                proxies = await proxy_manager.get_user_proxies(user_id)
+                accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
+                accounts_with_proxy = sum(1 for acc in accounts if acc.get('proxy_id'))
+                
+                text = (
+                    f"🌐 **Proxy Management**\n\n"
+                    f"📊 **Statistics:**\n"
+                    f"• Total Proxies: {len(proxies)}\n"
+                    f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n\n"
+                    f"**Supported Formats:**\n"
+                    f"• Telegram proxy links (t.me/proxy)\n"
+                    f"• MTProto proxies\n"
+                    f"• SOCKS5 proxies\n"
+                    f"• HTTP proxies\n\n"
+                    f"Select an option below:"
+                )
+                
+                buttons = [
+                    [Button.inline("➕ Add Proxy", "proxy:add")],
+                    [Button.inline("📋 View Proxies", "proxy:list")],
+                    [Button.inline("🔗 Assign to Account", "proxy:assign")],
+                    [Button.inline("👥 View Accounts", "proxy:view_accounts")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")]
+                ]
+                
+                await event.reply(text, buttons=buttons)
+            else:
+                await event.reply("❌ Proxy management not available")
         
         # Toggle protection command
         @self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))

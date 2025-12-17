@@ -44,6 +44,11 @@ class MenuSystem:
         self.messaging_callbacks = MessagingCallbacks(bot_instance, account_manager, self)
         self.cleanup_callbacks = CleanupCallbacks(bot_instance, account_manager, self)
         self.help_callbacks = HelpCallbacks(bot_instance, account_manager, self)
+        
+        # Initialize proxy handler
+        from ..handlers.proxy_handler import ProxyHandler
+        self.proxy_handler = ProxyHandler(account_manager)
+        self.proxy_handler.register_handlers()
     def _parse_callback(self, callback_data: str):
         """Parse callback data - handles both JSON and colon-delimited formats"""
         return UtilityHelpers.parse_callback(callback_data)
@@ -187,6 +192,8 @@ class MenuSystem:
                         await self.handlers.handle_developer(event)
                     else:
                         await event.reply("🚫 Access denied")
+                elif text in ["🌐 Proxy Manager", "Proxy Manager", "Proxy"]:
+                    await self._handle_proxy_menu(event)
             except AttributeError as e:
                 logger.error(f"Handler method not found for '{text}': {e}", exc_info=True)
                 await event.reply(f"⚠️ Feature temporarily unavailable")
@@ -201,6 +208,12 @@ class MenuSystem:
                 user_id = event.sender_id
                 data = event.data.decode("utf-8")
                 logger.info(f"Callback: {data} from user {user_id}")
+                
+                # Handle proxy callbacks
+                if data.startswith('proxy:'):
+                    # Proxy handler manages its own callbacks
+                    return
+                
                 await self.router.route_callback(event, user_id, data)
             except Exception as e:
                 logger.error(f"Callback error: {e}", exc_info=True)
@@ -3142,3 +3155,8 @@ class MenuSystem:
             [Button.inline("?? Back to Accounts", "back:accounts")],
         ]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    async def _handle_proxy_menu(self, event):
+        """Handle Proxy Manager menu"""
+        user_id = event.sender_id
+        await self.proxy_handler._show_proxy_menu(event, user_id)
