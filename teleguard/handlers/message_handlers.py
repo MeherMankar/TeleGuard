@@ -65,6 +65,22 @@ class MessageHandlers:
                                 continue
             except Exception as e:
                 logger.error(f"OTP fetch error: {e}")
+        
+        @self.bot.on(events.NewMessage(incoming=True))
+        async def reply_handler(event):
+            try:
+                await self._handle_user_reply(event)
+            except Exception as e:
+                logger.error(f"Unhandled exception in reply_handler: {e}")
+                try:
+                    from ..utils.logger import BotLogger
+                    await BotLogger.log_error("Message Handler Error", str(e), user_id=event.sender_id, context="reply_handler")
+                except:
+                    pass
+                try:
+                    await event.reply("❌ An error occurred. Please try again or contact support.")
+                except Exception:
+                    pass
     
     async def fetch_recent_otp(self, user_id):
         """Fetch recent OTP messages from Telegram official account"""
@@ -131,22 +147,6 @@ class MessageHandlers:
         except Exception as e:
             logger.error(f"Error fetching recent OTP: {e}")
             return False
-    
-        @self.bot.on(events.NewMessage(incoming=True))
-        async def reply_handler(event):
-            try:
-                await self._handle_user_reply(event)
-            except Exception as e:
-                logger.error(f"Unhandled exception in reply_handler: {e}")
-                try:
-                    from ..utils.logger import BotLogger
-                    await BotLogger.log_error("Message Handler Error", str(e), user_id=event.sender_id, context="reply_handler")
-                except:
-                    pass
-                try:
-                    await event.reply("❌ An error occurred. Please try again or contact support.")
-                except Exception:
-                    pass
     async def _handle_photo_upload(self, event):
         """Handle photo uploads for profile changes"""
         user_id = event.sender_id
