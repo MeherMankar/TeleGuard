@@ -399,13 +399,8 @@ class BotManager:
             if proxy_dict and proxy_dict.get('type') == 'mtproto':
                 try:
                     from pyrogram import Client
-                    import tempfile
-                    import os
                     
                     logger.info(f"Using Pyrogram for MTProto proxy {proxy_dict['addr']}:{proxy_dict['port']}")
-                    
-                    # Create temp session file
-                    temp_session = tempfile.mktemp(suffix=".session")
                     
                     # Pyrogram proxy format
                     pyrogram_proxy = {
@@ -415,9 +410,9 @@ class BotManager:
                         "secret": proxy_dict['secret'].hex() if isinstance(proxy_dict['secret'], bytes) else proxy_dict['secret']
                     }
                     
-                    # Connect with Pyrogram to establish session through MTProto proxy
+                    # Connect with Pyrogram using in-memory session
                     pyro_client = Client(
-                        temp_session,
+                        f"mtproto_{user_id}_{account_name}",
                         api_id=config.telegram.api_id,
                         api_hash=config.telegram.api_hash,
                         session_string=session_string,
@@ -426,25 +421,25 @@ class BotManager:
                     )
                     
                     await pyro_client.start()
-                    # Get session string from Pyrogram
-                    new_session_string = await pyro_client.export_session_string()
+                    # Export session after connecting through MTProto proxy
+                    session_string = await pyro_client.export_session_string()
                     await pyro_client.stop()
                     
-                    # Clean up temp file
-                    try:
-                        if os.path.exists(temp_session):
-                            os.remove(temp_session)
-                    except:
-                        pass
+                    # Update session in database
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "name": account_name},
+                        {"$set": {"session_string": session_string}}
+                    )
                     
-                    # Now use Telethon with the session (proxy already connected)
-                    string_session = StringSession(new_session_string)
+                    # Use new session string with Telethon WITHOUT proxy
+                    string_session = StringSession(session_string)
                     proxy_dict = None  # Don't pass proxy to Telethon
-                    logger.info(f"MTProto proxy connected via Pyrogram, switching to Telethon")
+                    logger.info(f"MTProto proxy connected via Pyrogram, using Telethon with updated session")
                     
                 except Exception as e:
                     logger.error(f"Pyrogram MTProto connection failed: {e}")
-                    raise
+                    # Don't raise - try without proxy
+                    proxy_dict = None
             
             # Create Telethon client
             client_params = {
