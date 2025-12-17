@@ -406,8 +406,14 @@ class BotManager:
             # Handle MTProto proxy with custom connection
             if proxy_dict and proxy_dict.get('type') == 'mtproto':
                 from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
-                client_params['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
-                client_params['proxy'] = (proxy_dict['addr'], proxy_dict['port'], proxy_dict['secret'])
+                # For MTProto, we need to create a custom connection that includes proxy info
+                # The proxy tuple (ip, port, secret) is passed to the connection, not TelegramClient
+                import functools
+                connection_class = functools.partial(
+                    ConnectionTcpMTProxyRandomizedIntermediate,
+                    proxy=(proxy_dict['addr'], proxy_dict['port'], proxy_dict['secret'])
+                )
+                client_params['connection'] = connection_class
                 logger.info(f"Using MTProto proxy for {account_name}")
             elif proxy_dict:
                 client_params['proxy'] = proxy_dict
