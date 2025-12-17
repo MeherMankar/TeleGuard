@@ -402,7 +402,14 @@ class BotManager:
                 'timeout': 10,
                 **device_params
             }
-            if proxy_dict:
+            
+            # Handle MTProto proxy with custom connection
+            if proxy_dict and proxy_dict.get('type') == 'mtproto':
+                from telethon.network.connection import ConnectionTcpMTProxyRandomizedIntermediate
+                client_params['connection'] = ConnectionTcpMTProxyRandomizedIntermediate
+                client_params['proxy'] = (proxy_dict['addr'], proxy_dict['port'], proxy_dict['secret'])
+                logger.info(f"Using MTProto proxy for {account_name}")
+            elif proxy_dict:
                 client_params['proxy'] = proxy_dict
             
             client = TelegramClient(
