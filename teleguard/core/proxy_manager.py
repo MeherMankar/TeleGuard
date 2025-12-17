@@ -395,6 +395,7 @@ class ProxyManager:
                                 secret = secret.encode('utf-8')
                 
                 return {
+                    'type': 'mtproto',  # For detection in bot_manager
                     'proxy_type': 'mtproto',
                     'addr': proxy['server'],
                     'port': proxy['port'],
