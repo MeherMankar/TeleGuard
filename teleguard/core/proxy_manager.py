@@ -375,13 +375,19 @@ class ProxyManager:
             # MTProto proxies need special format with bytes secret
             if proxy['type'] == 'mtproto':
                 secret = proxy.get('secret', '')
-                # Convert hex secret to bytes if needed
+                # Convert secret to bytes if needed
                 if isinstance(secret, str):
                     try:
+                        # Try hex first
                         secret = bytes.fromhex(secret)
-                    except:
-                        logger.error(f"Invalid MTProto secret format: {secret}")
-                        return None
+                    except ValueError:
+                        try:
+                            # Try base64
+                            import base64
+                            secret = base64.b64decode(secret)
+                        except:
+                            logger.error(f"Invalid MTProto secret format (not hex or base64): {secret[:50]}...")
+                            return None
                 
                 return {
                     'proxy_type': 'mtproto',
