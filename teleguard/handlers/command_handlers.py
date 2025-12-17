@@ -62,6 +62,38 @@ class CommandHandlers:
                     "ℹ️ No operation to cancel. Use the menu buttons below."
                 )
         
+        # List accounts command
+        @self.bot.on(events.NewMessage(pattern=r"/accs"))
+        async def accs_handler(event):
+            user_id = event.sender_id
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                if not accounts:
+                    await event.reply("❌ No accounts found. Use /add to add your first account.")
+                    return
+                
+                text = f"📱 **Your Accounts ({len(accounts)})**\n\n"
+                for i, account in enumerate(accounts, 1):
+                    name = account.get('name', 'Unknown')
+                    phone = account.get('phone', 'Unknown')
+                    is_active = account.get('is_active', False)
+                    otp_enabled = account.get('otp_destroyer_enabled', False)
+                    
+                    status = "🟢" if is_active else "🔴"
+                    otp_status = "🛡️" if otp_enabled else "⚪"
+                    
+                    text += f"{i}. {status} **{name}**\n"
+                    text += f"   📞 {phone}\n"
+                    text += f"   {otp_status} OTP: {'Enabled' if otp_enabled else 'Disabled'}\n\n"
+                
+                text += "\n**Legend:**\n"
+                text += "🟢 Active | 🔴 Inactive\n"
+                text += "🛡️ OTP Protected | ⚪ No Protection"
+                
+                await event.reply(text)
+            except Exception as e:
+                await event.reply(f"❌ Error: {str(e)}")
+        
         # Add account command
         @self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))
         async def add_handler(event):
