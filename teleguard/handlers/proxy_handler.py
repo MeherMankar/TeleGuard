@@ -54,6 +54,9 @@ class ProxyHandler:
                 elif action == 'assign_new':
                     proxy_id = parts[2] if len(parts) > 2 else None
                     await self._show_account_selection_for_proxy(event, user_id, proxy_id)
+                elif action == 'set_default':
+                    proxy_id = parts[2] if len(parts) > 2 else None
+                    await self._set_default_proxy(event, user_id, proxy_id)
                 elif action == 'assign_to':
                     account_id = parts[2] if len(parts) > 2 else None
                     await self._show_proxy_selection_for_account(event, user_id, account_id)
@@ -84,11 +87,16 @@ class ProxyHandler:
         accounts = await mongodb.db.accounts.find({'user_id': user_id}).to_list(length=None)
         accounts_with_proxy = sum(1 for acc in accounts if acc.get('proxy_id'))
         
+        # Get default proxy
+        default_proxy = await proxy_manager.get_default_proxy(user_id)
+        default_info = f"✅ {default_proxy['server']}:{default_proxy['port']}" if default_proxy else "❌ None"
+        
         text = (
             f"🌐 **Proxy Management**\n\n"
             f"📊 **Statistics:**\n"
             f"• Total Proxies: {len(proxies)}\n"
-            f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n\n"
+            f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n"
+            f"• Default for New Accounts: {default_info}\n\n"
             f"**Supported Formats:**\n"
             f"• Telegram proxy links (t.me/proxy)\n"
             f"• MTProto proxies\n"
@@ -225,10 +233,11 @@ class ProxyHandler:
                             f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
                             f"**Response Time:** {response_time:.2f}s\n"
                             f"**Status:** ✅ Working\n\n"
-                            f"❓ Do you want to assign this proxy to an account now?",
+                            f"❓ What would you like to do?",
                             buttons=[
-                                [Button.inline("✅ Yes, Assign Now", f"proxy:assign_new:{proxy_id}")],
-                                [Button.inline("❌ No, Maybe Later", "proxy:list")]
+                                [Button.inline("🔗 Assign to Account", f"proxy:assign_new:{proxy_id}")],
+                                [Button.inline("🤖 Set as Default for New Accounts", f"proxy:set_default:{proxy_id}")],
+                                [Button.inline("📋 View Proxies", "proxy:list")]
                             ]
                         )
                     else:
@@ -238,8 +247,11 @@ class ProxyHandler:
                             f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
                             f"**Response Time:** {response_time:.2f}s\n"
                             f"**Status:** ✅ Working\n\n"
-                            f"💡 Add an account first to use this proxy.",
-                            buttons=[[Button.inline("📋 View Proxies", "proxy:list")]]
+                            f"❓ Set as default for new accounts?",
+                            buttons=[
+                                [Button.inline("✅ Yes, Set as Default", f"proxy:set_default:{proxy_id}")],
+                                [Button.inline("📋 View Proxies", "proxy:list")]
+                            ]
                         )
                 else:
                     await self.bot.send_message(
@@ -336,6 +348,36 @@ class ProxyHandler:
         buttons.append([Button.inline("🔙 Back", "proxy:menu")])
         
         await self._safe_edit(event, text, buttons=buttons)
+    
+    async def _set_default_proxy(self, event, user_id, proxy_id):
+        """Set default proxy for new accounts"""
+        from bson import ObjectId
+        
+        proxy = await mongodb.db.proxies.find_one({'_id': ObjectId(proxy_id), 'user_id': user_id})
+        if not proxy:
+            try:
+                await event.answer("❌ Proxy not found", alert=True)
+            except:
+                pass
+            return
+        
+        success, message = await proxy_manager.set_default_proxy(user_id, proxy_id)
+        
+        try:
+            if success:
+                proxy_info = f"{proxy['server']}:{proxy['port']}"
+                await event.answer(
+                    f"✅ Default Proxy Set!\n\n"
+                    f"Proxy: {proxy_info}\n\n"
+                    f"All new accounts will automatically use this proxy.",
+                    alert=True
+                )
+            else:
+                await event.answer(f"❌ {message}", alert=True)
+        except:
+            pass
+        
+        await self._show_proxy_menu(event, user_id)
     
     async def _show_account_selection_for_proxy(self, event, user_id, proxy_id):
         """Show account selection for newly added proxy"""

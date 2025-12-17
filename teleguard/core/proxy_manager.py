@@ -297,6 +297,12 @@ class ProxyManager:
                 {'$unset': {'proxy_id': '', 'proxy_assigned_at': ''}}
             )
             
+            # Remove from default if set
+            await mongodb.db.user_settings.update_one(
+                {'user_id': user_id, 'default_proxy_id': proxy_id},
+                {'$unset': {'default_proxy_id': ''}}
+            )
+            
             # Delete proxy
             result = await mongodb.db.proxies.delete_one({'_id': ObjectId(proxy_id), 'user_id': user_id})
             
@@ -319,6 +325,45 @@ class ProxyManager:
             return proxy
         except Exception as e:
             logger.error(f"Failed to get account proxy: {e}")
+            return None
+    
+    async def set_default_proxy(self, user_id: int, proxy_id: str) -> Tuple[bool, str]:
+        """Set default proxy for new accounts"""
+        try:
+            from bson import ObjectId
+            
+            # Verify proxy exists
+            proxy = await mongodb.db.proxies.find_one({'_id': ObjectId(proxy_id), 'user_id': user_id})
+            if not proxy:
+                return False, "Proxy not found"
+            
+            # Store in user settings collection
+            await mongodb.db.user_settings.update_one(
+                {'user_id': user_id},
+                {'$set': {'default_proxy_id': proxy_id}},
+                upsert=True
+            )
+            
+            return True, "Default proxy set successfully"
+        except Exception as e:
+            logger.error(f"Failed to set default proxy: {e}")
+            return False, str(e)
+    
+    async def get_default_proxy(self, user_id: int) -> Optional[Dict]:
+        """Get default proxy for new accounts"""
+        try:
+            from bson import ObjectId
+            
+            # Get user settings
+            settings = await mongodb.db.user_settings.find_one({'user_id': user_id})
+            if not settings or not settings.get('default_proxy_id'):
+                return None
+            
+            # Get proxy
+            proxy = await mongodb.db.proxies.find_one({'_id': ObjectId(settings['default_proxy_id'])})
+            return proxy
+        except Exception as e:
+            logger.error(f"Failed to get default proxy: {e}")
             return None
     
     def build_telethon_proxy(self, proxy: Dict) -> Optional[Dict]:

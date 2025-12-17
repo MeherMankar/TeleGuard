@@ -323,18 +323,29 @@ class BotManager:
                 logger.warning(f"Session pre-validation failed for {account_name}: {e}")
                 # Continue with conversion attempt if it's a Pyrogram session
             
-            # Get proxy if assigned to account
+            # Get proxy if assigned to account, or auto-assign default proxy
             proxy_dict = None
             try:
                 from .proxy_manager import proxy_manager
                 account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                
+                # Auto-assign default proxy if account doesn't have one
+                if account and not account.get('proxy_id'):
+                    default_proxy = await proxy_manager.get_default_proxy(user_id)
+                    if default_proxy:
+                        proxy_id = str(default_proxy['_id'])
+                        await proxy_manager.assign_proxy_to_account(user_id, str(account['_id']), proxy_id)
+                        logger.info(f"Auto-assigned default proxy {default_proxy['server']}:{default_proxy['port']} to {account_name}")
+                        account['proxy_id'] = proxy_id
+                
+                # Load proxy if assigned
                 if account and account.get('proxy_id'):
                     proxy = await proxy_manager.get_account_proxy(str(account['_id']))
                     if proxy:
                         proxy_dict = proxy_manager.build_telethon_proxy(proxy)
                         logger.info(f"Using proxy {proxy['server']}:{proxy['port']} for {account_name}")
             except Exception as e:
-                logger.warning(f"Failed to load proxy for {account_name}: {e}")
+                logger.warning(f"Failed to load/assign proxy for {account_name}: {e}")
             
             # Create client with session string and device spoofing
             from .device_snooper import DeviceSnooper
