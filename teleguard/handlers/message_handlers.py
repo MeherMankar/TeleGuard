@@ -287,8 +287,18 @@ class MessageHandlers:
         
         # Check for transfer ownership or co-owner input FIRST (before OTP check)
         if hasattr(self.bot_manager, 'transfer_ownership_handler'):
-            if user_id in self.bot_manager.transfer_ownership_handler.pending_transfers or user_id in self.bot_manager.transfer_ownership_handler.pending_coowner:
-                await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
+            try:
+                if user_id in self.bot_manager.transfer_ownership_handler.pending_transfers:
+                    logger.info(f"!!! TRANSFER: User {user_id} in pending_transfers, processing input: {message}")
+                    await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
+                    return
+                elif user_id in self.bot_manager.transfer_ownership_handler.pending_coowner:
+                    logger.info(f"!!! COOWNER: User {user_id} in pending_coowner, processing input: {message}")
+                    await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
+                    return
+            except Exception as transfer_error:
+                logger.error(f"!!! TRANSFER ERROR: Failed to process transfer input for user {user_id}: {transfer_error}", exc_info=True)
+                await event.reply(f"❌ Transfer processing error: {str(transfer_error)}\n\nPlease try /transfer again.")
                 return
         
         # Manual OTP or 2FA input during session creation (only if not in transfer mode)
