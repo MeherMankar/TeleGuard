@@ -385,23 +385,49 @@ class ProxyHandler:
         
         success, message = await proxy_manager.assign_proxy_to_account(user_id, account_id, proxy_id)
         
-        try:
-            if success and account and new_proxy:
-                account_name = account.get('name', 'Unknown')
-                proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
-                await event.answer(
-                    f"✅ Proxy Assigned!\n\n"
-                    f"Account: {account_name}\n"
-                    f"Proxy: {proxy_info}\n\n"
-                    f"⚠️ Restart account to apply changes",
-                    alert=True
-                )
-            elif success:
-                await event.answer("✅ Proxy assigned! Restart account to apply.", alert=True)
+        if success:
+            # Restart account to apply proxy
+            phone = account.get('phone')
+            if phone and phone in self.bot_manager.user_clients:
+                try:
+                    await event.answer("🔄 Restarting account...", alert=False)
+                    client = self.bot_manager.user_clients[phone]
+                    await client.disconnect()
+                    await self.bot_manager._start_user_client(account)
+                    
+                    if account and new_proxy:
+                        account_name = account.get('name', 'Unknown')
+                        proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
+                        await event.answer(
+                            f"✅ Proxy Applied!\n\n"
+                            f"Account: {account_name}\n"
+                            f"Proxy: {proxy_info}\n"
+                            f"Status: ✅ Active",
+                            alert=True
+                        )
+                    else:
+                        await event.answer("✅ Proxy assigned and applied!", alert=True)
+                except Exception as e:
+                    logger.error(f"Restart error: {e}")
+                    await event.answer("✅ Proxy assigned! Restart account manually.", alert=True)
             else:
+                if account and new_proxy:
+                    account_name = account.get('name', 'Unknown')
+                    proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
+                    await event.answer(
+                        f"✅ Proxy Assigned!\n\n"
+                        f"Account: {account_name}\n"
+                        f"Proxy: {proxy_info}\n\n"
+                        f"⚠️ Start account to apply",
+                        alert=True
+                    )
+                else:
+                    await event.answer("✅ Proxy assigned! Start account to apply.", alert=True)
+        else:
+            try:
                 await event.answer(f"❌ {message}", alert=True)
-        except:
-            pass
+            except:
+                pass
         
         # Refresh selection
         await self._show_proxy_selection_for_account(event, user_id, account_id)
@@ -415,22 +441,46 @@ class ProxyHandler:
         
         success, message = await proxy_manager.remove_proxy_from_account(user_id, account_id)
         
-        try:
-            if success and account:
-                account_name = account.get('name', 'Unknown')
-                await event.answer(
-                    f"✅ Proxy Removed\n\n"
-                    f"Account: {account_name}\n"
-                    f"Status: Direct connection\n\n"
-                    f"⚠️ Restart account to apply changes",
-                    alert=True
-                )
-            elif success:
-                await event.answer("✅ Proxy removed", alert=True)
+        if success:
+            # Restart account to remove proxy
+            phone = account.get('phone')
+            if phone and phone in self.bot_manager.user_clients:
+                try:
+                    await event.answer("🔄 Restarting account...", alert=False)
+                    client = self.bot_manager.user_clients[phone]
+                    await client.disconnect()
+                    await self.bot_manager._start_user_client(account)
+                    
+                    if account:
+                        account_name = account.get('name', 'Unknown')
+                        await event.answer(
+                            f"✅ Proxy Removed\n\n"
+                            f"Account: {account_name}\n"
+                            f"Status: ✅ Direct connection",
+                            alert=True
+                        )
+                    else:
+                        await event.answer("✅ Proxy removed and applied!", alert=True)
+                except Exception as e:
+                    logger.error(f"Restart error: {e}")
+                    await event.answer("✅ Proxy removed! Restart account manually.", alert=True)
             else:
+                if account:
+                    account_name = account.get('name', 'Unknown')
+                    await event.answer(
+                        f"✅ Proxy Removed\n\n"
+                        f"Account: {account_name}\n"
+                        f"Status: Direct connection\n\n"
+                        f"⚠️ Start account to apply",
+                        alert=True
+                    )
+                else:
+                    await event.answer("✅ Proxy removed! Start account to apply.", alert=True)
+        else:
+            try:
                 await event.answer(f"❌ {message}", alert=True)
-        except:
-            pass
+            except:
+                pass
         
         # Refresh selection
         await self._show_proxy_selection_for_account(event, user_id, account_id)
