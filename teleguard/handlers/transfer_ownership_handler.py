@@ -165,9 +165,9 @@ class TransferOwnershipHandler:
     async def _process_transfer(self, event, user_id: int, target_input: str):
         """Process transfer ownership"""
         try:
-            logger.info(f"Starting transfer process for user {user_id}, target: {target_input}")
+            logger.info(f"[TRANSFER] Starting transfer process for user {user_id}, target: {target_input}")
             selected = self.pending_transfers[user_id]["selected_accounts"]
-            logger.info(f"Selected accounts: {selected}")
+            logger.info(f"[TRANSFER] Selected accounts: {selected}")
             if not selected:
                 await event.reply("❌ No accounts selected!")
                 del self.pending_transfers[user_id]
@@ -177,50 +177,77 @@ class TransferOwnershipHandler:
             await event.reply(f"🔄 Processing transfer to user {target_input}...")
             
             # Parse target user
+            logger.info(f"[TRANSFER] Parsing target user: {target_input}")
             target_user_id = await self._parse_user_id(target_input)
+            logger.info(f"[TRANSFER] Parsed target user ID: {target_user_id}")
+            
             if not target_user_id:
                 await event.reply("❌ Invalid user ID or username. Try again:")
                 return
             
             # Verify target user exists in database
+            logger.info(f"[TRANSFER] Checking if target user {target_user_id} exists in database")
             target_user = await mongodb.db.users.find_one({"telegram_id": target_user_id})
+            logger.info(f"[TRANSFER] Target user found: {target_user is not None}")
+            
             if not target_user:
-                await event.reply(f"User {target_input} hasn't started the bot. They must use /start first.")
+                await event.reply(f"❌ User {target_input} hasn't started the bot. They must use /start first.")
                 return
             
             # Transfer accounts
             from ..utils.data_encryption import decrypt_string
             transferred = []
             
-            for account_id in selected:
+            logger.info(f"[TRANSFER] Starting to transfer {len(selected)} accounts")
+            for i, account_id in enumerate(selected, 1):
+                logger.info(f"[TRANSFER] Processing account {i}/{len(selected)}: {account_id}")
                 account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
-                if account:
-                    # Get 2FA password if exists
-                    twofa_password = None
-                    if account.get('twofa_password'):
-                        try:
-                            twofa_password = decrypt_string(account['twofa_password'])
-                        except:
-                            pass
-                    
-                    # Update ownership
-                    await mongodb.db.accounts.update_one(
-                        {"_id": ObjectId(account_id)},
-                        {"$set": {"user_id": target_user_id}}
-                    )
-                    
-                    # Remove from original owner's client list
-                    if user_id in self.bot_manager.user_clients:
-                        account_name = account.get('name') or account.get('phone')
-                        self.bot_manager.user_clients[user_id].pop(account_name, None)
-                    
-                    transferred.append({
-                        "name": account.get('name', 'Unknown'),
-                        "phone": account.get('phone', 'Unknown'),
-                        "twofa": twofa_password
-                    })
+                
+                if not account:
+                    logger.warning(f"[TRANSFER] Account {account_id} not found or doesn't belong to user {user_id}")
+                    continue
+                
+                logger.info(f"[TRANSFER] Found account: {account.get('name')} ({account.get('phone')})")
+                
+                # Get 2FA password if exists
+                twofa_password = None
+                if account.get('twofa_password'):
+                    try:
+                        twofa_password = decrypt_string(account['twofa_password'])
+                        logger.info(f"[TRANSFER] Decrypted 2FA password for account {account_id}")
+                    except Exception as decrypt_err:
+                        logger.error(f"[TRANSFER] Failed to decrypt 2FA: {decrypt_err}")
+                
+                # Update ownership
+                logger.info(f"[TRANSFER] Updating ownership of account {account_id} to user {target_user_id}")
+                update_result = await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(account_id)},
+                    {"$set": {"user_id": target_user_id}}
+                )
+                logger.info(f"[TRANSFER] Update result - matched: {update_result.matched_count}, modified: {update_result.modified_count}")
+                
+                # Remove from original owner's client list
+                if user_id in self.bot_manager.user_clients:
+                    account_name = account.get('name') or account.get('phone')
+                    self.bot_manager.user_clients[user_id].pop(account_name, None)
+                    logger.info(f"[TRANSFER] Removed {account_name} from user {user_id}'s client list")
+                
+                transferred.append({
+                    "name": account.get('name', 'Unknown'),
+                    "phone": account.get('phone', 'Unknown'),
+                    "twofa": twofa_password
+                })
+            
+            logger.info(f"[TRANSFER] Successfully transferred {len(transferred)} accounts")
+            
+            if not transferred:
+                logger.error(f"[TRANSFER] No accounts were transferred!")
+                await event.reply("❌ Failed to transfer accounts. Please try again.")
+                del self.pending_transfers[user_id]
+                return
             
             # Notify sender
+            logger.info(f"[TRANSFER] Notifying sender {user_id}")
             sender_msg = (
                 f"✅ **Transfer Complete!**\n\n"
                 f"Successfully transferred {len(transferred)} account(s) to user {target_input}\n\n"
@@ -231,8 +258,10 @@ class TransferOwnershipHandler:
             sender_msg += f"\n🔔 Recipient has been notified"
             
             await event.reply(sender_msg)
+            logger.info(f"[TRANSFER] Sender notification sent")
             
             # Notify recipient
+            logger.info(f"[TRANSFER] Notifying recipient {target_user_id}")
             recipient_msg = f"📱 **Account Transfer Received**\n\nYou received {len(transferred)} account(s):\n\n"
             for acc in transferred:
                 recipient_msg += f"• {acc['name']} ({acc['phone']})\n"
@@ -242,16 +271,20 @@ class TransferOwnershipHandler:
             
             try:
                 await self.bot.send_message(target_user_id, recipient_msg)
-                logger.info(f"Notified recipient {target_user_id} about transfer")
+                logger.info(f"[TRANSFER] Recipient {target_user_id} notified successfully")
             except Exception as notify_error:
-                logger.error(f"Failed to notify recipient: {notify_error}")
+                logger.error(f"[TRANSFER] Failed to notify recipient: {notify_error}")
                 await event.reply(f"⚠️ Transfer complete but failed to notify recipient: {notify_error}")
             
+            logger.info(f"[TRANSFER] Cleaning up pending transfer for user {user_id}")
             del self.pending_transfers[user_id]
+            logger.info(f"[TRANSFER] Transfer process completed successfully")
             
         except Exception as e:
-            logger.error(f"Transfer error: {e}")
-            await event.reply(f"Transfer failed: {str(e)}")
+            logger.error(f"[TRANSFER] Transfer error for user {user_id}: {e}", exc_info=True)
+            await event.reply(f"❌ Transfer failed: {str(e)}\n\nPlease try /transfer again.")
+            if user_id in self.pending_transfers:
+                del self.pending_transfers[user_id]
     
     async def _process_coowner(self, event, user_id: int, target_input: str):
         """Process add co-owner"""

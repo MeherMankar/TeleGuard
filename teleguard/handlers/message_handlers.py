@@ -287,18 +287,27 @@ class MessageHandlers:
         
         # Check for transfer ownership or co-owner input FIRST (before OTP check)
         if hasattr(self.bot_manager, 'transfer_ownership_handler'):
+            handler = self.bot_manager.transfer_ownership_handler
+            logger.info(f"[TRANSFER CHECK] User {user_id} - pending_transfers: {user_id in handler.pending_transfers}, pending_coowner: {user_id in handler.pending_coowner}")
+            
             try:
-                if user_id in self.bot_manager.transfer_ownership_handler.pending_transfers:
-                    logger.info(f"!!! TRANSFER: User {user_id} in pending_transfers, processing input: {message}")
-                    await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
+                if user_id in handler.pending_transfers:
+                    logger.info(f"[TRANSFER] User {user_id} in pending_transfers, processing input: '{message}'")
+                    logger.info(f"[TRANSFER] Transfer state: {handler.pending_transfers[user_id]}")
+                    await handler.process_user_input(event, user_id, message)
+                    logger.info(f"[TRANSFER] process_user_input completed for user {user_id}")
                     return
-                elif user_id in self.bot_manager.transfer_ownership_handler.pending_coowner:
-                    logger.info(f"!!! COOWNER: User {user_id} in pending_coowner, processing input: {message}")
-                    await self.bot_manager.transfer_ownership_handler.process_user_input(event, user_id, message)
+                elif user_id in handler.pending_coowner:
+                    logger.info(f"[COOWNER] User {user_id} in pending_coowner, processing input: '{message}'")
+                    await handler.process_user_input(event, user_id, message)
+                    logger.info(f"[COOWNER] process_user_input completed for user {user_id}")
                     return
             except Exception as transfer_error:
-                logger.error(f"!!! TRANSFER ERROR: Failed to process transfer input for user {user_id}: {transfer_error}", exc_info=True)
+                logger.error(f"[TRANSFER ERROR] Failed to process transfer input for user {user_id}: {transfer_error}", exc_info=True)
                 await event.reply(f"❌ Transfer processing error: {str(transfer_error)}\n\nPlease try /transfer again.")
+                # Clean up state
+                handler.pending_transfers.pop(user_id, None)
+                handler.pending_coowner.pop(user_id, None)
                 return
         
         # Manual OTP or 2FA input during session creation (only if not in transfer mode)
@@ -365,6 +374,10 @@ class MessageHandlers:
             # Clear pending actions for certain commands
             if message in ["/start", "/cancel", "/help"]:
                 self.pending_actions.pop(user_id, None)
+                # Also clear transfer states
+                if hasattr(self.bot_manager, 'transfer_ownership_handler'):
+                    self.bot_manager.transfer_ownership_handler.pending_transfers.pop(user_id, None)
+                    self.bot_manager.transfer_ownership_handler.pending_coowner.pop(user_id, None)
             # Don't return early if user has pending action - let it process
             if user_id not in self.pending_actions:
                 return
