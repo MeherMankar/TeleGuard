@@ -377,17 +377,22 @@ class ProxyManager:
                 secret = proxy.get('secret', '')
                 # Convert secret to bytes if needed
                 if isinstance(secret, str):
+                    import base64
                     try:
                         # Try hex first
                         secret = bytes.fromhex(secret)
                     except ValueError:
                         try:
-                            # Try base64
-                            import base64
+                            # Try standard base64
                             secret = base64.b64decode(secret)
                         except:
-                            logger.error(f"Invalid MTProto secret format (not hex or base64): {secret[:50]}...")
-                            return None
+                            try:
+                                # Try URL-safe base64
+                                secret = base64.urlsafe_b64decode(secret + '=' * (4 - len(secret) % 4))
+                            except:
+                                # If all fail, just encode as UTF-8 bytes
+                                logger.warning(f"Using UTF-8 encoding for MTProto secret")
+                                secret = secret.encode('utf-8')
                 
                 return {
                     'proxy_type': 'mtproto',
