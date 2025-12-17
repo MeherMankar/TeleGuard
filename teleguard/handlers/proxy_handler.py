@@ -164,29 +164,38 @@ class ProxyHandler:
         try:
             logger.info(f"Processing proxy input from user {user_id}: {text[:100]}...")
             
+            # Send immediate processing feedback
+            processing_msg = await event.reply("🔄 Processing proxy...")
+            
             # Parse proxy
             proxy_data = await proxy_manager.parse_telegram_proxy_link(text)
             logger.info(f"Parsed proxy data: {proxy_data}")
             
             if not proxy_data:
                 logger.warning(f"Failed to parse proxy link: {text[:100]}")
-                await event.reply(
-                    "❌ Invalid proxy format. Please try again or send /cancel\n\n"
-                    "Example: `t.me/proxy?server=1.2.3.4&port=443&secret=abc123`"
+                await processing_msg.edit(
+                    "❌ **Invalid Proxy Format**\n\n"
+                    "Could not parse the proxy link you provided.\n\n"
+                    "**Supported Formats:**\n"
+                    "• `t.me/proxy?server=1.2.3.4&port=443&secret=abc123`\n"
+                    "• `t.me/socks?server=1.2.3.4&port=1080&user=admin&pass=123`\n"
+                    "• `socks5://user:pass@1.2.3.4:1080`\n\n"
+                    "Please try again or send /cancel"
                 )
                 return
             
             # Add proxy
+            await processing_msg.edit(f"📥 Adding proxy {proxy_data['server']}:{proxy_data['port']}...")
             success, result = await proxy_manager.add_proxy(user_id, proxy_data)
             
             if success:
                 proxy_id = result
-                await event.reply(
+                await processing_msg.edit(
                     f"✅ **Proxy Added Successfully!**\n\n"
                     f"**Server:** {proxy_data['server']}\n"
                     f"**Port:** {proxy_data['port']}\n"
                     f"**Type:** {proxy_data['type']}\n\n"
-                    f"Testing proxy...",
+                    f"🧪 Testing connection...",
                     buttons=[[Button.inline("📋 View Proxies", "proxy:list")]]
                 )
                 
@@ -197,27 +206,43 @@ class ProxyHandler:
                     await self.bot.send_message(
                         user_id,
                         f"✅ **Proxy Test Successful!**\n\n"
-                        f"Response time: {response_time:.2f}s\n"
-                        f"Status: Working\n\n"
-                        f"You can now assign this proxy to your accounts.",
-                        buttons=[[Button.inline("🔗 Assign to Account", "proxy:assign")]]
+                        f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
+                        f"**Response Time:** {response_time:.2f}s\n"
+                        f"**Status:** ✅ Working\n\n"
+                        f"🔗 You can now assign this proxy to your accounts.\n"
+                        f"💡 Proxies help bypass restrictions and improve privacy.",
+                        buttons=[[Button.inline("🔗 Assign to Account", "proxy:assign")], [Button.inline("📋 View All Proxies", "proxy:list")]]
                     )
                 else:
                     await self.bot.send_message(
                         user_id,
                         f"⚠️ **Proxy Test Failed**\n\n"
-                        f"Error: {test_msg}\n\n"
-                        f"The proxy was added but may not work. You can test it again later.",
-                        buttons=[[Button.inline("📋 View Proxies", "proxy:list")]]
+                        f"**Server:** {proxy_data['server']}:{proxy_data['port']}\n"
+                        f"**Error:** {test_msg}\n\n"
+                        f"❌ The proxy was added but may not work properly.\n\n"
+                        f"**Possible Issues:**\n"
+                        f"• Proxy server is offline\n"
+                        f"• Incorrect credentials\n"
+                        f"• Network connectivity issues\n\n"
+                        f"💡 You can test it again later from the proxy list.",
+                        buttons=[[Button.inline("📋 View Proxies", "proxy:list")], [Button.inline("🧪 Test Again", f"proxy:test:{proxy_id}")]]
                     )
             else:
-                await event.reply(f"❌ Failed to add proxy: {result}")
+                await processing_msg.edit(
+                    f"❌ **Failed to Add Proxy**\n\n"
+                    f"Error: {result}\n\n"
+                    f"Please check your proxy details and try again."
+                )
             
             # Clear pending action
             self.bot_manager.pending_actions.pop(user_id, None)
         except Exception as e:
             logger.error(f"Process proxy input error: {e}")
-            await event.reply(f"❌ Error: {str(e)}")
+            await event.reply(
+                f"❌ **Error Processing Proxy**\n\n"
+                f"An unexpected error occurred: {str(e)}\n\n"
+                f"Please try again or contact support."
+            )
             self.bot_manager.pending_actions.pop(user_id, None)
     
     async def _test_proxy(self, event, user_id, proxy_id):
@@ -340,10 +365,27 @@ class ProxyHandler:
     
     async def _assign_proxy(self, event, user_id, account_id, proxy_id):
         """Assign proxy to account"""
+        from bson import ObjectId
+        
+        # Get account and proxy details for better feedback
+        account = await mongodb.db.accounts.find_one({'_id': ObjectId(account_id), 'user_id': user_id})
+        proxy = await proxy_manager.get_account_proxy(account_id) if account and account.get('proxy_id') else None
+        new_proxy = await mongodb.db.proxies.find_one({'_id': ObjectId(proxy_id), 'user_id': user_id})
+        
         success, message = await proxy_manager.assign_proxy_to_account(user_id, account_id, proxy_id)
         
         try:
-            if success:
+            if success and account and new_proxy:
+                account_name = account.get('name', 'Unknown')
+                proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
+                await event.answer(
+                    f"✅ Proxy Assigned!\n\n"
+                    f"Account: {account_name}\n"
+                    f"Proxy: {proxy_info}\n\n"
+                    f"⚠️ Restart account to apply changes",
+                    alert=True
+                )
+            elif success:
                 await event.answer("✅ Proxy assigned! Restart account to apply.", alert=True)
             else:
                 await event.answer(f"❌ {message}", alert=True)
@@ -355,10 +397,24 @@ class ProxyHandler:
     
     async def _remove_proxy(self, event, user_id, account_id):
         """Remove proxy from account"""
+        from bson import ObjectId
+        
+        # Get account details for better feedback
+        account = await mongodb.db.accounts.find_one({'_id': ObjectId(account_id), 'user_id': user_id})
+        
         success, message = await proxy_manager.remove_proxy_from_account(user_id, account_id)
         
         try:
-            if success:
+            if success and account:
+                account_name = account.get('name', 'Unknown')
+                await event.answer(
+                    f"✅ Proxy Removed\n\n"
+                    f"Account: {account_name}\n"
+                    f"Status: Direct connection\n\n"
+                    f"⚠️ Restart account to apply changes",
+                    alert=True
+                )
+            elif success:
                 await event.answer("✅ Proxy removed", alert=True)
             else:
                 await event.answer(f"❌ {message}", alert=True)
