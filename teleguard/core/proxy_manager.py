@@ -372,13 +372,22 @@ class ProxyManager:
             if not proxy:
                 return None
             
-            # MTProto proxies need special format
+            # MTProto proxies need special format with bytes secret
             if proxy['type'] == 'mtproto':
+                secret = proxy.get('secret', '')
+                # Convert hex secret to bytes if needed
+                if isinstance(secret, str):
+                    try:
+                        secret = bytes.fromhex(secret)
+                    except:
+                        logger.error(f"Invalid MTProto secret format: {secret}")
+                        return None
+                
                 return {
                     'proxy_type': 'mtproto',
                     'addr': proxy['server'],
                     'port': proxy['port'],
-                    'secret': proxy.get('secret', '')
+                    'secret': secret
                 }
             
             # SOCKS5/HTTP proxies
