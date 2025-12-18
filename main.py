@@ -81,20 +81,30 @@ class SafeConsoleHandler(logging.StreamHandler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Only strip emojis from console logs, not from actual bot messages
+            # Remove emojis and problematic Unicode for Windows console
             if sys.platform == 'win32':
-                try:
-                    # Try UTF-8 first
-                    self.stream.write(msg + '\n')
-                except UnicodeEncodeError:
-                    # Fallback to ASCII only for console
-                    msg = msg.encode('ascii', errors='replace').decode('ascii')
-                    self.stream.write(msg + '\n')
-            else:
-                self.stream.write(msg + '\n')
+                # Replace common emojis with text equivalents
+                emoji_map = {
+                    '✅': '[OK]', '❌': '[X]', '🛡️': '[SHIELD]', '📱': '[PHONE]',
+                    '🔐': '[LOCK]', '💬': '[MSG]', '📢': '[CHANNEL]', '👥': '[USERS]',
+                    '🧹': '[CLEAN]', '🚀': '[START]', '⚠️': '[WARN]', '💥': '[ERROR]',
+                    '🌐': '[WEB]', '🔌': '[PLUG]', '📶': '[SIGNAL]', '🔍': '[SEARCH]',
+                    '🎨': '[ART]', '💾': '[SAVE]', '🏃': '[RUN]', '✨': '[STAR]',
+                    '⏳': '[WAIT]', '📝': '[NOTE]', '🆘': '[SOS]', '📋': '[LIST]',
+                    '🌡️': '[TEMP]', '🔗': '[LINK]', '🚫': '[BLOCK]', '⏹️': '[STOP]',
+                    '🔄': '[RELOAD]', '🛑': '[HALT]', '⌨️': '[KEY]', '📦': '[PKG]',
+                    '📁': '[FILE]', '🚨': '[ALERT]'
+                }
+                for emoji, text in emoji_map.items():
+                    msg = msg.replace(emoji, text)
+                # Remove any remaining Unicode characters that can't be encoded
+                msg = msg.encode('ascii', errors='replace').decode('ascii')
+            
+            stream = self.stream
+            stream.write(msg + self.terminator)
             self.flush()
         except Exception:
-            pass
+            self.handleError(record)
 
 console_handler = SafeConsoleHandler()
 
