@@ -619,7 +619,7 @@ class MessageHandlers:
                 "otp_destroyer": False,
             }
             await event.reply(
-                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n• Format 3: /12345 (recommended if code expires)\n\nAll formats work!\n\n💡 **Tip:** If your code expires immediately, use the `/` prefix (e.g., `/12345`) to bypass Telegram's security detection.\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
+                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n• Format 3: 1.2.3.4.5\n\nAll formats work!\n\n💡 **Tip:** If your code expires immediately, use the `Space` prefix (e.g., `1 2 3 4 5`) to bypass Telegram's security detection.\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
             )
         except (ValueError, ConnectionError, TimeoutError) as e:
             error_msg = str(e)

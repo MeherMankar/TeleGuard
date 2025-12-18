@@ -395,8 +395,8 @@ class AuthManager:
                     raise ValueError(
                         "❌ **Code Expired (Telegram Security)**\n\n"
                         "Telegram's server detected a plain text code and invalidated it immediately.\n\n"
-                        "**The Fix:** Send your code with a `/` prefix.\n"
-                        "Example: If your code is `12345`, send `/12345`\n\n"
+                        "**The Fix:** Send your code with a `Space`.\n"
+                        "Example: If your code is `12345`, send `1 2 3 4 5`\n\n"
                         "This format bypasses Telegram's phishing detection while still allowing copy-paste."
                     )
                 except SessionPasswordNeededError:
