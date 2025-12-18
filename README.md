@@ -16,6 +16,7 @@ Manage multiple Telegram accounts with advanced security features, automated wor
 - **OTP Destroyer** - Automatically invalidates login codes in real-time to prevent unauthorized access
 - **2FA Management** - Encrypted storage and management of two-factor authentication passwords
 - **Session Guardian** - Monitor and terminate suspicious login sessions instantly
+- **Proxy Support** - MTProto/SOCKS5/HTTP with automatic bridge for Telethon compatibility
 
 ### 📱 Account Management
 - **Multi-Account Support** - Manage up to 10 Telegram accounts from one interface

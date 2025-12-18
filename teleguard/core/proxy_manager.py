@@ -7,6 +7,7 @@ from typing import Optional, Dict, List, Tuple
 from urllib.parse import urlparse, parse_qs
 from telethon import TelegramClient
 from .mongo_database import mongodb
+from .mtproto_bridge import mtproto_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -366,43 +367,52 @@ class ProxyManager:
             logger.error(f"Failed to get default proxy: {e}")
             return None
     
-    def build_telethon_proxy(self, proxy: Dict) -> Optional[Dict]:
-        """Build proxy dict for Telethon client"""
+    async def build_telethon_proxy(self, proxy: Dict, proxy_id: str = None) -> Optional[Dict]:
+        """Build proxy dict for Telethon client (with MTProto bridge support)"""
         try:
             if not proxy:
                 return None
             
-            # MTProto proxies need special format with bytes secret
+            # MTProto proxies: Create SOCKS5 bridge
             if proxy['type'] == 'mtproto':
+                logger.info(f"Creating SOCKS5 bridge for MTProto proxy")
+                
                 secret = proxy.get('secret', '')
-                # Convert secret to bytes if needed
                 if isinstance(secret, str):
                     import base64
                     try:
-                        # Try hex first
                         secret = bytes.fromhex(secret)
                     except ValueError:
                         try:
-                            # Try standard base64
                             secret = base64.b64decode(secret)
                         except:
                             try:
-                                # Try URL-safe base64
                                 secret = base64.urlsafe_b64decode(secret + '=' * (4 - len(secret) % 4))
                             except:
-                                # If all fail, just encode as UTF-8 bytes
-                                logger.warning(f"Using UTF-8 encoding for MTProto secret")
                                 secret = secret.encode('utf-8')
                 
-                return {
-                    'type': 'mtproto',  # For detection in bot_manager
-                    'proxy_type': 'mtproto',
+                mtproto_config = {
                     'addr': proxy['server'],
                     'port': proxy['port'],
                     'secret': secret
                 }
+                
+                # Create bridge
+                bridge_info = await mtproto_bridge.create_bridge(proxy_id or proxy['server'], mtproto_config)
+                
+                if bridge_info:
+                    host, port = bridge_info
+                    logger.info(f"MTProto bridge active: {host}:{port}")
+                    return {
+                        'proxy_type': 'socks5',
+                        'addr': host,
+                        'port': port
+                    }
+                else:
+                    logger.warning("MTProto bridge failed, using direct connection (may fail)")
+                    return None
             
-            # SOCKS5/HTTP proxies
+            # SOCKS5/HTTP proxies (native support)
             proxy_dict = {
                 'proxy_type': proxy['type'],
                 'addr': proxy['server'],

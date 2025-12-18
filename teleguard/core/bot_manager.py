@@ -342,8 +342,11 @@ class BotManager:
                 if account and account.get('proxy_id'):
                     proxy = await proxy_manager.get_account_proxy(str(account['_id']))
                     if proxy:
-                        proxy_dict = proxy_manager.build_telethon_proxy(proxy)
-                        logger.info(f"Using proxy {proxy['server']}:{proxy['port']} for {account_name}")
+                        proxy_dict = await proxy_manager.build_telethon_proxy(proxy, str(account['_id']))
+                        if proxy_dict:
+                            logger.info(f"Using proxy {proxy['server']}:{proxy['port']} for {account_name}")
+                        else:
+                            logger.warning(f"Failed to build proxy for {account_name}")
             except Exception as e:
                 logger.warning(f"Failed to load/assign proxy for {account_name}: {e}")
             
@@ -1339,6 +1342,14 @@ class BotManager:
         try:
             logger.info("Starting cleanup...")
             self._is_running = False
+            
+            # Stop MTProto bridges
+            try:
+                from .mtproto_bridge import mtproto_bridge
+                await mtproto_bridge.stop_all_bridges()
+                logger.info("MTProto bridges stopped")
+            except Exception as e:
+                logger.warning(f"MTProto bridge cleanup failed: {e}")
             
             # Stop session monitor
             if hasattr(self, 'session_monitor') and self.session_monitor:
