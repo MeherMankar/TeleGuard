@@ -6,6 +6,8 @@ from typing import List, Dict
 from telethon import events
 from ..core.mongo_database import mongodb
 from ..core.config import ADMIN_IDS
+from ..core.rate_limiter import rate_limiter
+from ..core.session_health import session_health
 logger = logging.getLogger(__name__)
 class BulkSender:
     """Handles bulk message sending operations"""
@@ -137,6 +139,25 @@ class BulkSender:
             if not client:
                 await event.reply(f"❌ Account `{account_name}` not found")
                 return None
+            
+            # Get account phone for rate limiting
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            account_phone = account.get('phone') if account else account_name
+            
+            # Check rate limit
+            can_perform, error_msg = rate_limiter.can_perform(account_phone, 'bulk_send')
+            if not can_perform:
+                await event.reply(error_msg)
+                return None
+            
+            # Check session health
+            is_healthy, health_msg = await session_health.check_session(client, account_phone)
+            if not is_healthy:
+                await event.reply(f"⚠️ Session health check failed: {health_msg}\nProceed with caution.")
+            
+            # Record operation
+            rate_limiter.record_operation(account_phone, 'bulk_send')
+            rate_limiter.record_operation(account_phone, 'message', len(targets))
             import time
             job_id = f"bulk_{account_name}_{int(time.time())}"
             job = {
@@ -242,6 +263,11 @@ class BulkSender:
                     
                     job['sent'] += 1
                     logger.info(f"✅ Sent to {target} ({job['sent']}/{job['total']})")
+                    
+                    # Record message operation for rate limiting
+                    account = await mongodb.db.accounts.find_one({"user_id": job['user_id'], "name": job['account_name']})
+                    if account:
+                        rate_limiter.record_operation(account.get('phone', job['account_name']), 'message')
                     
                     # Update progress every 5 messages or at milestones
                     if (i + 1) % 5 == 0 or (i + 1) == job['total']:

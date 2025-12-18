@@ -606,10 +606,14 @@ class BotManager:
         from ..handlers.dm_reply_handler import DMReplyHandler
         from ..handlers.contact_handler import ContactHandler
         from ..handlers.contact_export_handler import ContactExportHandler
+        from ..handlers.rate_limit_commands import RateLimitCommands
 
         
         self.command_handlers = await self.component_manager.initialize_component(
             "command_handlers", CommandHandlers, self
+        )
+        self.rate_limit_commands = await self.component_manager.initialize_component(
+            "rate_limit_commands", RateLimitCommands, self
         )
         await self.component_manager.initialize_component(
             "start_handler", StartHandler, self.bot, self.menu_system, self
