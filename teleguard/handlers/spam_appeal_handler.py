@@ -275,8 +275,8 @@ class SpamAppealHandler:
             await self.setup_client_handler(user_id, client)
             logger.info(f"Handler setup complete for {account_name}")
             
-            # Short delay then send /start
-            await asyncio.sleep(random.uniform(2.0, 5.0))
+            # Longer delay before sending /start (human reads, thinks)
+            await asyncio.sleep(random.uniform(8.0, 15.0))
             
             # Try both bot usernames
             bot_username = "spambot"
@@ -284,13 +284,13 @@ class SpamAppealHandler:
                 logger.info(f"Sending /start to {bot_username} for {account_name}")
                 await client.send_message(bot_username, "/start")
                 logger.info(f"Sent /start to {bot_username} for {account_name}")
-                await asyncio.sleep(3)
+                await asyncio.sleep(random.uniform(5.0, 8.0))
             except Exception as e:
                 logger.warning(f"Failed with {bot_username}, trying SpamBot: {e}")
                 bot_username = "SpamBot"
                 await client.send_message(bot_username, "/start")
                 logger.info(f"Sent /start to {bot_username} for {account_name}")
-                await asyncio.sleep(3)
+                await asyncio.sleep(random.uniform(5.0, 8.0))
             
             self.active_appeals[user_id]['state'] = 'waiting_initial_response'
             logger.info(f"Waiting for spambot response for {account_name}...")
@@ -645,7 +645,7 @@ Generate 4 diverse examples:"""
     async def _click_button(self, event, button_text: str):
         """Click specific button with human-like delay"""
         try:
-            await asyncio.sleep(random.uniform(1.5, 3.5))
+            await asyncio.sleep(random.uniform(4.0, 8.0))
             
             # Log available buttons for debugging
             available_buttons = []
@@ -660,7 +660,7 @@ Generate 4 diverse examples:"""
                     if button_text.lower() in button.text.lower():
                         logger.info(f"Clicking button: {button.text}")
                         await button.click()
-                        await asyncio.sleep(random.uniform(2.5, 4.5))
+                        await asyncio.sleep(random.uniform(5.0, 10.0))
                         return True
             
             logger.warning(f"Button '{button_text}' not found. Available: {available_buttons}")
