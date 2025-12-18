@@ -397,49 +397,10 @@ class BotManager:
             
             # Use Pyrogram for MTProto proxy connection, then convert to Telethon
             if proxy_dict and proxy_dict.get('type') == 'mtproto':
-                try:
-                    from pyrogram import Client
-                    
-                    logger.info(f"Using Pyrogram for MTProto proxy {proxy_dict['addr']}:{proxy_dict['port']}")
-                    
-                    # Pyrogram proxy format
-                    pyrogram_proxy = {
-                        "scheme": "mtproto",
-                        "hostname": proxy_dict['addr'],
-                        "port": proxy_dict['port'],
-                        "secret": proxy_dict['secret'].hex() if isinstance(proxy_dict['secret'], bytes) else proxy_dict['secret']
-                    }
-                    
-                    # Connect with Pyrogram using in-memory session
-                    pyro_client = Client(
-                        f"mtproto_{user_id}_{account_name}",
-                        api_id=config.telegram.api_id,
-                        api_hash=config.telegram.api_hash,
-                        session_string=session_string,
-                        proxy=pyrogram_proxy,
-                        in_memory=True
-                    )
-                    
-                    await pyro_client.start()
-                    # Export session after connecting through MTProto proxy
-                    session_string = await pyro_client.export_session_string()
-                    await pyro_client.stop()
-                    
-                    # Update session in database
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {"$set": {"session_string": session_string}}
-                    )
-                    
-                    # Use new session string with Telethon WITHOUT proxy
-                    string_session = StringSession(session_string)
-                    proxy_dict = None  # Don't pass proxy to Telethon
-                    logger.info(f"MTProto proxy connected via Pyrogram, using Telethon with updated session")
-                    
-                except Exception as e:
-                    logger.error(f"Pyrogram MTProto connection failed: {e}")
-                    # Don't raise - try without proxy
-                    proxy_dict = None
+                logger.warning(f"MTProto proxy detected for {account_name} - skipping proxy (Telethon incompatible)")
+                # MTProto proxies are not compatible with Telethon's Connection._parse_proxy()
+                # Skip proxy and connect directly
+                proxy_dict = None
             
             # Create Telethon client
             client_params = {
