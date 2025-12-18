@@ -3,6 +3,8 @@ Channel Management System for TeleGuard
 Handles all channel/group operations via button interface
 """
 import logging
+import asyncio
+import random
 from telethon import Button, errors, functions, types
 from ..core.exceptions import AccountError, SessionError, ValidationError
 from ..core.mongo_database import mongodb
@@ -49,6 +51,7 @@ class ChannelManager:
                 raise ValidationError("Channel not found or invalid link")
             await client(functions.channels.JoinChannelRequest(channel_entity))
             channel_name = getattr(channel_entity, "title", channel_link)
+            await asyncio.sleep(random.uniform(2, 5))  # Human-like delay after join
             return True, f"Successfully joined {channel_name}"
         except errors.ChannelPrivateError:
             return False, "Channel is private or doesn't exist"
@@ -125,6 +128,7 @@ class ChannelManager:
                     functions.messages.DeleteChatUserRequest(channel_entity.id, "me")
                 )
             
+            await asyncio.sleep(random.uniform(2, 5))  # Human-like delay after leave
             return True, f"Successfully left {channel_name} (ID: {channel_id})"
         except errors.UserNotParticipantError:
             return False, "Not a member of this channel"

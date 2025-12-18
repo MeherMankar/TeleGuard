@@ -261,9 +261,9 @@ class BulkSender:
                             except:
                                 pass
                     
-                    # Rate limiting - 3-5 seconds between messages
+                    # Rate limiting - 8-15 seconds between messages (human-like)
                     import random
-                    await asyncio.sleep(random.uniform(3, 5))
+                    await asyncio.sleep(random.uniform(8, 15))
                     
                 except Exception as e:
                     job['failed'] += 1

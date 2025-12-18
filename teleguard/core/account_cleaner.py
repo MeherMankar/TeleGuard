@@ -5,6 +5,7 @@ Integrated from CleanAcc repository: https://github.com/MeherMankar/CleanAcc
 
 import asyncio
 import logging
+import random
 from typing import Dict, Any, Optional, List
 from telethon import TelegramClient
 from telethon.tl.types import User, Chat, Channel
@@ -49,7 +50,7 @@ class AccountCleaner:
     """Enhanced account cleanup service"""
 
     def __init__(self):
-        self.cleanup_delay = 0.5  # Delay between operations
+        pass  # Delays are randomized per operation
 
     async def cleanup_account(self, client: TelegramClient, 
                             cleanup_settings: Dict[str, bool],
@@ -195,7 +196,7 @@ class AccountCleaner:
             if progress_callback and (i + 1) % 5 == 0:
                 await progress_callback(progress.get_progress_text())
             
-            await asyncio.sleep(self.cleanup_delay)
+            await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
@@ -221,7 +222,7 @@ class AccountCleaner:
             if progress_callback and (i + 1) % 5 == 0:
                 await progress_callback(progress.get_progress_text())
             
-            await asyncio.sleep(self.cleanup_delay)
+            await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
@@ -262,7 +263,7 @@ class AccountCleaner:
             if progress_callback and (i + 1) % 3 == 0:
                 await progress_callback(progress.get_progress_text())
             
-            await asyncio.sleep(self.cleanup_delay)
+            await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
@@ -294,7 +295,7 @@ class AccountCleaner:
             if progress_callback and (i + 1) % 3 == 0:
                 await progress_callback(progress.get_progress_text())
             
-            await asyncio.sleep(self.cleanup_delay)
+            await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
@@ -331,7 +332,7 @@ class AccountCleaner:
                     if progress_callback:
                         await progress_callback(progress.get_progress_text())
                     
-                    await asyncio.sleep(self.cleanup_delay * 2)  # Longer delay for contacts
+                    await asyncio.sleep(random.uniform(5, 12))  # Longer delay for contacts
                     
                 except FloodWaitError as e:
                     progress.add_error(f"Rate limited deleting contacts: wait {e.seconds}s")
@@ -442,7 +443,7 @@ class AccountCleaner:
                 if progress_callback and (i + 1) % 2 == 0:
                     await progress_callback(progress.get_progress_text())
                 
-                await asyncio.sleep(self.cleanup_delay * 2)  # Longer delay for deletions
+                await asyncio.sleep(random.uniform(6, 15))  # Longer delay for deletions
                 
             except Exception as e:
                 progress.add_error(f"Error deleting owned group {dialog.name}: {e}")
@@ -485,7 +486,7 @@ class AccountCleaner:
                 if progress_callback and (i + 1) % 2 == 0:
                     await progress_callback(progress.get_progress_text())
                 
-                await asyncio.sleep(self.cleanup_delay * 2)  # Longer delay for deletions
+                await asyncio.sleep(random.uniform(6, 15))  # Longer delay for deletions
                 
             except Exception as e:
                 progress.add_error(f"Error deleting owned channel {dialog.name}: {e}")
