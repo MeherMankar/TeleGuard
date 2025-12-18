@@ -98,10 +98,10 @@ class ProxyHandler:
             f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n"
             f"• Default for New Accounts: {default_info}\n\n"
             f"**Supported Formats:**\n"
-            f"• Telegram proxy links (t.me/proxy)\n"
-            f"• MTProto proxies\n"
-            f"• SOCKS5 proxies\n"
-            f"• HTTP proxies\n\n"
+            f"✅ SOCKS5 proxies (Recommended)\n"
+            f"✅ HTTP proxies (Recommended)\n"
+            f"⚠️ MTProto proxies (May not work on cloud)\n"
+            f"• Telegram proxy links (t.me/proxy, t.me/socks)\n\n"
             f"Select an option below:"
         )
         
@@ -165,15 +165,17 @@ class ProxyHandler:
         
         text = (
             "➕ **Add New Proxy**\n\n"
+            "⚠️ **RECOMMENDED: Use SOCKS5 or HTTP proxies**\n"
+            "MTProto proxies may not work reliably on cloud platforms.\n\n"
             "Send me a proxy in any of these formats:\n\n"
             "**Telegram Links:**\n"
-            "• `t.me/proxy?server=1.2.3.4&port=443&secret=abc123`\n"
-            "• `t.me/socks?server=1.2.3.4&port=1080&user=admin&pass=123`\n"
-            "• `tg://proxy?server=1.2.3.4&port=443&secret=abc123`\n\n"
+            "• `t.me/socks?server=1.2.3.4&port=1080&user=admin&pass=123` ✅\n"
+            "• `t.me/proxy?server=1.2.3.4&port=443&secret=abc123` ⚠️\n"
+            "• `tg://socks?server=1.2.3.4&port=1080&user=admin&pass=123` ✅\n\n"
             "**Manual Format:**\n"
-            "• `socks5://user:pass@1.2.3.4:1080`\n"
-            "• `http://user:pass@1.2.3.4:8080`\n"
-            "• `mtproto://1.2.3.4:443:secret`\n\n"
+            "• `socks5://user:pass@1.2.3.4:1080` ✅ Recommended\n"
+            "• `http://user:pass@1.2.3.4:8080` ✅ Recommended\n"
+            "• `mtproto://1.2.3.4:443:secret` ⚠️ May not work\n\n"
             "Or send /cancel to cancel"
         )
         
