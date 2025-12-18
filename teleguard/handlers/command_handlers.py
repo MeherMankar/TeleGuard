@@ -187,6 +187,26 @@ class CommandHandlers:
             else:
                 await event.reply("❌ Proxy management not available")
         
+        # Appeal command
+        @self.bot.on(events.NewMessage(pattern=r"/appeal"))
+        async def appeal_handler(event):
+            user_id = event.sender_id
+            try:
+                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                if not accounts:
+                    await event.reply("❌ No active accounts found. Add an account first.")
+                    return
+                
+                text = "🚨 **Spam Appeal**\n\nSelect an account to appeal spam restriction:"
+                buttons = []
+                for account in accounts[:8]:
+                    button_text = f"📱 {account.get('name', 'Unknown')}"
+                    buttons.append([Button.inline(button_text, f"appeal:{account['_id']}")])                
+                buttons.append([Button.inline("🔙 Back", "menu:main")])
+                await event.reply(text, buttons=buttons)
+            except Exception as e:
+                await event.reply(f"❌ Error: {str(e)}")
+        
         # Toggle protection command
         @self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))
         async def toggle_protection_handler(event):

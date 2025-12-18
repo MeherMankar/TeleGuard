@@ -128,11 +128,13 @@ class BotManager:
             await self._initialize_bot_client()
             # Initialize BotLogger with bot instance
             await BotLogger.init(self.bot)
-            # Register bot commands with BotFather
+            # Register bot commands with BotFather automatically
             try:
-                from ..utils.command_registration import register_bot_commands
-                await register_bot_commands(self.bot)
-                print("Bot commands registered")
+                from ..utils.command_registry import command_registry
+                success = await command_registry.register_with_botfather(self.bot)
+                if success:
+                    print("Bot commands registered automatically")
+                    logger.info(f"Registered {len(command_registry.COMMANDS)} commands")
             except Exception as e:
                 logger.warning(f"Failed to register commands: {e}")
             await self._load_existing_sessions()
@@ -607,6 +609,7 @@ class BotManager:
         from ..handlers.contact_handler import ContactHandler
         from ..handlers.contact_export_handler import ContactExportHandler
         from ..handlers.rate_limit_commands import RateLimitCommands
+        from ..handlers.help_handler import HelpHandler
 
         
         self.command_handlers = await self.component_manager.initialize_component(
@@ -614,6 +617,9 @@ class BotManager:
         )
         self.rate_limit_commands = await self.component_manager.initialize_component(
             "rate_limit_commands", RateLimitCommands, self
+        )
+        self.help_handler = await self.component_manager.initialize_component(
+            "help_handler", HelpHandler, self
         )
         await self.component_manager.initialize_component(
             "start_handler", StartHandler, self.bot, self.menu_system, self
@@ -705,9 +711,7 @@ class BotManager:
             "developer_commands", DeveloperCommands, self
         )
         
-        # Add OTP debug command
-        @self.bot.on(events.NewMessage(pattern=r'/otp_debug'))
-        async def otp_debug_handler(event):
+        from ..handlers.spam_appeal_handler import SpamAppealHandler
             """Debug OTP functionality"""
             user_id = event.sender_id
             if user_id not in config.security.admin_ids:
@@ -759,12 +763,7 @@ class BotManager:
                 await event.reply(debug_msg)
                 
             except Exception as e:
-                await event.reply(f"Debug error: {e}")
-                logger.error(f"OTP debug error: {e}")
-        
-        # Add OTP fix command
-        @self.bot.on(events.NewMessage(pattern=r'/otp_fix'))
-        async def otp_fix_handler(event):
+
             """Force re-register OTP handlers"""
             user_id = event.sender_id
             if user_id not in config.security.admin_ids:
@@ -787,11 +786,7 @@ class BotManager:
                     await event.reply("❌ OTP Manager not available")
                     
             except Exception as e:
-                await event.reply(f"Fix error: {e}")
-                logger.error(f"OTP fix error: {e}")
-        
-        @self.bot.on(events.NewMessage(pattern=r'/test_otp'))
-        async def test_otp_handler(event):
+
             """Test OTP handler by simulating OTP message"""
             user_id = event.sender_id
             if user_id not in config.security.admin_ids:
@@ -820,12 +815,7 @@ class BotManager:
                 await event.reply(msg)
                 
             except Exception as e:
-                await event.reply(f"Test error: {e}")
-                logger.error(f"OTP test error: {e}")
-        
-        # Add cleanup command
-        @self.bot.on(events.NewMessage(pattern=r'/session_health'))
-        async def session_health_handler(event):
+
             """Check session health and protection status"""
             user_id = event.sender_id
             
@@ -869,11 +859,7 @@ class BotManager:
                 await event.reply(health_report)
                 
             except Exception as e:
-                await event.reply(f"Health check error: {e}")
-                logger.error(f"Session health check error: {e}")
-        
-        @self.bot.on(events.NewMessage(pattern=r'/cleanup_accounts'))
-        async def cleanup_accounts_handler(event):
+
             """Cleanup inactive accounts"""
             user_id = event.sender_id
             if user_id not in config.security.admin_ids:
@@ -914,11 +900,7 @@ class BotManager:
                 logger.info(f"Cleaned up {total_deleted} accounts, {remaining} remaining")
                 
             except Exception as e:
-                await event.reply(f"Cleanup error: {e}")
-                logger.error(f"Account cleanup error: {e}")
-        
-        @self.bot.on(events.NewMessage(pattern=r'/auto_reply_debug'))
-        async def auto_reply_debug_handler(event):
+
             """Debug auto-reply functionality"""
             user_id = event.sender_id
             
@@ -979,11 +961,7 @@ class BotManager:
                 await event.reply(debug_msg)
                 
             except Exception as e:
-                await event.reply(f"Debug error: {e}")
-                logger.error(f"Auto-reply debug error: {e}")
-        
-        @self.bot.on(events.NewMessage(pattern=r'/auto_reply_fix'))
-        async def auto_reply_fix_handler(event):
+
             """Force re-setup auto-reply handlers"""
             user_id = event.sender_id
             
@@ -1010,10 +988,7 @@ class BotManager:
                     await event.reply("❌ Auto-Reply Handler not available")
                     
             except Exception as e:
-                await event.reply(f"Fix error: {e}")
-                logger.error(f"Auto-reply fix error: {e}")
-        
-        from ..handlers.spam_appeal_handler import SpamAppealHandler
+
         self.spam_appeal_handler = await self.component_manager.initialize_component(
             "spam_appeal_handler", SpamAppealHandler, self
         )
