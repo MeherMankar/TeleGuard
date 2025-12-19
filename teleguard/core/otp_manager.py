@@ -64,18 +64,16 @@ class OTPManager:
                 if not self._is_login_code(message_text):
                     return
                 
-                # Early deduplication check based on message ID and timestamp
-                message_key = f"{event.message.id}:{int(time.time()//2)}"
+                # Quick deduplication check
+                message_key = f"{event.message.id}"
                 if hasattr(self, '_processed_messages'):
                     if message_key in self._processed_messages:
                         return
+                    self._processed_messages.add(message_key)
+                    if len(self._processed_messages) > 100:
+                        self._processed_messages = set(list(self._processed_messages)[-50:])
                 else:
-                    self._processed_messages = set()
-                self._processed_messages.add(message_key)
-                
-                # Keep only recent message keys
-                if len(self._processed_messages) > 50:
-                    self._processed_messages = set(list(self._processed_messages)[-25:])
+                    self._processed_messages = {message_key}
                 # Find which account received this OTP
                 account_info = await self._find_account_for_message(event)
                 if not account_info:
@@ -268,39 +266,20 @@ class OTPManager:
                     return
                 # Priority 4: Check forwarding setting (only if destroyer is off)
                 if account.get("otp_forward_enabled", False):
+                    # Forward immediately without delay
                     await self._forward_otp(
                         user_id, account_name, otp_code, message_text
                     )
+                    
+                    # Delete original message after forwarding
                     try:
                         await event.delete()
                     except:
                         pass
                     
-                    # Record OTP metrics for forwarding
-                    try:
-                        from ..services.otp_metrics import OTPMetrics
-                        otp_metrics = OTPMetrics()
-                        account_id = str(account["_id"])
-                        await otp_metrics.record_allow(
-                            account_id,
-                            "otp_forwarded",
-                            {
-                                "code": otp_code,
-                                "account_name": account_name,
-                                "forwarded": True
-                            }
-                        )
-                    except Exception as metrics_error:
-                        logger.error(f"Failed to record OTP forward metrics: {metrics_error}")
-                    
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {"$push": {"audit_log": {
-                            "action": "otp_forwarded",
-                            "code": otp_code,
-                            "timestamp": int(time.time())
-                        }}}
-                    )
+                    # Log asynchronously to avoid delays
+                    asyncio.create_task(self._log_otp_forward(user_id, account_name, account, otp_code))
+                    return
             except Exception as e:
                 logger.error(f"OTP handler error: {e}")
         handler_count = 0
@@ -421,22 +400,17 @@ class OTPManager:
         full_text: str,
         temp: bool = False,
     ):
-        """Forward OTP to user via bot"""
+        """Forward OTP to user via bot - optimized for speed"""
         try:
+            # Simplified message for faster delivery
             if temp:
-                header = "⏰🔓 **Temp OTP Received!**"
-                footer = "\n\n⚠️ Temp access - expires soon"
+                message = f"⏰ **TEMP OTP:** `{otp_code}`\n📱 {account_name}"
             else:
-                header = "🔔🔢 **OTP Received!**"
-                footer = ""
-            formatted_message = (
-                f"{header}\n\n"
-                f"📱 **Account:** {account_name}\n"
-                f"🔢 **Code:** `{otp_code}`\n\n"
-                f"📝 **Full Message:**\n{full_text}{footer}"
-            )
-            await self.bot.send_message(user_id, formatted_message)
-            logger.info(f"OTP forwarded to user {user_id} for account {account_name}: {otp_code}")
+                message = f"🔔 **OTP:** `{otp_code}`\n📱 {account_name}\n\n{full_text}"
+            
+            # Send immediately without await to reduce delay
+            await self.bot.send_message(user_id, message)
+            logger.info(f"OTP forwarded: {otp_code} -> {user_id}")
         except Exception as e:
             logger.error(f"Error forwarding OTP: {e}")
     def _is_temp_passthrough_active(self, user_id: int, account_name: str) -> bool:
@@ -579,7 +553,7 @@ class OTPManager:
                             pass
                     return
                 
-                # Check forwarding
+                # Check forwarding - prioritize speed
                 if account.get("otp_forward_enabled", False):
                     await self._forward_otp(msg_user_id, msg_account_name, otp_code, message_text)
                     try:
@@ -833,5 +807,34 @@ class OTPManager:
         except Exception as e:
             logger.error(f"Error enabling temp passthrough: {e}")
             return False, f"Error: {str(e)}"
+    
+    async def _log_otp_forward(self, user_id: int, account_name: str, account: dict, otp_code: str):
+        """Log OTP forwarding asynchronously to avoid delays"""
+        try:
+            # Record metrics
+            from ..services.otp_metrics import OTPMetrics
+            otp_metrics = OTPMetrics()
+            account_id = str(account["_id"])
+            await otp_metrics.record_allow(
+                account_id,
+                "otp_forwarded",
+                {
+                    "code": otp_code,
+                    "account_name": account_name,
+                    "forwarded": True
+                }
+            )
+            
+            # Update audit log
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {"$push": {"audit_log": {
+                    "action": "otp_forwarded",
+                    "code": otp_code,
+                    "timestamp": int(time.time())
+                }}}
+            )
+        except Exception as e:
+            logger.error(f"Error logging OTP forward: {e}")
 
 
