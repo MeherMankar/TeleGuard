@@ -247,38 +247,69 @@ class SessionExportHandler:
             
             import zipfile
             import tempfile
+            import os
             
             with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
                 zip_path = temp_zip.name
             
-            with zipfile.ZipFile(zip_path, 'w') as zip_file:
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                 for account_name, session_data in completed_sessions.items():
-                    ext = '.txt' if session_type == 'string' else '.session'
-                    zip_file.writestr(f"{account_name}{ext}", session_data)
+                    if session_type == 'string':
+                        # For string sessions, save as .txt files
+                        filename = f"{account_name}_session.txt"
+                        zip_file.writestr(filename, session_data)
+                    else:
+                        # For file sessions, save as .session files
+                        filename = f"{account_name}.session"
+                        if isinstance(session_data, bytes):
+                            zip_file.writestr(filename, session_data)
+                        else:
+                            # If it's a string session, convert to session file format
+                            zip_file.writestr(filename, session_data.encode('utf-8'))
             
             from telethon.tl.types import DocumentAttributeFilename
             type_text = "String" if session_type == 'string' else "File"
+            timestamp = int(time.time())
+            zip_filename = f"teleguard_sessions_{timestamp}.zip"
+            
             await self.bot.send_file(
                 user_id,
                 zip_path,
                 caption=(
-                    f"📦 **Batch Export Complete**\n\n"
-                    f"✅ **Created:** {len(completed_sessions)} sessions\n"
-                    f"📝 **Type:** {type_text}\n"
-                    f"📁 **Format:** ZIP\n\n"
-                    f"**Accounts:**\n" + "\n".join([f"• {name}" for name in list(completed_sessions.keys())[:10]]) + 
-                    (f"\n... and {len(completed_sessions) - 10} more" if len(completed_sessions) > 10 else "") + "\n\n"
-                    f"⚠️ **Keep secure!**"
+                    f"📦 **Batch Session Export Complete**\n\n"
+                    f"✅ **Sessions Created:** {len(completed_sessions)}\n"
+                    f"📝 **Session Type:** {type_text}\n"
+                    f"📁 **Archive Format:** ZIP\n"
+                    f"🕐 **Created:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"**📋 Exported Accounts:**\n" + 
+                    "\n".join([f"• {name}" for name in list(completed_sessions.keys())[:15]]) + 
+                    (f"\n... and {len(completed_sessions) - 15} more" if len(completed_sessions) > 15 else "") + "\n\n"
+                    f"🔐 **Security Notice:** Keep this ZIP file secure!\n"
+                    f"⚠️ Anyone with these sessions can access your accounts."
                 ),
-                attributes=[DocumentAttributeFilename(f"sessions_{int(time.time())}.zip")]
+                attributes=[DocumentAttributeFilename(zip_filename)]
             )
             
-            os.remove(zip_path)
+            # Clean up
+            try:
+                os.remove(zip_path)
+            except:
+                pass
+            
+            # Clear batch data
             del self.bot_manager.batch_sessions[user_id]
+            
+            logger.info(f"Successfully sent ZIP with {len(completed_sessions)} sessions to user {user_id}")
             
         except Exception as e:
             logger.error(f"Batch ZIP error: {e}")
-            await self.bot.send_message(user_id, f"❌ ZIP error: {str(e)}")
+            await self.bot.send_message(user_id, f"❌ ZIP creation failed: {str(e)}")
+            # Clean up on error
+            try:
+                if 'zip_path' in locals() and os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except:
+                pass
     async def _create_fresh_session_batch(self, user_id, account_name):
         """Create fresh session for batch processing"""
         if not hasattr(self.bot_manager, 'batch_sessions') or user_id not in self.bot_manager.batch_sessions:
@@ -830,6 +861,28 @@ class SessionExportHandler:
                     except Exception as e:
                         logger.error(f"Session file creation error: {e}")
                         session_file_data = None
+                
+                # Store session data for batch processing
+                if hasattr(self.bot_manager, 'batch_sessions') and user_id in self.bot_manager.batch_sessions:
+                    batch_data = self.bot_manager.batch_sessions[user_id]
+                    if format_type == 'string':
+                        batch_data['completed'][account_name] = fresh_session
+                    elif format_type == 'file' and session_file_data:
+                        batch_data['completed'][account_name] = session_file_data
+                    else:
+                        # Fallback to string session if file creation failed
+                        batch_data['completed'][account_name] = fresh_session
+                    
+                    # Update progress
+                    batch_data['current_index'] += 1
+                    
+                    # Continue with next account or finish batch
+                    if batch_data['current_index'] < len(batch_data['accounts']):
+                        await self._process_next_batch_account(user_id)
+                    else:
+                        await self._send_batch_sessions_zip(user_id)
+                    return True
+                
                 format_type = session_data.get('format_type', 'both')
                 # Send based on requested format
                 if format_type == 'string':

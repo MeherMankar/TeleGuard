@@ -214,6 +214,23 @@ class MenuSystem:
                     # Proxy handler manages its own callbacks
                     return
                 
+                # Handle session export callbacks
+                if data.startswith('session_type:'):
+                    await self._handle_session_type_callback(event, user_id, data)
+                    return
+                elif data.startswith('toggle_session:'):
+                    await self._handle_toggle_session_callback(event, user_id, data)
+                    return
+                elif data == 'toggle_all_sessions':
+                    await self._handle_toggle_all_sessions_callback(event, user_id)
+                    return
+                elif data == 'create_selected_sessions':
+                    await self._handle_create_selected_sessions_callback(event, user_id)
+                    return
+                elif data == 'export_sessions':
+                    await self._handle_export_sessions_menu(event, user_id)
+                    return
+                
                 await self.router.route_callback(event, user_id, data)
             except Exception as e:
                 logger.error(f"Callback error: {e}", exc_info=True)
@@ -3160,3 +3177,60 @@ class MenuSystem:
         """Handle Proxy Manager menu"""
         user_id = event.sender_id
         await self.proxy_handler._show_proxy_menu(event, user_id)
+    
+    async def _handle_session_type_callback(self, event, user_id, data):
+        """Handle session type selection callback"""
+        try:
+            session_type = data.split(':')[1]  # string or file
+            if hasattr(self.account_manager, 'session_export_handler'):
+                await self.account_manager.session_export_handler._show_account_selection(event, user_id, session_type)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Session type callback error: {e}")
+            await event.answer("❌ Error processing session type")
+    
+    async def _handle_toggle_session_callback(self, event, user_id, data):
+        """Handle toggle session selection callback"""
+        try:
+            account_name = data.split(':', 1)[1]
+            if hasattr(self.account_manager, 'session_export_handler'):
+                await self.account_manager.session_export_handler._toggle_account_selection(event, user_id, account_name)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Toggle session callback error: {e}")
+            await event.answer("❌ Error toggling session selection")
+    
+    async def _handle_toggle_all_sessions_callback(self, event, user_id):
+        """Handle toggle all sessions callback"""
+        try:
+            if hasattr(self.account_manager, 'session_export_handler'):
+                await self.account_manager.session_export_handler._toggle_all_sessions(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Toggle all sessions callback error: {e}")
+            await event.answer("❌ Error toggling all sessions")
+    
+    async def _handle_create_selected_sessions_callback(self, event, user_id):
+        """Handle create selected sessions callback"""
+        try:
+            if hasattr(self.account_manager, 'session_export_handler'):
+                await self.account_manager.session_export_handler._create_selected_sessions(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Create selected sessions callback error: {e}")
+            await event.answer("❌ Error creating sessions")
+    
+    async def _handle_export_sessions_menu(self, event, user_id):
+        """Handle export sessions menu callback"""
+        try:
+            if hasattr(self.account_manager, 'session_export_handler'):
+                await self.account_manager.session_export_handler._show_export_menu(event, user_id)
+            else:
+                await event.answer("❌ Session export not available")
+        except Exception as e:
+            logger.error(f"Export sessions menu callback error: {e}")
+            await event.answer("❌ Error loading export menu")
