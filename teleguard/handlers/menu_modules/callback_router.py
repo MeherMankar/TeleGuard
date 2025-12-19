@@ -344,8 +344,62 @@ class CallbackRouter:
     
     async def handle_otp_setting_callback(self, event, user_id: int, data: str):
         """Handle OTP setting callbacks (destroyer, forward, temp)"""
+        parts = data.split(":")
+        setting_type = parts[1] if len(parts) > 1 else "destroyer"
+        
         try:
-            await self.menu._handle_otp_setting_callback(event, user_id, data)
+            from ...core.mongo_database import mongodb
+            from ...utils.network_helpers import format_display_name
+            from telethon import Button
+            
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            if not accounts:
+                await event.answer("❌ No accounts found")
+                return
+            
+            if setting_type == "destroyer":
+                text = "🛡️ **OTP Destroyer Settings**\n\nSelect account to toggle OTP Destroyer:"
+                buttons = []
+                for account in accounts:
+                    status = "✅" if account.get("is_active", False) else "🔴"
+                    destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "❌"
+                    display_name = format_display_name(account)
+                    action = "disable" if account.get("otp_destroyer_enabled", False) else "enable"
+                    button_text = f"{status}{destroyer_status} {display_name}"
+                    buttons.append([Button.inline(button_text, f"otp:{action}:{account['_id']}")])
+                    
+            elif setting_type == "forward":
+                text = "📤 **OTP Forward Settings**\n\nSelect account to toggle OTP Forward:"
+                buttons = []
+                for account in accounts:
+                    status = "✅" if account.get("is_active", False) else "🔴"
+                    forward_status = "📤" if account.get("otp_forward_enabled", False) else "❌"
+                    display_name = format_display_name(account)
+                    action = "forward_disable" if account.get("otp_forward_enabled", False) else "forward_enable"
+                    button_text = f"{status}{forward_status} {display_name}"
+                    buttons.append([Button.inline(button_text, f"otp:{action}:{account['_id']}")])
+                    
+            elif setting_type == "temp":
+                text = "⏰ **Temp OTP Settings**\n\nSelect account to enable 5-minute temp OTP:"
+                buttons = []
+                for account in accounts:
+                    status = "✅" if account.get("is_active", False) else "🔴"
+                    destroyer_status = "🛡️" if account.get("otp_destroyer_enabled", False) else "❌"
+                    display_name = format_display_name(account)
+                    button_text = f"{status}{destroyer_status} {display_name}"
+                    buttons.append([Button.inline(button_text, f"otp:temp:{account['_id']}")])
+            else:
+                text = "🛡️ **OTP Settings**\n\nSelect account:"
+                buttons = []
+                for account in accounts:
+                    status = "✅" if account.get("is_active", False) else "🔴"
+                    display_name = format_display_name(account)
+                    button_text = f"{status} {display_name}"
+                    buttons.append([Button.inline(button_text, f"otp:manage:{account['_id']}")])
+            
+            buttons.append([Button.inline("🔙 Back to OTP Manager", "menu:otp")])
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            
         except Exception as e:
             logger.error(f"OTP setting callback error: {e}")
             await event.answer("❌ Error processing OTP setting")
@@ -451,12 +505,15 @@ class CallbackRouter:
     async def handle_dm_reply_callback(self, event, user_id: int, data: str):
         """Handle DM reply callbacks"""
         try:
+            from telethon import Button
+            from ...core.mongo_database import mongodb
+            
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else "main"
             
             if action == "main":
                 # Show DM reply menu instead of just telling them to use command
-                accounts = await self.menu.account_manager.db_manager.accounts.find({"user_id": user_id}).to_list(None)
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
                 if not accounts:
                     text = "📨 **Unified DM Manager**\n\n❌ No accounts found. Add accounts first."
                     buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
@@ -564,6 +621,8 @@ class CallbackRouter:
     async def handle_channel_callback(self, event, user_id: int, data: str):
         """Handle channel management callbacks"""
         try:
+            from telethon import Button
+            
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else "main"
             account_phone = parts[2] if len(parts) > 2 else None
