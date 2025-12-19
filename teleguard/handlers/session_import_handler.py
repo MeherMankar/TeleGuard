@@ -137,10 +137,11 @@ class SessionImportHandler:
             text = (
                 "📦 **Bulk Session Import (ZIP)**\n\n"
                 "Send a ZIP file containing multiple session files:\n\n"
-                "**📱 Supported:**\n"
-                "• Multiple `.session` files\n"
-                "• Mixed Telethon/Pyrogram sessions\n"
-                "• Automatic format detection\n\n"
+                "**📱 Supported Files in ZIP:**\n"
+                "• `.session` files (Telethon/Pyrogram)\n"
+                "• `.txt` files (session strings)\n"
+                "• `.json` files (session data)\n"
+                "• Mixed formats automatically detected\n\n"
                 "**🔍 Process:**\n"
                 "1. Send ZIP file as document\n"
                 "2. Auto-extract all sessions\n"
@@ -283,14 +284,45 @@ class SessionImportHandler:
                 
                 for root, dirs, files in os.walk(extract_dir):
                     for filename in files:
+                        file_path = os.path.join(root, filename)
+                        
+                        # Handle different file types
                         if filename.endswith('.session'):
-                            file_path = os.path.join(root, filename)
+                            # Process .session files
                             success, message = await self.process_session_file(user_id, file_path)
-                            
-                            if success:
-                                imported.append(filename)
-                            else:
-                                failed.append((filename, message))
+                        elif filename.endswith('.txt'):
+                            # Process .txt files containing session strings
+                            try:
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    session_string = f.read().strip()
+                                success, message = await self.process_string_session(user_id, session_string)
+                            except Exception as e:
+                                success, message = False, f"Error reading file: {str(e)}"
+                        elif filename.endswith('.json'):
+                            # Process JSON session files
+                            try:
+                                import json
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    json_data = json.load(f)
+                                # Convert JSON to session string if possible
+                                if isinstance(json_data, dict) and 'session_string' in json_data:
+                                    session_string = json_data['session_string']
+                                    success, message = await self.process_string_session(user_id, session_string)
+                                elif isinstance(json_data, str):
+                                    # JSON file contains just a session string
+                                    success, message = await self.process_string_session(user_id, json_data)
+                                else:
+                                    success, message = False, "Unsupported JSON format"
+                            except Exception as e:
+                                success, message = False, f"Error processing JSON: {str(e)}"
+                        else:
+                            # Skip unsupported file types
+                            continue
+                        
+                        if success:
+                            imported.append(filename)
+                        else:
+                            failed.append((filename, message))
                 
                 result_text = f"✅ **Bulk Import Complete**\n\n"
                 result_text += f"✅ **Imported:** {len(imported)} sessions\n"
