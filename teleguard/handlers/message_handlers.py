@@ -232,6 +232,60 @@ class MessageHandlers:
                 await event.reply("❌ Error processing session file")
             self.pending_actions.pop(user_id, None)
         
+        elif action == "import_session_file":
+            try:
+                if event.document and event.document.attributes:
+                    filename = None
+                    for attr in event.document.attributes:
+                        if hasattr(attr, 'file_name'):
+                            filename = attr.file_name
+                            break
+                    
+                    if filename and (filename.endswith('.session') or filename.endswith('.zip')):
+                        import tempfile
+                        import os
+                        
+                        if filename.endswith('.zip'):
+                            # Handle ZIP file import
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+                                zip_path = tmp.name
+                            
+                            await event.reply("⏳ Downloading ZIP file...")
+                            zip_path = await event.download_media(file=zip_path)
+                            
+                            if zip_path and os.path.exists(zip_path):
+                                if hasattr(self.bot_manager, 'session_import_handler'):
+                                    await event.reply("📦 Processing sessions...")
+                                    success, msg = await self.bot_manager.session_import_handler.process_zip_sessions(user_id, zip_path)
+                                    await event.reply(msg)
+                                else:
+                                    await event.reply("❌ Session import not available")
+                            else:
+                                await event.reply("❌ Invalid file path")
+                        else:
+                            # Handle single session file import
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.session') as tmp:
+                                file_path = tmp.name
+                            
+                            file_path = await event.download_media(file=file_path)
+                            
+                            if file_path and os.path.exists(file_path):
+                                if hasattr(self.bot_manager, 'session_import_handler'):
+                                    success, msg = await self.bot_manager.session_import_handler.process_session_file(user_id, file_path)
+                                    await event.reply(msg)
+                                else:
+                                    await event.reply("❌ Session import not available")
+                            else:
+                                await event.reply("❌ Invalid file path")
+                    else:
+                        await event.reply("❌ Please send a .session or .zip file")
+                else:
+                    await event.reply("❌ Invalid document format")
+            except Exception as e:
+                logger.error(f"Session file/ZIP import error: {e}")
+                await event.reply(f"❌ Error processing file: {str(e)}")
+            self.pending_actions.pop(user_id, None)
+        
         elif action == "import_zip_sessions":
             try:
                 if event.document and event.document.attributes:

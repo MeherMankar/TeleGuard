@@ -111,6 +111,7 @@ class SessionImportHandler:
                 "**📱 Supported Files:**\n"
                 "• **Telethon**: `.session` (SQLite database)\n"
                 "• **Pyrogram**: `.session` (SQLite database)\n"
+                "• **ZIP**: `.zip` (multiple sessions)\n"
                 "• **JSON**: `.json` (TDLib, custom formats)\n"
                 "• **Text**: `.txt` (session strings)\n\n"
                 "**🔍 Process:**\n"

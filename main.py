@@ -111,21 +111,26 @@ console_handler = SafeConsoleHandler()
 console_handler.setLevel(logging.ERROR)
 console_handler.setFormatter(simple_formatter)
 
+# Remove all existing handlers from root logger
+root_logger.handlers.clear()
+
 # Add handlers to root logger
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
-# Configure teleguard loggers
+# Configure teleguard loggers - remove their handlers and let them propagate to root
 for logger_name in ["teleguard", "teleguard.core", "teleguard.handlers", "teleguard.utils"]:
     mod_logger = logging.getLogger(logger_name)
+    mod_logger.handlers.clear()  # Remove any existing handlers
     mod_logger.setLevel(logging.INFO)
-    mod_logger.propagate = True
+    mod_logger.propagate = True  # Use root logger's handlers
 
 # Silence noisy external modules
 for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "urllib3", "aiohttp"]:
     mod_logger = logging.getLogger(mod)
+    mod_logger.handlers.clear()  # Remove any existing handlers
     mod_logger.setLevel(logging.ERROR)
-    mod_logger.propagate = False
+    mod_logger.propagate = True  # Use root logger's handlers
 
 # Get logger after configuration
 logger = get_logger(__name__)
