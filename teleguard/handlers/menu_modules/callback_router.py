@@ -472,7 +472,7 @@ class CallbackRouter:
                 else:
                     await event.answer("❌ Bulk messaging not available")
             elif action == "templates":
-                await event.answer("📝 Use /templates command")
+                await self.handle_template_callback(event, user_id, "template:main")
             elif action == "stats":
                 await self.menu._show_messaging_statistics(user_id, event.message_id)
             elif action == "history":
@@ -512,13 +512,15 @@ class CallbackRouter:
             action = parts[1] if len(parts) > 1 else "main"
             
             if action == "main":
-                # Show DM reply menu instead of just telling them to use command
                 accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
                 if not accounts:
                     text = "📨 **Unified DM Manager**\n\n❌ No accounts found. Add accounts first."
                     buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
                 else:
-                    text = f"📨 **Unified DM Manager**\n\n📊 Manage all your DMs in one place\n\n📝 **Features:**\n• Centralized inbox for all accounts\n• Forum-based organization\n• Quick reply system\n• Message filtering\n\n📱 Accounts: {len(accounts)}\n\nUse /dm_reply command for full setup and management."
+                    user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                    dm_group = user.get("dm_reply_group_id") if user else None
+                    status = "✅ Active" if dm_group else "❌ Not Setup"
+                    text = f"📨 **Unified DM Manager**\n\n📊 Manage all your DMs in one place\n\n📝 **Features:**\n• Centralized inbox for all accounts\n• Forum-based organization\n• Quick reply system\n• Message filtering\n\n📱 Accounts: {len(accounts)}\n🔧 Status: {status}"
                     buttons = [
                         [Button.inline("⚙️ Setup DM Manager", "dm_reply:setup")],
                         [Button.inline("📊 View Status", "dm_reply:status")],
@@ -526,9 +528,25 @@ class CallbackRouter:
                     ]
                 await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             elif action == "setup":
-                await event.answer("⚙️ Use /dm_reply command for setup")
+                user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                dm_group = user.get("dm_reply_group_id") if user else None
+                if dm_group:
+                    text = f"⚙️ **DM Manager Setup**\n\n✅ Already configured!\n\n📱 Admin Group ID: `{dm_group}`\n\nTo change, use /dm_reply command."
+                else:
+                    text = "⚙️ **DM Manager Setup**\n\n📋 **Steps:**\n1. Create a new group\n2. Enable Topics in group settings\n3. Add this bot to the group\n4. Use /dm_reply command to link the group\n\n💡 All DMs will be forwarded to topics in that group."
+                buttons = [[Button.inline("🔙 Back", "dm_reply:main")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             elif action == "status":
-                await event.answer("📊 Use /dm_reply command for status")
+                user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                dm_group = user.get("dm_reply_group_id") if user else None
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                topic_count = await mongodb.db.dm_topics.count_documents({"group_id": dm_group}) if dm_group else 0
+                if dm_group:
+                    text = f"📊 **DM Manager Status**\n\n✅ **Active**\n\n📱 Accounts: {len(accounts)}\n💬 Active Topics: {topic_count}\n🔗 Admin Group: `{dm_group}`\n\n✨ All DMs are being forwarded to your admin group."
+                else:
+                    text = f"📊 **DM Manager Status**\n\n❌ **Not Setup**\n\n📱 Accounts: {len(accounts)}\n\n⚠️ DM forwarding is not active. Use Setup to configure."
+                buttons = [[Button.inline("🔙 Back", "dm_reply:main")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             else:
                 await event.answer("✅ Processing...")
         except Exception as e:
@@ -538,21 +556,45 @@ class CallbackRouter:
     async def handle_template_callback(self, event, user_id: int, data: str):
         """Handle template callbacks"""
         try:
+            from telethon import Button
+            from ...core.mongo_database import mongodb
+            
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else "main"
             
             if action == "main":
-                text = "📝 **Advanced Message Templates**\n\n✨ Create reusable message templates with:\n\n🔹 **Features:**\n• Dynamic variables ({name}, {username})\n• Rich media support\n• Template categories\n• Quick reply buttons\n\n📚 Use /templates command for full template management."
+                templates = await mongodb.db.message_templates.find({"user_id": user_id}).to_list(None)
+                text = f"📝 **Message Templates**\n\n✨ Saved templates: {len(templates)}\n\n🔹 **Features:**\n• Dynamic variables ({{name}}, {{username}})\n• Rich media support\n• Template categories\n• Quick reply buttons"
                 buttons = [
                     [Button.inline("🆕 Create Template", "template:create")],
                     [Button.inline("📚 View Templates", "template:list")],
                     [Button.inline("🔙 Back", "menu:messaging")]
                 ]
                 await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-            elif action in ["create", "list"]:
-                await event.answer("📝 Use /templates command")
-            else:
-                await event.answer("📝 Use /templates command for template management")
+            elif action == "create":
+                if self.menu.account_manager:
+                    self.menu.account_manager.pending_actions[user_id] = {"action": "template_create_name"}
+                text = "🆕 **Create Template**\n\n📝 Reply with template name:\n\nExample: Welcome Message"
+                buttons = [[Button.inline("🔙 Back", "template:main")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                await event.answer("📝 Reply with name")
+            elif action == "list":
+                templates = await mongodb.db.message_templates.find({"user_id": user_id}).to_list(None)
+                if not templates:
+                    text = "📚 **Your Templates**\n\n❌ No templates found.\n\nCreate your first template!"
+                    buttons = [
+                        [Button.inline("🆕 Create Template", "template:create")],
+                        [Button.inline("🔙 Back", "template:main")]
+                    ]
+                else:
+                    text = f"📚 **Your Templates** ({len(templates)})\n\n"
+                    buttons = []
+                    for tmpl in templates[:10]:
+                        name = tmpl.get('name', 'Unnamed')
+                        buttons.append([Button.inline(f"📄 {name}", f"template:view:{tmpl['_id']}")])
+                    buttons.append([Button.inline("🔙 Back", "template:main")])
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                await event.answer("📚 Templates loaded")
         except Exception as e:
             logger.error(f"Template callback error: {e}")
             await event.answer("❌ Error processing template")
@@ -678,7 +720,29 @@ class CallbackRouter:
                     await self.menu.bot.send_message(user_id, f"🗑️ **Delete Channel - {account_phone}**\n\n⚠️ Reply with the channel username to delete:\n\nExample: @channelname\n\n🚨 This action cannot be undone!")
             elif action == "list" and account_phone:
                 await event.answer("📋 Loading channels...")
-                text = f"📋 **Channels - {account_phone}**\n\nFetching channel list...\n\nUse /channel_list command for detailed view."
+                # Try to get actual channel list
+                try:
+                    client = None
+                    for uid, clients in self.menu.account_manager.user_clients.items():
+                        for name, c in clients.items():
+                            if name == account_phone or (hasattr(c, 'get_me') and c.is_connected()):
+                                me = await c.get_me()
+                                if me.phone == account_phone:
+                                    client = c
+                                    break
+                    if client:
+                        from telethon.tl.functions.channels import GetChannelsRequest
+                        dialogs = await client.get_dialogs(limit=100)
+                        channels = [d for d in dialogs if d.is_channel]
+                        text = f"📋 **Channels - {account_phone}**\n\n📊 Total channels: {len(channels)}\n\n"
+                        for ch in channels[:10]:
+                            text += f"• {ch.name}\n"
+                        if len(channels) > 10:
+                            text += f"\n... and {len(channels)-10} more"
+                    else:
+                        text = f"📋 **Channels - {account_phone}**\n\n⚠️ Account not loaded. Use /channel_list for full details."
+                except Exception as e:
+                    text = f"📋 **Channels - {account_phone}**\n\n⚠️ Could not fetch channels. Use /channel_list command."
                 buttons = [[Button.inline("🔙 Back", f"channel:select:{account_phone}")]]
                 await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
             else:
@@ -690,10 +754,18 @@ class CallbackRouter:
     async def handle_help_callback(self, event, user_id: int, data: str):
         """Handle help callbacks"""
         try:
+            from telethon import Button
             if hasattr(self.menu, 'help_callbacks'):
                 await self.menu.help_callbacks.handle_callback(event, user_id, data)
             else:
-                await event.answer("✅ Use /help command")
+                text = "❓ **Help & Support**\n\n📚 **Quick Links:**\n• /start - Main menu\n• /help - Full help guide\n• /accs - Manage accounts\n• /otp - OTP protection\n\n💬 Need more help? Contact support!"
+                buttons = [
+                    [Button.inline("📖 Full Guide", "help:guide")],
+                    [Button.inline("💬 Contact Support", "support:main")],
+                    [Button.inline("🔙 Back", "menu:main")]
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                await event.answer("❓ Help")
         except Exception as e:
             logger.error(f"Help callback error: {e}")
             await event.answer("❌ Error")
@@ -701,10 +773,14 @@ class CallbackRouter:
     async def handle_support_callback(self, event, user_id: int, data: str):
         """Handle support callbacks"""
         try:
+            from telethon import Button
             if hasattr(self.menu, 'help_callbacks'):
                 await self.menu.help_callbacks.handle_support_callback(event, user_id, data)
             else:
-                await event.answer("✅ Use /help command")
+                text = "💬 **Support & Contact**\n\n📧 **Get Help:**\n• Telegram: @ContactXYZrobot\n• Response time: 12-24 hours\n\n🐛 **Report Issues:**\n• Bug reports welcome\n• Feature requests accepted\n\n⚡ **Priority Support:**\n• Critical issues: 1-2 hours\n• General queries: 24-48 hours"
+                buttons = [[Button.inline("🔙 Back", "help:main")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                await event.answer("💬 Support")
         except Exception as e:
             logger.error(f"Support callback error: {e}")
             await event.answer("❌ Error")
@@ -712,10 +788,14 @@ class CallbackRouter:
     async def handle_dev_callback(self, event, user_id: int, data: str):
         """Handle developer callbacks"""
         try:
+            from telethon import Button
             if hasattr(self.menu, 'help_callbacks'):
                 await self.menu.help_callbacks.handle_developer_callback(event, user_id, data)
             else:
-                await event.answer("✅ Use /help command")
+                text = "👨‍💻 **Developer Info**\n\n**Created by:**\n• @Meher_Mankar - Lead Developer\n• @Gutkesh - Core Developer\n\n**Tech Stack:**\n• Python 3.9+\n• Telethon\n• MongoDB\n\n**Version:** 2.0.0\n**License:** MIT"
+                buttons = [[Button.inline("🔙 Back", "help:main")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                await event.answer("👨‍💻 Developer info")
         except Exception as e:
             logger.error(f"Dev callback error: {e}")
             await event.answer("❌ Error")
@@ -741,7 +821,17 @@ class CallbackRouter:
     async def handle_device_callback(self, event, user_id: int, data: str):
         """Handle device management callbacks"""
         try:
-            await event.answer("✅ Use /device command")
+            from telethon import Button
+            from ...core.mongo_database import mongodb
+            
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            text = f"📱 **Device Management**\n\n🔧 Manage device info for accounts\n\n📊 Accounts: {len(accounts)}\n\n⚙️ Features:\n• Custom device models\n• System version spoofing\n• App version control"
+            buttons = [
+                [Button.inline("📱 Select Account", "device:select")],
+                [Button.inline("🔙 Back", "menu:accounts")]
+            ]
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            await event.answer("📱 Device management")
         except Exception as e:
             logger.error(f"Device callback error: {e}")
             await event.answer("❌ Error")
@@ -813,7 +903,22 @@ class CallbackRouter:
     async def handle_export_contacts_callback(self, event, user_id: int, data: str):
         """Handle export contacts callbacks"""
         try:
-            await event.answer("✅ Use /export_contacts command")
+            from telethon import Button
+            from ...core.mongo_database import mongodb
+            
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                text = "👥 **Export Contacts**\n\n❌ No accounts found."
+                buttons = [[Button.inline("🔙 Back", "menu:contacts")]]
+            else:
+                text = f"👥 **Export Contacts**\n\n📊 Select account to export contacts:\n\n📱 Available accounts: {len(accounts)}"
+                buttons = []
+                for acc in accounts:
+                    status = "✅" if acc.get("is_active") else "❌"
+                    buttons.append([Button.inline(f"{status} {acc['name']}", f"export_acc:{acc['_id']}")])
+                buttons.append([Button.inline("🔙 Back", "menu:contacts")])
+            await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            await event.answer("👥 Export contacts")
         except Exception as e:
             logger.error(f"Export contacts callback error: {e}")
             await event.answer("❌ Error")

@@ -25,6 +25,9 @@ class CommandRegistry:
         'otp': 'Toggle OTP Destroyer protection',
         'otp_debug': 'Debug OTP functionality (admin)',
         
+        # Proxy Management
+        'proxy': 'Manage proxies for accounts',
+        
         # Session Management
         'sessions': 'View active sessions',
         'export_session': 'Export session string',
