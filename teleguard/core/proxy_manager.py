@@ -236,8 +236,8 @@ class ProxyManager:
             logger.error(f"Proxy test error: {e}")
             return False, str(e), None
     
-    async def assign_proxy_to_account(self, user_id: int, account_id: str, proxy_id: str) -> Tuple[bool, str]:
-        """Assign proxy to account"""
+    async def assign_proxy_to_account(self, user_id: int, account_id: str, proxy_id: str, bot_manager=None) -> Tuple[bool, str]:
+        """Assign proxy to account and reconnect with new proxy"""
         try:
             from bson import ObjectId
             
@@ -246,8 +246,13 @@ class ProxyManager:
             if not proxy:
                 return False, "Proxy not found"
             
-            # Update account
-            result = await mongodb.db.accounts.update_one(
+            # Get account info
+            account = await mongodb.db.accounts.find_one({'_id': ObjectId(account_id), 'user_id': user_id})
+            if not account:
+                return False, "Account not found"
+            
+            # Update account with proxy in database
+            await mongodb.db.accounts.update_one(
                 {'_id': ObjectId(account_id), 'user_id': user_id},
                 {'$set': {
                     'proxy_id': proxy_id,
@@ -255,9 +260,31 @@ class ProxyManager:
                 }}
             )
             
-            if result.modified_count > 0:
-                return True, "Proxy assigned successfully"
-            return False, "Account not found"
+            # Reconnect the client with new proxy (like official Telegram clients do)
+            account_name = account.get('name')
+            session_string = account.get('session_string')
+            
+            if not session_string:
+                return True, "Proxy assigned (account not active, will use proxy on next connection)"
+            
+            # Reconnect client if bot_manager provided
+            if bot_manager and hasattr(bot_manager, 'user_clients'):
+                # Disconnect old client
+                if user_id in bot_manager.user_clients and account_name in bot_manager.user_clients[user_id]:
+                    old_client = bot_manager.user_clients[user_id][account_name]
+                    if old_client and old_client.is_connected():
+                        await old_client.disconnect()
+                        logger.info(f"Disconnected {account_name} to apply proxy")
+                
+                # Reconnect with new proxy
+                try:
+                    await bot_manager.start_user_client(user_id, account_name, session_string)
+                    return True, "✅ Proxy assigned and applied! Account reconnected with new proxy."
+                except Exception as e:
+                    logger.error(f"Failed to reconnect with proxy: {e}")
+                    return True, f"⚠️ Proxy assigned but reconnection failed: {str(e)}. Account will use proxy on next restart."
+            
+            return True, "Proxy assigned successfully (will be used on next connection)"
         except Exception as e:
             logger.error(f"Failed to assign proxy: {e}")
             return False, str(e)
