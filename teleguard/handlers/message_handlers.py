@@ -414,399 +414,33 @@ class MessageHandlers:
         user_id = event.sender_id
         message = event.raw_text.strip()
 
-        # Skip all commands - let command handlers process them
         if message.startswith("/"):
             return
 
         logger.info(f"=== MESSAGE HANDLER === User {user_id} sent: '{message}'")
         logger.info(f"Pending actions keys: {list(self.pending_actions.keys())}")
         if user_id in self.pending_actions:
-            logger.info(
-                f"User {user_id} pending action: {self.pending_actions[user_id]}"
-            )
+            logger.info(f"User {user_id} pending action: {self.pending_actions[user_id]}")
 
-        # Skip messages in admin group (forum topics) - they're handled by
-        # unified_messaging
-        try:
-            user = await mongodb.db.users.find_one({"telegram_id": user_id})
-            if user and user.get("dm_reply_group_id") == event.chat_id:
-                return
-        except Exception:
-            pass
-
-        # Check for transfer ownership or co-owner input FIRST (before OTP check)
-        if hasattr(self.bot_manager, "transfer_ownership_handler"):
-            handler = self.bot_manager.transfer_ownership_handler
-            logger.info(
-                f"[TRANSFER CHECK] User {user_id} - pending_transfers: {
-                    user_id in handler.pending_transfers}, pending_coowner: {
-                    user_id in handler.pending_coowner}"
-            )
-
-            try:
-                if user_id in handler.pending_transfers:
-                    logger.info(
-                        f"[TRANSFER] User {user_id} in pending_transfers, processing input: '{message}'"
-                    )
-                    logger.info(
-                        f"[TRANSFER] Transfer state: {
-                            handler.pending_transfers[user_id]}"
-                    )
-                    await handler.process_user_input(event, user_id, message)
-                    logger.info(
-                        f"[TRANSFER] process_user_input completed for user {user_id}"
-                    )
-                    return
-                elif user_id in handler.pending_coowner:
-                    logger.info(
-                        f"[COOWNER] User {user_id} in pending_coowner, processing input: '{message}'"
-                    )
-                    await handler.process_user_input(event, user_id, message)
-                    logger.info(
-                        f"[COOWNER] process_user_input completed for user {user_id}"
-                    )
-                    return
-            except Exception as transfer_error:
-                logger.error(
-                    f"[TRANSFER ERROR] Failed to process transfer input for user {user_id}: {transfer_error}",
-                    exc_info=True,
-                )
-                await event.reply(
-                    f"❌ Transfer processing error: {
-                        str(transfer_error)}\n\nPlease try /transfer again."
-                )
-                # Clean up state
-                handler.pending_transfers.pop(user_id, None)
-                handler.pending_coowner.pop(user_id, None)
-                return
-
-        # Manual OTP or 2FA input during session creation (only if not in transfer mode)
-        if (
-            hasattr(self.bot_manager, "pending_fresh_sessions")
-            and user_id in self.bot_manager.pending_fresh_sessions
-        ):
-            session_data = self.bot_manager.pending_fresh_sessions.get(user_id, {})
-            logger.info(
-                f"Fresh session data for {user_id}: waiting_for_2fa={
-                    session_data.get('waiting_for_2fa')}"
-            )
-            if session_data.get("waiting_for_2fa"):
-                # This is a 2FA password
-                logger.info(f"Processing 2FA password for user {user_id}")
-                try:
-                    # Attempt to delete the password message for security
-                    await event.delete()
-                except Exception:
-                    pass
-
-                # Send a short acknowledgement so the user knows input was received
-                ack_msg = None
-                try:
-                    ack_msg = await self.bot.send_message(
-                        user_id, "🔐 Processing your 2FA password now..."
-                    )
-                except Exception:
-                    pass
-
-                success = False
-                try:
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(
-                        user_id, message.strip()
-                    )
-                except Exception as e:
-                    logger.error(f"Error while processing 2FA for user {user_id}: {e}")
-                    try:
-                        await self.bot.send_message(
-                            user_id, f"❌ Error processing 2FA: {e}"
-                        )
-                    except Exception:
-                        pass
-
-                # Remove acknowledgement message if possible
-                try:
-                    if ack_msg:
-                        await ack_msg.delete()
-                except Exception:
-                    pass
-
-                if success:
-                    try:
-                        self.pending_actions.pop(user_id, None)
-                    except Exception:
-                        pass
-                return
-            else:
-                # This is an OTP code - accept both "12345" and "/12345" formats
-                import re
-
-                # Strip leading slash if present
-                otp_code = message.strip().lstrip("/")
-                if re.match(r"^\d{5,7}$", otp_code):
-                    logger.info(f"Processing manual OTP {otp_code} for user {user_id}")
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                        user_id, otp_code
-                    )
-                    if success:
-                        self.pending_actions.pop(user_id, None)
-                        logger.info(f"OTP processed successfully for user {user_id}")
-                    else:
-                        logger.error(f"OTP processing failed for user {user_id}")
-                    return
-                # If not OTP, continue to pending action check
-
-        # Skip command processing if user has pending action (except for cancel
-        # commands)
-        if message.startswith("/"):
-            # Clear pending actions for certain commands
-            if message in ["/start", "/cancel", "/help"]:
-                self.pending_actions.pop(user_id, None)
-                # Also clear transfer states
-                if hasattr(self.bot_manager, "transfer_ownership_handler"):
-                    self.bot_manager.transfer_ownership_handler.pending_transfers.pop(
-                        user_id, None
-                    )
-                    self.bot_manager.transfer_ownership_handler.pending_coowner.pop(
-                        user_id, None
-                    )
-            # Don't return early if user has pending action - let it process
-            if user_id not in self.pending_actions:
-                return
-
-        # Check for OTP auto-fetch during session creation (additional fallback)
-        if hasattr(self.bot_manager, "session_login_handler") and hasattr(
-            self.bot_manager.session_login_handler, "pending_auth"
-        ):
-            if user_id in self.bot_manager.session_login_handler.pending_auth:
-                auth_data = self.bot_manager.session_login_handler.pending_auth[user_id]
-                if auth_data.get("step") != "2fa":
-                    # This might be an OTP code - accept both "12345" and "/12345"
-                    # formats
-                    import re
-
-                    otp_code = message.strip().lstrip("/")
-                    if re.match(r"^\d{5,7}$", otp_code):
-                        logger.info(
-                            f"Auto-processing OTP code {otp_code} for session login"
-                        )
-                        success, msg = (
-                            await self.bot_manager.session_login_handler.process_verification_code(
-                                user_id, otp_code
-                            )
-                        )
-                        await event.reply(msg)
-                        if (
-                            user_id
-                            not in self.bot_manager.session_login_handler.pending_auth
-                        ):
-                            self.pending_actions.pop(user_id, None)
-                        return
-
-        logger.info("User sent a message for pending action")
-        if hasattr(self.bot_manager, "session_export_handler") and hasattr(
-            self.bot_manager, "pending_fresh_sessions"
-        ):
-            if user_id in self.bot_manager.pending_fresh_sessions:
-                session_data = self.bot_manager.pending_fresh_sessions[user_id]
-                if session_data.get("waiting_for_2fa"):
-                    # This is a 2FA password for fresh session creation
-                    logger.info(
-                        f"Pending fresh session 2FA received from {user_id}; session_data keys={
-                            list(
-                                session_data.keys())}"
-                    )
-                    try:
-                        try:
-                            await event.delete()
-                        except Exception:
-                            pass
-
-                        # Acknowledge receipt so user sees activity
-                        ack_msg = None
-                        try:
-                            ack_msg = await self.bot.send_message(
-                                user_id, "🔐 Processing your 2FA password now..."
-                            )
-                        except Exception:
-                            pass
-
-                        success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(
-                            user_id, message.strip()
-                        )
-
-                        try:
-                            if ack_msg:
-                                await ack_msg.delete()
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        logger.error(f"Error processing 2FA for user {user_id}: {e}")
-                        success = False
-                    # Clear pending_fresh_sessions and any pending_actions set by the
-                    # flow
-                    try:
-                        if user_id in self.bot_manager.pending_fresh_sessions:
-                            del self.bot_manager.pending_fresh_sessions[user_id]
-                    except Exception:
-                        pass
-                    try:
-                        self.pending_actions.pop(user_id, None)
-                    except Exception:
-                        pass
-                    logger.info(f"2FA processing result for {user_id}: {success}")
-                    return
-                else:
-                    # This is an OTP for fresh session creation - accept both "12345"
-                    # and "/12345" formats
-                    otp_code = message.strip().lstrip("/")
-                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                        user_id, otp_code
-                    )
-                    if success:
-                        self.pending_actions.pop(user_id, None)
-                    return
-        # If there's no explicit pending action, check whether this looks like
-        # a 2FA password (alphanumeric, length >=6). If so, provide clear
-        # feedback to the user instead of silently doing nothing.
-        if user_id not in self.pending_actions:
-            logger.warning(
-                f"!!! User {user_id} sent '{message}' but NO pending action found !!!"
-            )
-            logger.debug(f"Current pending_actions: {dict(self.pending_actions)}")
+        if await self._is_admin_group_message(user_id, event.chat_id):
             return
-        action = self.pending_actions[user_id]["action"]
-        logger.info(f"Processing user action for {user_id}: {action}")
-        user = await mongodb.get_user(user_id)
-        if not user:
-            await event.reply("Please start the bot first with /start")
-            self.pending_actions.pop(user_id, None)
+
+        if await self._handle_transfer_ownership(event, user_id, message):
             return
-        # Route to appropriate handler
-        if action in ["add_account", "verify_otp", "verify_2fa", "2fa_password"]:
-            await self._handle_auth_actions(event, user, action, message)
-        elif action.startswith("2fa_") and action != "verify_2fa":
-            await self._handle_2fa_actions(event, user, action, message)
-        elif action in [
-            "change_2fa",
-            "remove_2fa",
-            "set_2fa",
-            "change_2fa_current",
-            "remove_2fa_password",
-            "set_2fa_password",
-            "change_2fa_new",
-        ]:
-            # Route to twofa_commands handler
-            if hasattr(self.bot_manager, "twofa_commands"):
-                handled = await self.bot_manager.twofa_commands.handle_text_message(
-                    event, user_id, message
-                )
-                if handled:
-                    return
-            await self._handle_2fa_management_actions(event, user, action, message)
-        elif action == "update_2fa_password":
-            if hasattr(self.bot_manager, "twofa_manager"):
-                success = await self.bot_manager.twofa_manager.process_2fa_update(
-                    event, user_id, message
-                )
-                if success:
-                    try:
-                        await event.delete()
-                    except (OSError, IOError):
-                        pass
-            else:
-                await event.reply("❌ 2FA management not available")
-            self.pending_actions.pop(user_id, None)
-        elif action.startswith("profile_"):
-            await self._handle_profile_actions(event, user, action, message)
-        elif action.startswith(("message_", "set_autoreply", "compose_message")):
-            await self._handle_messaging_actions(event, user, action, message)
-        elif action.startswith("template_"):
-            # Redirect template actions to new template handler
-            if hasattr(self.bot_manager, "template_handler"):
-                await self.bot_manager.template_handler.process_text_input(
-                    event, self.pending_actions[user_id], message
-                )
-            else:
-                await event.reply("Template system not available")
-                self.pending_actions.pop(user_id, None)
-        elif action.startswith(("otp_", "disable_otp", "set_otp", "enable_temp")):
-            await self._handle_otp_actions(event, user, action, message)
-        elif action.startswith("channel_"):
-            await self._handle_channel_actions(event, user, action, message)
-        elif action == "set_dm_group_id":
-            await self._handle_dm_group_actions(event, user, action, message)
-        elif action == "session_string_login" or action == "import_string_session":
-            await self._handle_session_string_import(event, user, action, message)
-        elif action == "session_phone_login":
-            await self._handle_session_phone_login(event, user, action, message)
-        elif action == "validate_session_string":
-            await self._handle_session_validation(event, user, action, message)
-        elif action == "cleanup_selection":
-            logger.info(f"Routing to cleanup_selection handler for user {user_id}")
-            await self._handle_cleanup_selection(event, user, action, message)
-        elif action == "bulk_cleanup_selection":
-            await self._handle_bulk_cleanup_selection(event, user, action, message)
-        elif action == "session_creation_2fa_password":
-            await self._handle_session_creation_2fa(event, user, action, message)
-        elif action == "add_proxy":
-            await self._handle_add_proxy(event, user, action, message)
-        else:
-            if hasattr(self.bot_manager, "session_export_handler") and hasattr(
-                self.bot_manager, "pending_fresh_sessions"
-            ):
-                if user_id in self.bot_manager.pending_fresh_sessions:
-                    session_data = self.bot_manager.pending_fresh_sessions[user_id]
-                    if session_data.get("waiting_for_2fa"):
-                        # This is a 2FA password for fresh session creation
-                        try:
-                            try:
-                                await event.delete()
-                            except Exception:
-                                pass
 
-                            ack_msg = None
-                            try:
-                                ack_msg = await self.bot.send_message(
-                                    user_id, "🔐 Processing your 2FA password now..."
-                                )
-                            except Exception:
-                                pass
+        if await self._handle_fresh_session_input(event, user_id, message):
+            return
 
-                            success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(
-                                user_id, message.strip()
-                            )
+        if await self._handle_command_cleanup(user_id, message):
+            return
 
-                            try:
-                                if ack_msg:
-                                    await ack_msg.delete()
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            logger.error(
-                                f"Error processing fresh-session 2FA (fallback branch) for {user_id}: {e}"
-                            )
-                            success = False
+        if await self._handle_session_login_otp(event, user_id, message):
+            return
 
-                        try:
-                            self.pending_actions.pop(user_id, None)
-                        except Exception:
-                            pass
+        if not await self._validate_pending_action(event, user_id):
+            return
 
-                        return
-                    else:
-                        # This is an OTP for fresh session creation
-                        success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                            user_id, message.strip()
-                        )
-                        if success:
-                            self.pending_actions.pop(user_id, None)
-                        return
-            if action.startswith("create_template"):
-                await event.reply(
-                    "Please use /templates command for the new advanced template system"
-                )
-                self.pending_actions.pop(user_id, None)
-            else:
-                await self._handle_misc_actions(event, user, action, message)
+        await self._route_pending_action(event, user_id, message)
 
     async def _handle_auth_actions(self, event, user, action, message):
         """Handle authentication related actions"""
@@ -2046,3 +1680,251 @@ class MessageHandlers:
         else:
             await event.reply("❌ Proxy management not available")
             self.pending_actions.pop(user_id, None)
+
+    async def _is_admin_group_message(self, user_id, chat_id):
+        """Check if message is from admin group"""
+        try:
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            return user and user.get("dm_reply_group_id") == chat_id
+        except Exception:
+            return False
+
+    async def _handle_transfer_ownership(self, event, user_id, message):
+        """Handle transfer ownership input"""
+        if not hasattr(self.bot_manager, "transfer_ownership_handler"):
+            return False
+
+        handler = self.bot_manager.transfer_ownership_handler
+        logger.info(
+            f"[TRANSFER CHECK] User {user_id} - pending_transfers: {
+                user_id in handler.pending_transfers}, pending_coowner: {
+                user_id in handler.pending_coowner}"
+        )
+
+        try:
+            if user_id in handler.pending_transfers:
+                logger.info(f"[TRANSFER] User {user_id} in pending_transfers, processing input: '{message}'")
+                logger.info(f"[TRANSFER] Transfer state: {handler.pending_transfers[user_id]}")
+                await handler.process_user_input(event, user_id, message)
+                logger.info(f"[TRANSFER] process_user_input completed for user {user_id}")
+                return True
+            elif user_id in handler.pending_coowner:
+                logger.info(f"[COOWNER] User {user_id} in pending_coowner, processing input: '{message}'")
+                await handler.process_user_input(event, user_id, message)
+                logger.info(f"[COOWNER] process_user_input completed for user {user_id}")
+                return True
+        except Exception as transfer_error:
+            logger.error(
+                f"[TRANSFER ERROR] Failed to process transfer input for user {user_id}: {transfer_error}",
+                exc_info=True,
+            )
+            await event.reply(
+                f"❌ Transfer processing error: {str(transfer_error)}\n\nPlease try /transfer again."
+            )
+            handler.pending_transfers.pop(user_id, None)
+            handler.pending_coowner.pop(user_id, None)
+            return True
+        return False
+
+    async def _handle_fresh_session_input(self, event, user_id, message):
+        """Handle fresh session OTP or 2FA input"""
+        if not hasattr(self.bot_manager, "pending_fresh_sessions") or user_id not in self.bot_manager.pending_fresh_sessions:
+            return False
+
+        session_data = self.bot_manager.pending_fresh_sessions.get(user_id, {})
+        logger.info(f"Fresh session data for {user_id}: waiting_for_2fa={session_data.get('waiting_for_2fa')}")
+
+        if session_data.get("waiting_for_2fa"):
+            return await self._process_fresh_session_2fa(event, user_id, message)
+        else:
+            return await self._process_fresh_session_otp(event, user_id, message)
+
+    async def _process_fresh_session_2fa(self, event, user_id, message):
+        """Process 2FA password for fresh session"""
+        logger.info(f"Processing 2FA password for user {user_id}")
+        try:
+            await event.delete()
+        except Exception:
+            pass
+
+        ack_msg = None
+        try:
+            ack_msg = await self.bot.send_message(user_id, "🔐 Processing your 2FA password now...")
+        except Exception:
+            pass
+
+        success = False
+        try:
+            success = await self.bot_manager.session_export_handler.process_fresh_session_2fa(
+                user_id, message.strip()
+            )
+        except Exception as e:
+            logger.error(f"Error while processing 2FA for user {user_id}: {e}")
+            try:
+                await self.bot.send_message(user_id, f"❌ Error processing 2FA: {e}")
+            except Exception:
+                pass
+
+        try:
+            if ack_msg:
+                await ack_msg.delete()
+        except Exception:
+            pass
+
+        if success:
+            try:
+                self.pending_actions.pop(user_id, None)
+            except Exception:
+                pass
+        return True
+
+    async def _process_fresh_session_otp(self, event, user_id, message):
+        """Process OTP code for fresh session"""
+        import re
+        otp_code = message.strip().lstrip("/")
+        if re.match(r"^\d{5,7}$", otp_code):
+            logger.info(f"Processing manual OTP {otp_code} for user {user_id}")
+            success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
+                user_id, otp_code
+            )
+            if success:
+                self.pending_actions.pop(user_id, None)
+                logger.info(f"OTP processed successfully for user {user_id}")
+            else:
+                logger.error(f"OTP processing failed for user {user_id}")
+            return True
+        return False
+
+    async def _handle_command_cleanup(self, user_id, message):
+        """Handle command cleanup for cancel commands"""
+        if message.startswith("/"):
+            if message in ["/start", "/cancel", "/help"]:
+                self.pending_actions.pop(user_id, None)
+                if hasattr(self.bot_manager, "transfer_ownership_handler"):
+                    self.bot_manager.transfer_ownership_handler.pending_transfers.pop(user_id, None)
+                    self.bot_manager.transfer_ownership_handler.pending_coowner.pop(user_id, None)
+            if user_id not in self.pending_actions:
+                return True
+        return False
+
+    async def _handle_session_login_otp(self, event, user_id, message):
+        """Handle OTP for session login"""
+        if not hasattr(self.bot_manager, "session_login_handler") or not hasattr(
+            self.bot_manager.session_login_handler, "pending_auth"
+        ):
+            return False
+
+        if user_id not in self.bot_manager.session_login_handler.pending_auth:
+            return False
+
+        auth_data = self.bot_manager.session_login_handler.pending_auth[user_id]
+        if auth_data.get("step") == "2fa":
+            return False
+
+        import re
+        otp_code = message.strip().lstrip("/")
+        if re.match(r"^\d{5,7}$", otp_code):
+            logger.info(f"Auto-processing OTP code {otp_code} for session login")
+            success, msg = await self.bot_manager.session_login_handler.process_verification_code(
+                user_id, otp_code
+            )
+            await event.reply(msg)
+            if user_id not in self.bot_manager.session_login_handler.pending_auth:
+                self.pending_actions.pop(user_id, None)
+            return True
+        return False
+
+    async def _validate_pending_action(self, event, user_id):
+        """Validate that user has pending action"""
+        if user_id not in self.pending_actions:
+            logger.warning(f"!!! User {user_id} sent message but NO pending action found !!!")
+            logger.debug(f"Current pending_actions: {dict(self.pending_actions)}")
+            return False
+        return True
+
+    async def _route_pending_action(self, event, user_id, message):
+        """Route to appropriate action handler"""
+        action = self.pending_actions[user_id]["action"]
+        logger.info(f"Processing user action for {user_id}: {action}")
+        
+        user = await mongodb.get_user(user_id)
+        if not user:
+            await event.reply("Please start the bot first with /start")
+            self.pending_actions.pop(user_id, None)
+            return
+
+        if action in ["add_account", "verify_otp", "verify_2fa", "2fa_password"]:
+            await self._handle_auth_actions(event, user, action, message)
+        elif action.startswith("2fa_") and action != "verify_2fa":
+            await self._handle_2fa_actions(event, user, action, message)
+        elif action in ["change_2fa", "remove_2fa", "set_2fa", "change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"]:
+            await self._route_2fa_management(event, user, action, message, user_id)
+        elif action == "update_2fa_password":
+            await self._handle_2fa_update(event, user_id, message)
+        elif action.startswith("profile_"):
+            await self._handle_profile_actions(event, user, action, message)
+        elif action.startswith(("message_", "set_autoreply", "compose_message")):
+            await self._handle_messaging_actions(event, user, action, message)
+        elif action.startswith("template_"):
+            await self._handle_template_action(event, user_id, message)
+        elif action.startswith(("otp_", "disable_otp", "set_otp", "enable_temp")):
+            await self._handle_otp_actions(event, user, action, message)
+        elif action.startswith("channel_"):
+            await self._handle_channel_actions(event, user, action, message)
+        elif action == "set_dm_group_id":
+            await self._handle_dm_group_actions(event, user, action, message)
+        elif action in ["session_string_login", "import_string_session"]:
+            await self._handle_session_string_import(event, user, action, message)
+        elif action == "session_phone_login":
+            await self._handle_session_phone_login(event, user, action, message)
+        elif action == "validate_session_string":
+            await self._handle_session_validation(event, user, action, message)
+        elif action == "cleanup_selection":
+            await self._handle_cleanup_selection(event, user, action, message)
+        elif action == "bulk_cleanup_selection":
+            await self._handle_bulk_cleanup_selection(event, user, action, message)
+        elif action == "session_creation_2fa_password":
+            await self._handle_session_creation_2fa(event, user, action, message)
+        elif action == "add_proxy":
+            await self._handle_add_proxy(event, user, action, message)
+        else:
+            await self._handle_fallback_actions(event, user, action, message, user_id)
+
+    async def _route_2fa_management(self, event, user, action, message, user_id):
+        """Route 2FA management actions"""
+        if hasattr(self.bot_manager, "twofa_commands"):
+            handled = await self.bot_manager.twofa_commands.handle_text_message(event, user_id, message)
+            if handled:
+                return
+        await self._handle_2fa_management_actions(event, user, action, message)
+
+    async def _handle_2fa_update(self, event, user_id, message):
+        """Handle 2FA password update"""
+        if hasattr(self.bot_manager, "twofa_manager"):
+            success = await self.bot_manager.twofa_manager.process_2fa_update(event, user_id, message)
+            if success:
+                try:
+                    await event.delete()
+                except (OSError, IOError):
+                    pass
+        else:
+            await event.reply("❌ 2FA management not available")
+        self.pending_actions.pop(user_id, None)
+
+    async def _handle_template_action(self, event, user_id, message):
+        """Handle template actions"""
+        if hasattr(self.bot_manager, "template_handler"):
+            await self.bot_manager.template_handler.process_text_input(
+                event, self.pending_actions[user_id], message
+            )
+        else:
+            await event.reply("Template system not available")
+            self.pending_actions.pop(user_id, None)
+
+    async def _handle_fallback_actions(self, event, user, action, message, user_id):
+        """Handle fallback actions for unmatched cases"""
+        if action.startswith("create_template"):
+            await event.reply("Please use /templates command for the new advanced template system")
+            self.pending_actions.pop(user_id, None)
+        else:
+            await self._handle_misc_actions(event, user, action, message)
