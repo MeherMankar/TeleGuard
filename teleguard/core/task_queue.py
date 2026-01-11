@@ -1,10 +1,14 @@
 """Background task queue with retry mechanisms"""
+
 import asyncio
-import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Dict
+
 from ..utils.logger import get_logger
+
 logger = get_logger(__name__)
+
+
 class Task:
     def __init__(
         self,
@@ -24,11 +28,14 @@ class Task:
         self.attempts = 0
         self.created_at = datetime.now(timezone.utc)
         self.next_run = datetime.now(timezone.utc)
+
+
 class TaskQueue:
     def __init__(self):
         self.tasks: Dict[str, Task] = {}
         self.running = False
         self.worker_task = None
+
     async def add_task(
         self,
         task_id: str,
@@ -44,6 +51,7 @@ class TaskQueue:
         logger.info("Task added to queue", task_id=task_id, func=func.__name__)
         if not self.running:
             await self.start()
+
     async def start(self):
         """Start task worker"""
         if self.running:
@@ -51,12 +59,14 @@ class TaskQueue:
         self.running = True
         self.worker_task = asyncio.create_task(self._worker())
         logger.info("Task queue started")
+
     async def stop(self):
         """Stop task worker"""
         self.running = False
         if self.worker_task:
             self.worker_task.cancel()
         logger.info("Task queue stopped")
+
     async def _worker(self):
         """Background worker to process tasks"""
         while self.running:
@@ -75,6 +85,7 @@ class TaskQueue:
             except Exception as e:
                 logger.error("Task worker error", error=str(e))
                 await asyncio.sleep(30)
+
     async def _execute_task(self, task: Task):
         """Execute a single task"""
         try:
@@ -108,5 +119,7 @@ class TaskQueue:
                     task_id=task.task_id,
                     next_run=task.next_run.isoformat(),
                 )
+
+
 # Global task queue
 task_queue = TaskQueue()

@@ -6,22 +6,27 @@ Integrated from CleanAcc repository: https://github.com/MeherMankar/CleanAcc
 import asyncio
 import logging
 import random
-from typing import Dict, Any, Optional, List
-from telethon import TelegramClient
-from telethon.tl.types import User, Chat, Channel
-from telethon.tl.functions.messages import DeleteHistoryRequest
-from telethon.tl.functions.channels import LeaveChannelRequest
-from telethon.tl.functions.messages import DeleteChatUserRequest
-from telethon.tl.functions.contacts import DeleteContactsRequest, GetContactsRequest
-from telethon.errors import ChatAdminRequiredError, UserNotParticipantError, ChatIdInvalidError, FloodWaitError
 from datetime import datetime
-import time
+from typing import Any, Dict, Optional
+
+from telethon import TelegramClient
+from telethon.errors import (
+    ChatAdminRequiredError,
+    ChatIdInvalidError,
+    FloodWaitError,
+    UserNotParticipantError,
+)
+from telethon.tl.functions.channels import LeaveChannelRequest
+from telethon.tl.functions.contacts import DeleteContactsRequest, GetContactsRequest
+from telethon.tl.functions.messages import DeleteChatUserRequest, DeleteHistoryRequest
+from telethon.tl.types import Channel, Chat, User
 
 logger = logging.getLogger(__name__)
 
+
 class CleanupProgress:
     """Track cleanup progress"""
-    
+
     def __init__(self):
         self.total_items = 0
         self.processed_items = 0
@@ -29,15 +34,15 @@ class CleanupProgress:
         self.errors = []
         self.start_time = datetime.now()
         self.current_operation = ""
-    
+
     def add_error(self, error: str):
         self.errors.append(f"{datetime.now().isoformat()}: {error}")
         logger.warning(f"Cleanup error: {error}")
-    
+
     def get_progress_text(self) -> str:
         elapsed = (datetime.now() - self.start_time).total_seconds()
         rate = self.processed_items / elapsed if elapsed > 0 else 0
-        
+
         return f"""
 🔄 {self.current_operation}
 📊 Progress: {self.processed_items}/{self.total_items}
@@ -46,17 +51,21 @@ class CleanupProgress:
 ⏱️ Elapsed: {int(elapsed)}s
 """
 
+
 class AccountCleaner:
     """Enhanced account cleanup service"""
 
     def __init__(self):
         pass  # Delays are randomized per operation
 
-    async def cleanup_account(self, client: TelegramClient, 
-                            cleanup_settings: Dict[str, bool],
-                            progress_callback: Optional[callable] = None) -> str:
+    async def cleanup_account(
+        self,
+        client: TelegramClient,
+        cleanup_settings: Dict[str, bool],
+        progress_callback: Optional[callable] = None,
+    ) -> str:
         """Perform account cleanup with progress tracking"""
-        
+
         progress = CleanupProgress()
         results = []
 
@@ -65,7 +74,9 @@ class AccountCleaner:
                 return "❌ Session is invalid, re-authorization required"
 
             if progress_callback:
-                await progress_callback("✅ Connection established\n⏳ Analyzing account...")
+                await progress_callback(
+                    "✅ Connection established\n⏳ Analyzing account..."
+                )
 
             # Get all dialogs
             dialogs = []
@@ -83,55 +94,57 @@ class AccountCleaner:
                 await progress_callback(progress.get_progress_text())
 
             # Execute cleanup operations
-            if cleanup_settings.get('personal_chats', False):
+            if cleanup_settings.get("personal_chats", False):
                 count = await self._cleanup_personal_chats(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"💬 Deleted personal chats: {count}")
 
-            if cleanup_settings.get('bot_chats', False):
+            if cleanup_settings.get("bot_chats", False):
                 count = await self._cleanup_bot_chats(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"🤖 Deleted bot chats: {count}")
 
-            if cleanup_settings.get('groups', False):
+            if cleanup_settings.get("groups", False):
                 count = await self._leave_groups(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"👥 Left groups: {count}")
 
-            if cleanup_settings.get('channels', False):
+            if cleanup_settings.get("channels", False):
                 count = await self._leave_channels(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"📺 Unsubscribed from channels: {count}")
 
-            if cleanup_settings.get('contacts', False):
+            if cleanup_settings.get("contacts", False):
                 count = await self._cleanup_contacts(
                     client, progress, progress_callback
                 )
                 results.append(f"📞 Deleted contacts: {count}")
 
-            if cleanup_settings.get('telegram_chat', False):
+            if cleanup_settings.get("telegram_chat", False):
                 count = await self._cleanup_telegram_chat(
                     client, dialogs, progress, progress_callback
                 )
-                results.append(f"📢 Cleaned Telegram dialog: {'✅' if count > 0 else '❌'}")
+                results.append(
+                    f"📢 Cleaned Telegram dialog: {'✅' if count > 0 else '❌'}"
+                )
 
-            if cleanup_settings.get('spambot_chat', False):
+            if cleanup_settings.get("spambot_chat", False):
                 count = await self._cleanup_spambot_chat(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"🚫 Spambot cleanup: {count}")
-            
-            if cleanup_settings.get('owned_groups', False):
+
+            if cleanup_settings.get("owned_groups", False):
                 count = await self._delete_owned_groups(
                     client, dialogs, progress, progress_callback
                 )
                 results.append(f"🗑️ Deleted owned groups: {count}")
-            
-            if cleanup_settings.get('owned_channels', False):
+
+            if cleanup_settings.get("owned_channels", False):
                 count = await self._delete_owned_channels(
                     client, dialogs, progress, progress_callback
                 )
@@ -140,7 +153,7 @@ class AccountCleaner:
             # Final verification
             if progress_callback:
                 await progress_callback("🔍 Final verification...")
-            
+
             remaining_count = await self._final_cleanup_check(
                 client, cleanup_settings, progress, progress_callback
             )
@@ -148,7 +161,7 @@ class AccountCleaner:
                 results.append(f"🧹 Additionally cleaned: {remaining_count}")
 
             final_result = "\n".join(results) if results else "✅ Cleanup completed"
-            
+
             # Add summary statistics
             summary = f"""
 📊 Cleanup Summary:
@@ -165,21 +178,22 @@ class AccountCleaner:
             error_msg = f"Rate limited by Telegram: wait {e.seconds} seconds"
             progress.add_error(error_msg)
             return f"⏳ {error_msg}"
-            
+
         except Exception as e:
             error_msg = f"Cleanup error: {str(e)}"
             progress.add_error(error_msg)
             return f"❌ {error_msg}"
 
-    async def _cleanup_personal_chats(self, client, all_dialogs, progress: CleanupProgress, progress_callback=None):
+    async def _cleanup_personal_chats(
+        self, client, all_dialogs, progress: CleanupProgress, progress_callback=None
+    ):
         """Cleanup personal chats with progress tracking"""
         personal_dialogs = [
-            dialog for dialog in all_dialogs
-            if dialog.is_user and not dialog.entity.bot
+            dialog for dialog in all_dialogs if dialog.is_user and not dialog.entity.bot
         ]
 
         progress.current_operation = f"Cleaning {len(personal_dialogs)} personal chats"
-        
+
         if progress_callback:
             await progress_callback(progress.get_progress_text())
 
@@ -188,48 +202,61 @@ class AccountCleaner:
             success = await self._delete_dialog_with_retry(client, dialog, progress)
             if success:
                 count += 1
-            
+
             progress.processed_items = i + 1
             progress.deleted_items = count
-            progress.current_operation = f"Personal chats: {i+1}/{len(personal_dialogs)}"
-            
+            progress.current_operation = (
+                f"Personal chats: {i + 1}/{len(personal_dialogs)}"
+            )
+
             if progress_callback and (i + 1) % 5 == 0:
                 await progress_callback(progress.get_progress_text())
-            
+
             await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
-    async def _cleanup_bot_chats(self, client, all_dialogs, progress: CleanupProgress, progress_callback=None):
+    async def _cleanup_bot_chats(
+        self, client, all_dialogs, progress: CleanupProgress, progress_callback=None
+    ):
         """Cleanup bot chats"""
         bot_dialogs = [
-            dialog for dialog in all_dialogs
-            if dialog.is_user and dialog.entity.bot
+            dialog for dialog in all_dialogs if dialog.is_user and dialog.entity.bot
         ]
 
         progress.current_operation = f"Cleaning {len(bot_dialogs)} bot chats"
-        
+
         count = 0
         for i, dialog in enumerate(bot_dialogs):
             success = await self._delete_dialog_with_retry(client, dialog, progress)
             if success:
                 count += 1
-            
+
             progress.processed_items += 1
-            progress.deleted_items = progress.deleted_items - count + count  # Update count
-            progress.current_operation = f"Bot chats: {i+1}/{len(bot_dialogs)}"
-            
+            progress.deleted_items = (
+                progress.deleted_items - count + count
+            )  # Update count
+            progress.current_operation = f"Bot chats: {i + 1}/{len(bot_dialogs)}"
+
             if progress_callback and (i + 1) % 5 == 0:
                 await progress_callback(progress.get_progress_text())
-            
+
             await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
-    async def _leave_groups(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+    async def _leave_groups(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
         """Leave groups with progress tracking"""
         group_dialogs = [d for d in dialogs if isinstance(d.entity, Chat)]
-        supergroup_dialogs = [d for d in dialogs if isinstance(d.entity, Channel) and d.entity.megagroup]
+        supergroup_dialogs = [
+            d for d in dialogs if isinstance(d.entity, Channel) and d.entity.megagroup
+        ]
         all_groups = group_dialogs + supergroup_dialogs
 
         progress.current_operation = f"Leaving {len(all_groups)} groups"
@@ -238,78 +265,99 @@ class AccountCleaner:
         for i, dialog in enumerate(all_groups):
             try:
                 if isinstance(dialog.entity, Chat):
-                    await client(DeleteChatUserRequest(
-                        chat_id=dialog.entity.id,
-                        user_id='me'
-                    ))
+                    await client(
+                        DeleteChatUserRequest(chat_id=dialog.entity.id, user_id="me")
+                    )
                 else:
                     await client(LeaveChannelRequest(dialog.entity))
-                
+
                 count += 1
-                
-            except (ChatAdminRequiredError, UserNotParticipantError, ChatIdInvalidError):
+
+            except (
+                ChatAdminRequiredError,
+                UserNotParticipantError,
+                ChatIdInvalidError,
+            ):
                 pass  # Already left or no permissions
             except FloodWaitError as e:
-                progress.add_error(f"Rate limited leaving group {dialog.name}: wait {e.seconds}s")
+                progress.add_error(
+                    f"Rate limited leaving group {dialog.name}: wait {e.seconds}s"
+                )
                 await asyncio.sleep(e.seconds)
                 continue
             except Exception as e:
                 progress.add_error(f"Error leaving group {dialog.name}: {e}")
                 continue
-            
+
             progress.processed_items += 1
-            progress.current_operation = f"Groups: {i+1}/{len(all_groups)}"
-            
+            progress.current_operation = f"Groups: {i + 1}/{len(all_groups)}"
+
             if progress_callback and (i + 1) % 3 == 0:
                 await progress_callback(progress.get_progress_text())
-            
+
             await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
-    async def _leave_channels(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+    async def _leave_channels(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
         """Leave channels"""
-        channel_dialogs = [d for d in dialogs if isinstance(d.entity, Channel) and not d.entity.megagroup]
+        channel_dialogs = [
+            d
+            for d in dialogs
+            if isinstance(d.entity, Channel) and not d.entity.megagroup
+        ]
 
-        progress.current_operation = f"Unsubscribing from {len(channel_dialogs)} channels"
+        progress.current_operation = (
+            f"Unsubscribing from {len(channel_dialogs)} channels"
+        )
 
         count = 0
         for i, dialog in enumerate(channel_dialogs):
             try:
                 await client(LeaveChannelRequest(dialog.entity))
                 count += 1
-                
+
             except (UserNotParticipantError, ChatIdInvalidError):
                 pass  # Already unsubscribed
             except FloodWaitError as e:
-                progress.add_error(f"Rate limited leaving channel {dialog.name}: wait {e.seconds}s")
+                progress.add_error(
+                    f"Rate limited leaving channel {dialog.name}: wait {e.seconds}s"
+                )
                 await asyncio.sleep(e.seconds)
                 continue
             except Exception as e:
                 progress.add_error(f"Error leaving channel {dialog.name}: {e}")
                 continue
-            
+
             progress.processed_items += 1
-            progress.current_operation = f"Channels: {i+1}/{len(channel_dialogs)}"
-            
+            progress.current_operation = f"Channels: {i + 1}/{len(channel_dialogs)}"
+
             if progress_callback and (i + 1) % 3 == 0:
                 await progress_callback(progress.get_progress_text())
-            
+
             await asyncio.sleep(random.uniform(3, 8))
 
         return count
 
-    async def _cleanup_contacts(self, client: TelegramClient, progress: CleanupProgress, progress_callback=None) -> int:
+    async def _cleanup_contacts(
+        self, client: TelegramClient, progress: CleanupProgress, progress_callback=None
+    ) -> int:
         """Cleanup contacts with batching"""
         try:
             progress.current_operation = "Getting contacts list"
-            
+
             if progress_callback:
                 await progress_callback(progress.get_progress_text())
 
             result = await client(GetContactsRequest(hash=0))
 
-            if not hasattr(result, 'contacts') or not result.contacts:
+            if not hasattr(result, "contacts") or not result.contacts:
                 return 0
 
             contacts = result.contacts
@@ -321,21 +369,29 @@ class AccountCleaner:
             deleted_count = 0
 
             for i in range(0, len(contact_ids), batch_size):
-                batch = contact_ids[i:i + batch_size]
+                batch = contact_ids[i: i + batch_size]
                 try:
                     await client(DeleteContactsRequest(id=batch))
                     deleted_count += len(batch)
-                    
+
                     progress.processed_items += len(batch)
-                    progress.current_operation = f"Contacts: {min(i + batch_size, len(contact_ids))}/{len(contact_ids)}"
-                    
+                    progress.current_operation = f"Contacts: {
+                        min(
+                            i + batch_size,
+                            len(contact_ids))}/{
+                        len(contact_ids)}"
+
                     if progress_callback:
                         await progress_callback(progress.get_progress_text())
-                    
-                    await asyncio.sleep(random.uniform(5, 12))  # Longer delay for contacts
-                    
+
+                    await asyncio.sleep(
+                        random.uniform(5, 12)
+                    )  # Longer delay for contacts
+
                 except FloodWaitError as e:
-                    progress.add_error(f"Rate limited deleting contacts: wait {e.seconds}s")
+                    progress.add_error(
+                        f"Rate limited deleting contacts: wait {e.seconds}s"
+                    )
                     await asyncio.sleep(e.seconds)
                     continue
                 except Exception as e:
@@ -348,44 +404,58 @@ class AccountCleaner:
             progress.add_error(f"Error cleaning contacts: {e}")
             return 0
 
-    async def _cleanup_telegram_chat(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+    async def _cleanup_telegram_chat(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
         """Cleanup Telegram official chat"""
         progress.current_operation = "Looking for Telegram dialogs"
 
-        telegram_usernames = ['telegram', 'botfather', 'botfather_beta']
-        telegram_names = ['Telegram', 'BotFather']
+        telegram_usernames = ["telegram", "botfather", "botfather_beta"]
+        telegram_names = ["Telegram", "BotFather"]
 
         count = 0
         for dialog in dialogs:
             if isinstance(dialog.entity, User):
-                username = (getattr(dialog.entity, 'username', None) or '').lower()
-                first_name = (getattr(dialog.entity, 'first_name', None) or '').lower()
+                username = (getattr(dialog.entity, "username", None) or "").lower()
+                first_name = (getattr(dialog.entity, "first_name", None) or "").lower()
 
                 is_telegram = (
-                    username in telegram_usernames or
-                    any(name.lower() in first_name for name in telegram_names) or
-                    'telegram' in username or
-                    'telegram' in first_name
+                    username in telegram_usernames
+                    or any(name.lower() in first_name for name in telegram_names)
+                    or "telegram" in username
+                    or "telegram" in first_name
                 )
 
                 if is_telegram:
-                    success = await self._delete_dialog_with_retry(client, dialog, progress)
+                    success = await self._delete_dialog_with_retry(
+                        client, dialog, progress
+                    )
                     if success:
                         count += 1
 
         return count
 
-    async def _cleanup_spambot_chat(self, client, all_dialogs, progress: CleanupProgress, progress_callback=None):
+    async def _cleanup_spambot_chat(
+        self, client, all_dialogs, progress: CleanupProgress, progress_callback=None
+    ):
         """Cleanup Spambot dialog"""
         count = 0
 
         for dialog in all_dialogs:
             try:
-                if (dialog.is_user and
-                    dialog.entity.username and
-                    (dialog.entity.username or '').lower() == 'spambot'):
+                if (
+                    dialog.is_user
+                    and dialog.entity.username
+                    and (dialog.entity.username or "").lower() == "spambot"
+                ):
 
-                    success = await self._delete_dialog_with_retry(client, dialog, progress)
+                    success = await self._delete_dialog_with_retry(
+                        client, dialog, progress
+                    )
                     if success:
                         count += 1
                         break
@@ -395,22 +465,28 @@ class AccountCleaner:
                 continue
 
         return count
-    
-    async def _delete_owned_groups(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+
+    async def _delete_owned_groups(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
         """Delete groups owned by the user"""
-        from telethon.tl.types import Chat, Channel
         from telethon.tl.functions.channels import DeleteChannelRequest
         from telethon.tl.functions.messages import DeleteChatRequest
-        
+        from telethon.tl.types import Channel, Chat
+
         progress.current_operation = "Finding owned groups"
-        
+
         owned_groups = []
         for dialog in dialogs:
             try:
                 if isinstance(dialog.entity, Chat):
                     # For basic groups, check if we're the creator
                     chat_full = await client.get_entity(dialog.entity.id)
-                    if hasattr(chat_full, 'creator') and chat_full.creator:
+                    if hasattr(chat_full, "creator") and chat_full.creator:
                         owned_groups.append(dialog)
                 elif isinstance(dialog.entity, Channel) and dialog.entity.megagroup:
                     # For supergroups, check admin rights
@@ -423,9 +499,9 @@ class AccountCleaner:
             except Exception as e:
                 progress.add_error(f"Error checking group ownership {dialog.name}: {e}")
                 continue
-        
+
         progress.current_operation = f"Deleting {len(owned_groups)} owned groups"
-        
+
         count = 0
         for i, dialog in enumerate(owned_groups):
             try:
@@ -435,29 +511,37 @@ class AccountCleaner:
                 elif isinstance(dialog.entity, Channel):
                     # Delete supergroup
                     await client(DeleteChannelRequest(channel=dialog.entity))
-                
+
                 count += 1
                 progress.processed_items += 1
-                progress.current_operation = f"Owned groups: {i+1}/{len(owned_groups)}"
-                
+                progress.current_operation = f"Owned groups: {
+                    i + 1}/{
+                    len(owned_groups)}"
+
                 if progress_callback and (i + 1) % 2 == 0:
                     await progress_callback(progress.get_progress_text())
-                
+
                 await asyncio.sleep(random.uniform(6, 15))  # Longer delay for deletions
-                
+
             except Exception as e:
                 progress.add_error(f"Error deleting owned group {dialog.name}: {e}")
                 continue
-        
+
         return count
-    
-    async def _delete_owned_channels(self, client: TelegramClient, dialogs, progress: CleanupProgress, progress_callback=None) -> int:
+
+    async def _delete_owned_channels(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
         """Delete channels owned by the user"""
-        from telethon.tl.types import Channel
         from telethon.tl.functions.channels import DeleteChannelRequest
-        
+        from telethon.tl.types import Channel
+
         progress.current_operation = "Finding owned channels"
-        
+
         owned_channels = []
         for dialog in dialogs:
             try:
@@ -470,37 +554,47 @@ class AccountCleaner:
                     except Exception:
                         continue
             except Exception as e:
-                progress.add_error(f"Error checking channel ownership {dialog.name}: {e}")
+                progress.add_error(
+                    f"Error checking channel ownership {dialog.name}: {e}"
+                )
                 continue
-        
+
         progress.current_operation = f"Deleting {len(owned_channels)} owned channels"
-        
+
         count = 0
         for i, dialog in enumerate(owned_channels):
             try:
                 await client(DeleteChannelRequest(channel=dialog.entity))
                 count += 1
                 progress.processed_items += 1
-                progress.current_operation = f"Owned channels: {i+1}/{len(owned_channels)}"
-                
+                progress.current_operation = (
+                    f"Owned channels: {i + 1}/{len(owned_channels)}"
+                )
+
                 if progress_callback and (i + 1) % 2 == 0:
                     await progress_callback(progress.get_progress_text())
-                
+
                 await asyncio.sleep(random.uniform(6, 15))  # Longer delay for deletions
-                
+
             except Exception as e:
                 progress.add_error(f"Error deleting owned channel {dialog.name}: {e}")
                 continue
-        
+
         return count
 
-    async def _final_cleanup_check(self, client, cleanup_settings, progress: CleanupProgress, progress_callback=None):
+    async def _final_cleanup_check(
+        self,
+        client,
+        cleanup_settings,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ):
         """Final cleanup check"""
         count = 0
 
         try:
             progress.current_operation = "Final verification of remaining dialogs"
-            
+
             remaining_dialogs = []
             async for dialog in client.iter_dialogs():
                 remaining_dialogs.append(dialog)
@@ -508,13 +602,23 @@ class AccountCleaner:
             for dialog in remaining_dialogs:
                 should_delete = False
 
-                if cleanup_settings.get('personal_chats', False) and dialog.is_user and not dialog.entity.bot:
+                if (
+                    cleanup_settings.get("personal_chats", False)
+                    and dialog.is_user
+                    and not dialog.entity.bot
+                ):
                     should_delete = True
-                elif cleanup_settings.get('bot_chats', False) and dialog.is_user and dialog.entity.bot:
+                elif (
+                    cleanup_settings.get("bot_chats", False)
+                    and dialog.is_user
+                    and dialog.entity.bot
+                ):
                     should_delete = True
 
                 if should_delete:
-                    success = await self._delete_dialog_with_retry(client, dialog, progress)
+                    success = await self._delete_dialog_with_retry(
+                        client, dialog, progress
+                    )
                     if success:
                         count += 1
 
@@ -523,49 +627,57 @@ class AccountCleaner:
 
         return count
 
-    async def _delete_dialog_with_retry(self, client, dialog, progress: CleanupProgress, max_retries: int = 3) -> bool:
+    async def _delete_dialog_with_retry(
+        self, client, dialog, progress: CleanupProgress, max_retries: int = 3
+    ) -> bool:
         """Delete dialog with retry logic"""
         for attempt in range(max_retries):
             try:
-                await client(DeleteHistoryRequest(
-                    peer=dialog.entity,
-                    max_id=0,
-                    just_clear=False,
-                    revoke=True
-                ))
+                await client(
+                    DeleteHistoryRequest(
+                        peer=dialog.entity, max_id=0, just_clear=False, revoke=True
+                    )
+                )
                 return True
-                
+
             except FloodWaitError as e:
                 wait_time = min(e.seconds, 300)  # Cap at 5 minutes
-                progress.add_error(f"Rate limited deleting {dialog.name}: waiting {wait_time}s")
+                progress.add_error(
+                    f"Rate limited deleting {dialog.name}: waiting {wait_time}s"
+                )
                 await asyncio.sleep(wait_time)
                 continue
-                
+
             except Exception as e:
                 if attempt == max_retries - 1:
-                    progress.add_error(f"Failed to delete dialog {dialog.name} after {max_retries} attempts: {e}")
+                    progress.add_error(
+                        f"Failed to delete dialog {
+                            dialog.name} after {max_retries} attempts: {e}"
+                    )
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
 
         return False
 
-    async def get_cleanup_preview(self, client: TelegramClient, cleanup_settings: Dict[str, bool]) -> Dict[str, Any]:
+    async def get_cleanup_preview(
+        self, client: TelegramClient, cleanup_settings: Dict[str, bool]
+    ) -> Dict[str, Any]:
         """Get preview of what will be cleaned"""
         preview = {
-            'personal_chats': [],
-            'bot_chats': [],
-            'groups': [],
-            'channels': [],
-            'contacts_count': 0,
-            'telegram_chats': [],
-            'spambot_chats': [],
-            'owned_groups': [],
-            'owned_channels': []
+            "personal_chats": [],
+            "bot_chats": [],
+            "groups": [],
+            "channels": [],
+            "contacts_count": 0,
+            "telegram_chats": [],
+            "spambot_chats": [],
+            "owned_groups": [],
+            "owned_channels": [],
         }
 
         try:
             if not await client.is_user_authorized():
-                return {'error': 'Session invalid'}
+                return {"error": "Session invalid"}
 
             # Get dialogs for preview
             dialogs = []
@@ -574,82 +686,106 @@ class AccountCleaner:
 
             # Categorize dialogs
             for dialog in dialogs:
-                if cleanup_settings.get('personal_chats', False) and dialog.is_user and not dialog.entity.bot:
-                    preview['personal_chats'].append({
-                        'name': dialog.name,
-                        'id': dialog.entity.id
-                    })
-                elif cleanup_settings.get('bot_chats', False) and dialog.is_user and dialog.entity.bot:
-                    preview['bot_chats'].append({
-                        'name': dialog.name,
-                        'id': dialog.entity.id
-                    })
-                elif cleanup_settings.get('groups', False) and isinstance(dialog.entity, (Chat, Channel)):
+                if (
+                    cleanup_settings.get("personal_chats", False)
+                    and dialog.is_user
+                    and not dialog.entity.bot
+                ):
+                    preview["personal_chats"].append(
+                        {"name": dialog.name, "id": dialog.entity.id}
+                    )
+                elif (
+                    cleanup_settings.get("bot_chats", False)
+                    and dialog.is_user
+                    and dialog.entity.bot
+                ):
+                    preview["bot_chats"].append(
+                        {"name": dialog.name, "id": dialog.entity.id}
+                    )
+                elif cleanup_settings.get("groups", False) and isinstance(
+                    dialog.entity, (Chat, Channel)
+                ):
                     if isinstance(dialog.entity, Channel) and dialog.entity.megagroup:
-                        preview['groups'].append({
-                            'name': dialog.name,
-                            'id': dialog.entity.id,
-                            'type': 'supergroup'
-                        })
+                        preview["groups"].append(
+                            {
+                                "name": dialog.name,
+                                "id": dialog.entity.id,
+                                "type": "supergroup",
+                            }
+                        )
                     elif isinstance(dialog.entity, Chat):
-                        preview['groups'].append({
-                            'name': dialog.name,
-                            'id': dialog.entity.id,
-                            'type': 'group'
-                        })
-                elif cleanup_settings.get('channels', False) and isinstance(dialog.entity, Channel) and not dialog.entity.megagroup:
-                    preview['channels'].append({
-                        'name': dialog.name,
-                        'id': dialog.entity.id
-                    })
-                
+                        preview["groups"].append(
+                            {
+                                "name": dialog.name,
+                                "id": dialog.entity.id,
+                                "type": "group",
+                            }
+                        )
+                elif (
+                    cleanup_settings.get("channels", False)
+                    and isinstance(dialog.entity, Channel)
+                    and not dialog.entity.megagroup
+                ):
+                    preview["channels"].append(
+                        {"name": dialog.name, "id": dialog.entity.id}
+                    )
+
                 # Check for owned groups and channels
-                if cleanup_settings.get('owned_groups', False):
+                if cleanup_settings.get("owned_groups", False):
                     try:
                         if isinstance(dialog.entity, Chat):
                             # Basic group - check if creator
                             chat_full = await client.get_entity(dialog.entity.id)
-                            if hasattr(chat_full, 'creator') and chat_full.creator:
-                                preview['owned_groups'].append({
-                                    'name': dialog.name,
-                                    'id': dialog.entity.id,
-                                    'type': 'group'
-                                })
-                        elif isinstance(dialog.entity, Channel) and dialog.entity.megagroup:
+                            if hasattr(chat_full, "creator") and chat_full.creator:
+                                preview["owned_groups"].append(
+                                    {
+                                        "name": dialog.name,
+                                        "id": dialog.entity.id,
+                                        "type": "group",
+                                    }
+                                )
+                        elif (
+                            isinstance(dialog.entity, Channel)
+                            and dialog.entity.megagroup
+                        ):
                             # Supergroup - check creator permissions
                             permissions = await client.get_permissions(dialog.entity)
                             if permissions.is_creator:
-                                preview['owned_groups'].append({
-                                    'name': dialog.name,
-                                    'id': dialog.entity.id,
-                                    'type': 'supergroup'
-                                })
+                                preview["owned_groups"].append(
+                                    {
+                                        "name": dialog.name,
+                                        "id": dialog.entity.id,
+                                        "type": "supergroup",
+                                    }
+                                )
                     except Exception:
                         pass
-                
-                if cleanup_settings.get('owned_channels', False):
+
+                if cleanup_settings.get("owned_channels", False):
                     try:
-                        if isinstance(dialog.entity, Channel) and not dialog.entity.megagroup:
+                        if (
+                            isinstance(dialog.entity, Channel)
+                            and not dialog.entity.megagroup
+                        ):
                             # Channel - check creator permissions
                             permissions = await client.get_permissions(dialog.entity)
                             if permissions.is_creator:
-                                preview['owned_channels'].append({
-                                    'name': dialog.name,
-                                    'id': dialog.entity.id
-                                })
+                                preview["owned_channels"].append(
+                                    {"name": dialog.name, "id": dialog.entity.id}
+                                )
                     except Exception:
                         pass
 
             # Get contacts count if needed
-            if cleanup_settings.get('contacts', False):
+            if cleanup_settings.get("contacts", False):
                 try:
                     result = await client(GetContactsRequest(hash=0))
-                    if hasattr(result, 'contacts'):
-                        preview['contacts_count'] = len(result.contacts)
-                except:
-                    preview['contacts_count'] = 0
+                    if hasattr(result, "contacts"):
+                        preview["contacts_count"] = len(result.contacts)
+                except BaseException:
+                    preview["contacts_count"] = 0
 
             return preview
 
         except Exception as e:
-            return {'error': str(e)}
+            return {"error": str(e)}

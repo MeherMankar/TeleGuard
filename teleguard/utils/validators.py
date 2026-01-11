@@ -5,21 +5,26 @@ and data integrity checks throughout the application.
 Authors: @Meher_Mankar, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
-import re
+
 import html
 import logging
-from typing import Optional, Union, List, Dict, Any
-from datetime import datetime
+import re
 from pathlib import Path
+from typing import Any, Dict, Optional, Union
 from urllib.parse import urlparse
+
 from bson import ObjectId
 from bson.errors import InvalidId
-from ..core.exceptions import ValidationError
+
 from ..core.constants import AppConstants
+from ..core.exceptions import ValidationError
+
 logger = logging.getLogger(__name__)
+
 
 class InputSanitizer:
     """Comprehensive input sanitization"""
+
     @staticmethod
     def sanitize_html(text: str) -> str:
         if not isinstance(text, str):
@@ -38,7 +43,7 @@ class InputSanitizer:
             if not isinstance(url, str):
                 return False
             parsed = urlparse(url)
-            return parsed.scheme in ('http', 'https') and bool(parsed.netloc)
+            return parsed.scheme in ("http", "https") and bool(parsed.netloc)
         except Exception:
             return False
 
@@ -46,17 +51,18 @@ class InputSanitizer:
     def sanitize_filename(filename: str) -> str:
         if not isinstance(filename, str):
             filename = str(filename)
-        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
-        filename = filename.replace('..', '')
-        filename = filename.strip('. ')
+        filename = re.sub(r'[<>:"/\\|?*]', "", filename)
+        filename = filename.replace("..", "")
+        filename = filename.strip(". ")
         if len(filename) > 255:
             filename = filename[:255]
-        return filename or 'unnamed'
+        return filename or "unnamed"
 
     @staticmethod
     def validate_mongodb_query(query: Dict[str, Any]) -> bool:
         try:
-            dangerous_ops = ['$where', '$eval', '$function']
+            dangerous_ops = ["$where", "$eval", "$function"]
+
             def check_dict(d):
                 if not isinstance(d, dict):
                     return True
@@ -72,6 +78,7 @@ class InputSanitizer:
                                 if not check_dict(item):
                                     return False
                 return True
+
             return check_dict(query)
         except Exception:
             return False
@@ -80,13 +87,15 @@ class InputSanitizer:
     def sanitize_user_input(text: str, max_length: int = 1000) -> str:
         if not isinstance(text, str):
             text = str(text)
-        text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
+        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
         if len(text) > max_length:
             text = text[:max_length]
         return text.strip()
 
     @staticmethod
-    def validate_integer(value: Any, min_val: Optional[int] = None, max_val: Optional[int] = None) -> Optional[int]:
+    def validate_integer(
+        value: Any, min_val: Optional[int] = None, max_val: Optional[int] = None
+    ) -> Optional[int]:
         try:
             int_val = int(value)
             if min_val is not None and int_val < min_val:
@@ -97,8 +106,10 @@ class InputSanitizer:
         except (ValueError, TypeError):
             return None
 
+
 class InputValidator:
     """Secure input validation utilities"""
+
     @staticmethod
     def validate_user_id(user_id: Any) -> Optional[int]:
         if user_id is None:
@@ -122,8 +133,8 @@ class InputValidator:
     def validate_phone_number(phone: str) -> Optional[str]:
         if not isinstance(phone, str) or not phone.strip():
             return None
-        clean_phone = re.sub(r'[^\d+]', '', phone.strip())
-        if re.match(r'^\+\d{10,15}$', clean_phone):
+        clean_phone = re.sub(r"[^\d+]", "", phone.strip())
+        if re.match(r"^\+\d{10,15}$", clean_phone):
             return clean_phone
         return None
 
@@ -142,26 +153,30 @@ class InputValidator:
     def sanitize_text_input(text: str, max_length: int = 1000) -> str:
         if not isinstance(text, str):
             return ""
-        clean_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
-        clean_text = ' '.join(clean_text.split())
+        clean_text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+        clean_text = " ".join(clean_text.split())
         return clean_text[:max_length] if clean_text else ""
 
     @staticmethod
     def validate_database_field(field_name: str) -> bool:
         if not isinstance(field_name, str):
             return False
-        return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', field_name))
+        return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", field_name))
 
     @staticmethod
     def sanitize_command_arg(arg: str) -> str:
         if not isinstance(arg, str):
             return ""
-        safe_arg = re.sub(r'[;&|`$(){}[\]<>]', '', arg)
+        safe_arg = re.sub(r"[;&|`$(){}[\]<>]", "", arg)
         return safe_arg.strip()
+
+
 class PhoneValidator:
     """Phone number validation utilities"""
+
     # International phone number pattern
-    PHONE_PATTERN = re.compile(r'^\+?[1-9]\d{1,14}$')
+    PHONE_PATTERN = re.compile(r"^\+?[1-9]\d{1,14}$")
+
     @classmethod
     def validate_phone_number(cls, phone: str) -> str:
         """
@@ -175,24 +190,29 @@ class PhoneValidator:
         """
         if not phone:
             raise ValidationError("Phone number is required")
-        cleaned = re.sub(r'[^\d+]', '', phone.strip())
-        if not cleaned.startswith('+'):
-            cleaned = '+' + cleaned
+        cleaned = re.sub(r"[^\d+]", "", phone.strip())
+        if not cleaned.startswith("+"):
+            cleaned = "+" + cleaned
         if not cls.PHONE_PATTERN.match(cleaned):
             raise ValidationError(
                 "Invalid phone number format. Use international format (+1234567890)",
-                error_code="INVALID_PHONE_FORMAT"
+                error_code="INVALID_PHONE_FORMAT",
             )
         if len(cleaned) < 8 or len(cleaned) > 16:
             raise ValidationError(
                 "Phone number must be between 8 and 16 digits",
-                error_code="INVALID_PHONE_LENGTH"
+                error_code="INVALID_PHONE_LENGTH",
             )
         return cleaned
+
+
 class PasswordValidator:
     """Password validation utilities"""
+
     @classmethod
-    def validate_password(cls, password: str, min_length: int = AppConstants.PASSWORD_MIN_LENGTH) -> bool:
+    def validate_password(
+        cls, password: str, min_length: int = AppConstants.PASSWORD_MIN_LENGTH
+    ) -> bool:
         """
         Validate password strength.
         Args:
@@ -208,22 +228,25 @@ class PasswordValidator:
         if len(password) < min_length:
             raise ValidationError(
                 f"Password must be at least {min_length} characters long",
-                error_code="PASSWORD_TOO_SHORT"
+                error_code="PASSWORD_TOO_SHORT",
             )
         if len(password) > 128:
             raise ValidationError(
                 "Password must be less than 128 characters",
-                error_code="PASSWORD_TOO_LONG"
+                error_code="PASSWORD_TOO_LONG",
             )
-        weak_passwords = ['password', '123456', 'qwerty', 'admin', 'root']
+        weak_passwords = ["password", "123456", "qwerty", "admin", "root"]
         if password.lower() in weak_passwords:
             raise ValidationError(
                 "Password is too common. Please choose a stronger password",
-                error_code="WEAK_PASSWORD"
+                error_code="WEAK_PASSWORD",
             )
         return True
+
+
 class UserInputValidator:
     """General user input validation"""
+
     @classmethod
     def validate_user_id(cls, user_id: Union[str, int]) -> int:
         """
@@ -244,6 +267,7 @@ class UserInputValidator:
             return uid
         except (ValueError, TypeError):
             raise ValidationError("Invalid user ID format")
+
     @classmethod
     def validate_account_name(cls, name: str) -> str:
         """
@@ -262,12 +286,13 @@ class UserInputValidator:
             raise ValidationError("Account name must be at least 2 characters")
         if len(name) > 50:
             raise ValidationError("Account name must be less than 50 characters")
-        if not re.match(r'^[a-zA-Z0-9\s\-_.]+$', name):
+        if not re.match(r"^[a-zA-Z0-9\s\-_.]+$", name):
             raise ValidationError(
                 "Account name contains invalid characters",
-                error_code="INVALID_ACCOUNT_NAME"
+                error_code="INVALID_ACCOUNT_NAME",
             )
         return name
+
     @classmethod
     def validate_otp_code(cls, code: str) -> str:
         """
@@ -281,12 +306,15 @@ class UserInputValidator:
         """
         if not code:
             raise ValidationError("OTP code is required")
-        code = re.sub(r'\s', '', code.strip())
+        code = re.sub(r"\s", "", code.strip())
         if not code.isdigit():
             raise ValidationError("OTP code must contain only numbers")
         if len(code) != AppConstants.OTP_CODE_LENGTH:
-            raise ValidationError(f"OTP code must be {AppConstants.OTP_CODE_LENGTH} digits")
+            raise ValidationError(
+                f"OTP code must be {AppConstants.OTP_CODE_LENGTH} digits"
+            )
         return code
+
     @classmethod
     def validate_session_string(cls, session_string: str) -> str:
         """
@@ -305,16 +333,19 @@ class UserInputValidator:
         if len(session_string) < 100:
             raise ValidationError(
                 "Session string appears to be too short",
-                error_code="INVALID_SESSION_LENGTH"
+                error_code="INVALID_SESSION_LENGTH",
             )
-        if not re.match(r'^[A-Za-z0-9+/=]+$', session_string):
+        if not re.match(r"^[A-Za-z0-9+/=]+$", session_string):
             raise ValidationError(
                 "Session string contains invalid characters",
-                error_code="INVALID_SESSION_FORMAT"
+                error_code="INVALID_SESSION_FORMAT",
             )
         return session_string
+
+
 class ConfigValidator:
     """Configuration validation utilities"""
+
     @classmethod
     def validate_api_credentials(cls, api_id: Union[str, int], api_hash: str) -> tuple:
         """
@@ -338,9 +369,10 @@ class ConfigValidator:
         api_hash = api_hash.strip()
         if len(api_hash) != 32:
             raise ValidationError("API hash must be 32 characters long")
-        if not re.match(r'^[a-f0-9]+$', api_hash.lower()):
+        if not re.match(r"^[a-f0-9]+$", api_hash.lower()):
             raise ValidationError("API hash must be hexadecimal")
         return api_id, api_hash
+
     @classmethod
     def validate_bot_token(cls, token: str) -> str:
         """
@@ -356,20 +388,22 @@ class ConfigValidator:
             raise ValidationError("Bot token is required")
         token = token.strip()
         # Bot token format: 123456789:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-        if not re.match(r'^\d+:[A-Za-z0-9_-]+$', token):
+        if not re.match(r"^\d+:[A-Za-z0-9_-]+$", token):
             raise ValidationError(
-                "Invalid bot token format",
-                error_code="INVALID_BOT_TOKEN"
+                "Invalid bot token format", error_code="INVALID_BOT_TOKEN"
             )
-        parts = token.split(':')
+        parts = token.split(":")
         if len(parts) != 2:
             raise ValidationError("Bot token must contain exactly one colon")
         bot_id, token_part = parts
         if len(bot_id) < 8 or len(token_part) < 35:
             raise ValidationError("Bot token appears to be malformed")
         return token
+
+
 class DataValidator:
     """Data structure validation utilities"""
+
     @classmethod
     def validate_account_data(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -381,29 +415,34 @@ class DataValidator:
         Raises:
             ValidationError: If data is invalid
         """
-        required_fields = ['user_id', 'name', 'phone']
+        required_fields = ["user_id", "name", "phone"]
         for field in required_fields:
             if field not in data:
                 raise ValidationError(f"Missing required field: {field}")
         validated_data = {
-            'user_id': UserInputValidator.validate_user_id(data['user_id']),
-            'name': UserInputValidator.validate_account_name(data['name']),
-            'phone': PhoneValidator.validate_phone_number(data['phone'])
+            "user_id": UserInputValidator.validate_user_id(data["user_id"]),
+            "name": UserInputValidator.validate_account_name(data["name"]),
+            "phone": PhoneValidator.validate_phone_number(data["phone"]),
         }
         # Optional fields
-        if 'session_string' in data:
-            validated_data['session_string'] = UserInputValidator.validate_session_string(
-                data['session_string']
+        if "session_string" in data:
+            validated_data["session_string"] = (
+                UserInputValidator.validate_session_string(data["session_string"])
             )
         # Boolean fields with defaults
-        validated_data.update({
-            'is_active': data.get('is_active', True),
-            'otp_destroyer_enabled': data.get('otp_destroyer_enabled', False),
-            'online_maker_enabled': data.get('online_maker_enabled', False)
-        })
+        validated_data.update(
+            {
+                "is_active": data.get("is_active", True),
+                "otp_destroyer_enabled": data.get("otp_destroyer_enabled", False),
+                "online_maker_enabled": data.get("online_maker_enabled", False),
+            }
+        )
         return validated_data
+
     @classmethod
-    def validate_pagination_params(cls, page: Union[str, int], limit: Union[str, int]) -> tuple:
+    def validate_pagination_params(
+        cls, page: Union[str, int], limit: Union[str, int]
+    ) -> tuple:
         """
         Validate pagination parameters.
         Args:
@@ -424,6 +463,8 @@ class DataValidator:
         if limit < 1 or limit > 100:
             raise ValidationError("Limit must be between 1 and 100")
         return page, limit
+
+
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize filename to prevent path traversal attacks.
@@ -434,17 +475,19 @@ def sanitize_filename(filename: str) -> str:
     """
     if not filename:
         return "unnamed_file"
-    sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    sanitized = re.sub(r'\.\.', '_', sanitized)
-    sanitized = sanitized.strip('. ')
+    sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
+    sanitized = re.sub(r"\.\.", "_", sanitized)
+    sanitized = sanitized.strip(". ")
     if not sanitized:
         return "unnamed_file"
     # Limit length
     if len(sanitized) > 255:
-        name, ext = sanitized.rsplit('.', 1) if '.' in sanitized else (sanitized, '')
+        name, ext = sanitized.rsplit(".", 1) if "." in sanitized else (sanitized, "")
         max_name_length = 250 - len(ext)
-        sanitized = name[:max_name_length] + ('.' + ext if ext else '')
+        sanitized = name[:max_name_length] + ("." + ext if ext else "")
     return sanitized
+
+
 def validate_json_data(data: str) -> Dict[str, Any]:
     """
     Validate and parse JSON data.
@@ -456,6 +499,7 @@ def validate_json_data(data: str) -> Dict[str, Any]:
         ValidationError: If JSON is invalid
     """
     import json
+
     try:
         return json.loads(data)
     except json.JSONDecodeError as e:
@@ -463,42 +507,44 @@ def validate_json_data(data: str) -> Dict[str, Any]:
     except Exception as e:
         raise ValidationError(f"JSON parsing error: {str(e)}")
 
+
 class Validators:
     """Main validator class combining all validation utilities"""
+
     phone = PhoneValidator
     password = PasswordValidator
     user_input = UserInputValidator
     config = ConfigValidator
     data = DataValidator
-    
+
     @staticmethod
     def sanitize_filename(filename: str) -> str:
         return sanitize_filename(filename)
-    
+
     @staticmethod
     def validate_json_data(data: str) -> Dict[str, Any]:
         return validate_json_data(data)
-    
+
     @staticmethod
     def validate_channel_link(link: str) -> Optional[str]:
         """Validate and normalize channel/group link"""
         if not link or not isinstance(link, str):
             return None
-        
+
         link = link.strip()
-        
+
         # Handle different link formats
-        if link.startswith('@'):
+        if link.startswith("@"):
             username = link[1:]
-        elif 't.me/' in link:
-            username = link.split('t.me/')[-1].split('?')[0]
-        elif 'telegram.me/' in link:
-            username = link.split('telegram.me/')[-1].split('?')[0]
+        elif "t.me/" in link:
+            username = link.split("t.me/")[-1].split("?")[0]
+        elif "telegram.me/" in link:
+            username = link.split("telegram.me/")[-1].split("?")[0]
         else:
             username = link
-        
+
         # Validate username format
-        if re.match(r'^[a-zA-Z][a-zA-Z0-9_]{4,31}$', username):
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9_]{4,31}$", username):
             return username
-        
+
         return None

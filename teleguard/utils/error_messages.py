@@ -1,5 +1,7 @@
 """User-friendly error message mapping"""
+
 from typing import Dict
+
 # Common error messages - consolidated from constants
 ERROR_MESSAGES: Dict[str, str] = {
     # Authentication errors
@@ -30,6 +32,8 @@ ERROR_MESSAGES: Dict[str, str] = {
     "TIMEOUT": "⏰ Request timed out. Please try again.",
     "UNKNOWN_ERROR": "❌ Something went wrong. Please try again or contact support.",
 }
+
+
 def get_user_friendly_error(error_type: str, **kwargs) -> str:
     """Get user-friendly error message with safe formatting"""
     message = ERROR_MESSAGES.get(error_type, ERROR_MESSAGES["UNKNOWN_ERROR"])
@@ -39,6 +43,7 @@ def get_user_friendly_error(error_type: str, **kwargs) -> str:
             return message.format(**kwargs)
         except (KeyError, ValueError) as e:
             import logging
+
             logging.getLogger(__name__).warning(
                 f"Error formatting message '{message}' with {kwargs}: {e}"
             )

@@ -1,26 +1,37 @@
 """Chat Import Handler - Retroactively imports existing private chats into topic system"""
+
 import asyncio
 import logging
-from telethon import events, types
-from telethon.tl.types import User, Chat, Channel
-from ..core.mongo_database import mongodb
+
+from telethon import events
+from telethon.tl.types import User
+
 from ..core.config import ADMIN_IDS
+from ..core.mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
+
+
 class ChatImportHandler:
     """Handles importing existing private chats into the topic system"""
+
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.bot = bot_manager.bot
         self.unified_messaging = bot_manager.unified_messaging
+
     def register_handlers(self):
         """Register the import chats command handler"""
-        @self.bot.on(events.NewMessage(pattern=r'^/import_chats$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/import_chats$"))
         async def import_chats_command(event):
             if not event.is_private:
                 return
             user_id = event.sender_id
             if user_id not in ADMIN_IDS:
-                await event.reply("❌ This command is only available to administrators.")
+                await event.reply(
+                    "❌ This command is only available to administrators."
+                )
                 return
             admin_group_id = await self.unified_messaging._get_user_admin_group(user_id)
             if not admin_group_id:
@@ -34,6 +45,7 @@ class ChatImportHandler:
                 "⏳ This may take several minutes depending on the number of accounts and conversations..."
             )
             await self._import_all_chats(user_id, admin_group_id, event)
+
     async def _import_all_chats_silent(self, user_id: int, admin_group_id: int):
         """Import all existing private chats silently (no user feedback)"""
         try:
@@ -60,24 +72,31 @@ class ChatImportHandler:
                     continue
         except Exception as e:
             logger.error(f"Silent chat import failed: {e}")
-        @self.bot.on(events.NewMessage(pattern=r'^/check_admin_group$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/check_admin_group$"))
         async def check_admin_group_command(event):
             if not event.is_private:
                 return
             user_id = event.sender_id
             if user_id not in ADMIN_IDS:
-                await event.reply("❌ This command is only available to administrators.")
+                await event.reply(
+                    "❌ This command is only available to administrators."
+                )
                 return
             try:
-                admin_group_id = await self.unified_messaging._get_user_admin_group(user_id)
+                admin_group_id = await self.unified_messaging._get_user_admin_group(
+                    user_id
+                )
                 if not admin_group_id:
-                    await event.reply("❌ No admin group configured. Use /set_dm_group first.")
+                    await event.reply(
+                        "❌ No admin group configured. Use /set_dm_group first."
+                    )
                     return
                 chat_info = await self.bot.get_entity(admin_group_id)
-                is_forum = getattr(chat_info, 'forum', False)
+                is_forum = getattr(chat_info, "forum", False)
                 try:
-                    permissions = await self.bot.get_permissions(admin_group_id, 'me')
-                    can_manage_topics = getattr(permissions, 'manage_topics', False)
+                    permissions = await self.bot.get_permissions(admin_group_id, "me")
+                    can_manage_topics = getattr(permissions, "manage_topics", False)
                     is_admin = permissions.is_admin
                 except Exception as perm_error:
                     can_manage_topics = False
@@ -88,7 +107,8 @@ class ChatImportHandler:
                     f"📝 **Group Name:** {getattr(chat_info, 'title', 'Unknown')}\n"
                     f"🏛️ **Is Forum:** {'✅ Yes' if is_forum else '❌ No'}\n"
                     f"👑 **Bot is Admin:** {'✅ Yes' if is_admin else '❌ No'}\n"
-                    f"🎯 **Can Manage Topics:** {'✅ Yes' if can_manage_topics else '❌ No'}\n\n"
+                    f"🎯 **Can Manage Topics:** {
+                        '✅ Yes' if can_manage_topics else '❌ No'}\n\n"
                 )
                 if not is_forum:
                     status_text += (
@@ -113,13 +133,16 @@ class ChatImportHandler:
                 await event.reply(status_text)
             except Exception as e:
                 await event.reply(f"❌ Error checking admin group: {str(e)}")
-        @self.bot.on(events.NewMessage(pattern=r'^/import_help$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/import_help$"))
         async def import_help_command(event):
             if not event.is_private:
                 return
             user_id = event.sender_id
             if user_id not in ADMIN_IDS:
-                await event.reply("❌ This command is only available to administrators.")
+                await event.reply(
+                    "❌ This command is only available to administrators."
+                )
                 return
             help_text = (
                 "📚 **Chat Import Help**\n\n"
@@ -142,6 +165,7 @@ class ChatImportHandler:
                 "**Note:** This is a one-time setup command. New conversations will automatically create topics."
             )
             await event.reply(help_text)
+
     async def _import_all_chats(self, user_id: int, admin_group_id: int, event):
         """Import all existing private chats for the user"""
         try:
@@ -169,7 +193,8 @@ class ChatImportHandler:
                     account_id = me.id
                     try:
                         await progress_msg.edit(
-                            f"🔄 **Processing Account {total_accounts}/{len(user_clients)}**\n\n"
+                            f"🔄 **Processing Account {total_accounts}/{
+                                len(user_clients)}**\n\n"
                             f"📱 Current: {account_name}\n"
                             f"📊 Progress: {total_chats_processed} chats, {total_topics_created} topics\n\n"
                             "Please wait..."
@@ -214,7 +239,10 @@ class ChatImportHandler:
                 )
             except Exception:
                 await event.reply(f"❌ Import failed: {str(e)}")
-    async def _process_account_chats(self, client, account_id: int, admin_group_id: int, account_name: str):
+
+    async def _process_account_chats(
+        self, client, account_id: int, admin_group_id: int, account_name: str
+    ):
         """Process all chats for a specific account"""
         topics_created = 0
         chats_processed = 0
@@ -246,26 +274,34 @@ class ChatImportHandler:
         except Exception as e:
             logger.error(f"Error getting dialogs: {e}")
             return 0, 0
+
     def _is_private_user_chat(self, entity) -> bool:
         """Check if the entity is a private chat with a real user"""
         # Must be a User (not Channel or Chat)
         if not isinstance(entity, User):
             return False
         # Skip bots
-        if getattr(entity, 'bot', False):
+        if getattr(entity, "bot", False):
             return False
         # Skip deleted accounts
-        if getattr(entity, 'deleted', False):
+        if getattr(entity, "deleted", False):
             return False
         # Skip self (shouldn't happen but just in case)
-        if getattr(entity, 'is_self', False):
+        if getattr(entity, "is_self", False):
             return False
         return True
-    async def _create_topic_with_history(self, client, admin_group_id: int, user_entity, account_id: int, dialog):
+
+    async def _create_topic_with_history(
+        self, client, admin_group_id: int, user_entity, account_id: int, dialog
+    ):
         """Create a new topic and import recent conversation history"""
         try:
             topic_id = await self.unified_messaging._find_or_create_topic(
-                admin_group_id, user_entity.id, account_id, user_entity, 0  # Use 0 as dummy user_id for import
+                admin_group_id,
+                user_entity.id,
+                account_id,
+                user_entity,
+                0,  # Use 0 as dummy user_id for import
             )
             if not topic_id:
                 return False
@@ -285,7 +321,10 @@ class ChatImportHandler:
         except Exception as e:
             logger.error(f"Failed to create topic with history: {e}")
             return False
-    async def _import_messages_to_topic(self, admin_group_id: int, topic_id: int, messages, user_entity, account_id: int):
+
+    async def _import_messages_to_topic(
+        self, admin_group_id: int, topic_id: int, messages, user_entity, account_id: int
+    ):
         """Import messages into the topic with proper formatting"""
         try:
             account_info = await self._get_account_display_name(account_id)
@@ -299,10 +338,7 @@ class ChatImportHandler:
                 f"{'─' * 30}"
             )
             await self.bot.send_message(
-                admin_group_id,
-                context_header,
-                reply_to=topic_id,
-                parse_mode='md'
+                admin_group_id, context_header, reply_to=topic_id, parse_mode="md"
             )
             for i, message in enumerate(messages):
                 try:
@@ -318,14 +354,14 @@ class ChatImportHandler:
             # Send footer
             footer = f"{'─' * 30}\n✅ **History import complete**"
             await self.bot.send_message(
-                admin_group_id,
-                footer,
-                reply_to=topic_id,
-                parse_mode='md'
+                admin_group_id, footer, reply_to=topic_id, parse_mode="md"
             )
         except Exception as e:
             logger.error(f"Error importing messages to topic: {e}")
-    async def _format_and_send_message(self, admin_group_id: int, topic_id: int, message, user_entity, account_info):
+
+    async def _format_and_send_message(
+        self, admin_group_id: int, topic_id: int, message, user_entity, account_info
+    ):
         """Format and send a single message to the topic"""
         try:
             # Determine sender
@@ -333,7 +369,9 @@ class ChatImportHandler:
                 sender_name = f"📱 {account_info}"
                 direction = "→"
             else:
-                sender_name = f"👤 {self.unified_messaging._get_topic_title(user_entity)}"
+                sender_name = (
+                    f"👤 {self.unified_messaging._get_topic_title(user_entity)}"
+                )
                 direction = "←"
             # Format timestamp
             timestamp = message.date.strftime("%m/%d %H:%M")
@@ -347,17 +385,14 @@ class ChatImportHandler:
                 content = "[Message]"
             # Format the message
             formatted_message = (
-                f"{direction} **{sender_name}** `{timestamp}`\n"
-                f"{content}"
+                f"{direction} **{sender_name}** `{timestamp}`\n" f"{content}"
             )
             await self.bot.send_message(
-                admin_group_id,
-                formatted_message,
-                reply_to=topic_id,
-                parse_mode='md'
+                admin_group_id, formatted_message, reply_to=topic_id, parse_mode="md"
             )
         except Exception as e:
             logger.error(f"Error formatting message: {e}")
+
     async def _get_account_display_name(self, account_id: int) -> str:
         """Get display name for account"""
         try:

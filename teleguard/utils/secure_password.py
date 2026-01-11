@@ -1,20 +1,21 @@
 """Unified secure password hashing utilities using Argon2"""
+
+import hashlib
+import logging
+
 import argon2
 from argon2 import PasswordHasher
 from argon2.exceptions import HashingError, VerifyMismatchError
-import hashlib
-import logging
+
 logger = logging.getLogger(__name__)
+
 
 class SecurePasswordManager:
     """Secure password hashing and verification with migration support"""
+
     def __init__(self):
         self.ph = PasswordHasher(
-            time_cost=3,
-            memory_cost=65536,
-            parallelism=1,
-            hash_len=32,
-            salt_len=16
+            time_cost=3, memory_cost=65536, parallelism=1, hash_len=32, salt_len=16
         )
 
     def hash_password(self, password: str) -> str:
@@ -52,6 +53,7 @@ class SecurePasswordManager:
             return True
         except Exception:
             return True
+
 
 # Alias for backward compatibility
 SecurePasswordHasher = SecurePasswordManager

@@ -1,21 +1,32 @@
 """Activity Simulation Commands"""
+
 import logging
+
 from telethon import events
+
 from ..core.config import ADMIN_IDS
+
 logger = logging.getLogger(__name__)
+
+
 class SimulationCommands:
     """Handle activity simulation commands"""
+
     def __init__(self, bot, bot_manager):
         self.bot = bot
         self.bot_manager = bot_manager
+
     def register_handlers(self):
         """Register simulation command handlers"""
-        @self.bot.on(events.NewMessage(pattern=r'^/sim_stats$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/sim_stats$"))
         async def sim_stats_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return
             user_id = event.sender_id
-            stats = await self.bot_manager.activity_simulator.get_simulation_stats(user_id)
+            stats = await self.bot_manager.activity_simulator.get_simulation_stats(
+                user_id
+            )
             if "error" in stats:
                 await event.reply(f"❌ Error: {stats['error']}")
                 return
@@ -26,12 +37,15 @@ class SimulationCommands:
                 f"• Active simulations: {stats['active_simulations']}\n\n"
                 f"📱 **Accounts:**\n"
             )
-            for account in stats['accounts']:
-                status_emoji = "🟢" if account['active'] else "🔴"
-                enabled_emoji = "✅" if account['enabled'] else "❌"
-                status_text += f"{status_emoji} {account['name']} (Enabled: {enabled_emoji})\n"
+            for account in stats["accounts"]:
+                status_emoji = "🟢" if account["active"] else "🔴"
+                enabled_emoji = "✅" if account["enabled"] else "❌"
+                status_text += (
+                    f"{status_emoji} {account['name']} (Enabled: {enabled_emoji})\n"
+                )
             await event.reply(status_text)
-        @self.bot.on(events.NewMessage(pattern=r'^/sim_help$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/sim_help$"))
         async def sim_help_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return

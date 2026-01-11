@@ -1,10 +1,14 @@
 """Contact management data models"""
+
 from dataclasses import dataclass, field
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
+
+
 @dataclass
 class Contact:
     """Contact data model"""
+
     user_id: int
     first_name: str
     last_name: Optional[str] = None
@@ -17,6 +21,7 @@ class Contact:
     managed_by_account: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+
     def to_dict(self) -> dict:
         """Convert to dictionary for MongoDB"""
         return {
@@ -31,10 +36,11 @@ class Contact:
             "is_whitelisted": self.is_whitelisted,
             "managed_by_account": self.managed_by_account,
             "created_at": self.created_at,
-            "updated_at": self.updated_at
+            "updated_at": self.updated_at,
         }
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'Contact':
+    def from_dict(cls, data: dict) -> "Contact":
         """Create from dictionary"""
         return cls(
             user_id=data["user_id"],
@@ -48,16 +54,20 @@ class Contact:
             is_whitelisted=data.get("is_whitelisted", False),
             managed_by_account=data.get("managed_by_account", ""),
             created_at=data.get("created_at", datetime.now()),
-            updated_at=data.get("updated_at", datetime.now())
+            updated_at=data.get("updated_at", datetime.now()),
         )
+
+
 @dataclass
 class ContactGroup:
     """Contact group data model"""
+
     name: str
     description: str = ""
     contact_ids: List[int] = field(default_factory=list)
     managed_by_account: str = ""
     created_at: datetime = field(default_factory=datetime.now)
+
     def to_dict(self) -> dict:
         """Convert to dictionary for MongoDB"""
         return {
@@ -65,15 +75,16 @@ class ContactGroup:
             "description": self.description,
             "contact_ids": self.contact_ids,
             "managed_by_account": self.managed_by_account,
-            "created_at": self.created_at
+            "created_at": self.created_at,
         }
+
     @classmethod
-    def from_dict(cls, data: dict) -> 'ContactGroup':
+    def from_dict(cls, data: dict) -> "ContactGroup":
         """Create from dictionary"""
         return cls(
             name=data["name"],
             description=data.get("description", ""),
             contact_ids=data.get("contact_ids", []),
             managed_by_account=data.get("managed_by_account", ""),
-            created_at=data.get("created_at", datetime.now())
+            created_at=data.get("created_at", datetime.now()),
         )

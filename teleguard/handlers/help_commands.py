@@ -1,16 +1,25 @@
 """Comprehensive Help System - All supported commands"""
+
 import logging
+
 from telethon import events
+
 from ..core.config import ADMIN_IDS
+
 logger = logging.getLogger(__name__)
+
+
 class HelpCommands:
     """Complete help system for all bot commands"""
+
     def __init__(self, bot, bot_manager):
         self.bot = bot
         self.bot_manager = bot_manager
+
     def register_handlers(self):
         """Register help command handlers"""
-        @self.bot.on(events.NewMessage(pattern=r'^/help$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/help$"))
         async def help_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return
@@ -38,7 +47,8 @@ class HelpCommands:
                 "Type `/help2` for more commands..."
             )
             await event.reply(help_text)
-        @self.bot.on(events.NewMessage(pattern=r'^/help2$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/help2$"))
         async def help2_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return
@@ -64,7 +74,8 @@ class HelpCommands:
                 "• Check logs for troubleshooting"
             )
             await event.reply(help_text)
-        @self.bot.on(events.NewMessage(pattern=r'^/commands$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/commands$"))
         async def commands_list(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return
@@ -88,7 +99,8 @@ class HelpCommands:
                 "• 2FA management via menu buttons"
             )
             await event.reply(commands_text)
-        @self.bot.on(events.NewMessage(pattern=r'^/features$'))
+
+        @self.bot.on(events.NewMessage(pattern=r"^/features$"))
         async def features_overview(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
                 return

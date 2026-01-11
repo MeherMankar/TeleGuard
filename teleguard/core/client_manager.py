@@ -5,21 +5,24 @@ Developed by:
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
+
 import asyncio
-import json
 import logging
 import os
 import time
 from functools import wraps
 from typing import Any, Dict, List, Optional
+
 from bson import ObjectId
-from telethon import errors, functions, types, TelegramClient
-from telethon.tl.types import InputPeerEmpty
-from telethon.sessions import StringSession
-from .mongo_database import mongodb
-from .exceptions import AccountError, SessionError
+from telethon import TelegramClient, functions
+
 from ..utils.session_manager import SessionManager
+from .exceptions import SessionError
+from .mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
+
+
 def with_account_client(func):
     @wraps(func)
     async def wrapper(self, user_id: int, account_id: str, *args, **kwargs):
@@ -31,9 +34,13 @@ def with_account_client(func):
                 return False, "Account client not found"
         kwargs["client"] = client
         return await func(self, user_id, account_id, *args, **kwargs)
+
     return wrapper
+
+
 class FullClientManager:
     """Unified client manager with lifecycle management and full features"""
+
     def __init__(self, bot_instance, user_clients: Dict):
         self.bot = bot_instance
         self.user_clients = user_clients
@@ -44,6 +51,7 @@ class FullClientManager:
         self.cleanup_task = None
         self.max_idle_time = 3600  # 1 hour
         self._lock = asyncio.Lock()
+
     @with_account_client
     async def update_profile_photo(
         self, user_id: int, account_id: str, photo_path: str, client=None
@@ -68,6 +76,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to update profile photo: {e}")
             return False, f"Error: {str(e)}"
+
     @with_account_client
     async def update_profile_name(
         self,
@@ -112,6 +121,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to update profile name: {e}")
             return False, f"Error: {str(e)}"
+
     @with_account_client
     async def update_username(
         self, user_id: int, account_id: str, username: str, client=None
@@ -143,6 +153,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to update username: {e}")
             return False, f"Error: {str(e)}"
+
     @with_account_client
     async def update_bio(
         self, user_id: int, account_id: str, bio: str, client=None
@@ -164,6 +175,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to update bio: {e}")
             return False, f"Error: {str(e)}"
+
     # Session Management
     @with_account_client
     async def list_active_sessions(
@@ -207,6 +219,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to list sessions: {e}")
             return False, []
+
     @with_account_client
     async def terminate_session(
         self, user_id: int, account_id: str, session_hash: int, client=None
@@ -224,6 +237,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to terminate session: {e}")
             return False, f"Error: {str(e)}"
+
     @with_account_client
     async def terminate_all_sessions(
         self, user_id: int, account_id: str, client=None
@@ -238,6 +252,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to terminate all sessions: {e}")
             return False, f"Error: {str(e)}"
+
     # Online Maker
     async def toggle_online_maker(
         self, user_id: int, account_id: str, enabled: bool, interval: int = 3600
@@ -265,6 +280,7 @@ class FullClientManager:
         except Exception as e:
             logger.error(f"Failed to toggle online maker: {e}")
             return False, f"Error: {str(e)}"
+
     @with_account_client
     async def update_online_status(
         self, user_id: int, account_id: str, client=None
@@ -280,14 +296,22 @@ class FullClientManager:
         except Exception as e:
             error_msg = str(e)
             if "authorization key" in error_msg and "simultaneously" in error_msg:
-                logger.warning(f"Session conflict detected for account {account_id}, marking as inactive")
+                logger.warning(
+                    f"Session conflict detected for account {account_id}, marking as inactive"
+                )
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id), "user_id": user_id},
-                    {"$set": {"session_conflict": True, "last_conflict": time.strftime("%Y-%m-%d %H:%M:%S")}}
+                    {
+                        "$set": {
+                            "session_conflict": True,
+                            "last_conflict": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    },
                 )
                 return False, "Session conflict - account used elsewhere"
             logger.error(f"Failed to update online status: {e}")
             return False, f"Error: {str(e)}"
+
     # Helper methods
     async def _get_account_client(self, user_id: int, account_id: str):
         """Get Telethon client for account"""
@@ -299,8 +323,12 @@ class FullClientManager:
             if not account:
                 logger.error(f"Account {account_id} not found in database")
                 return None
-            account_name = account.get('name') or account.get('phone') or account.get('display_name', 'Unknown')
-            account_phone = account.get('phone')
+            account_name = (
+                account.get("name")
+                or account.get("phone")
+                or account.get("display_name", "Unknown")
+            )
+            account_phone = account.get("phone")
             logger.info(f"Found account: {account_name} (phone: {account_phone})")
             user_clients = self.user_clients.get(user_id, {})
             logger.info(
@@ -318,10 +346,12 @@ class FullClientManager:
                 if client:
                     logger.info(f"Found client by phone: {account_phone}")
             # 3. Try by display name if available
-            if not client and account.get('display_name'):
-                client = user_clients.get(account.get('display_name'))
+            if not client and account.get("display_name"):
+                client = user_clients.get(account.get("display_name"))
                 if client:
-                    logger.info(f"Found client by display name: {account.get('display_name')}")
+                    logger.info(
+                        f"Found client by display name: {account.get('display_name')}"
+                    )
             if client:
                 if not client.is_connected():
                     logger.info(
@@ -330,12 +360,18 @@ class FullClientManager:
                     await client.connect()
                     logger.info(f"Client for {account_name} connected.")
             else:
-                logger.error(f"No client found for {account_name} (phone: {account_phone})")
-                logger.error(f"Tried keys: {account_name}, {account_phone}, {account.get('display_name')}")
+                logger.error(
+                    f"No client found for {account_name} (phone: {account_phone})"
+                )
+                logger.error(
+                    f"Tried keys: {account_name}, {account_phone}, {
+                        account.get('display_name')}"
+                )
             return client
         except Exception as e:
             logger.error(f"Failed to get account client: {e}")
             return None
+
     async def _log_audit_event(
         self, user_id: int, account_id: str, event_type: str, event_data: Dict[str, Any]
     ):
@@ -353,7 +389,7 @@ class FullClientManager:
             )
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")
-    
+
     # Async lifecycle management methods
     async def get_managed_client(
         self, user_id: int, account_name: str, api_id: int, api_hash: str
@@ -381,7 +417,7 @@ class FullClientManager:
                 return client
             except Exception as e:
                 raise SessionError(f"Failed to create client: {e}")
-    
+
     async def remove_managed_client(self, user_id: int, account_name: str):
         """Remove and disconnect managed client"""
         client_key = f"{user_id}_{account_name}"
@@ -390,7 +426,7 @@ class FullClientManager:
                 client = self.clients.pop(client_key)
                 self.last_activity.pop(client_key, None)
                 await client.disconnect()
-    
+
     async def _cleanup_idle_clients(self):
         """Background task to cleanup idle clients"""
         while True:
@@ -418,7 +454,7 @@ class FullClientManager:
             except Exception as e:
                 logger.error(f"Error in _cleanup_idle_clients: {e}")
                 await asyncio.sleep(300)
-    
+
     async def shutdown_all_managed_clients(self):
         """Shutdown all managed clients"""
         if self.cleanup_task:
@@ -433,12 +469,15 @@ class FullClientManager:
             except Exception as e:
                 logger.error(f"Error disconnecting client during shutdown: {e}")
 
+
 # Global client manager instance
 client_manager = None
+
 
 def get_client_manager():
     """Get global client manager instance"""
     return client_manager
+
 
 def init_client_manager(bot_instance, user_clients):
     """Initialize global client manager"""

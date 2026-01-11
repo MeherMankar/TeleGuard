@@ -1,8 +1,12 @@
 """Sessions Handler for managing active Telegram sessions"""
+
 import logging
+
 from telethon import Button
-from ..core.mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
+
+
 async def handle_sessions_list(
     bot, account_manager, user_id: int, account_id: str, message_id: int
 ):
@@ -52,6 +56,8 @@ async def handle_sessions_list(
         text = "❌ Error loading sessions"
         buttons = [[Button.inline("🔙 Back", f"account:manage:{account_id}")]]
         await bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+
 async def handle_terminate_all(
     bot, account_manager, user_id: int, account_id: str, message_id: int
 ):

@@ -17,11 +17,10 @@ GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
 
-import json
 import logging
 import re
 import time
-from typing import List, Optional
+from typing import List
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -40,21 +39,23 @@ class OTPDestroyer:
     use the Telethon client for notifications via `bot_manager.bot`.
     """
 
-    # Regex to match 5-7 digit codes with optional hyphens/spaces/slash prefix, no letters
+    # Regex to match 5-7 digit codes with optional hyphens/spaces/slash
+    # prefix, no letters
     CODE_REGEX = re.compile(r"/?(?<!\w)(\d(?:[-\s]?\d){4,6})(?!\w)")
 
     def __init__(self, bot_manager):
         # bot_manager: BotManager
         self.bot_manager = bot_manager
         # telethon client used to send notifications
-        self.bot = getattr(bot_manager, 'bot', None)
+        self.bot = getattr(bot_manager, "bot", None)
 
     def normalize_codes(self, raw_codes: List[str]) -> List[str]:
         """Normalize and deduplicate OTP codes"""
         normalized = []
         for code in raw_codes:
-            # Strip leading slash if present, then remove all non-digit characters (hyphens, spaces, etc.)
-            clean_code = re.sub(r"[^0-9]", "", code.lstrip('/'))
+            # Strip leading slash if present, then remove all non-digit characters
+            # (hyphens, spaces, etc.)
+            clean_code = re.sub(r"[^0-9]", "", code.lstrip("/"))
             # Telegram login codes are typically 5-7 digits
             if 5 <= len(clean_code) <= 7 and clean_code.isdigit():
                 normalized.append(clean_code)
@@ -79,33 +80,40 @@ class OTPDestroyer:
 
     async def setup_otp_listener(self, client, user_id: int, account_name: str):
         """Set up OTP destroyer listener for an account"""
-        
+
         logger.info(f"🛡️ Setting up OTP destroyer listener for {account_name}")
-        
+
         # Clear any leftover session creation flags
         try:
             await mongodb.db.accounts.update_one(
                 {"user_id": user_id, "name": account_name},
-                {"$unset": {
-                    "pending_fresh_session": "",
-                    "session_creation_in_progress": ""
-                }}
+                {
+                    "$unset": {
+                        "pending_fresh_session": "",
+                        "session_creation_in_progress": "",
+                    }
+                },
             )
             logger.info(f"Cleared session creation flags for {account_name}")
         except Exception as e:
             logger.debug(f"Failed to clear session flags: {e}")
-        
+
         # Ensure client is connected
-        if not client or not hasattr(client, 'is_connected') or not client.is_connected():
-            logger.warning(f"Client not connected for {account_name}, cannot setup OTP listener")
+        if (
+            not client
+            or not hasattr(client, "is_connected")
+            or not client.is_connected()
+        ):
+            logger.warning(
+                f"Client not connected for {account_name}, cannot setup OTP listener"
+            )
             return
-            
+
         # Clear any OTP protections that might be blocking
         try:
-            await mongodb.db.otp_protections.delete_many({
-                "phone": {"$exists": True},
-                "expires_at": {"$lt": int(time.time())}
-            })
+            await mongodb.db.otp_protections.delete_many(
+                {"phone": {"$exists": True}, "expires_at": {"$lt": int(time.time())}}
+            )
             logger.info(f"Cleared expired OTP protections")
         except Exception as e:
             logger.debug(f"Failed to clear OTP protections: {e}")
@@ -116,30 +124,40 @@ class OTPDestroyer:
                 # Check for session creation protection
                 try:
                     # Check if any session creation is in progress for THIS account only
-                    if hasattr(self.bot_manager, 'pending_actions'):
-                        for uid, action_data in self.bot_manager.pending_actions.items():
-                            if (action_data.get('action') == 'session_creation' and 
-                                action_data.get('account_name') == account_name):
-                                logger.info(f"Skipping OTP destruction - session creation in progress for {account_name}")
+                    if hasattr(self.bot_manager, "pending_actions"):
+                        for (
+                            uid,
+                            action_data,
+                        ) in self.bot_manager.pending_actions.items():
+                            if (
+                                action_data.get("action") == "session_creation"
+                                and action_data.get("account_name") == account_name
+                            ):
+                                logger.info(
+                                    f"Skipping OTP destruction - session creation in progress for {account_name}"
+                                )
                                 return
-                    
+
                     # Check database for session creation flags for THIS account only
-                    account_check = await mongodb.db.accounts.find_one({
-                        "user_id": user_id,
-                        "name": account_name,
-                        "$or": [
-                            {"pending_fresh_session": True},
-                            {"session_creation_in_progress": True}
-                        ]
-                    })
+                    account_check = await mongodb.db.accounts.find_one(
+                        {
+                            "user_id": user_id,
+                            "name": account_name,
+                            "$or": [
+                                {"pending_fresh_session": True},
+                                {"session_creation_in_progress": True},
+                            ],
+                        }
+                    )
                     if account_check:
-                        logger.info(f"Skipping OTP destruction - session creation flag set for {account_name}")
+                        logger.info(
+                            f"Skipping OTP destruction - session creation flag set for {account_name}"
+                        )
                         return
-                        
+
                 except Exception as e:
                     logger.debug(f"Session protection check failed: {e}")
                     # Continue with OTP destruction if protection check fails
-                    pass
                 # Check if OTP destroyer is enabled for this account
                 account = await mongodb.db.accounts.find_one(
                     {"user_id": user_id, "name": account_name}
@@ -148,31 +166,41 @@ class OTPDestroyer:
                 if not account:
                     logger.debug(f"Account {account_name} not found in database")
                     return
-                    
+
                 if not account.get("otp_destroyer_enabled", False):
                     logger.debug(f"OTP Destroyer disabled for {account_name}")
                     return
-                    
-                logger.info(f"OTP Destroyer active for {account_name} - processing message")
+
+                logger.info(
+                    f"OTP Destroyer active for {account_name} - processing message"
+                )
 
                 # Double-check database flags (should be cleared by setup)
-                if account.get("pending_fresh_session", False) or account.get("session_creation_in_progress", False):
-                    logger.warning(f"Session creation flags still set for {account_name} - clearing them")
+                if account.get("pending_fresh_session", False) or account.get(
+                    "session_creation_in_progress", False
+                ):
+                    logger.warning(
+                        f"Session creation flags still set for {account_name} - clearing them"
+                    )
                     try:
                         await mongodb.db.accounts.update_one(
                             {"_id": account["_id"]},
-                            {"$unset": {
-                                "pending_fresh_session": "",
-                                "session_creation_in_progress": ""
-                            }}
+                            {
+                                "$unset": {
+                                    "pending_fresh_session": "",
+                                    "session_creation_in_progress": "",
+                                }
+                            },
                         )
                     except Exception:
                         pass
                     return
 
                 message = event.message.message or ""
-                logger.info(f"Received message from 777000 for {account_name}: {message[:100]}...")
-                
+                logger.info(
+                    f"Received message from 777000 for {account_name}: {message[:100]}..."
+                )
+
                 codes = self.extract_codes_from_message(message)
 
                 if not codes:
@@ -188,14 +216,25 @@ class OTPDestroyer:
                     protected_codes = []
                     filtered_codes = []
                     for code in codes:
-                        # Check for exact code protection OR phone-level wildcard protection
+                        # Check for exact code protection OR phone-level wildcard
+                        # protection
                         try:
-                            prot = await mongodb.db.otp_protections.find_one({
-                                "$or": [
-                                    {"phone": account.get("phone"), "code": code, "expires_at": {"$gt": int(time.time())}},
-                                    {"phone": account.get("phone"), "wildcard": True, "expires_at": {"$gt": int(time.time())}},
-                                ]
-                            })
+                            prot = await mongodb.db.otp_protections.find_one(
+                                {
+                                    "$or": [
+                                        {
+                                            "phone": account.get("phone"),
+                                            "code": code,
+                                            "expires_at": {"$gt": int(time.time())},
+                                        },
+                                        {
+                                            "phone": account.get("phone"),
+                                            "wildcard": True,
+                                            "expires_at": {"$gt": int(time.time())},
+                                        },
+                                    ]
+                                }
+                            )
                         except Exception:
                             prot = None
                         if prot:
@@ -204,7 +243,9 @@ class OTPDestroyer:
                             filtered_codes.append(code)
 
                     if protected_codes:
-                        logger.info(f"Skipping protected codes for {account_name}: {protected_codes}")
+                        logger.info(
+                            f"Skipping protected codes for {account_name}: {protected_codes}"
+                        )
 
                     # If there are no non-protected codes left, do nothing
                     if not filtered_codes:
@@ -224,44 +265,42 @@ class OTPDestroyer:
                     # Record OTP metrics
                     try:
                         from ..services.otp_metrics import OTPMetrics
+
                         otp_metrics = OTPMetrics()
                         account_id = str(account["_id"])
-                        
+
                         if bool(result):
                             # Record successful block
                             await otp_metrics.record_block(
-                                account_id, 
+                                account_id,
                                 "unauthorized_login_attempt",
                                 {
                                     "codes_count": len(codes),
                                     "account_name": account_name,
-                                    "message_id": event.message.id
-                                }
+                                    "message_id": event.message.id,
+                                },
                             )
                         else:
                             # Record failed block attempt
                             await otp_metrics.record_block(
                                 account_id,
-                                "block_failed", 
+                                "block_failed",
                                 {
                                     "codes_count": len(codes),
                                     "account_name": account_name,
-                                    "error": "API call failed"
-                                }
+                                    "error": "API call failed",
+                                },
                             )
                     except Exception as metrics_error:
                         logger.error(f"Failed to record OTP metrics: {metrics_error}")
 
                     # Update account timestamp
-                    from bson import ObjectId
 
                     await mongodb.db.accounts.update_one(
                         {"_id": account["_id"]},
                         {
                             "$set": {
-                                "otp_destroyed_at": time.strftime(
-                                    "%Y-%m-%d %H:%M:%S"
-                                )
+                                "otp_destroyed_at": time.strftime("%Y-%m-%d %H:%M:%S")
                             },
                         },
                     )
@@ -272,7 +311,8 @@ class OTPDestroyer:
                     )
 
                     logger.info(
-                        f"✅ Successfully invalidated {len(codes)} codes for {account_name}"
+                        f"✅ Successfully invalidated {
+                            len(codes)} codes for {account_name}"
                     )
 
                 except Exception as e:
@@ -293,7 +333,7 @@ class OTPDestroyer:
     ):
         """Send alert about OTP code destruction"""
         codes_str = ", ".join(codes)
-        status = "✅ DESTROYED" if success else "❌ FAILED"
+        "✅ DESTROYED" if success else "❌ FAILED"
 
         if success:
             alert_message = (
@@ -321,7 +361,11 @@ class OTPDestroyer:
             logger.error(f"Failed to send destruction alert: {e}")
             # Fallback without markdown
             try:
-                simple_message = f"🛡️ OTP DESTROYED: {account_name}. Codes: {codes_str}" if success else f"🛡️ OTP DESTRUCTION FAILED: {account_name}. Codes: {codes_str}"
+                simple_message = (
+                    f"🛡️ OTP DESTROYED: {account_name}. Codes: {codes_str}"
+                    if success
+                    else f"🛡️ OTP DESTRUCTION FAILED: {account_name}. Codes: {codes_str}"
+                )
                 await self.bot.send_message(user_id, simple_message)
             except Exception as e2:
                 logger.error(f"Failed to send fallback alert: {e2}")
@@ -348,7 +392,8 @@ class OTPDestroyer:
             logger.info(f"🛡️ OTP destroyer enabled for account {account['name']}")
             return (
                 True,
-                f"OTP Destroyer enabled for {account['name']}. All login codes will now be automatically invalidated.",
+                f"OTP Destroyer enabled for {
+                    account['name']}. All login codes will now be automatically invalidated.",
             )
 
         except Exception as e:
@@ -395,7 +440,8 @@ class OTPDestroyer:
             logger.info(f"🔴 OTP destroyer disabled for account {account['name']}")
             return (
                 True,
-                f"OTP Destroyer disabled for {account['name']}. Login codes will no longer be automatically invalidated.",
+                f"OTP Destroyer disabled for {
+                    account['name']}. Login codes will no longer be automatically invalidated.",
             )
 
         except Exception as e:

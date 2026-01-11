@@ -5,21 +5,30 @@ Developed by:
 - @Meher_Mankar
 - @Gutkesh
 """
+
 import logging
+
 from telethon import Button, events
+
 from ..core.mongo_database import mongodb
 from .audit_handler import AuditHandler
+
 logger = logging.getLogger(__name__)
+
+
 class SimulationHandlers:
     """Handles simulation-related commands"""
+
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.bot = bot_manager.bot
         self.activity_simulator = getattr(bot_manager, "activity_simulator", None)
         self.audit_handler = AuditHandler(bot_manager)
+
     def register_handlers(self):
         """Register simulation command handlers"""
         self.register_callback_handlers()
+
         @self.bot.on(
             events.NewMessage(pattern=r"/simulate\s+(start|stop|status)(?:\s+(.+))?")
         )
@@ -37,6 +46,7 @@ class SimulationHandlers:
                 await self._handle_stop_simulation(event, user_id, account_name)
             elif command == "status":
                 await self._handle_simulation_status(event, user_id, account_name)
+
         @self.bot.on(events.NewMessage(pattern=r"/simulate$"))
         async def simulate_help_handler(event):
             help_text = """
@@ -69,6 +79,7 @@ class SimulationHandlers:
 • No suspicious patterns
             """
             await event.reply(help_text)
+
         @self.bot.on(events.NewMessage(pattern=r"/simulate\s+audit(?:\s+(.+))?"))
         async def simulate_audit_handler(event):
             user_id = event.sender_id
@@ -78,6 +89,7 @@ class SimulationHandlers:
                 await event.reply("Please start the bot first with /start")
                 return
             await self._handle_audit_log(event, user_id, account_name)
+
     async def _handle_start_simulation(
         self, event, user_id: int, account_name: str = None
     ):
@@ -116,6 +128,7 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Start simulation error: {e}")
             await event.reply(f"❌ Error: {str(e)}")
+
     async def _handle_stop_simulation(
         self, event, user_id: int, account_name: str = None
     ):
@@ -154,6 +167,7 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Stop simulation error: {e}")
             await event.reply(f"❌ Error: {str(e)}")
+
     async def _handle_simulation_status(
         self, event, user_id: int, account_name: str = None
     ):
@@ -165,7 +179,11 @@ class SimulationHandlers:
                 if not account:
                     await event.reply(f"❌ Account '{account_name}' not found")
                     return
-                status = "🟢 Active" if account.get("simulation_enabled", False) else "🔴 Inactive"
+                status = (
+                    "🟢 Active"
+                    if account.get("simulation_enabled", False)
+                    else "🔴 Inactive"
+                )
                 status_text = f"🎭 **Simulation Status for {account_name}:**\n\n"
                 status_text += f"Status: {status}\n\n"
                 if account.get("simulation_enabled", False):
@@ -210,6 +228,7 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Simulation status error: {e}")
             await event.reply(f"❌ Error: {str(e)}")
+
     async def _get_account_by_name(self, user_id: int, account_name: str):
         """Get account by name for user"""
         try:
@@ -220,6 +239,7 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Get account by name error: {e}")
             return None
+
     async def _get_user_accounts(self, user_id: int):
         """Get all accounts for user"""
         try:
@@ -230,6 +250,7 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Get user accounts error: {e}")
             return []
+
     async def _handle_audit_log(self, event, user_id: int, account_name: str = None):
         """Handle audit log command"""
         try:
@@ -260,7 +281,8 @@ class SimulationHandlers:
                     buttons.append(
                         [
                             Button.inline(
-                                f"📋 {account['name']}", f"audit:refresh:{account['_id']}:24"
+                                f"📋 {account['name']}",
+                                f"audit:refresh:{account['_id']}:24",
                             )
                         ]
                     )
@@ -268,8 +290,10 @@ class SimulationHandlers:
         except Exception as e:
             logger.error(f"Audit log error: {e}")
             await event.reply(f"❌ Error: {str(e)}")
+
     def register_callback_handlers(self):
         """Register callback handlers for audit buttons"""
+
         @self.bot.on(events.CallbackQuery(pattern=r"audit:refresh:(\d+):(\d+)"))
         async def audit_refresh_callback(event):
             account_id = int(event.pattern_match.group(1))
@@ -279,6 +303,7 @@ class SimulationHandlers:
                 self.bot, user_id, account_id, event.message_id, hours
             )
             await event.answer()
+
         @self.bot.on(events.CallbackQuery(pattern=r"audit:summary:(\d+)"))
         async def audit_summary_callback(event):
             account_id = int(event.pattern_match.group(1))
@@ -287,6 +312,7 @@ class SimulationHandlers:
                 self.bot, user_id, account_id, event.message_id
             )
             await event.answer()
+
         @self.bot.on(events.CallbackQuery(pattern=r"audit:stats:(\d+)"))
         async def audit_stats_callback(event):
             account_id = int(event.pattern_match.group(1))

@@ -5,19 +5,26 @@ Developed by:
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
+
 import hashlib
 import logging
 import time
 from typing import Optional, Tuple
-from telethon import errors, TelegramClient
+
+from telethon import TelegramClient, errors
+
 logger = logging.getLogger(__name__)
+
+
 class Secure2FAManager:
     """Secure 2FA management using Telethon's built-in helpers"""
+
     def __init__(self):
         self.rate_limits = {}  # user_id -> last_attempt_time
         self.failed_attempts = {}  # user_id -> count
         self.MAX_ATTEMPTS = 5
         self.COOLDOWN_SECONDS = 3600  # 1 hour
+
     async def set_2fa_password(
         self,
         client: TelegramClient,
@@ -50,6 +57,7 @@ class Secure2FAManager:
             # Email confirmation required
             logger.info(f"Email confirmation required: {e}")
             import html
+
             safe_email = html.escape(str(email)) if email else "your email"
             return (
                 False,
@@ -67,6 +75,7 @@ class Secure2FAManager:
         except Exception as e:
             logger.error(f"Unexpected error setting 2FA: {type(e).__name__}: {e}")
             return False, f"Failed to set 2FA: {type(e).__name__}"
+
     async def change_2fa_password(
         self,
         client: TelegramClient,
@@ -104,6 +113,7 @@ class Secure2FAManager:
         except errors.EmailUnconfirmedError as e:
             logger.info(f"Email confirmation required: {e}")
             import html
+
             safe_email = html.escape(str(email)) if email else "your email"
             return (
                 False,
@@ -115,6 +125,7 @@ class Secure2FAManager:
         except Exception as e:
             logger.error(f"Unexpected error changing 2FA: {type(e).__name__}: {e}")
             return False, f"Failed to change 2FA: {type(e).__name__}"
+
     async def remove_2fa_password(
         self, client: TelegramClient, current_password: str
     ) -> Tuple[bool, str]:
@@ -137,6 +148,7 @@ class Secure2FAManager:
         except Exception as e:
             logger.error(f"Unexpected error removing 2FA: {type(e).__name__}: {e}")
             return False, f"Failed to remove 2FA: {type(e).__name__}"
+
     async def check_2fa_status(self, client: TelegramClient) -> Tuple[bool, dict]:
         """
         Check current 2FA status for account.
@@ -147,6 +159,7 @@ class Secure2FAManager:
         """
         try:
             from telethon import functions
+
             password_info = await client(functions.account.GetPasswordRequest())
             has_password = password_info.has_password
             hint = password_info.hint or "No hint set"
@@ -163,6 +176,7 @@ class Secure2FAManager:
         except Exception as e:
             logger.error(f"Failed to check 2FA status: {e}")
             return False, {}
+
     def check_rate_limit(self, user_id: int) -> Tuple[bool, str]:
         """
         Check if user is rate limited for 2FA operations.
@@ -184,6 +198,7 @@ class Secure2FAManager:
                     f"Too many failed attempts. Try again in {minutes} minutes.",
                 )
         return True, "OK"
+
     def record_attempt(self, user_id: int, success: bool):
         """Record 2FA attempt for rate limiting"""
         current_time = time.time()
@@ -194,6 +209,7 @@ class Secure2FAManager:
         else:
             # Increment failed attempts
             self.failed_attempts[user_id] = self.failed_attempts.get(user_id, 0) + 1
+
     def hash_password_for_storage(self, password: str) -> str:
         """
         Hash password for secure database storage.
@@ -203,6 +219,7 @@ class Secure2FAManager:
             Hashed password string
         """
         return hashlib.sha256(password.encode()).hexdigest()
+
     def verify_stored_password(self, password: str, stored_hash: str) -> bool:
         """
         Verify password against stored hash.
@@ -213,13 +230,18 @@ class Secure2FAManager:
             True if password matches
         """
         return self.hash_password_for_storage(password) == stored_hash
+
+
 class SecureInputManager:
     """Manages secure password input via inline keyboards"""
+
     def __init__(self):
         self.pending_inputs = {}  # user_id -> input_data
+
     def get_numeric_keypad(self, callback_prefix: str) -> list:
         """Get numeric keypad buttons for secure input"""
         from telethon import Button
+
         return [
             [
                 Button.inline("1", f"{callback_prefix}:1"),
@@ -243,9 +265,11 @@ class SecureInputManager:
             ],
             [Button.inline("❌ Cancel", f"{callback_prefix}:cancel")],
         ]
+
     def get_full_keypad(self, callback_prefix: str) -> list:
         """Get full alphanumeric keypad for secure input"""
         from telethon import Button
+
         return [
             [
                 Button.inline("1", f"{callback_prefix}:1"),
@@ -304,6 +328,7 @@ class SecureInputManager:
                 Button.inline("❌ Cancel", f"{callback_prefix}:cancel"),
             ],
         ]
+
     def start_secure_input(
         self, user_id: int, input_type: str, account_id: int = None
     ) -> str:
@@ -317,6 +342,7 @@ class SecureInputManager:
             "started_at": time.time(),
         }
         return session_id
+
     def handle_keypad_input(self, user_id: int, key: str) -> Tuple[bool, str, str]:
         """
         Handle keypad input.
@@ -350,9 +376,11 @@ class SecureInputManager:
                 if session.get("shift_mode", False):
                     session["shift_mode"] = False
             return False, session["buffer"], "input"
+
     def get_masked_display(self, buffer: str) -> str:
         """Get masked display of password buffer"""
         return "•" * len(buffer)
+
     def cleanup_expired_sessions(self):
         """Clean up expired input sessions"""
         current_time = time.time()

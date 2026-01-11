@@ -1,4 +1,5 @@
-    """Internationalization support"""
+"""Internationalization support"""
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ TRANSLATIONS = {
         "menu_messaging": "Сообщения",
         "menu_channels": "Каналы",
         "menu_cleanup": "Очистка",
-    }
+    },
 }
 
 
@@ -54,7 +55,7 @@ class I18n:
     def __init__(self):
         self.user_languages = {}
         self.default_language = "en"
-    
+
     def set_user_language(self, user_id: int, language: str):
         """Set user's preferred language"""
         if language in TRANSLATIONS:
@@ -62,25 +63,25 @@ class I18n:
             logger.info(f"Set language {language} for user {user_id}")
         else:
             logger.warning(f"Language {language} not supported")
-    
+
     def get_user_language(self, user_id: int) -> str:
         """Get user's language"""
         return self.user_languages.get(user_id, self.default_language)
-    
+
     def translate(self, user_id: int, key: str, **kwargs) -> str:
         """Translate a key for user"""
         lang = self.get_user_language(user_id)
         translations = TRANSLATIONS.get(lang, TRANSLATIONS[self.default_language])
         text = translations.get(key, key)
-        
+
         if kwargs:
             try:
                 text = text.format(**kwargs)
             except Exception as e:
                 logger.error(f"Translation format error: {e}")
-        
+
         return text
-    
+
     def get_available_languages(self) -> list:
         """Get list of available languages"""
         return list(TRANSLATIONS.keys())

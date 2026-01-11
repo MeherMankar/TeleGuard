@@ -6,6 +6,8 @@ Developed by:
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
+
+
 # This file is kept for reference but all database operations
 # are now handled by MongoDB through mongo_database.py
 # MongoDB Collections Schema Reference:
@@ -45,7 +47,9 @@ Support: https://t.me/ContactXYZrobot
 # Legacy compatibility - all models are now handled by MongoDB
 class LegacyModelError(Exception):
     """Raised when trying to use legacy SQLAlchemy models"""
-    pass
+
+
+
 def __getattr__(name):
     """Catch any attempts to use old SQLAlchemy models"""
     if name in [

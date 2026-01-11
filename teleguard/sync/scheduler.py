@@ -1,20 +1,29 @@
 """Backup scheduler using AsyncIOScheduler"""
-import os
+
 import logging
-import asyncio
-from datetime import datetime
+import os
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+
 from .backups import (
-    create_snapshot, encrypt_snapshot, push_to_github, 
-    force_orphan_push, upload_to_telegram, cleanup_telegram_messages
+    cleanup_telegram_messages,
+    create_snapshot,
+    encrypt_snapshot,
+    force_orphan_push,
+    push_to_github,
+    upload_to_telegram,
 )
+
 logger = logging.getLogger(__name__)
+
+
 class BackupScheduler:
     def __init__(self, bot_client=None):
         self.scheduler = AsyncIOScheduler()
         self.bot_client = bot_client
         self.running = False
+
     async def hourly_job(self):
         """Hourly backup job"""
         try:
@@ -37,13 +46,18 @@ class BackupScheduler:
             logger.info("Hourly backup job completed successfully")
         except Exception as e:
             logger.error(f"Hourly backup job failed: {e}")
+
     async def cleanup_job(self):
         """8-hour cleanup job"""
         try:
             logger.info("Starting cleanup job")
             snapshot_dir = os.getenv("SNAPSHOT_DIR", "/tmp")
             if os.path.exists(snapshot_dir):
-                snapshots = [f for f in os.listdir(snapshot_dir) if f.startswith("teleguard_snapshot_") and f.endswith(".json")]
+                snapshots = [
+                    f
+                    for f in os.listdir(snapshot_dir)
+                    if f.startswith("teleguard_snapshot_") and f.endswith(".json")
+                ]
                 if snapshots:
                     latest_snapshot = sorted(snapshots)[-1]
                     latest_path = os.path.join(snapshot_dir, latest_snapshot)
@@ -51,10 +65,13 @@ class BackupScheduler:
                     force_orphan_push(latest_path)
             # Cleanup old Telegram messages
             if self.bot_client:
-                await cleanup_telegram_messages(self.bot_client, older_than_seconds=8*3600)
+                await cleanup_telegram_messages(
+                    self.bot_client, older_than_seconds=8 * 3600
+                )
             logger.info("Cleanup job completed successfully")
         except Exception as e:
             logger.error(f"Cleanup job failed: {e}")
+
     def start_scheduler(self):
         """Start the backup scheduler"""
         if self.running:
@@ -64,31 +81,40 @@ class BackupScheduler:
             self.hourly_job,
             CronTrigger(minute=0),
             id="hourly_backup",
-            replace_existing=True
+            replace_existing=True,
         )
         self.scheduler.add_job(
             self.cleanup_job,
             CronTrigger(hour="*/8", minute=5),
-            id="cleanup_backup", 
-            replace_existing=True
+            id="cleanup_backup",
+            replace_existing=True,
         )
         self.scheduler.start()
         self.running = True
-        logger.info("Backup scheduler started - hourly backups and 8-hour cleanup enabled")
+        logger.info(
+            "Backup scheduler started - hourly backups and 8-hour cleanup enabled"
+        )
+
     def stop_scheduler(self):
         """Stop the backup scheduler"""
         if self.running:
             self.scheduler.shutdown()
             self.running = False
             logger.info("Backup scheduler stopped")
+
+
 # Global scheduler instance
 backup_scheduler = None
+
+
 def start_scheduler(bot_client=None):
     """Start the global backup scheduler"""
     global backup_scheduler
     if backup_scheduler is None:
         backup_scheduler = BackupScheduler(bot_client)
     backup_scheduler.start_scheduler()
+
+
 def stop_scheduler():
     """Stop the global backup scheduler"""
     global backup_scheduler

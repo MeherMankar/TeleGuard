@@ -1,18 +1,25 @@
 """Unified session management and utilities"""
+
+import logging
 import os
 import shutil
-import logging
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Any, Tuple
+
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+
 from ..core.config import FERNET
 from ..core.exceptions import SessionError
+
 logger = logging.getLogger(__name__)
+
 
 class SessionManager:
     def __init__(self):
-        sessions_dir_path = os.getenv("SESSIONS_DIR", str(Path.home() / ".teleguard" / "sessions"))
+        sessions_dir_path = os.getenv(
+            "SESSIONS_DIR", str(Path.home() / ".teleguard" / "sessions")
+        )
         self.sessions_dir = Path(sessions_dir_path)
         self.sessions_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
@@ -48,12 +55,19 @@ class SessionManager:
         except Exception as e:
             raise SessionError(f"Failed to decrypt session: {e}")
 
-async def validate_string_session(session_string: str, api_id: int, api_hash: str) -> Tuple[bool, Any]:
+
+async def validate_string_session(
+    session_string: str, api_id: int, api_hash: str
+) -> Tuple[bool, Any]:
     """Validate a Telethon StringSession.
     Returns (True, info_dict) on success where info_dict contains id, phone and name.
     Returns (False, error_message) on failure.
     """
-    if not session_string or not isinstance(session_string, str) or len(session_string) < 32:
+    if (
+        not session_string
+        or not isinstance(session_string, str)
+        or len(session_string) < 32
+    ):
         return False, "Invalid session string format"
 
     client = TelegramClient(StringSession(session_string), api_id, api_hash)
@@ -75,26 +89,29 @@ async def validate_string_session(session_string: str, api_id: int, api_hash: st
             pass
         return False, str(e)
 
-async def str_to_session_file(session_string: str, file_path: str, api_id: int, api_hash: str) -> Tuple[bool, str]:
+
+async def str_to_session_file(
+    session_string: str, file_path: str, api_id: int, api_hash: str
+) -> Tuple[bool, str]:
     """Convert a Telethon StringSession to a file-backed session (.session).
     Returns (True, file_path) on success or (False, error_message) on failure.
     """
     if not session_string or not file_path:
         return False, "Invalid arguments"
-    if file_path.endswith('.session'):
+    if file_path.endswith(".session"):
         session_name = file_path[:-8]
     else:
         session_name = file_path
     string_client = TelegramClient(StringSession(session_string), api_id, api_hash)
     try:
-        dc_id = getattr(string_client.session, 'dc_id', None)
-        server_address = getattr(string_client.session, 'server_address', None)
-        port = getattr(string_client.session, 'port', None)
-        auth_key = getattr(string_client.session, 'auth_key', None)
+        dc_id = getattr(string_client.session, "dc_id", None)
+        server_address = getattr(string_client.session, "server_address", None)
+        port = getattr(string_client.session, "port", None)
+        auth_key = getattr(string_client.session, "auth_key", None)
         if not auth_key:
             try:
                 await string_client.connect()
-                auth_key = getattr(string_client.session, 'auth_key', None)
+                auth_key = getattr(string_client.session, "auth_key", None)
             except Exception:
                 pass
             finally:
@@ -109,11 +126,11 @@ async def str_to_session_file(session_string: str, file_path: str, api_id: int, 
         file_client = TelegramClient(session_name, api_id, api_hash)
         try:
             try:
-                if hasattr(file_client.session, 'set_dc') and dc_id is not None:
-                    file_client.session.set_dc(dc_id, server_address or '', port or 0)
-                if hasattr(file_client.session, 'auth_key'):
+                if hasattr(file_client.session, "set_dc") and dc_id is not None:
+                    file_client.session.set_dc(dc_id, server_address or "", port or 0)
+                if hasattr(file_client.session, "auth_key"):
                     file_client.session.auth_key = auth_key
-                saved = file_client.session.save()
+                file_client.session.save()
                 return True, f"{session_name}.session"
             except Exception as e:
                 return False, f"Failed to write session file: {e}"

@@ -2,17 +2,23 @@
 Simulates natural user behavior with complete transparency.
 All actions are logged and can be viewed by users.
 """
+
 import asyncio
 import logging
 import random
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
+
 from telethon import errors, functions, types
-from telethon.tl.types import InputPeerEmpty, MessageMediaPoll
+from telethon.tl.types import MessageMediaPoll
+
 from ..core.mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
+
+
 class ActivitySimulator:
     """Activity simulator"""
+
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
@@ -31,11 +37,13 @@ class ActivitySimulator:
             "send_message": 3,
             "post_comment": 2,
         }
+
     async def start(self):
         """Start activity simulator for all enabled accounts"""
         self.running = True
         await self._load_enabled_accounts()
         logger.info("Activity Simulator started")
+
     async def stop(self):
         """Stop all simulation tasks"""
         self.running = False
@@ -43,12 +51,14 @@ class ActivitySimulator:
             for task in self.simulation_tasks.values():
                 task.cancel()
             self.simulation_tasks.clear()
+
     async def enable_simulation(
         self, user_id: int, account_id: int
     ) -> tuple[bool, str]:
         """Enable simulation for specific account"""
         try:
             from bson import ObjectId
+
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
@@ -62,12 +72,14 @@ class ActivitySimulator:
         except Exception as e:
             logger.error(f"Failed to enable simulation: {e}")
             return False, f"Error: {str(e)}"
+
     async def disable_simulation(
         self, user_id: int, account_id: int
     ) -> tuple[bool, str]:
         """Disable simulation for specific account"""
         try:
             from bson import ObjectId
+
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
@@ -85,6 +97,7 @@ class ActivitySimulator:
         except Exception as e:
             logger.error(f"Failed to disable simulation: {e}")
             return False, f"Error: {str(e)}"
+
     async def _load_enabled_accounts(self):
         """Load and start simulation for all enabled accounts"""
         try:
@@ -97,6 +110,7 @@ class ActivitySimulator:
                 )
         except Exception as e:
             logger.error(f"Failed to load enabled accounts: {e}")
+
     async def _start_account_simulation(
         self, user_id: int, account_id: int, account_name: str
     ):
@@ -109,6 +123,7 @@ class ActivitySimulator:
                 self._simulation_loop(user_id, account_id, account_name)
             )
             self.simulation_tasks[task_key] = task
+
     async def _simulation_loop(self, user_id: int, account_id: int, account_name: str):
         """Main simulation loop for an account"""
         while self.running:
@@ -124,6 +139,7 @@ class ActivitySimulator:
             except Exception as e:
                 logger.error(f"Simulation error for {account_name}: {e}")
                 await asyncio.sleep(300)
+
     async def _perform_activity_burst(
         self, user_id: int, account_id: int, account_name: str
     ):
@@ -134,8 +150,7 @@ class ActivitySimulator:
                 return
             # More varied activity bursts
             num_actions = random.choices(
-                [1, 2, 3, 4, 5, 6, 7],
-                weights=[5, 15, 25, 25, 15, 10, 5]
+                [1, 2, 3, 4, 5, 6, 7], weights=[5, 15, 25, 25, 15, 10, 5]
             )[0]
             # Log session start
             for i in range(num_actions):
@@ -148,7 +163,8 @@ class ActivitySimulator:
                     await self._execute_activity(
                         client, activity, account_id, user_id, account_name
                     )
-                    # Extremely realistic delays between actions (like real human behavior)
+                    # Extremely realistic delays between actions (like real human
+                    # behavior)
                     if i < num_actions - 1:
                         delay = self._calculate_realistic_action_delay(i, num_actions)
                         await asyncio.sleep(delay)
@@ -158,6 +174,7 @@ class ActivitySimulator:
             # Log session end
         except Exception as e:
             logger.error(f"Activity burst error for {account_name}: {e}")
+
     async def _execute_activity(
         self, client, activity: str, account_id: int, user_id: int, account_name: str
     ):
@@ -172,9 +189,7 @@ class ActivitySimulator:
                     client, account_id, user_id, account_name
                 )
             elif activity == "browse_profiles":
-                await self._browse_profiles(
-                    client, account_id, user_id, account_name
-                )
+                await self._browse_profiles(client, account_id, user_id, account_name)
             elif activity == "vote_in_random_poll":
                 await self._vote_in_random_poll(
                     client, account_id, user_id, account_name
@@ -184,26 +199,19 @@ class ActivitySimulator:
                     client, account_id, user_id, account_name
                 )
             elif activity == "send_message":
-                await self._send_message(
-                    client, account_id, user_id, account_name
-                )
+                await self._send_message(client, account_id, user_id, account_name)
             elif activity == "post_comment":
-                await self._post_comment(
-                    client, account_id, user_id, account_name
-                )
+                await self._post_comment(client, account_id, user_id, account_name)
             elif activity == "scroll_and_read":
-                await self._scroll_and_read(
-                    client, account_id, user_id, account_name
-                )
+                await self._scroll_and_read(client, account_id, user_id, account_name)
             elif activity == "typing_simulation":
-                await self._typing_simulation(
-                    client, account_id, user_id, account_name
-                )
+                await self._typing_simulation(client, account_id, user_id, account_name)
         except errors.FloodWaitError as e:
             logger.warning(f"Rate limited for {account_name}, waiting {e.seconds}s")
             await asyncio.sleep(e.seconds)
         except Exception as e:
             logger.error(f"Activity {activity} failed for {account_name}: {e}")
+
     async def _view_random_entity(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -224,6 +232,7 @@ class ActivitySimulator:
             )
         except Exception as e:
             logger.error(f"View entity error for {account_name}: {e}")
+
     async def _react_to_random_post(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -254,6 +263,7 @@ class ActivitySimulator:
             )
         except Exception as e:
             logger.error(f"React error for {account_name}: {e}")
+
     async def _browse_profiles(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -269,16 +279,15 @@ class ActivitySimulator:
             if not users:
                 return
             user = random.choice(users)
-            full_user = await client(functions.users.GetFullUserRequest(user))
+            await client(functions.users.GetFullUserRequest(user))
             view_time = random.uniform(3, 8)
             await asyncio.sleep(view_time)
             # Log profile view
             profile_name = user.first_name or "Unknown User"
-            await self._log_activity(
-                account_id, user_id, profile_name, view_time
-            )
+            await self._log_activity(account_id, user_id, profile_name, view_time)
         except Exception as e:
             logger.error(f"Profile browse error for {account_name}: {e}")
+
     async def _vote_in_random_poll(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -317,6 +326,7 @@ class ActivitySimulator:
                             return
         except Exception as e:
             logger.error(f"Poll vote error for {account_name}: {e}")
+
     async def _join_or_leave_channel(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -352,6 +362,7 @@ class ActivitySimulator:
                     )
         except Exception as e:
             logger.error(f"Join/leave error for {account_name}: {e}")
+
     async def _send_message(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -379,13 +390,12 @@ class ActivitySimulator:
                 "👏",
             ]
             message_text = random.choice(messages)
-            sent_message = await client.send_message(group, message_text)
+            await client.send_message(group, message_text)
             # Log message sent
-            await self._log_activity(
-                account_id, user_id, group.name, message_text
-            )
+            await self._log_activity(account_id, user_id, group.name, message_text)
         except Exception as e:
             logger.error(f"Send message error for {account_name}: {e}")
+
     async def _post_comment(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -426,6 +436,7 @@ class ActivitySimulator:
                         continue
         except Exception as e:
             logger.error(f"Post comment error for {account_name}: {e}")
+
     async def _scroll_and_read(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -450,24 +461,29 @@ class ActivitySimulator:
                     # Realistic scrolling behavior with natural pauses
                     if i % random.randint(4, 8) == 0:
                         pause_type = random.choices(
-                            ['quick_pause', 'thinking_pause', 'distraction'],
-                            weights=[60, 30, 10]
+                            ["quick_pause", "thinking_pause", "distraction"],
+                            weights=[60, 30, 10],
                         )[0]
-                        
-                        if pause_type == 'quick_pause':
+
+                        if pause_type == "quick_pause":
                             pause_time = random.uniform(1.5, 4.0)
-                        elif pause_type == 'thinking_pause':
+                        elif pause_type == "thinking_pause":
                             pause_time = random.uniform(4.0, 12.0)
                         else:  # distraction
                             pause_time = random.uniform(15.0, 60.0)
-                        
+
                         await asyncio.sleep(pause_time)
             # Log scrolling activity
             await self._log_activity(
-                account_id, user_id, entity.name, read_count, sum([1, 2, 3])  # Approximate total time
+                account_id,
+                user_id,
+                entity.name,
+                read_count,
+                sum([1, 2, 3]),  # Approximate total time
             )
         except Exception as e:
             logger.error(f"Scroll and read error for {account_name}: {e}")
+
     async def _typing_simulation(
         self, client, account_id: int, user_id: int, account_name: str
     ):
@@ -481,19 +497,17 @@ class ActivitySimulator:
             # Show typing indicator
             await client(
                 functions.messages.SetTypingRequest(
-                    peer=entity,
-                    action=types.SendMessageTypingAction()
+                    peer=entity, action=types.SendMessageTypingAction()
                 )
             )
             # Extremely realistic typing simulation
             typing_time = self._calculate_realistic_typing_time()
             await asyncio.sleep(typing_time)
-            
+
             # Cancel typing (by sending empty typing action)
             await client(
                 functions.messages.SetTypingRequest(
-                    peer=entity,
-                    action=types.SendMessageCancelAction()
+                    peer=entity, action=types.SendMessageCancelAction()
                 )
             )
             # Log typing simulation
@@ -502,113 +516,117 @@ class ActivitySimulator:
             )
         except Exception as e:
             logger.error(f"Typing simulation error for {account_name}: {e}")
-    
+
     def _calculate_realistic_reading_time(self, text: str) -> float:
         """Calculate extremely realistic reading time based on text complexity"""
         if not text:
             return random.uniform(0.5, 1.5)
-        
+
         # Average human reading speed: 200-300 words per minute
         words = len(text.split())
         reading_speed = random.uniform(200, 300)  # WPM
-        
+
         base_time = (words / reading_speed) * 60  # Convert to seconds
-        
+
         # Add comprehension time for complex content
-        if any(word in text.lower() for word in ['http', '@', '#', 'telegram.org']):
+        if any(word in text.lower() for word in ["http", "@", "#", "telegram.org"]):
             base_time *= 1.4  # Links and mentions take longer
-        
+
         # Add natural variation
         reading_time = base_time * random.uniform(0.8, 1.6)
-        
+
         # Realistic bounds
         return max(1.0, min(reading_time, 20.0))
-    
+
     def _calculate_realistic_typing_time(self) -> float:
         """Calculate realistic typing/thinking time for typing simulation"""
         # Simulate different typing scenarios
         typing_scenario = random.choices(
-            ['quick_thought', 'composing', 'hesitating', 'distracted'],
-            weights=[40, 35, 20, 5]
+            ["quick_thought", "composing", "hesitating", "distracted"],
+            weights=[40, 35, 20, 5],
         )[0]
-        
-        if typing_scenario == 'quick_thought':
+
+        if typing_scenario == "quick_thought":
             return random.uniform(2.0, 6.0)
-        elif typing_scenario == 'composing':
+        elif typing_scenario == "composing":
             return random.uniform(6.0, 15.0)
-        elif typing_scenario == 'hesitating':
+        elif typing_scenario == "hesitating":
             return random.uniform(8.0, 25.0)
         else:  # distracted
             return random.uniform(20.0, 60.0)
+
     async def get_simulation_stats(self, user_id: int) -> Dict[str, Any]:
         """Get simulation statistics for user"""
         try:
-            accounts = await mongodb.db.accounts.find({
-                "user_id": user_id,
-                "simulation_enabled": True
-            }).to_list(length=None)
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "simulation_enabled": True}
+            ).to_list(length=None)
             stats = {
                 "total_accounts": len(accounts),
                 "active_simulations": 0,
-                "accounts": []
+                "accounts": [],
             }
             for account in accounts:
                 task_key = f"{user_id}_{account['_id']}"
                 is_active = task_key in self.simulation_tasks
                 if is_active:
                     stats["active_simulations"] += 1
-                stats["accounts"].append({
-                    "name": account["name"],
-                    "active": is_active,
-                    "enabled": account.get("simulation_enabled", False)
-                })
+                stats["accounts"].append(
+                    {
+                        "name": account["name"],
+                        "active": is_active,
+                        "enabled": account.get("simulation_enabled", False),
+                    }
+                )
             return stats
         except Exception as e:
             logger.error(f"Failed to get simulation stats: {e}")
             return {"error": str(e)}
+
     def _get_client(self, user_id: int, account_name: str):
         """Get Telethon client for account"""
         user_clients = self.user_clients.get(user_id, {})
         return user_clients.get(account_name)
-    
+
     def _calculate_realistic_activity_interval(self) -> float:
         """Calculate extremely realistic intervals between activity sessions"""
         # Simulate different user behavior patterns
         activity_pattern = random.choices(
-            ['very_active', 'active', 'moderate', 'casual', 'inactive'],
-            weights=[5, 15, 35, 35, 10]
+            ["very_active", "active", "moderate", "casual", "inactive"],
+            weights=[5, 15, 35, 35, 10],
         )[0]
-        
-        if activity_pattern == 'very_active':
+
+        if activity_pattern == "very_active":
             return random.uniform(1800, 7200)  # 30 minutes - 2 hours
-        elif activity_pattern == 'active':
+        elif activity_pattern == "active":
             return random.uniform(3600, 14400)  # 1-4 hours
-        elif activity_pattern == 'moderate':
+        elif activity_pattern == "moderate":
             return random.uniform(7200, 28800)  # 2-8 hours
-        elif activity_pattern == 'casual':
+        elif activity_pattern == "casual":
             return random.uniform(14400, 86400)  # 4-24 hours
         else:  # inactive
             return random.uniform(43200, 172800)  # 12-48 hours
-    
-    def _calculate_realistic_action_delay(self, current_action: int, total_actions: int) -> float:
+
+    def _calculate_realistic_action_delay(
+        self, current_action: int, total_actions: int
+    ) -> float:
         """Calculate realistic delays between individual actions"""
         # Shorter delays at the beginning (more focused)
         # Longer delays towards the end (getting distracted/tired)
         progress = current_action / total_actions
-        
+
         base_delay = 45 + (progress * 180)  # 45 seconds to 3.75 minutes
-        
+
         # Add random variation
         variation = random.uniform(0.5, 2.0)
         delay = base_delay * variation
-        
+
         # Occasional longer pauses (like real humans getting distracted)
         if random.random() < 0.2:  # 20% chance
             distraction_time = random.uniform(120, 600)  # 2-10 minutes
             delay += distraction_time
-        
+
         return delay
-    
+
     async def _log_activity(self, *args):
         """Log activity (placeholder method)"""
-        pass

@@ -1,18 +1,27 @@
 """OTP Disable Password Handler - Manages password protection for OTP Destroyer"""
+
 import logging
+
 from telethon import events
+
 from ..core.mongo_database import mongodb
+
 logger = logging.getLogger(__name__)
+
+
 class OTPPasswordHandler:
     """Handles OTP disable password management"""
+
     def __init__(self, bot, bot_manager):
         self.bot = bot
         self.bot_manager = bot_manager
         self.otp_manager = bot_manager.otp_manager
         # Track password input states
         self.password_states = {}
+
     def register_handlers(self):
         """Register password management handlers"""
+
         @self.bot.on(events.CallbackQuery(pattern=r"^otp_pwd:"))
         async def handle_password_callback(event):
             user_id = event.sender_id
@@ -31,6 +40,7 @@ class OTPPasswordHandler:
             except Exception as e:
                 logger.error(f"Password callback error: {e}")
                 await event.answer("❌ Error processing request", alert=True)
+
         @self.bot.on(events.NewMessage)
         async def handle_password_input(event):
             if not event.is_private or not event.text:
@@ -66,6 +76,7 @@ class OTPPasswordHandler:
                 await event.reply("❌ Error processing password")
                 if user_id in self.password_states:
                     del self.password_states[user_id]
+
     async def _handle_set_password(self, event, user_id: int, account_id: str):
         """Handle setting new disable password"""
         success, has_password = await self.otp_manager.check_disable_password_status(
@@ -98,6 +109,7 @@ class OTPPasswordHandler:
             f"(Type /cancel to abort)",
             buttons=None,
         )
+
     async def _handle_change_password(self, event, user_id: int, account_id: str):
         """Handle changing existing disable password"""
         success, has_password = await self.otp_manager.check_disable_password_status(
@@ -126,6 +138,7 @@ class OTPPasswordHandler:
             f"(Type /cancel to abort)",
             buttons=None,
         )
+
     async def _handle_remove_password(self, event, user_id: int, account_id: str):
         """Handle removing disable password"""
         success, has_password = await self.otp_manager.check_disable_password_status(
@@ -153,6 +166,7 @@ class OTPPasswordHandler:
             f"(Type /cancel to abort)",
             buttons=None,
         )
+
     async def _handle_password_status(self, event, user_id: int, account_id: str):
         """Show password status"""
         success, has_password = await self.otp_manager.check_disable_password_status(
@@ -173,6 +187,7 @@ class OTPPasswordHandler:
             f"🛡️ **Protection:** {protection}\n\n"
             f"{'🔒 Password required to disable OTP Destroyer' if has_password else '⚠️ OTP Destroyer can be disabled without password'}"
         )
+
     async def _process_new_password(
         self, event, user_id: int, account_id: str, password: str
     ):
@@ -188,12 +203,15 @@ class OTPPasswordHandler:
         else:
             await event.reply(f"❌ {message}")
         del self.password_states[user_id]
+
     async def _process_old_password(
         self, event, user_id: int, account_id: str, old_password: str
     ):
         """Process old password verification for change"""
         import hashlib
+
         from bson import ObjectId
+
         account = await mongodb.db.accounts.find_one(
             {"_id": ObjectId(account_id), "user_id": user_id}
         )
@@ -219,6 +237,7 @@ class OTPPasswordHandler:
             f"🔑 **Enter new password:**\n"
             f"(Type /cancel to abort)"
         )
+
     async def _process_change_new_password(
         self, event, user_id: int, account_id: str, new_password: str, old_password: str
     ):
@@ -234,6 +253,7 @@ class OTPPasswordHandler:
         else:
             await event.reply(f"❌ {message}")
         del self.password_states[user_id]
+
     async def _process_remove_password(
         self, event, user_id: int, account_id: str, current_password: str
     ):
@@ -246,10 +266,12 @@ class OTPPasswordHandler:
         else:
             await event.reply(f"❌ {message}")
         del self.password_states[user_id]
+
     async def _get_account_name(self, user_id: int, account_id: str) -> str:
         """Get account name by ID"""
         try:
             from bson import ObjectId
+
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )

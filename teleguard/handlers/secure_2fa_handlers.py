@@ -1,19 +1,28 @@
 """Secure 2FA handlers for menu system"""
+
 import logging
+
 from telethon import Button
+
 from ..core.mongo_database import mongodb
 from ..utils.auth_helpers import Secure2FAManager
+
 logger = logging.getLogger(__name__)
+
+
 class Secure2FAHandlers:
     """Handles secure 2FA operations"""
+
     def __init__(self, bot_instance, account_manager):
         self.bot = bot_instance
         self.account_manager = account_manager
         self.secure_2fa = Secure2FAManager()
+
     async def show_2fa_status(self, user_id: int, account_id: str, message_id: int):
         """Show 2FA status for account"""
         try:
             from bson import ObjectId
+
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
@@ -38,7 +47,8 @@ class Secure2FAHandlers:
                 )
                 if has_2fa:
                     text += f"Hint: {hint}\n"
-                    text += f"Recovery Email: {'✅ Set' if has_recovery else '❌ Not Set'}\n\n"
+                    text += f"Recovery Email: {
+                        '✅ Set' if has_recovery else '❌ Not Set'}\n\n"
                     text += "Manage your 2FA:"
                 else:
                     text += "\nSet up 2FA to secure your account:"
@@ -51,7 +61,8 @@ class Secure2FAHandlers:
                                     "🔄 Change Password", f"2fa:change:{account_id}"
                                 )
                             ],
-                            [Button.inline("🗑️ Remove 2FA", f"2fa:remove:{account_id}")],
+                            [Button.inline("🗑️ Remove 2FA",
+                                           f"2fa:remove:{account_id}")],
                         ]
                     )
                 else:
@@ -66,6 +77,7 @@ class Secure2FAHandlers:
                 )
         except Exception as e:
             logger.error(f"Failed to show 2FA status: {e}")
+
     async def _get_client(self, user_id: int, phone: str):
         """Get client for account"""
         try:
@@ -78,6 +90,7 @@ class Secure2FAHandlers:
         except Exception as e:
             logger.error(f"Failed to get client: {e}")
             return None
+
     async def handle_secure_2fa_input(self, event, user_id: int, data: str):
         """Handle secure 2FA input callbacks"""
         try:

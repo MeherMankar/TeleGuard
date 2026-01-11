@@ -1,15 +1,22 @@
 """2FA command handlers with proper status detection"""
+
 import logging
+
 from telethon import Button
+
 from ..core.mongo_database import mongodb
 from ..utils.auth_helpers import Secure2FAManager, SecureInputManager
+
 logger = logging.getLogger(__name__)
+
+
 class TwoFACommands:
     def __init__(self, bot_instance, account_manager):
         self.bot = bot_instance
         self.account_manager = account_manager
         self.secure_2fa = Secure2FAManager()
         self.input_manager = SecureInputManager()
+
     async def handle_2fa_callback(self, event, user_id: int, data: str):
         """Handle 2FA callback buttons"""
         try:
@@ -31,6 +38,7 @@ class TwoFACommands:
         except Exception as e:
             logger.error(f"2FA callback error: {e}")
             await event.answer("❌ Error processing request")
+
     async def _start_set_2fa(self, event, user_id: int, account_id: str):
         """Start setting new 2FA password"""
         try:
@@ -63,6 +71,7 @@ class TwoFACommands:
         except Exception as e:
             logger.error(f"Start set 2FA error: {e}")
             await event.answer("❌ Failed to start 2FA setup")
+
     async def _start_change_2fa(self, event, user_id: int, account_id: str):
         """Start changing existing 2FA password"""
         try:
@@ -95,6 +104,7 @@ class TwoFACommands:
         except Exception as e:
             logger.error(f"Start change 2FA error: {e}")
             await event.answer("❌ Failed to start password change")
+
     async def _start_remove_2fa(self, event, user_id: int, account_id: str):
         """Start removing 2FA password"""
         try:
@@ -127,6 +137,7 @@ class TwoFACommands:
         except Exception as e:
             logger.error(f"Start remove 2FA error: {e}")
             await event.answer("❌ Failed to start 2FA removal")
+
     async def handle_text_message(self, event, user_id: int, text: str):
         """Handle text message for 2FA operations"""
         try:
@@ -137,7 +148,10 @@ class TwoFACommands:
             if action == "verify_2fa":
                 # This is 2FA during account creation - handle in message_handlers
                 return False
-            if not (action.endswith("_2fa") or action in ["change_2fa", "set_2fa", "remove_2fa"]):
+            if not (
+                action.endswith("_2fa")
+                or action in ["change_2fa", "set_2fa", "remove_2fa"]
+            ):
                 return False  # Not a 2FA action
             account_id = action_data.get("account_id")
             step = action_data.get("step")
@@ -167,6 +181,7 @@ class TwoFACommands:
             await event.reply("❌ Error processing 2FA input")
             self.account_manager.pending_actions.pop(user_id, None)
             return True
+
     async def _process_set_2fa(
         self, event, user_id: int, account_id: str, password: str
     ):
@@ -192,6 +207,7 @@ class TwoFACommands:
             logger.error(f"Process set 2FA error: {e}")
             await event.reply("❌ Failed to set 2FA password")
             self.account_manager.pending_actions.pop(user_id, None)
+
     async def _process_change_2fa_current(
         self, event, user_id: int, account_id: str, current_password: str
     ):
@@ -202,7 +218,7 @@ class TwoFACommands:
                 await event.reply("❌ Account not available")
                 self.account_manager.pending_actions.pop(user_id, None)
                 return
-            
+
             # Simply store the password and move to next step
             # Password will be verified when actually changing it
             if user_id in self.account_manager.pending_actions:
@@ -215,11 +231,12 @@ class TwoFACommands:
                 )
             else:
                 await event.reply("❌ Session expired. Please start over.")
-                
+
         except Exception as e:
             logger.error(f"Process change 2FA current error: {e}")
             await event.reply("❌ Error processing current password")
             self.account_manager.pending_actions.pop(user_id, None)
+
     async def _process_change_2fa_new(
         self, event, user_id: int, account_id: str, new_password: str
     ):
@@ -250,10 +267,11 @@ class TwoFACommands:
             if success:
                 # Store the new password in database
                 from ..utils.twofa_helper import twofa_helper
-                phone = account.get('phone')
+
+                phone = account.get("phone")
                 if phone:
                     await twofa_helper.store_password(user_id, phone, new_password)
-                
+
                 await event.reply(
                     f"✅ **2FA Password Changed Successfully**\n\n{message}\n\n🔐 Password stored for automatic use"
                 )
@@ -264,6 +282,7 @@ class TwoFACommands:
             logger.error(f"Process change 2FA new error: {e}")
             await event.reply("❌ Failed to change 2FA password")
             self.account_manager.pending_actions.pop(user_id, None)
+
     async def _process_remove_2fa(
         self, event, user_id: int, account_id: str, password: str
     ):
@@ -286,10 +305,12 @@ class TwoFACommands:
             logger.error(f"Process remove 2FA error: {e}")
             await event.reply("❌ Failed to remove 2FA password")
             self.account_manager.pending_actions.pop(user_id, None)
+
     async def _get_account_and_client(self, user_id: int, account_id: str):
         """Get account and client"""
         try:
             from bson import ObjectId
+
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
