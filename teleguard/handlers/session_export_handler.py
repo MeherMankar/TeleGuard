@@ -783,536 +783,289 @@ class SessionExportHandler:
         )
         await event.edit(error_details)
 
+    async def _validate_session_data(self, user_id):
+        """Validate session data exists"""
+        if not hasattr(self.bot_manager, "pending_fresh_sessions"):
+            return None
+        return self.bot_manager.pending_fresh_sessions.get(user_id)
+
+    async def _sign_in_with_otp(self, client, phone, otp_code, sent_code, account_name):
+        """Sign in with OTP code"""
+        if not client.is_connected():
+            logger.info("Client disconnected, reconnecting...")
+            await client.connect()
+        if sent_code:
+            logger.info("Using phone_code_hash from sent_code")
+            result = await client.sign_in(phone, code=otp_code, phone_code_hash=sent_code.phone_code_hash)
+        else:
+            logger.error("No sent_code object available!")
+            result = await client.sign_in(phone, code=otp_code)
+        logger.info(f"Sign-in successful for {account_name}: {type(result).__name__}")
+        return True
+
+    async def _handle_2fa_requirement(self, client, user_id, phone, account_name, session_data):
+        """Handle 2FA password requirement"""
+        from ..utils.twofa_helper import twofa_helper
+        success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)
+        if success:
+            logger.info(f"2FA authentication successful using stored password for {account_name}")
+            return True
+        if error == "stored_password_invalid":
+            await self.bot.send_message(
+                user_id,
+                f"🔐 **2FA Password Required - {account_name}**\n\n"
+                f"Your stored 2FA password is invalid. Please send your current 2FA password.\n\n"
+                f"💡 **Tip:** We'll securely store your new password for future use.",
+            )
+        else:
+            await self.bot.send_message(
+                user_id,
+                f"🔐 **2FA Password Required - {account_name}**\n\n"
+                f"Your account has 2FA enabled. Please send your 2FA password.\n\n"
+                f"💡 **Tip:** After successful login, we'll securely store your 2FA password for future use.",
+            )
+        session_data["waiting_for_2fa"] = True
+        self.bot_manager.pending_fresh_sessions[user_id] = session_data
+        return False
+
+    async def _verify_authentication(self, client, account_name):
+        """Verify authentication by getting user info"""
+        if not client.is_connected():
+            await client.connect()
+        await asyncio.sleep(1)
+        me = await client.get_me()
+        first_name = (me.first_name or "").encode("ascii", errors="replace").decode("ascii")
+        last_name = (me.last_name or "").encode("ascii", errors="replace").decode("ascii")
+        username = (me.username or "no_username").encode("ascii", errors="replace").decode("ascii")
+        logger.info(f"Authenticated as: {first_name} {last_name} (@{username})")
+
+    async def _generate_session_string(self, client, account_name):
+        """Generate session string with fallback"""
+        fresh_session = None
+        try:
+            fresh_session = client.session.save()
+        except Exception as e:
+            logger.warning(f"client.session.save() raised when generating session string: {e}")
+        if not fresh_session or str(fresh_session).strip() == "" or str(fresh_session) in ("None", "null"):
+            try:
+                logger.info("Attempting to create StringSession fallback from authenticated client state")
+                from ..core.config import config
+                string_client = TelegramClient(StringSession(), config.telegram.api_id, config.telegram.api_hash)
+                try:
+                    string_client.session.set_dc(client.session.dc_id, client.session.server_address, client.session.port)
+                    string_client.session.auth_key = client.session.auth_key
+                except Exception as copy_err:
+                    logger.warning(f"Failed to copy session state to StringSession client: {copy_err}")
+                fresh_session = string_client.session.save()
+                logger.info("StringSession fallback generated")
+            except Exception as ss_err:
+                logger.error(f"StringSession fallback failed: {ss_err}")
+        if not fresh_session or str(fresh_session).strip() == "" or str(fresh_session) == "None":
+            logger.error(f"Invalid session string generated for {account_name}: '{fresh_session}'")
+            raise Exception("Failed to generate valid session string")
+        logger.info(f"Generated session string for {account_name}: {len(fresh_session)} characters")
+        return fresh_session
+
+    async def _create_session_file(self, fresh_session, account_name):
+        """Create session file from string"""
+        from ..core.config import config
+        import tempfile
+        try:
+            logger.info(f"Creating session file for {account_name}...")
+            with tempfile.NamedTemporaryFile(suffix=".session", delete=False) as temp_file:
+                temp_session_path = temp_file.name
+            file_client = TelegramClient(temp_session_path, config.telegram.api_id, config.telegram.api_hash)
+            file_client.session = StringSession(fresh_session)
+            file_client.session.save()
+            if os.path.exists(temp_session_path):
+                with open(temp_session_path, "rb") as f:
+                    session_file_data = f.read()
+                logger.info(f"Session file created: {len(session_file_data)} bytes")
+                os.remove(temp_session_path)
+                return session_file_data
+        except Exception as e:
+            logger.error(f"Session file creation error: {e}")
+        return None
+
+    async def _handle_batch_session(self, user_id, account_name, fresh_session, session_file_data, session_data):
+        """Handle batch session processing"""
+        if hasattr(self.bot_manager, "batch_sessions") and user_id in self.bot_manager.batch_sessions:
+            batch_data = self.bot_manager.batch_sessions[user_id]
+            format_type = session_data.get("format_type", "both")
+            if format_type == "string":
+                batch_data["completed"][account_name] = fresh_session
+            elif format_type == "file" and session_file_data:
+                batch_data["completed"][account_name] = session_file_data
+            else:
+                batch_data["completed"][account_name] = fresh_session
+            batch_data["current_index"] += 1
+            if batch_data["current_index"] < len(batch_data["accounts"]):
+                await self._process_next_batch_account(user_id)
+            else:
+                await self._send_batch_sessions_zip(user_id)
+            return True
+        return False
+
+    async def _send_session_to_user(self, user_id, account_name, phone, fresh_session, session_file_data, client, format_type):
+        """Send session to user based on format"""
+        dc_info = "Unknown"
+        try:
+            if client and client.is_connected():
+                dc_info = f"DC{client.session.dc_id}"
+        except Exception:
+            pass
+        if format_type == "string":
+            message = (
+                f"📝 **Session Export - {dc_info}**\n\n"
+                f"📱 **Account:** {account_name}\n"
+                f"📞 **Phone:** {phone}\n"
+                f"🌐 **Data Center:** {dc_info}\n\n"
+                f"**Session String:**\n\n{fresh_session}\n\n\n"
+                f"**Usage Example:**\n```python\nfrom telethon import TelegramClient\nfrom telethon.sessions import StringSession\n\n"
+                f"# {dc_info} Session\nclient = TelegramClient(\n    StringSession('{fresh_session}'),\n    api_id, api_hash\n)\nawait client.start()\n```\n\n"
+                f"⚠️ **Keep this {dc_info} session secure!**"
+            )
+            await self.bot.send_message(user_id, message)
+        elif format_type == "file":
+            if session_file_data and len(session_file_data) > 0:
+                from telethon.tl.types import DocumentAttributeFilename
+                await self.bot.send_message(
+                    user_id,
+                    f"📁 **Fresh Session File - {account_name}**\n\n**Usage:** Use this file with Telethon:\n```python\nfrom telethon import TelegramClient\n\nclient = TelegramClient('{account_name}', api_id, api_hash)\nawait client.start()\n```",
+                    file=session_file_data,
+                    attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")],
+                )
+        elif format_type == "both":
+            message = (
+                f"📝 **Session Export - {dc_info}**\n\n"
+                f"📱 **Account:** {account_name}\n"
+                f"📞 **Phone:** {phone}\n"
+                f"🌐 **Data Center:** {dc_info}\n\n"
+                f"**Session String:**\n\n{fresh_session}\n\n\n"
+                f"**Usage Example:**\n```python\nfrom telethon import TelegramClient\nfrom telethon.sessions import StringSession\n\n"
+                f"# {dc_info} Session\nclient = TelegramClient(\n    StringSession('{fresh_session}'),\n    api_id, api_hash\n)\nawait client.start()\n```\n\n"
+                f"⚠️ **Keep this {dc_info} session secure!**"
+            )
+            await self.bot.send_message(user_id, message)
+            if session_file_data:
+                from telethon.tl.types import DocumentAttributeFilename
+                await self.bot.send_message(
+                    user_id,
+                    f"📁 **Fresh Session File - {account_name}**\n\n**Usage:** Use this file with Telethon:\n```python\nfrom telethon import TelegramClient\n\nclient = TelegramClient('{account_name}', api_id, api_hash)\nawait client.start()\n```",
+                    file=session_file_data,
+                    attributes=[DocumentAttributeFilename(f"fresh_{account_name}.session")],
+                )
+
+    async def _cleanup_session_creation(self, user_id, account_name, phone, client):
+        """Cleanup after session creation"""
+        try:
+            account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            original_destroyer = account_data.get("original_destroyer_state", False) if account_data else False
+            original_forward = account_data.get("original_forward_state", False) if account_data else False
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$unset": {"pending_fresh_session": "", "session_creation_in_progress": "", "original_destroyer_state": "", "original_forward_state": ""},
+                    "$set": {"otp_destroyer_enabled": original_destroyer, "otp_forward_enabled": original_forward},
+                },
+            )
+            self.bot_manager.pending_actions.pop(user_id, None)
+            logger.info(f"Session creation completed for {phone} - OTP settings restored")
+        except Exception:
+            logger.exception("Failed to clear protection flags after successful session creation")
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        try:
+            if user_id in self.bot_manager.pending_fresh_sessions:
+                del self.bot_manager.pending_fresh_sessions[user_id]
+        except Exception:
+            pass
+
+    async def _handle_otp_error(self, user_id, account_name, phone, client, error):
+        """Handle OTP processing error"""
+        try:
+            account_data = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            original_destroyer = account_data.get("original_destroyer_state", False) if account_data else False
+            original_forward = account_data.get("original_forward_state", False) if account_data else False
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$unset": {"pending_fresh_session": "", "session_creation_in_progress": "", "original_destroyer_state": "", "original_forward_state": ""},
+                    "$set": {"otp_destroyer_enabled": original_destroyer, "otp_forward_enabled": original_forward},
+                },
+            )
+            self.bot_manager.pending_actions.pop(user_id, None)
+            logger.info(f"Session creation failed for {phone} - OTP settings restored")
+        except Exception:
+            logger.exception("Failed to clear protection flags after session creation failure")
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Fresh session failed for {account_name}: {type(error).__name__}: {error}\n{tb}")
+        if "TLObject was expected" in str(error):
+            error_msg = (
+                f"❌ **TLObject Error - Session Creation Failed**\n\n**Error:** {type(error).__name__}: {str(error)}\n**Account:** {account_name}\n\n"
+                f"**This is a Telethon serialization error.**\n**Possible causes:**\n• Invalid session data format\n• Corrupted authentication state\n• Telethon version compatibility issue\n\n"
+                f"**Solutions:**\n• Try re-authenticating the account\n• Use string session format instead\n• Update Telethon library\n• Contact support with this error message"
+            )
+        else:
+            error_msg = (
+                f"❌ **Fresh Session Failed**\n\n**Error:** {type(error).__name__}: {str(error)}\n**Account:** {account_name}\n**Phone:** {phone}\n\n"
+                f"**Common Causes:** Invalid OTP, network issues, rate limiting\n**Solution:** Verify OTP code and try again"
+            )
+        await self.bot.send_message(user_id, error_msg)
+        try:
+            if user_id in self.bot_manager.pending_fresh_sessions:
+                del self.bot_manager.pending_fresh_sessions[user_id]
+        except Exception:
+            pass
+
+    async def process_fresh_session_otp(self, user_id, otp_code):
     async def process_fresh_session_otp(self, user_id, otp_code):
         """Process OTP for fresh session creation"""
         try:
-            if not hasattr(self.bot_manager, "pending_fresh_sessions"):
-                return False
-            session_data = self.bot_manager.pending_fresh_sessions.get(user_id)
+            session_data = await self._validate_session_data(user_id)
             if not session_data:
                 return False
             client = session_data["client"]
             phone = session_data["phone"]
             account_name = session_data["account_name"]
             try:
-                # Sign in with OTP
                 sent_code = session_data.get("sent_code")
                 authenticated = False
-
                 try:
-                    logger.info(
-                        f"Attempting sign-in for {account_name} with OTP: {otp_code}"
-                    )
-
-                    # Ensure client is still connected before sign in
-                    if not client.is_connected():
-                        logger.info("Client disconnected, reconnecting...")
-                        await client.connect()
-
-                    # Sign in with OTP code using sent_code object
-                    if sent_code:
-                        logger.info(f"Using phone_code_hash from sent_code")
-                        result = await client.sign_in(
-                            phone,
-                            code=otp_code,
-                            phone_code_hash=sent_code.phone_code_hash,
-                        )
-                    else:
-                        logger.error("No sent_code object available!")
-                        result = await client.sign_in(phone, code=otp_code)
-
-                    logger.info(
-                        f"Sign-in successful for {account_name}: {
-                            type(result).__name__}"
-                    )
-                    authenticated = True
-
+                    logger.info(f"Attempting sign-in for {account_name} with OTP: {otp_code}")
+                    authenticated = await self._sign_in_with_otp(client, phone, otp_code, sent_code, account_name)
                 except Exception as e:
-                    # Handle 2FA requirement
                     if type(e).__name__ == "SessionPasswordNeededError":
-                        from ..utils.twofa_helper import twofa_helper
-
-                        # Try to sign in with stored 2FA password
-                        success, session_str, error = (
-                            await twofa_helper.try_sign_in_with_2fa(
-                                client, user_id, phone
-                            )
-                        )
-
-                        if success:
-                            authenticated = True
-                            logger.info(
-                                f"2FA authentication successful using stored password for {account_name}"
-                            )
-                        else:
-                            # Ask user for 2FA password
-                            if error == "stored_password_invalid":
-                                await self.bot.send_message(
-                                    user_id,
-                                    f"🔐 **2FA Password Required - {account_name}**\n\n"
-                                    f"Your stored 2FA password is invalid. Please send your current 2FA password.\n\n"
-                                    f"💡 **Tip:** We'll securely store your new password for future use.",
-                                )
-                            else:
-                                await self.bot.send_message(
-                                    user_id,
-                                    f"🔐 **2FA Password Required - {account_name}**\n\n"
-                                    f"Your account has 2FA enabled. Please send your 2FA password.\n\n"
-                                    f"💡 **Tip:** After successful login, we'll securely store your 2FA password for future use.",
-                                )
-                            # Store pending 2FA request
-                            session_data["waiting_for_2fa"] = True
-                            self.bot_manager.pending_fresh_sessions[user_id] = (
-                                session_data
-                            )
+                        authenticated = await self._handle_2fa_requirement(client, user_id, phone, account_name, session_data)
+                        if not authenticated:
                             return False
                     else:
-                        logger.error(
-                            f"Sign-in failed for {account_name}: {
-                                type(e).__name__}: {e}"
-                        )
+                        logger.error(f"Sign-in failed for {account_name}: {type(e).__name__}: {e}")
                         raise e
-
-                # Only proceed if authentication was successful
                 if not authenticated:
                     logger.error(f"Authentication failed for {account_name}")
                     raise Exception("Authentication failed")
-
-                logger.info(
-                    f"Authentication successful for {account_name}, generating session..."
-                )
-
-                # Ensure we have a valid session before saving
-                if not client.is_connected():
-                    await client.connect()
-
-                # Wait a moment for the session to be properly established
-                await asyncio.sleep(1)
-
-                # Verify we're properly authenticated by getting user info
-                try:
-                    me = await client.get_me()
-                    # Safe logging without Unicode characters
-                    first_name = (
-                        (me.first_name or "")
-                        .encode("ascii", errors="replace")
-                        .decode("ascii")
-                    )
-                    last_name = (
-                        (me.last_name or "")
-                        .encode("ascii", errors="replace")
-                        .decode("ascii")
-                    )
-                    username = (
-                        (me.username or "no_username")
-                        .encode("ascii", errors="replace")
-                        .decode("ascii")
-                    )
-                    logger.info(
-                        f"Authenticated as: {first_name} {last_name} (@{username})"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to get user info after authentication: {e}")
-                    raise Exception("Authentication verification failed")
-
-                fresh_session = None
-                try:
-                    fresh_session = client.session.save()
-                except Exception as e:
-                    logger.warning(
-                        f"client.session.save() raised when generating session string: {e}"
-                    )
-
-                # If save() did not return a usable string, try to construct a
-                # StringSession-backed client and copy auth state (dc_id/auth_key).
-                if (
-                    not fresh_session
-                    or str(fresh_session).strip() == ""
-                    or str(fresh_session) in ("None", "null")
-                ):
-                    try:
-                        logger.info(
-                            "Attempting to create StringSession fallback from authenticated client state"
-                        )
-                        from ..core.config import config
-
-                        API_ID = config.telegram.api_id
-                        API_HASH = config.telegram.api_hash
-                        string_client = TelegramClient(
-                            StringSession(), API_ID, API_HASH
-                        )
-                        # copy DC/auth_key from the authenticated client session
-                        try:
-                            string_client.session.set_dc(
-                                client.session.dc_id,
-                                client.session.server_address,
-                                client.session.port,
-                            )
-                            string_client.session.auth_key = client.session.auth_key
-                        except Exception as copy_err:
-                            logger.warning(
-                                f"Failed to copy session state to StringSession client: {copy_err}"
-                            )
-                        # Saving the StringSession should produce a valid session string
-                        fresh_session = string_client.session.save()
-                        logger.info("StringSession fallback generated")
-                    except Exception as ss_err:
-                        logger.error(f"StringSession fallback failed: {ss_err}")
-
-                # Validate session string - it should be a non-empty string
-                if (
-                    not fresh_session
-                    or str(fresh_session).strip() == ""
-                    or str(fresh_session) == "None"
-                ):
-                    logger.error(
-                        f"Invalid session string generated for {account_name}: '{fresh_session}'"
-                    )
-                    raise Exception("Failed to generate valid session string")
-
-                safe_account_name = account_name.encode(
-                    "ascii", errors="replace"
-                ).decode("ascii")
-                logger.info(
-                    f"Generated session string for {safe_account_name}: {
-                        len(fresh_session)} characters"
-                )
-
-                # Session generated successfully
-                from telethon import TelegramClient
-                from telethon.sessions import StringSession
-
-                from ..core.config import config
-
-                API_ID = config.telegram.api_id
-                API_HASH = config.telegram.api_hash
-
-                # Get format_type from session_data
+                logger.info(f"Authentication successful for {account_name}, generating session...")
+                await self._verify_authentication(client, account_name)
+                fresh_session = await self._generate_session_string(client, account_name)
                 format_type = session_data.get("format_type", "both")
-
-                # Create session file using the fresh session string
                 session_file_data = None
                 if format_type in ["file", "both"]:
-                    import tempfile
-
-                    try:
-                        logger.info(f"Creating session file for {account_name}...")
-
-                        # Create temporary session file using Telethon's built-in method
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".session", delete=False
-                        ) as temp_file:
-                            temp_session_path = temp_file.name
-
-                        # Create a new client with the fresh session string and save as
-                        # file
-                        file_client = TelegramClient(
-                            temp_session_path, API_ID, API_HASH
-                        )
-                        file_client.session = StringSession(fresh_session)
-                        file_client.session.save()
-
-                        # Read the session file
-                        if os.path.exists(temp_session_path):
-                            with open(temp_session_path, "rb") as f:
-                                session_file_data = f.read()
-                            logger.info(
-                                f"Session file created: {len(session_file_data)} bytes"
-                            )
-
-                        # Cleanup
-                        os.remove(temp_session_path)
-
-                    except Exception as e:
-                        logger.error(f"Session file creation error: {e}")
-                        session_file_data = None
-
-                # Store session data for batch processing
-                if (
-                    hasattr(self.bot_manager, "batch_sessions")
-                    and user_id in self.bot_manager.batch_sessions
-                ):
-                    batch_data = self.bot_manager.batch_sessions[user_id]
-                    format_type = session_data.get("format_type", "both")
-                    if format_type == "string":
-                        batch_data["completed"][account_name] = fresh_session
-                    elif format_type == "file" and session_file_data:
-                        batch_data["completed"][account_name] = session_file_data
-                    else:
-                        # Fallback to string session if file creation failed
-                        batch_data["completed"][account_name] = fresh_session
-
-                    # Update progress
-                    batch_data["current_index"] += 1
-
-                    # Continue with next account or finish batch
-                    if batch_data["current_index"] < len(batch_data["accounts"]):
-                        await self._process_next_batch_account(user_id)
-                    else:
-                        await self._send_batch_sessions_zip(user_id)
+                    session_file_data = await self._create_session_file(fresh_session, account_name)
+                if await self._handle_batch_session(user_id, account_name, fresh_session, session_file_data, session_data):
                     return True
-
-                # Get format_type for sending
-                format_type = session_data.get("format_type", "both")
-                # Send based on requested format
-                if format_type == "string":
-                    # Get DC information for display
-                    dc_info = "Unknown"
-                    try:
-                        if client and client.is_connected():
-                            dc_info = f"DC{client.session.dc_id}"
-                    except Exception:
-                        pass
-
-                    message = (
-                        f"📝 **Session Export - {dc_info}**\n\n"
-                        f"📱 **Account:** {account_name}\n"
-                        f"📞 **Phone:** {phone}\n"
-                        f"🌐 **Data Center:** {dc_info}\n\n"
-                        f"**Session String:**\n\n"
-                        f"{fresh_session}\n\n\n"
-                        f"**Usage Example:**\n"
-                        f"```python\n"
-                        f"from telethon import TelegramClient\n"
-                        f"from telethon.sessions import StringSession\n\n"
-                        f"# {dc_info} Session\n"
-                        f"client = TelegramClient(\n"
-                        f"    StringSession('{fresh_session}'),\n"
-                        f"    api_id, api_hash\n"
-                        f")\n"
-                        f"await client.start()\n"
-                        f"```\n\n"
-                        f"⚠️ **Keep this {dc_info} session secure!**"
-                    )
-                    await self.bot.send_message(user_id, message)
-                elif format_type == "file":
-                    if session_file_data and len(session_file_data) > 0:
-                        from telethon.tl.types import DocumentAttributeFilename
-
-                        await self.bot.send_message(
-                            user_id,
-                            f"📁 **Fresh Session File - {account_name}**\n\n"
-                            f"**Usage:** Use this file with Telethon:\n"
-                            f"```python\n"
-                            f"from telethon import TelegramClient\n\n"
-                            f"client = TelegramClient('{account_name}', api_id, api_hash)\n"
-                            f"await client.start()\n"
-                            f"```",
-                            file=session_file_data,
-                            attributes=[
-                                DocumentAttributeFilename(
-                                    f"fresh_{account_name}.session"
-                                )
-                            ],
-                        )
-                    else:
-                        await self.bot.send_message(
-                            user_id,
-                            f"📝 **Session String (File Creation Failed)**\n\n"
-                            f"**Session String:**\n{fresh_session}\n\n"
-                            f"**Manual .session file creation:**\n"
-                            f"```python\n"
-                            f"from telethon import TelegramClient\n"
-                            f"from telethon.sessions import StringSession\n\n"
-                            f"client = TelegramClient(\n"
-                            f"    StringSession('{fresh_session}'),\n"
-                            f"    api_id, api_hash\n"
-                            f")\n"
-                            f"await client.start()\n\n"
-                            f"# Save as .session file\n"
-                            f"file_client = TelegramClient('{account_name}', api_id, api_hash)\n"
-                            f"file_client.session = client.session\n"
-                            f"file_client.session.save()\n"
-                            f"```",
-                        )
-                elif format_type == "both":
-                    # Send string first
-                    dc_info = "Unknown"
-                    try:
-                        if client and client.is_connected():
-                            dc_info = f"DC{client.session.dc_id}"
-                    except Exception:
-                        pass
-
-                    message = (
-                        f"📝 **Session Export - {dc_info}**\n\n"
-                        f"📱 **Account:** {account_name}\n"
-                        f"📞 **Phone:** {phone}\n"
-                        f"🌐 **Data Center:** {dc_info}\n\n"
-                        f"**Session String:**\n\n"
-                        f"{fresh_session}\n\n\n"
-                        f"**Usage Example:**\n"
-                        f"```python\n"
-                        f"from telethon import TelegramClient\n"
-                        f"from telethon.sessions import StringSession\n\n"
-                        f"# {dc_info} Session\n"
-                        f"client = TelegramClient(\n"
-                        f"    StringSession('{fresh_session}'),\n"
-                        f"    api_id, api_hash\n"
-                        f")\n"
-                        f"await client.start()\n"
-                        f"```\n\n"
-                        f"⚠️ **Keep this {dc_info} session secure!**"
-                    )
-                    await self.bot.send_message(user_id, message)
-
-                    # Send file
-                    if session_file_data:
-                        from telethon.tl.types import DocumentAttributeFilename
-
-                        await self.bot.send_message(
-                            user_id,
-                            f"📁 **Fresh Session File - {account_name}**\n\n"
-                            f"**Usage:** Use this file with Telethon:\n"
-                            f"```python\n"
-                            f"from telethon import TelegramClient\n\n"
-                            f"client = TelegramClient('{account_name}', api_id, api_hash)\n"
-                            f"await client.start()\n"
-                            f"```",
-                            file=session_file_data,
-                            attributes=[
-                                DocumentAttributeFilename(
-                                    f"fresh_{account_name}.session"
-                                )
-                            ],
-                        )
-
-                # Clear session creation protection and restore OTP settings
-                try:
-                    # Get original states
-                    account_data = await mongodb.db.accounts.find_one(
-                        {"user_id": user_id, "name": account_name}
-                    )
-                    original_destroyer = (
-                        account_data.get("original_destroyer_state", False)
-                        if account_data
-                        else False
-                    )
-                    original_forward = (
-                        account_data.get("original_forward_state", False)
-                        if account_data
-                        else False
-                    )
-
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {
-                                "pending_fresh_session": "",
-                                "session_creation_in_progress": "",
-                                "original_destroyer_state": "",
-                                "original_forward_state": "",
-                            },
-                            "$set": {
-                                "otp_destroyer_enabled": original_destroyer,
-                                "otp_forward_enabled": original_forward,
-                            },
-                        },
-                    )
-                    # Clear pending action
-                    self.bot_manager.pending_actions.pop(user_id, None)
-                    logger.info(
-                        f"Session creation completed for {phone} - OTP settings restored"
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to clear protection flags after successful session creation"
-                    )
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-                # Ensure pending entry is removed
-                try:
-                    if user_id in self.bot_manager.pending_fresh_sessions:
-                        del self.bot_manager.pending_fresh_sessions[user_id]
-                except Exception:
-                    pass
+                await self._send_session_to_user(user_id, account_name, phone, fresh_session, session_file_data, client, format_type)
+                await self._cleanup_session_creation(user_id, account_name, phone, client)
                 return True
             except Exception as e:
-                # Clear session creation protection on failure and restore OTP settings
-                try:
-                    # Get original states
-                    account_data = await mongodb.db.accounts.find_one(
-                        {"user_id": user_id, "name": account_name}
-                    )
-                    original_destroyer = (
-                        account_data.get("original_destroyer_state", False)
-                        if account_data
-                        else False
-                    )
-                    original_forward = (
-                        account_data.get("original_forward_state", False)
-                        if account_data
-                        else False
-                    )
-
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {
-                                "pending_fresh_session": "",
-                                "session_creation_in_progress": "",
-                                "original_destroyer_state": "",
-                                "original_forward_state": "",
-                            },
-                            "$set": {
-                                "otp_destroyer_enabled": original_destroyer,
-                                "otp_forward_enabled": original_forward,
-                            },
-                        },
-                    )
-                    # Clear pending action
-                    self.bot_manager.pending_actions.pop(user_id, None)
-                    logger.info(
-                        f"Session creation failed for {phone} - OTP settings restored"
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to clear protection flags after session creation failure"
-                    )
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-                import traceback
-
-                tb = traceback.format_exc()
-                logger.error(
-                    f"Fresh session failed for {account_name}: {
-                        type(e).__name__}: {e}\n{tb}"
-                )
-                if "TLObject was expected" in str(e):
-                    error_msg = (
-                        f"❌ **TLObject Error - Session Creation Failed**\n\n"
-                        f"**Error:** {type(e).__name__}: {str(e)}\n"
-                        f"**Account:** {account_name}\n\n"
-                        f"**This is a Telethon serialization error.**\n"
-                        f"**Possible causes:**\n"
-                        f"• Invalid session data format\n"
-                        f"• Corrupted authentication state\n"
-                        f"• Telethon version compatibility issue\n\n"
-                        f"**Solutions:**\n"
-                        f"• Try re-authenticating the account\n"
-                        f"• Use string session format instead\n"
-                        f"• Update Telethon library\n"
-                        f"• Contact support with this error message"
-                    )
-                else:
-                    error_msg = (
-                        f"❌ **Fresh Session Failed**\n\n"
-                        f"**Error:** {type(e).__name__}: {str(e)}\n"
-                        f"**Account:** {account_name}\n"
-                        f"**Phone:** {phone}\n\n"
-                        f"**Common Causes:** Invalid OTP, network issues, rate limiting\n"
-                        f"**Solution:** Verify OTP code and try again"
-                    )
-                await self.bot.send_message(user_id, error_msg)
-                try:
-                    if user_id in self.bot_manager.pending_fresh_sessions:
-                        del self.bot_manager.pending_fresh_sessions[user_id]
-                except Exception:
-                    pass
+                await self._handle_otp_error(user_id, account_name, phone, client, e)
                 return False
         except Exception as e:
             logger.error(f"Fresh session OTP processing error: {e}")
