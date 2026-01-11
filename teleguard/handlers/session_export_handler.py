@@ -396,38 +396,243 @@ class SessionExportHandler:
             DummyEvent(user_id), user_id, account_name, format_type=session_type
         )
 
-    async def _create_fresh_session(
-        self, event, user_id, account_name, format_type="both"
-    ):
-        """Create fresh session by re-authenticating existing account"""
+    async def _load_client_from_db(self, user_id, account_name, phone):
+        """Load client from database"""
+        logger.warning(f"Client not in RAM. Loading from DB for {phone}...")
+        try:
+            db_account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "phone": phone}
+            )
+            if not db_account or not db_account.get("session_string"):
+                return None
+            
+            from ..core.config import config
+            
+            session_str = db_account.get("session_string")
+            user_client = TelegramClient(
+                StringSession(session_str),
+                config.telegram.api_id,
+                config.telegram.api_hash,
+            )
+            await user_client.connect()
+            
+            if await user_client.is_user_authorized():
+                logger.info(f"Successfully loaded client from DB for {phone}")
+                if user_id not in self.user_clients:
+                    self.user_clients[user_id] = {}
+                self.user_clients[user_id][account_name] = user_client
+                return user_client
+            else:
+                logger.error("Session from DB is invalid/revoked")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to load client from DB: {e}")
+            return None
+
+    async def _get_user_client(self, user_id, account_name, phone):
+        """Get user client from memory or database"""
+        user_clients_dict = self.user_clients.get(user_id, {})
+        
+        # Try exact name match
+        user_client = user_clients_dict.get(account_name)
+        if user_client:
+            logger.info(f"Found client by name: {account_name}")
+            return user_client
+        
+        # Fallback: Search by phone
+        clean_phone = phone.replace(" ", "").replace("-", "")
+        for key, client in user_clients_dict.items():
+            clean_key = key.replace(" ", "").replace("-", "")
+            if clean_key == clean_phone or clean_key == clean_phone.lstrip("+"):
+                logger.info(f"Found client by phone match: {key}")
+                return client
+        
+        # Load from database
+        return await self._load_client_from_db(user_id, account_name, phone)
+
+    async def _validate_phone_number(self, phone, account_name):
+        """Validate and fix phone number format"""
+        if not phone.startswith("+"):
+            if phone.isdigit() and len(phone) >= 10:
+                phone = "+" + phone
+            else:
+                return None, f"❌ Invalid phone number format for {account_name}. Expected format: +1234567890"
+        
+        if len(phone) < 10 or not phone[1:].isdigit():
+            return None, f"❌ Invalid phone number format for {account_name}. Expected format: +1234567890"
+        
+        return phone, None
+
+    async def _setup_temp_client(self):
+        """Create and connect temporary client for session creation"""
+        from ..core.config import config
+        
+        temp_client = TelegramClient(StringSession(), config.telegram.api_id, config.telegram.api_hash)
+        await temp_client.connect()
+        
+        if not temp_client.is_connected():
+            return None, "❌ Failed to connect to Telegram servers. Please try again later."
+        
+        return temp_client, None
+
+    async def _prepare_session_protection(self, user_id, account_name):
+        """Prepare OTP protection flags before requesting code"""
+        previous_destroyer_state = False
+        try:
+            acct = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "name": account_name}
+            )
+            if acct:
+                previous_destroyer_state = acct.get("otp_destroyer_enabled", False)
+        except Exception:
+            pass
+        
+        if not hasattr(self.bot_manager, "pending_fresh_sessions"):
+            self.bot_manager.pending_fresh_sessions = {}
+        
+        return previous_destroyer_state
+
+    async def _disable_otp_features(self, user_id, account_name, phone):
+        """Disable OTP destroyer and forwarding during session creation"""
         try:
             account = await mongodb.db.accounts.find_one(
                 {"user_id": user_id, "name": account_name}
             )
             if not account:
-                await event.edit(f"❌ Account {account_name} not found.")
                 return
-            phone = account.get("phone")
-            if not phone:
-                await event.edit(f"❌ No phone number found for {account_name}.")
-                return
+            
+            original_destroyer = account.get("otp_destroyer_enabled", False)
+            original_forward = account.get("otp_forward_enabled", False)
 
-            # Validate and fix phone number format
-            if not phone.startswith("+"):
-                # Try to add + prefix if it's missing
-                if phone.isdigit() and len(phone) >= 10:
-                    phone = "+" + phone
-                else:
-                    await event.edit(
-                        f"❌ Invalid phone number format for {account_name}. Expected format: +1234567890"
-                    )
-                    return
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$set": {
+                        "pending_fresh_session": True,
+                        "session_creation_in_progress": True,
+                        "otp_destroyer_enabled": False,
+                        "otp_forward_enabled": False,
+                        "original_destroyer_state": original_destroyer,
+                        "original_forward_state": original_forward,
+                    }
+                },
+            )
 
-            # Additional validation
-            if len(phone) < 10 or not phone[1:].isdigit():
-                await event.edit(
-                    f"❌ Invalid phone number format for {account_name}. Expected format: +1234567890"
-                )
+            self.bot_manager.pending_actions[user_id] = {
+                "action": "session_creation",
+                "phone": phone,
+                "account_name": account_name,
+            }
+
+            logger.info(f"Session creation started for {phone} - OTP destroyer and forwarding disabled")
+        except Exception:
+            pass
+
+    async def _create_otp_protection_entry(self, phone):
+        """Create cross-process OTP protection entry"""
+        try:
+            await mongodb.db.otp_protections.update_one(
+                {"phone": phone, "wildcard": True},
+                {
+                    "$set": {
+                        "phone": phone,
+                        "wildcard": True,
+                        "expires_at": int(time.time()) + 60,
+                        "expires_at_dt": datetime.utcfromtimestamp(int(time.time()) + 60),
+                    }
+                },
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("Failed to write otp_protection entry")
+
+    async def _request_otp_code(self, temp_client, phone, user_id, account_name, previous_destroyer_state):
+        """Request OTP code from Telegram"""
+        try:
+            sent_code = await temp_client.send_code_request(phone)
+            logger.info(f"OTP request sent successfully for {phone}")
+            await self._create_otp_protection_entry(phone)
+            return sent_code, None
+        except Exception as send_err:
+            if isinstance(send_err, FloodWaitError):
+                logger.info(f"FloodWait detected: {send_err.seconds}s")
+            
+            logger.exception(f"send_code_request failed for {phone}: {send_err}")
+            
+            try:
+                await temp_client.disconnect()
+            except Exception:
+                pass
+            
+            await self._restore_otp_settings(user_id, account_name, previous_destroyer_state)
+            self.bot_manager.pending_fresh_sessions.pop(user_id, None)
+            
+            error_msg = self._format_otp_request_error(send_err)
+            return None, error_msg
+
+    def _format_otp_request_error(self, error):
+        """Format OTP request error message"""
+        error_type = type(error).__name__
+        error_msg = str(error)
+        
+        if "FloodWaitError" in error_type or "wait of" in error_msg:
+            return "⏰ Rate limited. Please wait before requesting OTP for this number again."
+        elif "PhoneNumberBannedError" in error_type:
+            return "❌ This phone number is banned from Telegram."
+        elif "PhoneNumberInvalidError" in error_type:
+            return "❌ Invalid phone number format."
+        elif "AuthRestartError" in error_type:
+            return "❌ Telegram server error. Please try again in a few minutes."
+        elif "ConnectionError" in error_type or "Cannot send requests while disconnected" in error_msg:
+            return "❌ Connection error. Please check your internet connection and try again."
+        else:
+            return f"❌ Error starting authentication: {error_type}: {error_msg}"
+
+    async def _restore_otp_settings(self, user_id, account_name, previous_destroyer_state):
+        """Restore OTP settings after session creation"""
+        try:
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "$unset": {
+                        "pending_fresh_session": "",
+                        "session_creation_in_progress": "",
+                        "original_destroyer_state": "",
+                        "original_forward_state": "",
+                    },
+                    "$set": {
+                        "otp_destroyer_enabled": previous_destroyer_state,
+                        "otp_forward_enabled": False,
+                    },
+                },
+            )
+            self.bot_manager.pending_actions.pop(user_id, None)
+        except Exception:
+            logger.exception("Failed to restore OTP settings")
+
+    async def _get_account_phone(self, user_id, account_name):
+        """Get and validate account phone number"""
+        account = await mongodb.db.accounts.find_one(
+            {"user_id": user_id, "name": account_name}
+        )
+        if not account:
+            return None, f"❌ Account {account_name} not found."
+        
+        phone = account.get("phone")
+        if not phone:
+            return None, f"❌ No phone number found for {account_name}."
+        
+        phone, error = self._validate_phone_number(phone, account_name)
+        return phone, error
+
+    async def _create_fresh_session(
+        self, event, user_id, account_name, format_type="both"
+    ):
+        """Create fresh session by re-authenticating existing account"""
+        try:
+            phone, error = await self._get_account_phone(user_id, account_name)
+            if error:
+                await event.edit(error)
                 return
             await event.edit(
                 f"🔄 **Creating Fresh Session - {account_name}**\n\n"
@@ -435,41 +640,15 @@ class SessionExportHandler:
                 f"Starting authentication process...\n"
                 f"You will receive an OTP code."
             )
-            from telethon import TelegramClient
-
-            from ..core.config import config
-
-            API_ID = config.telegram.api_id
-            API_HASH = config.telegram.api_hash
-            # Use an in-memory StringSession for fresh-session flows so
-            # calling `client.session.save()` returns a valid string.
-            temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
+            
+            temp_client, error = await self._setup_temp_client()
+            if error:
+                await event.edit(error)
+                return
+            
             try:
-                # Connect to Telegram
-                await temp_client.connect()
-                if not temp_client.is_connected():
-                    await event.edit(
-                        "❌ Failed to connect to Telegram servers. Please try again later."
-                    )
-                    return
-
-                # Prepare in-memory pending marker BEFORE requesting code to
-                # avoid race where the OTP Destroyer might receive the service
-                # message before our in-memory marker is set.
-                previous_destroyer_state = False
-                try:
-                    acct = await mongodb.db.accounts.find_one(
-                        {"user_id": user_id, "name": account_name}
-                    )
-                    if acct:
-                        previous_destroyer_state = acct.get(
-                            "otp_destroyer_enabled", False
-                        )
-                except Exception:
-                    pass
-                if not hasattr(self.bot_manager, "pending_fresh_sessions"):
-                    self.bot_manager.pending_fresh_sessions = {}
-                # Insert an initial pending entry so destroyer checks can see it
+                previous_destroyer_state = await self._prepare_session_protection(user_id, account_name)
+                
                 self.bot_manager.pending_fresh_sessions[user_id] = {
                     "client": temp_client,
                     "phone": phone,
@@ -479,372 +658,130 @@ class SessionExportHandler:
                     "previous_destroyer_state": previous_destroyer_state,
                     "format_type": format_type,
                 }
-                # Disable OTP destroyer and forwarding during session creation
-                try:
-                    # Store original OTP settings
-                    original_destroyer = account.get("otp_destroyer_enabled", False)
-                    original_forward = account.get("otp_forward_enabled", False)
-
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$set": {
-                                "pending_fresh_session": True,
-                                "session_creation_in_progress": True,
-                                "otp_destroyer_enabled": False,  # Disable destroyer during session creation
-                                "otp_forward_enabled": False,  # Disable forwarding to prevent code sharing
-                                "original_destroyer_state": original_destroyer,
-                                "original_forward_state": original_forward,
-                            }
-                        },
-                    )
-
-                    # Set pending action for additional protection
-                    self.bot_manager.pending_actions[user_id] = {
-                        "action": "session_creation",
-                        "phone": phone,
-                        "account_name": account_name,
-                    }
-
-                    logger.info(
-                        f"Session creation started for {phone} - OTP destroyer and forwarding disabled"
-                    )
-                except Exception:
-                    pass
-                # Request the OTP from Telegram and store phone_code_hash
-                try:
-                    sent_code = await temp_client.send_code_request(phone)
-                    logger.info(f"OTP request sent successfully for {phone}")
-                    # Create a cross-process OTP protection entry so other
-                    # processes (OTP destroyer) will skip invalidation for any
-                    # codes sent to this phone for a short window.
-                    try:
-                        # Write a phone-level wildcard protection so other processes
-                        # skip invalidating any code sent to this phone for 60s.
-                        await mongodb.db.otp_protections.update_one(
-                            {"phone": phone, "wildcard": True},
-                            {
-                                "$set": {
-                                    "phone": phone,
-                                    "wildcard": True,
-                                    "expires_at": int(time.time()) + 60,
-                                    "expires_at_dt": datetime.utcfromtimestamp(
-                                        int(time.time()) + 60
-                                    ),
-                                }
-                            },
-                            upsert=True,
-                        )
-                    except Exception:
-                        # non-fatal if DB write fails
-                        logger.exception("Failed to write otp_protection entry")
-
-                except Exception as send_err:
-                    # Handle FloodWait gracefully
-                    if isinstance(send_err, FloodWaitError):
-                        logger.info(f"FloodWait detected: {send_err.seconds}s")
-                        # Store sent_code if available
-                        try:
-                            self.bot_manager.pending_fresh_sessions[user_id][
-                                "sent_code"
-                            ] = None
-                        except Exception:
-                            pass
-
-                    # Clean up and surface a detailed error
-                    logger.exception(
-                        f"send_code_request failed for {phone}: {send_err}"
-                    )
-                    try:
-                        await temp_client.disconnect()
-                    except Exception:
-                        pass
-                    # Clear protection flags and restore OTP settings
-                    try:
-                        await mongodb.db.accounts.update_one(
-                            {"user_id": user_id, "name": account_name},
-                            {
-                                "$unset": {
-                                    "pending_fresh_session": "",
-                                    "session_creation_in_progress": "",
-                                    "original_destroyer_state": "",
-                                    "original_forward_state": "",
-                                },
-                                "$set": {
-                                    "otp_destroyer_enabled": previous_destroyer_state,
-                                    "otp_forward_enabled": False,  # Reset to safe state
-                                },
-                            },
-                        )
-                        self.bot_manager.pending_actions.pop(user_id, None)
-                    except Exception:
-                        logger.exception(
-                            "Failed to clear protection flags after send_code_request failure"
-                        )
-                    self.bot_manager.pending_fresh_sessions.pop(user_id, None)
-
-                    # Provide more specific error messages
-                    error_type = type(send_err).__name__
-                    error_msg = str(send_err)
-
-                    if "FloodWaitError" in error_type or "wait of" in error_msg:
-                        await event.edit(
-                            f"⏰ Rate limited. Please wait before requesting OTP for this number again."
-                        )
-                    elif "PhoneNumberBannedError" in error_type:
-                        await event.edit(
-                            f"❌ This phone number is banned from Telegram."
-                        )
-                    elif "PhoneNumberInvalidError" in error_type:
-                        await event.edit(f"❌ Invalid phone number format.")
-                    elif "AuthRestartError" in error_type:
-                        await event.edit(
-                            f"❌ Telegram server error. Please try again in a few minutes."
-                        )
-                    elif (
-                        "ConnectionError" in error_type
-                        or "Cannot send requests while disconnected" in error_msg
-                    ):
-                        await event.edit(
-                            f"❌ Connection error. Please check your internet connection and try again."
-                        )
-                    else:
-                        await event.edit(
-                            f"❌ Error starting authentication: {error_type}: {error_msg}"
-                        )
+                
+                await self._disable_otp_features(user_id, account_name, phone)
+                
+                sent_code, error = await self._request_otp_code(temp_client, phone, user_id, account_name, previous_destroyer_state)
+                if error:
+                    await event.edit(error)
                     return
-                try:
-                    self.bot_manager.pending_fresh_sessions[user_id][
-                        "sent_code"
-                    ] = sent_code
-                except Exception:
-                    logger.exception(
-                        "Failed to save sent_code into pending_fresh_sessions"
-                    )
-                # Store pending session creation first
-                if not hasattr(self.bot_manager, "pending_fresh_sessions"):
-                    self.bot_manager.pending_fresh_sessions = {}
-                self.bot_manager.pending_fresh_sessions[user_id] = {
-                    "client": temp_client,
-                    "phone": phone,
-                    "account_name": account_name,
-                    "sent_code": sent_code,
-                    "chat_id": event.chat_id,
-                    "previous_destroyer_state": previous_destroyer_state,
-                    "format_type": format_type,
-                }
-
-                # Auto-fetch OTP - lookup by phone from database
-                user_client = None
-                user_clients_dict = self.user_clients.get(user_id, {})
-                available_keys = list(user_clients_dict.keys())
-                safe_name = account_name.encode("ascii", errors="replace").decode(
-                    "ascii"
-                )
-                logger.info(f"Looking for '{safe_name}' in: {available_keys}")
-
-                # Try exact name match
-                user_client = user_clients_dict.get(account_name)
-                if user_client:
-                    logger.info(f"Found client by name: {account_name}")
-                else:
-                    # Fallback: Search by phone
-                    clean_phone = phone.replace(" ", "").replace("-", "")
-                    for key, client in user_clients_dict.items():
-                        clean_key = key.replace(" ", "").replace("-", "")
-                        if clean_key == clean_phone or clean_key == clean_phone.lstrip(
-                            "+"
-                        ):
-                            user_client = client
-                            logger.info(f"Found client by phone match: {key}")
-                            break
-
-                # Load from database if not in memory
-                if not user_client:
-                    logger.warning(f"Client not in RAM. Loading from DB for {phone}...")
-                    try:
-                        db_account = await mongodb.db.accounts.find_one(
-                            {"user_id": user_id, "phone": phone}
-                        )
-                        if db_account and db_account.get("session_string"):
-                            from ..core.config import config
-
-                            session_str = db_account.get("session_string")
-                            user_client = TelegramClient(
-                                StringSession(session_str),
-                                config.telegram.api_id,
-                                config.telegram.api_hash,
-                            )
-                            await user_client.connect()
-
-                            if await user_client.is_user_authorized():
-                                logger.info(
-                                    f"Successfully loaded client from DB for {phone}"
-                                )
-                                # Add to memory
-                                if user_id not in self.user_clients:
-                                    self.user_clients[user_id] = {}
-                                self.user_clients[user_id][account_name] = user_client
-                            else:
-                                logger.error("Session from DB is invalid/revoked")
-                                user_client = None
-                    except Exception as e:
-                        logger.error(f"Failed to load client from DB: {e}")
-                        user_client = None
-
-                if user_client and not user_client.is_connected():
-                    try:
-                        await user_client.connect()
-                    except BaseException:
-                        pass
-
-                if user_client and user_client.is_connected():
-                    try:
-                        logger.info(f"Client connected, attempting OTP fetch")
-                        request_time = datetime.now()
-
-                        # Simple OTP fetch without complex event handling
-                        otp_found = False
-                        for attempt in range(6):
-                            await asyncio.sleep(3)
-                            async for msg in user_client.iter_messages(777000, limit=3):
-                                if msg.text and msg.date > request_time:
-                                    import re
-
-                                    patterns = [
-                                        r"code[:\s]+([0-9]{5,6})",
-                                        r"([0-9]{5,6})",
-                                    ]
-                                    for pattern in patterns:
-                                        match = re.search(
-                                            pattern, msg.text, re.IGNORECASE
-                                        )
-                                        if match:
-                                            otp = match.group(1)
-                                            logger.info(f"Found OTP: {otp}")
-                                            await event.edit(
-                                                f"✅ **OTP: {otp}**\n\nProcessing..."
-                                            )
-                                            await self.process_fresh_session_otp(
-                                                user_id, otp
-                                            )
-                                            otp_found = True
-                                            break
-                                if otp_found:
-                                    break
-                            if otp_found:
-                                return
-
-                    except Exception as listener_err:
-                        logger.error(
-                            f"Event listener failed: {listener_err}, falling back to polling"
-                        )
-                        # Fallback to improved polling
-                        import re
-
-                        request_time = datetime.now()
-
-                        for attempt in range(6):
-                            remaining = 18 - (attempt * 3)
-                            await event.edit(
-                                f"📱 **OTP Sent - {account_name}**\n\n"
-                                f"📞 **Phone:** {phone}\n\n"
-                                f"🔍 **Waiting for OTP...**\n"
-                                f"⏱️ **Time remaining:** {remaining}s"
-                            )
-                            await asyncio.sleep(3)
-
-                            async for msg in user_client.iter_messages(777000, limit=3):
-                                if msg.text and msg.date > request_time:
-                                    for pattern in self.improvements.OTP_PATTERNS:
-                                        match = re.search(
-                                            pattern, msg.text, re.IGNORECASE
-                                        )
-                                        if match:
-                                            otp = match.group(1)
-                                            logger.info(f"Found OTP via polling: {otp}")
-                                            await event.edit(
-                                                f"✅ **OTP: {otp}**\n\nProcessing..."
-                                            )
-                                            await self.process_fresh_session_otp(
-                                                user_id, otp
-                                            )
-                                            return
-
-                        # Polling timeout
-                        logger.warning("OTP polling timeout")
-                        return
-                else:
-                    logger.error(
-                        f"Client not found or not connected for {account_name}"
-                    )
-
-                # Fallback to manual entry
-                await event.edit(
-                    f"📱 **OTP Sent - {account_name}**\n\n"
-                    f"📞 **Phone:** {phone}\n\n"
-                    f"Please send the OTP code you received.\n"
-                    f"Format: Just the numbers (e.g., 12345)\n\n"
-                    f"⏰ Waiting for your OTP..."
-                )
+                
+                self.bot_manager.pending_fresh_sessions[user_id]["sent_code"] = sent_code
+                
+                await self._auto_fetch_otp(user_id, account_name, phone, event)
+                
             except Exception as e:
-                # Capture full traceback and return a clearer message
-                import traceback
-
-                tb = traceback.format_exc()
-                logger.error(
-                    f"Fresh session startup exception for {account_name}: {e}\n{tb}"
-                )
-                try:
-                    await temp_client.disconnect()
-                except Exception:
-                    pass
-                # Clear protection flags and restore OTP settings
-                try:
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$unset": {
-                                "pending_fresh_session": "",
-                                "session_creation_in_progress": "",
-                                "original_destroyer_state": "",
-                                "original_forward_state": "",
-                            },
-                            "$set": {
-                                "otp_destroyer_enabled": previous_destroyer_state,
-                                "otp_forward_enabled": False,  # Reset to safe state
-                            },
-                        },
-                    )
-                    self.bot_manager.pending_actions.pop(user_id, None)
-                except Exception:
-                    logger.exception(
-                        "Failed to clear protection flags after fresh session startup failure"
-                    )
-                self.bot_manager.pending_fresh_sessions.pop(user_id, None)
-                # Provide detailed error information
-                error_details = (
-                    f"❌ **Authentication Startup Failed**\n\n"
-                    f"**Error Details:**\n"
-                    f"• Error Type: {type(e).__name__}\n"
-                    f"• Error Message: {str(e)}\n"
-                    f"• Account: {account_name}\n"
-                    f"• Phone: {phone}\n\n"
-                    f"**Common Causes:**\n"
-                    f"• Network connectivity issues\n"
-                    f"• Telegram API rate limiting\n"
-                    f"• Invalid API credentials\n"
-                    f"• Account restrictions\n\n"
-                    f"**Solutions:**\n"
-                    f"• Check internet connection\n"
-                    f"• Wait a few minutes and try again\n"
-                    f"• Verify API_ID and API_HASH are correct\n"
-                    f"• Contact support if issue persists"
-                )
-                await event.edit(error_details)
+                await self._handle_session_creation_error(e, temp_client, user_id, account_name, phone, event)
                 return
         except Exception as e:
             await event.edit(f"❌ Error creating fresh session: {str(e)}")
+
+    async def _try_auto_fetch_otp(self, user_client, user_id, event):
+        """Try to auto-fetch OTP from Telegram"""
+        logger.info("Client connected, attempting OTP fetch")
+        request_time = datetime.now()
+        
+        for attempt in range(6):
+            await asyncio.sleep(3)
+            async for msg in user_client.iter_messages(777000, limit=3):
+                if msg.text and msg.date > request_time:
+                    import re
+                    
+                    patterns = [r"code[:\s]+([0-9]{5,6})", r"([0-9]{5,6})"]
+                    for pattern in patterns:
+                        match = re.search(pattern, msg.text, re.IGNORECASE)
+                        if match:
+                            otp = match.group(1)
+                            logger.info(f"Found OTP: {otp}")
+                            await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
+                            await self.process_fresh_session_otp(user_id, otp)
+                            return True
+        return False
+
+    async def _auto_fetch_otp(self, user_id, account_name, phone, event):
+        """Auto-fetch OTP from user's Telegram account"""
+        user_client = await self._get_user_client(user_id, account_name, phone)
+        
+        if not user_client:
+            logger.error(f"Client not found for {account_name}")
+            await event.edit(
+                f"📱 **OTP Sent - {account_name}**\n\n"
+                f"📞 **Phone:** {phone}\n\n"
+                f"Please send the OTP code you received.\n"
+                f"Format: Just the numbers (e.g., 12345)\n\n"
+                f"⏰ Waiting for your OTP..."
+            )
+            return
+        
+        if not user_client.is_connected():
+            try:
+                await user_client.connect()
+            except Exception:
+                pass
+        
+        if not user_client.is_connected():
+            logger.error(f"Client not connected for {account_name}")
+            await event.edit(
+                f"📱 **OTP Sent - {account_name}**\n\n"
+                f"📞 **Phone:** {phone}\n\n"
+                f"Please send the OTP code you received.\n"
+                f"Format: Just the numbers (e.g., 12345)\n\n"
+                f"⏰ Waiting for your OTP..."
+            )
+            return
+        
+        try:
+            if await self._try_auto_fetch_otp(user_client, user_id, event):
+                return
+        except Exception as e:
+            logger.error(f"Auto-fetch failed: {e}")
+        
+        # Fallback to manual entry
+        await event.edit(
+            f"📱 **OTP Sent - {account_name}**\n\n"
+            f"📞 **Phone:** {phone}\n\n"
+            f"Please send the OTP code you received.\n"
+            f"Format: Just the numbers (e.g., 12345)\n\n"
+            f"⏰ Waiting for your OTP..."
+        )
+
+    async def _handle_session_creation_error(self, error, temp_client, user_id, account_name, phone, event):
+        """Handle errors during session creation"""
+        import traceback
+        
+        tb = traceback.format_exc()
+        logger.error(f"Fresh session startup exception for {account_name}: {error}\n{tb}")
+        
+        try:
+            await temp_client.disconnect()
+        except Exception:
+            pass
+        
+        session_data = self.bot_manager.pending_fresh_sessions.get(user_id, {})
+        previous_destroyer_state = session_data.get("previous_destroyer_state", False)
+        
+        await self._restore_otp_settings(user_id, account_name, previous_destroyer_state)
+        self.bot_manager.pending_fresh_sessions.pop(user_id, None)
+        
+        error_details = (
+            f"❌ **Authentication Startup Failed**\n\n"
+            f"**Error Details:**\n"
+            f"• Error Type: {type(error).__name__}\n"
+            f"• Error Message: {str(error)}\n"
+            f"• Account: {account_name}\n"
+            f"• Phone: {phone}\n\n"
+            f"**Common Causes:**\n"
+            f"• Network connectivity issues\n"
+            f"• Telegram API rate limiting\n"
+            f"• Invalid API credentials\n"
+            f"• Account restrictions\n\n"
+            f"**Solutions:**\n"
+            f"• Check internet connection\n"
+            f"• Wait a few minutes and try again\n"
+            f"• Verify API_ID and API_HASH are correct\n"
+            f"• Contact support if issue persists"
+        )
+        await event.edit(error_details)
 
     async def process_fresh_session_otp(self, user_id, otp_code):
         """Process OTP for fresh session creation"""
