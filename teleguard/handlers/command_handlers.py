@@ -29,480 +29,352 @@ class CommandHandlers:
 
     def register_handlers(self):
         """Register only essential handlers - all actions via buttons"""
+        self._register_command_handlers()
+        self._register_callback_handlers()
 
-        @self.bot.on(events.NewMessage(pattern=r"/start"))
-        async def start_handler(event):
-            user_id = event.sender_id
-            user = await mongodb.get_user(user_id)
-            is_new_user = user is None
-            if not user:
-                await mongodb.create_user(user_id)
-            if is_new_user:
-                welcome_text = (
-                    "🤖 **Welcome to TeleGuard!**\n\n"
-                    "Your professional Telegram account manager with advanced OTP destroyer protection.\n\n"
-                    "**🚀 Quick Start:**\n"
-                    "1️⃣ Add your first account via '📱 Account Settings'\n"
-                    "2️⃣ Enable OTP protection in '🛡️ OTP Manager'\n"
-                    "3️⃣ Explore features using the menu below\n\n"
-                    "**🛡️ Key Features:**\n"
-                    "• Real-time OTP destroyer protection\n"
-                    "• Multi-account management (up to 10)\n"
-                    "• 2FA management & session control\n"
-                    "• Activity simulation & automation\n"
-                    "• Secure profile & channel management\n\n"
-                    "**💬 Need Help?** Use '❓ Help' or contact @Meher_Mankar"
-                )
-            else:
-                welcome_text = "🤖 **TeleGuard Account Manager**\n\nWelcome back! Use the menu below to manage your accounts."
-            keyboard = self.menu_system.get_main_menu_keyboard(user_id)
-            await event.reply(welcome_text, buttons=keyboard)
+    def _register_command_handlers(self):
+        """Register command handlers"""
+        self.bot.on(events.NewMessage(pattern=r"/start"))(self._handle_start)
+        self.bot.on(events.NewMessage(pattern=r"/cancel"))(self._handle_cancel)
+        self.bot.on(events.NewMessage(pattern=r"/accs"))(self._handle_accs)
+        self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))(self._handle_add)
+        self.bot.on(events.NewMessage(pattern=r"/reconnect"))(self._handle_reconnect)
+        self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
+        self.bot.on(events.NewMessage(pattern=r"/appeal"))(self._handle_appeal)
+        self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
 
-        # Cancel handler for interrupting text input flows
-        @self.bot.on(events.NewMessage(pattern=r"/cancel"))
-        async def cancel_handler(event):
-            user_id = event.sender_id
-            if user_id in self.pending_actions:
-                self.auth_manager.cancel_auth(user_id)
-                self.pending_actions.pop(user_id, None)
-                await event.reply(
-                    "❌ Operation cancelled. Use the menu buttons to continue."
-                )
-            else:
-                await event.reply(
-                    "ℹ️ No operation to cancel. Use the menu buttons below."
-                )
+    def _register_callback_handlers(self):
+        """Register callback handlers"""
+        self.bot.on(events.CallbackQuery(pattern=r"^toggle_otp:(.+)$"))(self._handle_toggle_otp_callback)
+        self.bot.on(events.CallbackQuery(pattern=r"^messaging_stats$"))(self._handle_messaging_stats)
+        self.bot.on(events.CallbackQuery(pattern=r"^sim_stats:(.+)$"))(self._handle_sim_stats)
+        self.bot.on(events.CallbackQuery(pattern=r"^export_contacts$"))(self._handle_export_contacts)
 
-        # List accounts command
-        @self.bot.on(events.NewMessage(pattern=r"/accs"))
-        async def accs_handler(event):
-            user_id = event.sender_id
-            try:
-                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                    None
-                )
-                if not accounts:
-                    await event.reply(
-                        "❌ No accounts found. Use /add to add your first account."
-                    )
-                    return
+    async def _handle_start(self, event):
+        user_id = event.sender_id
+        user = await mongodb.get_user(user_id)
+        is_new_user = user is None
+        if not user:
+            await mongodb.create_user(user_id)
+        if is_new_user:
+            welcome_text = (
+                "🤖 **Welcome to TeleGuard!**\n\n"
+                "Your professional Telegram account manager with advanced OTP destroyer protection.\n\n"
+                "**🚀 Quick Start:**\n"
+                "1️⃣ Add your first account via '📱 Account Settings'\n"
+                "2️⃣ Enable OTP protection in '🛡️ OTP Manager'\n"
+                "3️⃣ Explore features using the menu below\n\n"
+                "**🛡️ Key Features:**\n"
+                "• Real-time OTP destroyer protection\n"
+                "• Multi-account management (up to 10)\n"
+                "• 2FA management & session control\n"
+                "• Activity simulation & automation\n"
+                "• Secure profile & channel management\n\n"
+                "**💬 Need Help?** Use '❓ Help' or contact @Meher_Mankar"
+            )
+        else:
+            welcome_text = "🤖 **TeleGuard Account Manager**\n\nWelcome back! Use the menu below to manage your accounts."
+        keyboard = self.menu_system.get_main_menu_keyboard(user_id)
+        await event.reply(welcome_text, buttons=keyboard)
 
-                text = f"📱 **Your Accounts ({len(accounts)})**\n\n"
-                for i, account in enumerate(accounts, 1):
-                    name = account.get("name", "Unknown")
-                    phone = account.get("phone", "Unknown")
-                    is_active = account.get("is_active", False)
-                    otp_enabled = account.get("otp_destroyer_enabled", False)
+    async def _handle_cancel(self, event):
+        user_id = event.sender_id
+        if user_id in self.pending_actions:
+            self.auth_manager.cancel_auth(user_id)
+            self.pending_actions.pop(user_id, None)
+            await event.reply("❌ Operation cancelled. Use the menu buttons to continue.")
+        else:
+            await event.reply("ℹ️ No operation to cancel. Use the menu buttons below.")
 
-                    status = "🟢" if is_active else "🔴"
-                    otp_status = "🛡️" if otp_enabled else "⚪"
+    async def _handle_accs(self, event):
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                await event.reply("❌ No accounts found. Use /add to add your first account.")
+                return
+            text = f"📱 **Your Accounts ({len(accounts)})**\n\n"
+            for i, account in enumerate(accounts, 1):
+                name = account.get("name", "Unknown")
+                phone = account.get("phone", "Unknown")
+                is_active = account.get("is_active", False)
+                otp_enabled = account.get("otp_destroyer_enabled", False)
+                status = "🟢" if is_active else "🔴"
+                otp_status = "🛡️" if otp_enabled else "⚪"
+                text += f"{i}. {status} **{name}**\n"
+                text += f"   📞 {phone}\n"
+                text += f"   {otp_status} OTP: {'Enabled' if otp_enabled else 'Disabled'}\n\n"
+            text += "\n**Legend:**\n"
+            text += "🟢 Active | 🔴 Inactive\n"
+            text += "🛡️ OTP Protected | ⚪ No Protection"
+            await event.reply(text)
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
-                    text += f"{i}. {status} **{name}**\n"
-                    text += f"   📞 {phone}\n"
-                    text += f"   {otp_status} OTP: {'Enabled' if otp_enabled else 'Disabled'}\n\n"
+    async def _handle_add(self, event):
+        user_id = event.sender_id
+        try:
+            account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
+            if account_count >= MAX_ACCOUNTS:
+                await event.reply(f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached")
+                return
+            self.pending_actions[user_id] = {"action": "add_account"}
+            await event.reply(
+                "➕ **Add New Account**\n\n"
+                "Reply with phone number (include country code):\n\n"
+                "📱 Example: +1234567890\n"
+                "💡 Tip: Enter OTP as 1-2-3-4-5 (with hyphens)"
+            )
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
-                text += "\n**Legend:**\n"
-                text += "🟢 Active | 🔴 Inactive\n"
-                text += "🛡️ OTP Protected | ⚪ No Protection"
+    async def _handle_reconnect(self, event):
+        user_id = event.sender_id
+        await event.reply("🔄 Reconnecting all your accounts...")
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+            if not accounts:
+                await event.reply("❌ No active accounts found to reconnect.")
+                return
+            success = 0
+            failed = []
+            for account in accounts:
+                account_name = account.get("name")
+                session_string = account.get("session_string")
+                if not session_string:
+                    failed.append(f"{account_name}: No session")
+                    continue
+                try:
+                    await self.bot_manager.start_user_client(user_id, account_name, session_string)
+                    success += 1
+                except Exception as e:
+                    failed.append(f"{account_name}: {str(e)[:50]}")
+                    logger.error(f"Failed to reconnect {account_name}: {e}")
+            msg = f"✅ Reconnected {success}/{len(accounts)} accounts."
+            if failed:
+                msg += f"\n\n❌ Failed:\n" + "\n".join(f"• {f}" for f in failed[:5])
+            await event.reply(msg)
+        except Exception as e:
+            await event.reply(f"❌ Reconnection failed: {str(e)}")
 
-                await event.reply(text)
-            except Exception as e:
-                await event.reply(f"❌ Error: {str(e)}")
+    async def _handle_proxy(self, event):
+        user_id = event.sender_id
+        if hasattr(self.menu_system, "proxy_handler"):
+            proxies = await proxy_manager.get_user_proxies(user_id)
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            accounts_with_proxy = sum(1 for acc in accounts if acc.get("proxy_id"))
+            text = (
+                f"🌐 **Proxy Management**\n\n"
+                f"📊 **Statistics:**\n"
+                f"• Total Proxies: {len(proxies)}\n"
+                f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n\n"
+                f"**Supported Formats:**\n"
+                f"• Telegram proxy links (t.me/proxy)\n"
+                f"• MTProto proxies\n"
+                f"• SOCKS5 proxies\n"
+                f"• HTTP proxies\n\n"
+                f"Select an option below:"
+            )
+            buttons = [
+                [Button.inline("➕ Add Proxy", "proxy:add")],
+                [Button.inline("📋 View Proxies", "proxy:list")],
+                [Button.inline("🔗 Assign to Account", "proxy:assign")],
+                [Button.inline("👥 View Accounts", "proxy:view_accounts")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+            await event.reply(text, buttons=buttons)
+        else:
+            await event.reply("❌ Proxy management not available")
 
-        # Add account command
-        @self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))
-        async def add_handler(event):
-            user_id = event.sender_id
+    async def _handle_appeal(self, event):
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+            if not accounts:
+                await event.reply("❌ No active accounts found. Add an account first.")
+                return
+            text = "🚨 **Spam Appeal**\n\nSelect an account to appeal spam restriction:"
+            buttons = []
+            for account in accounts[:8]:
+                button_text = f"📱 {account.get('name', 'Unknown')}"
+                buttons.append([Button.inline(button_text, f"appeal:{account['_id']}")])
+            buttons.append([Button.inline("🔙 Back", "menu:main")])
+            await event.reply(text, buttons=buttons)
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
-            try:
-                account_count = await mongodb.db.accounts.count_documents(
-                    {"user_id": user_id}
-                )
-                if account_count >= MAX_ACCOUNTS:
-                    await event.reply(
-                        f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached"
-                    )
-                    return
-
-                self.pending_actions[user_id] = {"action": "add_account"}
-                await event.reply(
-                    "➕ **Add New Account**\n\n"
-                    "Reply with phone number (include country code):\n\n"
-                    "📱 Example: +1234567890\n"
-                    "💡 Tip: Enter OTP as 1-2-3-4-5 (with hyphens)"
-                )
-            except Exception as e:
-                await event.reply(f"❌ Error: {str(e)}")
-
-        # Reconnect handler for reconnecting all user accounts
-        @self.bot.on(events.NewMessage(pattern=r"/reconnect"))
-        async def reconnect_handler(event):
-            user_id = event.sender_id
-            await event.reply("🔄 Reconnecting all your accounts...")
-
-            try:
-                accounts = await mongodb.db.accounts.find(
-                    {"user_id": user_id, "is_active": True}
-                ).to_list(None)
-
-                if not accounts:
-                    await event.reply("❌ No active accounts found to reconnect.")
-                    return
-
-                success = 0
-                failed = []
-
-                for account in accounts:
-                    account_name = account.get("name")
-                    session_string = account.get("session_string")
-
-                    if not session_string:
-                        failed.append(f"{account_name}: No session")
-                        continue
-
-                    try:
-                        await self.bot_manager.start_user_client(
-                            user_id, account_name, session_string
-                        )
-                        success += 1
-                    except Exception as e:
-                        failed.append(f"{account_name}: {str(e)[:50]}")
-                        logger.error(f"Failed to reconnect {account_name}: {e}")
-
-                msg = f"✅ Reconnected {success}/{len(accounts)} accounts."
-                if failed:
-                    msg += f"\n\n❌ Failed:\n" + "\n".join(f"• {f}" for f in failed[:5])
-                await event.reply(msg)
-            except Exception as e:
-                await event.reply(f"❌ Reconnection failed: {str(e)}")
-
-        # Proxy command
-        @self.bot.on(events.NewMessage(pattern=r"/proxy"))
-        async def proxy_handler(event):
-            user_id = event.sender_id
-            if hasattr(self.menu_system, "proxy_handler"):
-                proxies = await proxy_manager.get_user_proxies(user_id)
-                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                    length=None
-                )
-                accounts_with_proxy = sum(1 for acc in accounts if acc.get("proxy_id"))
-
-                text = (
-                    f"🌐 **Proxy Management**\n\n"
-                    f"📊 **Statistics:**\n"
-                    f"• Total Proxies: {len(proxies)}\n"
-                    f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n\n"
-                    f"**Supported Formats:**\n"
-                    f"• Telegram proxy links (t.me/proxy)\n"
-                    f"• MTProto proxies\n"
-                    f"• SOCKS5 proxies\n"
-                    f"• HTTP proxies\n\n"
-                    f"Select an option below:"
-                )
-
-                buttons = [
-                    [Button.inline("➕ Add Proxy", "proxy:add")],
-                    [Button.inline("📋 View Proxies", "proxy:list")],
-                    [Button.inline("🔗 Assign to Account", "proxy:assign")],
-                    [Button.inline("👥 View Accounts", "proxy:view_accounts")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
-                ]
-
-                await event.reply(text, buttons=buttons)
-            else:
-                await event.reply("❌ Proxy management not available")
-
-        # Appeal command
-        @self.bot.on(events.NewMessage(pattern=r"/appeal"))
-        async def appeal_handler(event):
-            user_id = event.sender_id
-            try:
-                accounts = await mongodb.db.accounts.find(
-                    {"user_id": user_id, "is_active": True}
-                ).to_list(None)
-                if not accounts:
-                    await event.reply(
-                        "❌ No active accounts found. Add an account first."
-                    )
-                    return
-
-                text = "🚨 **Spam Appeal**\n\nSelect an account to appeal spam restriction:"
-                buttons = []
-                for account in accounts[:8]:
-                    button_text = f"📱 {account.get('name', 'Unknown')}"
-                    buttons.append(
-                        [Button.inline(button_text, f"appeal:{account['_id']}")]
-                    )
-                buttons.append([Button.inline("🔙 Back", "menu:main")])
-                await event.reply(text, buttons=buttons)
-            except Exception as e:
-                await event.reply(f"❌ Error: {str(e)}")
-
-        # Toggle protection command
-        @self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))
-        async def toggle_protection_handler(event):
-            user_id = event.sender_id
-            try:
-                accounts = await mongodb.db.accounts.find(
-                    {"user_id": user_id, "is_active": True}
-                ).to_list(None)
-                if not accounts:
-                    await event.reply(
-                        "❌ No active accounts found. Add an account first."
-                    )
-                    return
-
-                if len(accounts) == 1:
-                    # Single account - toggle directly
-                    account = accounts[0]
-                    current_status = account.get("otp_destroyer_enabled", False)
-                    new_status = not current_status
-
-                    await mongodb.db.accounts.update_one(
-                        {"_id": account["_id"]},
-                        {"$set": {"otp_destroyer_enabled": new_status}},
-                    )
-
-                    status_text = "✅ Enabled" if new_status else "❌ Disabled"
-                    await event.reply(
-                        f"🛡️ **OTP Destroyer {status_text}**\n\n"
-                        f"Account: {account.get('name', 'Unknown')}\n"
-                        f"Status: {status_text}\n\n"
-                        f"{'Your account is now protected from unauthorized login attempts!' if new_status else 'OTP protection has been disabled.'}"
-                    )
-                else:
-                    # Multiple accounts - show selection
-                    from telethon import Button
-
-                    buttons = []
-                    for account in accounts[:8]:  # Limit to 8 accounts
-                        status = (
-                            "✅"
-                            if account.get("otp_destroyer_enabled", False)
-                            else "❌"
-                        )
-                        button_text = f"{status} {account.get('name', 'Unknown')}"
-                        buttons.append(
-                            [Button.inline(button_text, f"toggle_otp:{account['_id']}")]
-                        )
-
-                    await event.reply(
-                        "🛡️ **Toggle OTP Protection**\n\n"
-                        "Select an account to toggle OTP destroyer protection:\n\n"
-                        "✅ = Protection Enabled\n"
-                        "❌ = Protection Disabled",
-                        buttons=buttons,
-                    )
-            except Exception as e:
-                await event.reply(f"❌ Error: {str(e)}")
-
-        # Handle OTP toggle callback
-        @self.bot.on(events.CallbackQuery(pattern=r"^toggle_otp:(.+)$"))
-        async def toggle_otp_callback(event):
-            user_id = event.sender_id
-            account_id = event.pattern_match.group(1).decode()
-
-            try:
-                from bson import ObjectId
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-
-                if not account:
-                    await event.answer("❌ Account not found")
-                    return
-
+    async def _handle_toggle_protection(self, event):
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+            if not accounts:
+                await event.reply("❌ No active accounts found. Add an account first.")
+                return
+            if len(accounts) == 1:
+                account = accounts[0]
                 current_status = account.get("otp_destroyer_enabled", False)
                 new_status = not current_status
-
                 await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
+                    {"_id": account["_id"]},
                     {"$set": {"otp_destroyer_enabled": new_status}},
                 )
-
                 status_text = "✅ Enabled" if new_status else "❌ Disabled"
-                await event.edit(
+                await event.reply(
                     f"🛡️ **OTP Destroyer {status_text}**\n\n"
                     f"Account: {account.get('name', 'Unknown')}\n"
                     f"Status: {status_text}\n\n"
                     f"{'Your account is now protected from unauthorized login attempts!' if new_status else 'OTP protection has been disabled.'}"
                 )
-
-            except Exception as e:
-                await event.answer(f"❌ Error: {str(e)}")
-
-        @self.bot.on(events.CallbackQuery(pattern=r"^messaging_stats$"))
-        async def show_messaging_stats(event):
-            """Show messaging statistics"""
-            user_id = event.sender_id
-            try:
-                user_clients = self.user_clients.get(user_id, {})
-                active_accounts = len(
-                    [c for c in user_clients.values() if c and c.is_connected()]
+            else:
+                buttons = []
+                for account in accounts[:8]:
+                    status = "✅" if account.get("otp_destroyer_enabled", False) else "❌"
+                    button_text = f"{status} {account.get('name', 'Unknown')}"
+                    buttons.append([Button.inline(button_text, f"toggle_otp:{account['_id']}")])
+                await event.reply(
+                    "🛡️ **Toggle OTP Protection**\n\n"
+                    "Select an account to toggle OTP destroyer protection:\n\n"
+                    "✅ = Protection Enabled\n"
+                    "❌ = Protection Disabled",
+                    buttons=buttons,
                 )
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
-                stats = {
-                    "active_accounts": active_accounts,
-                    "total_messages_sent": 0,
-                    "auto_replies_sent": 0,
-                    "dm_topics_created": 0,
-                }
+    async def _handle_toggle_otp_callback(self, event):
+        user_id = event.sender_id
+        account_id = event.pattern_match.group(1).decode()
+        try:
+            from bson import ObjectId
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            current_status = account.get("otp_destroyer_enabled", False)
+            new_status = not current_status
+            await mongodb.db.accounts.update_one(
+                {"_id": ObjectId(account_id)},
+                {"$set": {"otp_destroyer_enabled": new_status}},
+            )
+            status_text = "✅ Enabled" if new_status else "❌ Disabled"
+            await event.edit(
+                f"🛡️ **OTP Destroyer {status_text}**\n\n"
+                f"Account: {account.get('name', 'Unknown')}\n"
+                f"Status: {status_text}\n\n"
+                f"{'Your account is now protected from unauthorized login attempts!' if new_status else 'OTP protection has been disabled.'}"
+            )
+        except Exception as e:
+            await event.answer(f"❌ Error: {str(e)}")
 
-                if hasattr(self.bot_manager, "auto_reply_handler"):
-                    auto_reply_stats = self.bot_manager.auto_reply_handler.analytics
-                    stats["auto_replies_sent"] = auto_reply_stats.get(
-                        "auto_replies_sent", 0
-                    )
-                    stats["total_messages_sent"] = auto_reply_stats.get(
-                        "total_messages", 0
-                    )
-
-                try:
-                    topic_count = await mongodb.db.topic_mappings.count_documents({})
-                    stats["dm_topics_created"] = topic_count
-                except Exception:
-                    pass
-
-                text = f"📊 **Messaging Statistics**\n\n"
-                text += f"📱 Active Accounts: {stats['active_accounts']}\n"
-                text += f"📨 Messages Sent: {stats['total_messages_sent']}\n"
-                text += f"🤖 Auto-Replies: {stats['auto_replies_sent']}\n"
-                text += f"💬 DM Topics: {stats['dm_topics_created']}\n"
-
-                buttons = [[Button.inline("🔙 Back", "messaging_menu")]]
-                await event.edit(text, buttons=buttons)
-            except Exception as e:
-                await event.edit(f"❌ Error loading statistics: {str(e)}")
-
-        @self.bot.on(events.CallbackQuery(pattern=r"^sim_stats:(.+)$"))
-        async def show_sim_stats(event):
-            """Show SIM statistics"""
-            user_id = event.sender_id
-            account_name = event.pattern_match.group(1).decode()
-
+    async def _handle_messaging_stats(self, event):
+        user_id = event.sender_id
+        try:
+            user_clients = self.user_clients.get(user_id, {})
+            active_accounts = len([c for c in user_clients.values() if c and c.is_connected()])
+            stats = {"active_accounts": active_accounts, "total_messages_sent": 0, "auto_replies_sent": 0, "dm_topics_created": 0}
+            if hasattr(self.bot_manager, "auto_reply_handler"):
+                auto_reply_stats = self.bot_manager.auto_reply_handler.analytics
+                stats["auto_replies_sent"] = auto_reply_stats.get("auto_replies_sent", 0)
+                stats["total_messages_sent"] = auto_reply_stats.get("total_messages", 0)
             try:
-                account = await mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "name": account_name}
-                )
+                topic_count = await mongodb.db.topic_mappings.count_documents({})
+                stats["dm_topics_created"] = topic_count
+            except Exception:
+                pass
+            text = f"📊 **Messaging Statistics**\n\n"
+            text += f"📱 Active Accounts: {stats['active_accounts']}\n"
+            text += f"📨 Messages Sent: {stats['total_messages_sent']}\n"
+            text += f"🤖 Auto-Replies: {stats['auto_replies_sent']}\n"
+            text += f"💬 DM Topics: {stats['dm_topics_created']}\n"
+            buttons = [[Button.inline("🔙 Back", "messaging_menu")]]
+            await event.edit(text, buttons=buttons)
+        except Exception as e:
+            await event.edit(f"❌ Error loading statistics: {str(e)}")
 
-                if not account:
-                    await event.answer("❌ Account not found")
-                    return
+    async def _handle_sim_stats(self, event):
+        user_id = event.sender_id
+        account_name = event.pattern_match.group(1).decode()
+        try:
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            if not account:
+                await event.answer("❌ Account not found")
+                return
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if not client or not client.is_connected():
+                await event.edit("❌ Account not connected")
+                return
+            me = await client.get_me()
+            text = f"📊 **SIM Statistics - {account_name}**\n\n"
+            text += f"📱 **Account Info:**\n"
+            text += f"• Name: {me.first_name} {me.last_name or ''}\n"
+            text += f"• Username: @{me.username or 'None'}\n"
+            text += f"• Phone: {me.phone or 'Hidden'}\n"
+            text += f"• ID: {me.id}\n"
+            text += f"• Premium: {'Yes' if me.premium else 'No'}\n"
+            text += f"• Verified: {'Yes' if me.verified else 'No'}\n\n"
+            try:
+                dialogs = await client.get_dialogs(limit=None)
+                text += f"📈 **Usage Stats:**\n"
+                text += f"• Total Chats: {len(dialogs)}\n"
+                text += f"• Online Status: {'Online' if account.get('online_maker_enabled') else 'Offline'}\n"
+                text += f"• Auto-Reply: {'Enabled' if account.get('auto_reply_enabled') else 'Disabled'}\n"
+                text += f"• OTP Destroyer: {'Enabled' if account.get('otp_destroyer_enabled') else 'Disabled'}\n"
+            except Exception:
+                text += f"📈 **Usage Stats:** Unable to load\n"
+            buttons = [[Button.inline("🔙 Back", f"manage:{account_name}")]]
+            await event.edit(text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"SIM stats error: {e}")
+            await event.edit(f"❌ Error loading SIM stats: {str(e)}")
 
+    async def _handle_export_contacts(self, event):
+        user_id = event.sender_id
+        try:
+            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+            if not accounts:
+                await event.edit("❌ No active accounts found")
+                return
+            all_contacts = []
+            for account in accounts:
+                account_name = account.get("name", "Unknown")
                 client = self.user_clients.get(user_id, {}).get(account_name)
-                if not client or not client.is_connected():
-                    await event.edit("❌ Account not connected")
-                    return
+                if client and client.is_connected():
+                    try:
+                        from telethon.tl.functions.contacts import GetContactsRequest
+                        from telethon.tl.types import User
+                        result = await client(GetContactsRequest(hash=0))
+                        for user in result.users:
+                            if isinstance(user, User) and not user.bot:
+                                all_contacts.append({
+                                    "ID": user.id,
+                                    "First Name": user.first_name or "",
+                                    "Last Name": user.last_name or "",
+                                    "Username": user.username or "",
+                                    "Phone": user.phone or "",
+                                    "Account": account_name,
+                                })
+                    except Exception as e:
+                        logger.error(f"Error getting contacts from {account_name}: {e}")
+            if not all_contacts:
+                await event.edit("❌ No contacts found to export")
+                return
+            import csv, io
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=["ID", "First Name", "Last Name", "Username", "Phone", "Account"])
+            writer.writeheader()
+            writer.writerows(all_contacts)
+            csv_data = output.getvalue().encode("utf-8")
+            await event.edit("📤 **Exporting contacts...**")
+            await self.bot.send_file(
+                user_id,
+                csv_data,
+                file_name=f"contacts_export_{user_id}.csv",
+                caption=f"📤 **Contacts Export**\n\n📊 Total: {len(all_contacts)} contacts",
+            )
+        except Exception as e:
+            await event.edit(f"❌ Export failed: {str(e)}")
 
-                me = await client.get_me()
-
-                text = f"📊 **SIM Statistics - {account_name}**\n\n"
-                text += f"📱 **Account Info:**\n"
-                text += f"• Name: {me.first_name} {me.last_name or ''}\n"
-                text += f"• Username: @{me.username or 'None'}\n"
-                text += f"• Phone: {me.phone or 'Hidden'}\n"
-                text += f"• ID: {me.id}\n"
-                text += f"• Premium: {'Yes' if me.premium else 'No'}\n"
-                text += f"• Verified: {'Yes' if me.verified else 'No'}\n\n"
-
-                try:
-                    dialogs = await client.get_dialogs(limit=None)
-                    text += f"📈 **Usage Stats:**\n"
-                    text += f"• Total Chats: {len(dialogs)}\n"
-                    text += f"• Online Status: {
-                        'Online' if account.get('online_maker_enabled') else 'Offline'}\n"
-                    text += f"• Auto-Reply: {
-                        'Enabled' if account.get('auto_reply_enabled') else 'Disabled'}\n"
-                    text += f"• OTP Destroyer: {
-                        'Enabled' if account.get('otp_destroyer_enabled') else 'Disabled'}\n"
-                except Exception:
-                    text += f"📈 **Usage Stats:** Unable to load\n"
-
-                buttons = [[Button.inline("🔙 Back", f"manage:{account_name}")]]
-                await event.edit(text, buttons=buttons)
-
-            except Exception as e:
-                logger.error(f"SIM stats error: {e}")
-                await event.edit(f"❌ Error loading SIM stats: {str(e)}")
-
-        @self.bot.on(events.CallbackQuery(pattern=r"^export_contacts$"))
-        async def export_contacts(event):
-            """Export contacts to CSV"""
-            user_id = event.sender_id
-            try:
-                accounts = await mongodb.db.accounts.find(
-                    {"user_id": user_id, "is_active": True}
-                ).to_list(None)
-                if not accounts:
-                    await event.edit("❌ No active accounts found")
-                    return
-
-                all_contacts = []
-                for account in accounts:
-                    account_name = account.get("name", "Unknown")
-                    client = self.user_clients.get(user_id, {}).get(account_name)
-
-                    if client and client.is_connected():
-                        try:
-                            from telethon.tl.functions.contacts import (
-                                GetContactsRequest,
-                            )
-                            from telethon.tl.types import User
-
-                            result = await client(GetContactsRequest(hash=0))
-                            for user in result.users:
-                                if isinstance(user, User) and not user.bot:
-                                    all_contacts.append(
-                                        {
-                                            "ID": user.id,
-                                            "First Name": user.first_name or "",
-                                            "Last Name": user.last_name or "",
-                                            "Username": user.username or "",
-                                            "Phone": user.phone or "",
-                                            "Account": account_name,
-                                        }
-                                    )
-                        except Exception as e:
-                            logger.error(
-                                f"Error getting contacts from {account_name}: {e}"
-                            )
-
-                if not all_contacts:
-                    await event.edit("❌ No contacts found to export")
-                    return
-
-                import csv
-                import io
-
-                output = io.StringIO()
-                writer = csv.DictWriter(
-                    output,
-                    fieldnames=[
-                        "ID",
-                        "First Name",
-                        "Last Name",
-                        "Username",
-                        "Phone",
-                        "Account",
-                    ],
-                )
-                writer.writeheader()
-                writer.writerows(all_contacts)
-
-                csv_data = output.getvalue().encode("utf-8")
-
-                await event.edit("📤 **Exporting contacts...**")
-                await self.bot.send_file(
-                    user_id,
-                    csv_data,
-                    file_name=f"contacts_export_{user_id}.csv",
-                    caption=f"📤 **Contacts Export**\n\n📊 Total: {
-                        len(all_contacts)} contacts",
-                )
-
-            except Exception as e:
-                await event.edit(f"❌ Export failed: {str(e)}")
+    def _register_command_handlers(self):
 
     async def _send_account_selection(self, user_id: int):
         """Send account selection menu for channel management"""
