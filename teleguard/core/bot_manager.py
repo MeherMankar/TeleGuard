@@ -475,7 +475,7 @@ class BotManager:
                     pass  # Ignore disconnect errors
                 raise
             
-            # Store client
+            # Store client ONCE to avoid duplicate session references
             if user_id not in self.user_clients:
                 self.user_clients[user_id] = {}
             self.user_clients[user_id][account_name] = client
@@ -488,18 +488,12 @@ class BotManager:
             if hasattr(self, 'session_monitor') and self.session_monitor:
                 self.session_monitor.add_client_to_monitor(user_id, account_name, client)
             
-            # Add additional references for phone and display name
+            # Mark account as active if connection successful
             account = await asyncio.wait_for(
                 mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name}),
                 timeout=2.0
             )
             if account:
-                if account.get('phone'):
-                    self.user_clients[user_id][account['phone']] = client
-                if account.get('display_name') and account['display_name'] != account_name:
-                    self.user_clients[user_id][account['display_name']] = client
-                    
-                # Mark account as active if connection successful
                 await mongodb.db.accounts.update_one(
                     {"user_id": user_id, "name": account_name},
                     {"$unset": {"needs_reauth": ""}, "$set": {"is_active": True}}
@@ -831,10 +825,14 @@ class BotManager:
                 except Exception as auto_reply_error:
                     logger.error(f"Failed to setup auto-reply handler for {account_name}: {auto_reply_error}")
             
-            # Keep account active for 10 minutes to establish connection
-            if client:
-                asyncio.create_task(self._keep_account_active(user_id, account_name, client))
-                logger.info(f"Started 10-minute activity period for {account_name}")
+            # Use Activity Simulator for human-like behavior instead of constant pings
+            if client and self.activity_simulator:
+                try:
+                    # Add account to activity simulator for natural behavior
+                    await self.activity_simulator.add_account(user_id, account_name, client)
+                    logger.info(f"Added {account_name} to activity simulator")
+                except Exception as sim_error:
+                    logger.warning(f"Failed to add to activity simulator: {sim_error}")
             logger.info(LogFormatter.format_user_action(
                 user_id, "account_added", {"account_name": account_name}
             ))
