@@ -28,7 +28,6 @@ class MessageHandlers:
 
     def register_handlers(self):
         """Register message handlers"""
-
         @self.bot.on(events.NewMessage(func=lambda e: e.photo))
         async def photo_handler(event):
             await self._handle_photo_upload(event)
@@ -37,76 +36,13 @@ class MessageHandlers:
         async def document_handler(event):
             await self._handle_document_upload(event)
 
-        # OTP auto-fetch handler for session creation
         @self.bot.on(events.NewMessage(chats=[777000, 42777]))
         async def otp_fetch_handler(event):
-            try:
-                message = event.raw_text.strip()
-
-                # Extract OTP code with multiple patterns
-                otp_code = None
-
-                # Pattern 1: "Login code: 12345" or "Login code: /12345"
-                otp_match = re.search(r"Login code: /?(\d{5,7})", message)
-                if otp_match:
-                    otp_code = otp_match.group(1)
-
-                # Pattern 2: Any 5-7 digit number (with optional / prefix)
-                if not otp_code:
-                    otp_match = re.search(r"/?\b(\d{5,7})\b", message)
-                    if otp_match:
-                        otp_code = otp_match.group(1)
-
-                if otp_code:
-                    logger.info(f"Detected OTP code: {otp_code} from Telegram")
-
-                    # Check all pending fresh sessions
-                    if hasattr(self.bot_manager, "pending_fresh_sessions"):
-                        for user_id, session_data in list(
-                            self.bot_manager.pending_fresh_sessions.items()
-                        ):
-                            try:
-                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                                    user_id, otp_code
-                                )
-                                if success:
-                                    self.pending_actions.pop(user_id, None)
-                                    await self.bot.send_message(
-                                        user_id,
-                                        f"✅ OTP {otp_code} auto-detected and processed!",
-                                    )
-                                    break
-                            except Exception as e:
-                                logger.debug(
-                                    f"Failed to process OTP for user {user_id}: {e}"
-                                )
-                                continue
-            except Exception as e:
-                logger.error(f"OTP fetch error: {e}")
+            await self._handle_otp_fetch(event)
 
         @self.bot.on(events.NewMessage(incoming=True))
         async def reply_handler(event):
-            try:
-                await self._handle_user_reply(event)
-            except Exception as e:
-                logger.error(f"Unhandled exception in reply_handler: {e}")
-                try:
-                    from ..utils.logger import BotLogger
-
-                    await BotLogger.log_error(
-                        "Message Handler Error",
-                        str(e),
-                        user_id=event.sender_id,
-                        context="reply_handler",
-                    )
-                except BaseException:
-                    pass
-                try:
-                    await event.reply(
-                        "❌ An error occurred. Please try again or contact support."
-                    )
-                except Exception:
-                    pass
+            await self._handle_reply_with_error_handling(event)
 
     async def fetch_recent_otp(self, user_id):
         """Fetch recent OTP messages from Telegram official account"""
@@ -114,83 +50,10 @@ class MessageHandlers:
             if user_id not in self.bot_manager.pending_fresh_sessions:
                 return False
 
-            # Check both recent messages and unread messages from Telegram official
-            # accounts
-            telegram_accounts = [777000, 42777]  # Telegram official accounts
-
+            telegram_accounts = [777000, 42777]
             for account_id in telegram_accounts:
-                try:
-                    # Check recent messages (last 10 minutes)
-                    from datetime import datetime, timedelta
-
-                    async for message in self.bot.iter_messages(
-                        account_id,
-                        limit=20,
-                        offset_date=datetime.now() - timedelta(minutes=10),
-                    ):
-                        if message.text:
-                            # Look for OTP patterns (with optional / prefix)
-                            otp_match = re.search(
-                                r"Login code: /?(\d{5,7})", message.text
-                            )
-                            if not otp_match:
-                                otp_match = re.search(r"/?\b(\d{5,7})\b", message.text)
-
-                            if otp_match:
-                                otp_code = otp_match.group(1)
-                                logger.info(
-                                    f"Found recent OTP {otp_code} from {account_id}"
-                                )
-
-                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                                    user_id, otp_code
-                                )
-                                if success:
-                                    return True
-
-                    # Also check unread messages specifically
-                    try:
-                        dialogs = await self.bot.get_dialogs(limit=None)
-                        for dialog in dialogs:
-                            if (
-                                dialog.entity.id == account_id
-                                and dialog.unread_count > 0
-                            ):
-                                # Get unread messages
-                                async for message in self.bot.iter_messages(
-                                    account_id, limit=dialog.unread_count
-                                ):
-                                    if message.text:
-                                        otp_match = re.search(
-                                            r"Login code: /?(\d{5,7})", message.text
-                                        )
-                                        if not otp_match:
-                                            otp_match = re.search(
-                                                r"/?\b(\d{5,7})\b", message.text
-                                            )
-
-                                        if otp_match:
-                                            otp_code = otp_match.group(1)
-                                            logger.info(
-                                                f"Found unread OTP {otp_code} from {account_id}"
-                                            )
-
-                                            success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                                                user_id, otp_code
-                                            )
-                                            if success:
-                                                return True
-                                break
-                    except Exception as unread_err:
-                        logger.debug(
-                            f"Could not check unread messages from {account_id}: {unread_err}"
-                        )
-
-                except Exception as account_err:
-                    logger.debug(
-                        f"Could not check messages from {account_id}: {account_err}"
-                    )
-
+                if await self._check_account_for_otp(user_id, account_id):
+                    return True
             return False
         except Exception as e:
             logger.error(f"Error fetching recent OTP: {e}")
@@ -1909,3 +1772,102 @@ class MessageHandlers:
                 await event.reply("❌ Session import not available")
         else:
             await event.reply("❌ Invalid file path")
+
+    async def _handle_otp_fetch(self, event):
+        """Handle OTP auto-fetch from Telegram official accounts"""
+        try:
+            message = event.raw_text.strip()
+            otp_code = self._extract_otp_code(message)
+            
+            if otp_code:
+                logger.info(f"Detected OTP code: {otp_code} from Telegram")
+                await self._process_pending_fresh_sessions(otp_code)
+        except Exception as e:
+            logger.error(f"OTP fetch error: {e}")
+
+    def _extract_otp_code(self, message):
+        """Extract OTP code from message"""
+        otp_match = re.search(r"Login code: /?(\d{5,7})", message)
+        if otp_match:
+            return otp_match.group(1)
+        otp_match = re.search(r"/?\b(\d{5,7})\b", message)
+        return otp_match.group(1) if otp_match else None
+
+    async def _process_pending_fresh_sessions(self, otp_code):
+        """Process OTP for all pending fresh sessions"""
+        if not hasattr(self.bot_manager, "pending_fresh_sessions"):
+            return
+        
+        for user_id, session_data in list(self.bot_manager.pending_fresh_sessions.items()):
+            try:
+                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                if success:
+                    self.pending_actions.pop(user_id, None)
+                    await self.bot.send_message(user_id, f"✅ OTP {otp_code} auto-detected and processed!")
+                    break
+            except Exception as e:
+                logger.debug(f"Failed to process OTP for user {user_id}: {e}")
+
+    async def _handle_reply_with_error_handling(self, event):
+        """Handle user reply with error handling"""
+        try:
+            await self._handle_user_reply(event)
+        except Exception as e:
+            logger.error(f"Unhandled exception in reply_handler: {e}")
+            await self._log_and_notify_error(event, e)
+
+    async def _log_and_notify_error(self, event, error):
+        """Log error and notify user"""
+        try:
+            from ..utils.logger import BotLogger
+            await BotLogger.log_error("Message Handler Error", str(error), user_id=event.sender_id, context="reply_handler")
+        except BaseException:
+            pass
+        try:
+            await event.reply("❌ An error occurred. Please try again or contact support.")
+        except Exception:
+            pass
+
+    async def _check_account_for_otp(self, user_id, account_id):
+        """Check specific account for OTP messages"""
+        try:
+            if await self._check_recent_messages(user_id, account_id):
+                return True
+            if await self._check_unread_messages(user_id, account_id):
+                return True
+            return False
+        except Exception as account_err:
+            logger.debug(f"Could not check messages from {account_id}: {account_err}")
+            return False
+
+    async def _check_recent_messages(self, user_id, account_id):
+        """Check recent messages for OTP"""
+        from datetime import datetime, timedelta
+        async for message in self.bot.iter_messages(account_id, limit=20, offset_date=datetime.now() - timedelta(minutes=10)):
+            if message.text:
+                otp_code = self._extract_otp_code(message.text)
+                if otp_code:
+                    logger.info(f"Found recent OTP {otp_code} from {account_id}")
+                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                    if success:
+                        return True
+        return False
+
+    async def _check_unread_messages(self, user_id, account_id):
+        """Check unread messages for OTP"""
+        try:
+            dialogs = await self.bot.get_dialogs(limit=None)
+            for dialog in dialogs:
+                if dialog.entity.id == account_id and dialog.unread_count > 0:
+                    async for message in self.bot.iter_messages(account_id, limit=dialog.unread_count):
+                        if message.text:
+                            otp_code = self._extract_otp_code(message.text)
+                            if otp_code:
+                                logger.info(f"Found unread OTP {otp_code} from {account_id}")
+                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
+                                if success:
+                                    return True
+                    break
+        except Exception as unread_err:
+            logger.debug(f"Could not check unread messages from {account_id}: {unread_err}")
+        return False
