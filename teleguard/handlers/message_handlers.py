@@ -256,158 +256,14 @@ class MessageHandlers:
         user_id = event.sender_id
         if user_id not in self.pending_actions:
             return
+        
         action = self.pending_actions[user_id].get("action")
         if action == "session_file_login":
-            try:
-                if event.document and event.document.attributes:
-                    filename = None
-                    for attr in event.document.attributes:
-                        if hasattr(attr, "file_name"):
-                            filename = attr.file_name
-                            break
-                    if filename and filename.endswith(".session"):
-                        import os
-                        import tempfile
-
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".session"
-                        ) as tmp:
-                            file_path = tmp.name
-                        file_path = await event.download_media(file=file_path)
-                        if file_path and os.path.exists(file_path):
-                            if hasattr(self.bot_manager, "session_login_handler"):
-                                success, msg = (
-                                    await self.bot_manager.session_login_handler.process_session_file(
-                                        user_id, file_path
-                                    )
-                                )
-                                await event.reply(msg)
-                            else:
-                                await event.reply("❌ Session login not available")
-                        else:
-                            await event.reply("❌ Invalid file path")
-                    else:
-                        await event.reply("❌ Please send a .session file")
-                else:
-                    await event.reply("❌ Invalid document format")
-            except (OSError, IOError, ValueError) as e:
-                logger.error(f"Session file import error: {e}")
-                await event.reply(f"❌ Error processing session file: {str(e)}")
-            except (OSError, IOError, ValueError) as e:
-                logger.error(f"Unexpected session file error: {e}")
-                await event.reply("❌ Error processing session file")
-            self.pending_actions.pop(user_id, None)
-
+            await self._process_session_file_login(event, user_id)
         elif action == "import_session_file":
-            try:
-                if event.document and event.document.attributes:
-                    filename = None
-                    for attr in event.document.attributes:
-                        if hasattr(attr, "file_name"):
-                            filename = attr.file_name
-                            break
-
-                    if filename and (
-                        filename.endswith(".session") or filename.endswith(".zip")
-                    ):
-                        import os
-                        import tempfile
-
-                        if filename.endswith(".zip"):
-                            # Handle ZIP file import
-                            with tempfile.NamedTemporaryFile(
-                                delete=False, suffix=".zip"
-                            ) as tmp:
-                                zip_path = tmp.name
-
-                            await event.reply("⏳ Downloading ZIP file...")
-                            zip_path = await event.download_media(file=zip_path)
-
-                            if zip_path and os.path.exists(zip_path):
-                                if hasattr(self.bot_manager, "session_import_handler"):
-                                    await event.reply("📦 Processing sessions...")
-                                    success, msg = (
-                                        await self.bot_manager.session_import_handler.process_zip_sessions(
-                                            user_id, zip_path
-                                        )
-                                    )
-                                    await event.reply(msg)
-                                else:
-                                    await event.reply("❌ Session import not available")
-                            else:
-                                await event.reply("❌ Invalid file path")
-                        else:
-                            # Handle single session file import
-                            with tempfile.NamedTemporaryFile(
-                                delete=False, suffix=".session"
-                            ) as tmp:
-                                file_path = tmp.name
-
-                            file_path = await event.download_media(file=file_path)
-
-                            if file_path and os.path.exists(file_path):
-                                if hasattr(self.bot_manager, "session_import_handler"):
-                                    success, msg = (
-                                        await self.bot_manager.session_import_handler.process_session_file(
-                                            user_id, file_path
-                                        )
-                                    )
-                                    await event.reply(msg)
-                                else:
-                                    await event.reply("❌ Session import not available")
-                            else:
-                                await event.reply("❌ Invalid file path")
-                    else:
-                        await event.reply("❌ Please send a .session or .zip file")
-                else:
-                    await event.reply("❌ Invalid document format")
-            except Exception as e:
-                logger.error(f"Session file/ZIP import error: {e}")
-                await event.reply(f"❌ Error processing file: {str(e)}")
-            self.pending_actions.pop(user_id, None)
-
+            await self._process_import_session_file(event, user_id)
         elif action == "import_zip_sessions":
-            try:
-                if event.document and event.document.attributes:
-                    filename = None
-                    for attr in event.document.attributes:
-                        if hasattr(attr, "file_name"):
-                            filename = attr.file_name
-                            break
-
-                    if filename and filename.endswith(".zip"):
-                        import os
-                        import tempfile
-
-                        with tempfile.NamedTemporaryFile(
-                            delete=False, suffix=".zip"
-                        ) as tmp:
-                            zip_path = tmp.name
-
-                        await event.reply("⏳ Downloading ZIP file...")
-                        zip_path = await event.download_media(file=zip_path)
-
-                        if zip_path and os.path.exists(zip_path):
-                            if hasattr(self.bot_manager, "session_import_handler"):
-                                await event.reply("📦 Processing sessions...")
-                                success, msg = (
-                                    await self.bot_manager.session_import_handler.process_zip_sessions(
-                                        user_id, zip_path
-                                    )
-                                )
-                                await event.reply(msg)
-                            else:
-                                await event.reply("❌ Session import not available")
-                        else:
-                            await event.reply("❌ Invalid file path")
-                    else:
-                        await event.reply("❌ Please send a .zip file")
-                else:
-                    await event.reply("❌ Invalid document format")
-            except Exception as e:
-                logger.error(f"ZIP import error: {e}")
-                await event.reply(f"❌ Error processing ZIP file: {str(e)}")
-            self.pending_actions.pop(user_id, None)
+            await self._process_import_zip(event, user_id)
 
     async def _handle_user_reply(self, event):
         """Handle user text replies for pending actions"""
@@ -1853,12 +1709,23 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
             return
 
-        if action in ["add_account", "verify_otp", "verify_2fa", "2fa_password"]:
+        action_map = {
+            "auth": ["add_account", "verify_otp", "verify_2fa", "2fa_password"],
+            "2fa_mgmt": ["change_2fa", "remove_2fa", "set_2fa", "change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"],
+            "session": ["session_string_login", "import_string_session", "session_phone_login", "validate_session_string", "session_creation_2fa_password"],
+            "cleanup": ["cleanup_selection", "bulk_cleanup_selection"],
+        }
+
+        if action in action_map["auth"]:
             await self._handle_auth_actions(event, user, action, message)
+        elif action in action_map["2fa_mgmt"]:
+            await self._route_2fa_management(event, user, action, message, user_id)
+        elif action in action_map["session"]:
+            await self._route_session_actions(event, user, action, message)
+        elif action in action_map["cleanup"]:
+            await self._route_cleanup_actions(event, user, action, message)
         elif action.startswith("2fa_") and action != "verify_2fa":
             await self._handle_2fa_actions(event, user, action, message)
-        elif action in ["change_2fa", "remove_2fa", "set_2fa", "change_2fa_current", "remove_2fa_password", "set_2fa_password", "change_2fa_new"]:
-            await self._route_2fa_management(event, user, action, message, user_id)
         elif action == "update_2fa_password":
             await self._handle_2fa_update(event, user_id, message)
         elif action.startswith("profile_"):
@@ -1873,18 +1740,6 @@ class MessageHandlers:
             await self._handle_channel_actions(event, user, action, message)
         elif action == "set_dm_group_id":
             await self._handle_dm_group_actions(event, user, action, message)
-        elif action in ["session_string_login", "import_string_session"]:
-            await self._handle_session_string_import(event, user, action, message)
-        elif action == "session_phone_login":
-            await self._handle_session_phone_login(event, user, action, message)
-        elif action == "validate_session_string":
-            await self._handle_session_validation(event, user, action, message)
-        elif action == "cleanup_selection":
-            await self._handle_cleanup_selection(event, user, action, message)
-        elif action == "bulk_cleanup_selection":
-            await self._handle_bulk_cleanup_selection(event, user, action, message)
-        elif action == "session_creation_2fa_password":
-            await self._handle_session_creation_2fa(event, user, action, message)
         elif action == "add_proxy":
             await self._handle_add_proxy(event, user, action, message)
         else:
@@ -1928,3 +1783,129 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
         else:
             await self._handle_misc_actions(event, user, action, message)
+
+    async def _route_session_actions(self, event, user, action, message):
+        """Route session-related actions"""
+        if action in ["session_string_login", "import_string_session"]:
+            await self._handle_session_string_import(event, user, action, message)
+        elif action == "session_phone_login":
+            await self._handle_session_phone_login(event, user, action, message)
+        elif action == "validate_session_string":
+            await self._handle_session_validation(event, user, action, message)
+        elif action == "session_creation_2fa_password":
+            await self._handle_session_creation_2fa(event, user, action, message)
+
+    async def _route_cleanup_actions(self, event, user, action, message):
+        """Route cleanup-related actions"""
+        if action == "cleanup_selection":
+            await self._handle_cleanup_selection(event, user, action, message)
+        elif action == "bulk_cleanup_selection":
+            await self._handle_bulk_cleanup_selection(event, user, action, message)
+
+    async def _process_session_file_login(self, event, user_id):
+        """Process session file login"""
+        try:
+            filename = self._extract_filename(event)
+            if not filename or not filename.endswith(".session"):
+                await event.reply("❌ Please send a .session file")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            file_path = await self._download_session_file(event)
+            if not file_path:
+                await event.reply("❌ Invalid file path")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            if hasattr(self.bot_manager, "session_login_handler"):
+                success, msg = await self.bot_manager.session_login_handler.process_session_file(user_id, file_path)
+                await event.reply(msg)
+            else:
+                await event.reply("❌ Session login not available")
+        except Exception as e:
+            logger.error(f"Session file import error: {e}")
+            await event.reply(f"❌ Error processing session file: {str(e)}")
+        self.pending_actions.pop(user_id, None)
+
+    async def _process_import_session_file(self, event, user_id):
+        """Process import session file or ZIP"""
+        try:
+            filename = self._extract_filename(event)
+            if not filename or not (filename.endswith(".session") or filename.endswith(".zip")):
+                await event.reply("❌ Please send a .session or .zip file")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            if filename.endswith(".zip"):
+                await self._process_zip_import(event, user_id, filename)
+            else:
+                await self._process_single_session_import(event, user_id)
+        except Exception as e:
+            logger.error(f"Session file/ZIP import error: {e}")
+            await event.reply(f"❌ Error processing file: {str(e)}")
+        self.pending_actions.pop(user_id, None)
+
+    async def _process_import_zip(self, event, user_id):
+        """Process ZIP import"""
+        try:
+            filename = self._extract_filename(event)
+            if not filename or not filename.endswith(".zip"):
+                await event.reply("❌ Please send a .zip file")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            await self._process_zip_import(event, user_id, filename)
+        except Exception as e:
+            logger.error(f"ZIP import error: {e}")
+            await event.reply(f"❌ Error processing ZIP file: {str(e)}")
+        self.pending_actions.pop(user_id, None)
+
+    def _extract_filename(self, event):
+        """Extract filename from document"""
+        if not event.document or not event.document.attributes:
+            return None
+        for attr in event.document.attributes:
+            if hasattr(attr, "file_name"):
+                return attr.file_name
+        return None
+
+    async def _download_session_file(self, event):
+        """Download session file"""
+        import os
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".session") as tmp:
+            file_path = tmp.name
+        file_path = await event.download_media(file=file_path)
+        return file_path if file_path and os.path.exists(file_path) else None
+
+    async def _process_zip_import(self, event, user_id, filename):
+        """Process ZIP file import"""
+        import os
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            zip_path = tmp.name
+
+        await event.reply("⏳ Downloading ZIP file...")
+        zip_path = await event.download_media(file=zip_path)
+
+        if zip_path and os.path.exists(zip_path):
+            if hasattr(self.bot_manager, "session_import_handler"):
+                await event.reply("📦 Processing sessions...")
+                success, msg = await self.bot_manager.session_import_handler.process_zip_sessions(user_id, zip_path)
+                await event.reply(msg)
+            else:
+                await event.reply("❌ Session import not available")
+        else:
+            await event.reply("❌ Invalid file path")
+
+    async def _process_single_session_import(self, event, user_id):
+        """Process single session file import"""
+        file_path = await self._download_session_file(event)
+        if file_path:
+            if hasattr(self.bot_manager, "session_import_handler"):
+                success, msg = await self.bot_manager.session_import_handler.process_session_file(user_id, file_path)
+                await event.reply(msg)
+            else:
+                await event.reply("❌ Session import not available")
+        else:
+            await event.reply("❌ Invalid file path")
