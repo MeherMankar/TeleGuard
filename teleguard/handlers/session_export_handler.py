@@ -1026,7 +1026,6 @@ class SessionExportHandler:
             pass
 
     async def process_fresh_session_otp(self, user_id, otp_code):
-    async def process_fresh_session_otp(self, user_id, otp_code):
         """Process OTP for fresh session creation"""
         try:
             session_data = await self._validate_session_data(user_id)
