@@ -1683,11 +1683,7 @@ class SessionLoginHandler:
                             }}
                         )
                         
-                        # Update client storage if name changed
-                        if display_name != account_name and user_id in self.user_clients:
-                            client = self.user_clients[user_id].pop(account_name, None)
-                            if client:
-                                self.user_clients[user_id][display_name] = client
+                        # Client storage is managed by bot_manager - no need to update here
                         
                         logger.info(f"Updated fast import account: {display_name} ({real_phone})")
                         
@@ -1723,11 +1719,7 @@ class SessionLoginHandler:
                         }}
                     )
                     
-                    # Update client storage if name changed
-                    if display_name != account_name and user_id in self.user_clients:
-                        client = self.user_clients[user_id].pop(account_name, None)
-                        if client:
-                            self.user_clients[user_id][display_name] = client
+                    # Client storage is managed by bot_manager - no need to update here
                     
                     logger.info(f"Updated account name for {phone}: {display_name}")
         except Exception as e:
