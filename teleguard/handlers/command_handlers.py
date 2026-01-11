@@ -374,9 +374,9 @@ class CommandHandlers:
         except Exception as e:
             await event.edit(f"❌ Export failed: {str(e)}")
 
-    def _register_command_handlers(self):
-
     async def _send_account_selection(self, user_id: int):
+
+
         """Send account selection menu for channel management"""
         try:
             accounts = await mongodb.db.accounts.find(
