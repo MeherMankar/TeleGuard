@@ -1558,7 +1558,6 @@ class MenuSystem:
                         functions.photos.UploadProfilePhotoRequest(file=uploaded_file)
                     )
                     import os
-                    import os
                     if photo_path and os.path.exists(photo_path) and os.path.isfile(photo_path):
                         os.remove(photo_path)
                     await photo_event.reply("Profile photo updated successfully")
