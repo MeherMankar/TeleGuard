@@ -117,6 +117,5 @@ def start_scheduler(bot_client=None):
 
 def stop_scheduler():
     """Stop the global backup scheduler"""
-    global backup_scheduler
     if backup_scheduler:
         backup_scheduler.stop_scheduler()
