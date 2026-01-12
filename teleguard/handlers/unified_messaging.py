@@ -18,11 +18,9 @@ class UnifiedMessagingSystem:
         self.bot = bot_manager.bot
         self.user_clients = bot_manager.user_clients
         self.handled_clients = set()
-        self.registered_client_objects = set()  # Track actual client objects
+        self.registered_client_objects = set()
         self.auto_reply_handlers = {}
-        self.processed_messages = (
-            set()
-        )  # Track processed messages to prevent duplicates
+        self.processed_messages = set()
 
     def setup_handlers(self):
         """Set up all messaging handlers"""
@@ -49,7 +47,6 @@ class UnifiedMessagingSystem:
                     self.handled_clients.add(client_key)
                     self.registered_client_objects.add(client_obj_id)
                     return
-        # Mark as handled before registering to prevent race conditions
         self.handled_clients.add(client_key)
         self.registered_client_objects.add(id(client))
         if hasattr(self.bot_manager, "registered_handlers"):
@@ -65,27 +62,21 @@ class UnifiedMessagingSystem:
                     logger.debug(f"Message {message_id} already processed, skipping")
                     return
                 self.processed_messages.add(message_id)
-                # Keep only last 1000 processed messages to prevent memory leak
                 if len(self.processed_messages) > 1000:
                     self.processed_messages = set(list(self.processed_messages)[-500:])
                 sender = await event.get_sender()
                 me = await client.get_me()
                 is_bot = getattr(sender, "bot", False)
-                is_telegram_official = sender.id in [
-                    777000,
-                    42777,
-                ]  # Telegram and Telegram Notifications
+                is_telegram_official = sender.id in [777000, 42777]
 
-                # Send Telegram official messages via bot, ignore other bots
                 if is_telegram_official:
                     await self._send_bot_message_directly(user_id, sender, me, event)
                     return
                 elif is_bot:
-                    return  # Ignore other bot messages
+                    return
 
                 admin_group_id = await self._get_user_admin_group(user_id)
                 if admin_group_id:
-                    # Auto-create topic and forward message
                     await self._handle_incoming_dm(
                         admin_group_id, event, sender, me, user_id
                     )
@@ -108,14 +99,11 @@ class UnifiedMessagingSystem:
                 )
                 if not user:
                     return
-                # Skip if not from the admin user
                 if event.sender_id != user["telegram_id"]:
                     return
                 if not event.message.reply_to:
                     return
                 replied_msg_id = event.message.reply_to.reply_to_msg_id
-                # Try to find mapping by topic ID (the message being replied to could be
-                # the topic starter)
                 mapping = await mongodb.db.topic_mappings.find_one(
                     {"admin_group_id": event.chat_id, "topic_id": replied_msg_id}
                 )
@@ -135,12 +123,10 @@ class UnifiedMessagingSystem:
     ):
         """Handle incoming DM with automatic topic creation"""
         try:
-            # Find or create topic for this conversation
             topic_id = await self._find_or_create_topic(
                 admin_group_id, sender.id, me.id, sender, user_id
             )
             if topic_id:
-                # Forward message to topic
                 await self._forward_to_topic(
                     admin_group_id, topic_id, event, sender, me
                 )
@@ -155,12 +141,11 @@ class UnifiedMessagingSystem:
             )
             if not account or not account.get("auto_reply_enabled", False):
                 return
-            # Don't reply to bots, self, or Telegram official
             sender = await event.get_sender()
             if getattr(sender, "bot", False):
                 logger.debug(f"Skipping auto-reply to bot: {sender.id}")
                 return
-            if sender.id in [777000, 42777]:  # Telegram official
+            if sender.id in [777000, 42777]:
                 logger.debug(f"Skipping auto-reply to Telegram official: {sender.id}")
                 return
             settings = (
@@ -175,7 +160,6 @@ class UnifiedMessagingSystem:
                     if keyword.lower() in message_text:
                         response = reply_msg
                         break
-            # If no keyword match, check time-based replies
             if not response and settings.get("time_based_replies_enabled", False):
                 from datetime import datetime, time
 
@@ -199,7 +183,6 @@ class UnifiedMessagingSystem:
                         "unavailable_message",
                         "I'm not available right now. I'll get back to you later.",
                     )
-            # Send auto-reply if we have a response
             if response:
                 await event.reply(response)
         except Exception as e:
@@ -234,7 +217,6 @@ class UnifiedMessagingSystem:
             ):
                 logger.error("Invalid input types for topic mapping")
                 return None
-            # First check database for existing mapping
             mapping = await mongodb.db.topic_mappings.find_one(
                 {
                     "admin_group_id": admin_group_id,
@@ -252,7 +234,6 @@ class UnifiedMessagingSystem:
 
     def _get_topic_title(self, sender, account_info=None) -> str:
         """Generate topic title from sender and account info"""
-        # Get sender name
         if hasattr(sender, "first_name") and sender.first_name:
             sender_name = sender.first_name
             if hasattr(sender, "last_name") and sender.last_name:
@@ -262,7 +243,6 @@ class UnifiedMessagingSystem:
         else:
             sender_name = f"User {sender.id}"
 
-        # Get account name
         if account_info:
             if hasattr(account_info, "username") and account_info.username:
                 account_name = f"@{account_info.username}"
@@ -274,7 +254,7 @@ class UnifiedMessagingSystem:
             account_name = "Account"
 
         title = f"{sender_name} → {account_name}"
-        return title[:100]  # Telegram limit
+        return title[:100]
 
     async def _store_topic_mapping(
         self, admin_group_id: int, topic_id: int, sender_id: int, account_id: int
@@ -290,7 +270,6 @@ class UnifiedMessagingSystem:
                 "account_id": account_id,
                 "created_at": int(time.time()),
             }
-            # Use upsert to prevent duplicates
             await mongodb.db.topic_mappings.update_one(
                 {
                     "admin_group_id": admin_group_id,
@@ -376,7 +355,6 @@ class UnifiedMessagingSystem:
         try:
             target_user_id = mapping["user_id"]
             managed_account_id = mapping["account_id"]
-            # Find the managed client
             managed_client = await self._get_client_by_id(managed_account_id)
             if managed_client:
                 await managed_client.send_message(target_user_id, message_text)
@@ -443,7 +421,6 @@ class UnifiedMessagingSystem:
             logger.error(f"Failed to get admin group: {e}")
             return None
 
-    # Messaging functionality
     async def send_message(
         self, user_id: int, account_name: str, target: str, message: str
     ) -> bool:
@@ -462,7 +439,6 @@ class UnifiedMessagingSystem:
             error_msg = str(e)
             if "authorization key" in error_msg and "simultaneously" in error_msg:
                 logger.warning(f"Session conflict detected for {account_name}")
-                # Mark account as having session conflict
                 await mongodb.db.accounts.update_one(
                     {"user_id": user_id, "name": account_name},
                     {"$set": {"session_conflict": True}},
@@ -474,16 +450,12 @@ class UnifiedMessagingSystem:
     async def _resolve_target(self, client, target: str):
         """Resolve target to proper entity"""
         try:
-            # If it's a numeric string, treat as user ID
             if target.isdigit():
                 user_id = int(target)
-                # Try multiple approaches for user ID resolution
                 try:
-                    # First try to get entity normally
                     entity = await client.get_entity(user_id)
                     return entity
                 except Exception as e1:
-                    # Try using InputPeerUser with access_hash=0
                     try:
                         from telethon.tl.types import InputPeerUser
 
@@ -491,18 +463,14 @@ class UnifiedMessagingSystem:
                         return input_peer
                     except Exception as e2:
                         return None
-            # If it starts with @, it's a username
             if target.startswith("@"):
                 username = target[1:]
                 return username
-            # If it starts with +, it's a phone number
             if target.startswith("+"):
                 return target
-            # If it starts with -, it's likely a group/channel ID
             if target.startswith("-"):
                 chat_id = int(target)
                 return chat_id
-            # Try to resolve as entity directly
             entity = await client.get_entity(target)
             return entity
         except ValueError as e:
@@ -522,13 +490,11 @@ class UnifiedMessagingSystem:
                 "dm_topics_created": 0,
             }
 
-            # Count active accounts
             user_clients = self.user_clients.get(user_id, {})
             stats["active_accounts"] = len(
                 [c for c in user_clients.values() if c and c.is_connected()]
             )
 
-            # Get auto-reply stats if available
             if hasattr(self.bot_manager, "auto_reply_handler"):
                 auto_reply_stats = self.bot_manager.auto_reply_handler.analytics
                 stats["auto_replies_sent"] = auto_reply_stats.get(
@@ -536,7 +502,6 @@ class UnifiedMessagingSystem:
                 )
                 stats["total_messages_sent"] = auto_reply_stats.get("total_messages", 0)
 
-            # Count DM topics
             try:
                 topic_count = await mongodb.db.topic_mappings.count_documents(
                     {"admin_group_id": {"$exists": True}}
@@ -555,12 +520,10 @@ class UnifiedMessagingSystem:
     ) -> bool:
         """Setup auto-reply for an account"""
         try:
-            # Enable auto-reply for account
             await mongodb.db.accounts.update_one(
                 {"user_id": user_id, "name": account_name},
                 {"$set": {"auto_reply_enabled": True}},
             )
-            # Store default message in settings
             await mongodb.db.auto_reply_settings.update_one(
                 {"user_id": user_id},
                 {
@@ -604,8 +567,12 @@ class UnifiedMessagingSystem:
         """Verify forum is enabled for group"""
         try:
             chat_info = await self.bot.get_entity(admin_group_id)
-            return getattr(chat_info, "forum", False)
-        except Exception:
+            is_forum = getattr(chat_info, "forum", False)
+            if not is_forum:
+                logger.error(f"Group {admin_group_id} does not have Topics/Forum enabled")
+            return is_forum
+        except Exception as e:
+            logger.error(f"Failed to verify forum for {admin_group_id}: {e}")
             return False
 
     async def _get_account_info(self, account_id: int):
@@ -629,9 +596,13 @@ class UnifiedMessagingSystem:
             if hasattr(result, "updates") and result.updates:
                 for update in result.updates:
                     if hasattr(update, "message") and update.message:
+                        logger.info(f"Created topic '{topic_title}' with ID {update.message.id}")
                         return update.message.id
                     elif hasattr(update, "id"):
+                        logger.info(f"Created topic '{topic_title}' with ID {update.id}")
                         return update.id
+            logger.error(f"Failed to extract topic ID from result")
             return None
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to create topic '{topic_title}' in {admin_group_id}: {e}")
             return None

@@ -22,186 +22,84 @@ class DeveloperCommands:
 
     def register_handlers(self):
         """Register developer command handlers"""
+        self._register_system_commands()
+        self._register_management_commands()
+        self._register_startup_commands()
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/sysinfo"))
-        async def sysinfo_handler(event):
-            """System information command"""
-            cpu_info, memory_info, disk_info = await self._get_container_stats()
+    def _register_system_commands(self):
+        """Register system information commands"""
+        self.bot.on(events.NewMessage(pattern=r"/sysinfo"))(admin_required(self._sysinfo_handler))
+        self.bot.on(events.NewMessage(pattern=r"/health"))(admin_required(self._health_handler))
+        self.bot.on(events.NewMessage(pattern=r"/stats"))(admin_required(self._stats_handler))
+        self.bot.on(events.NewMessage(pattern=r"/logs"))(admin_required(self._logs_handler))
 
-            user_count = await mongodb.db.users.count_documents({})
-            account_count = await mongodb.db.accounts.count_documents({})
-            platform_name = self._detect_platform()
+    def _register_management_commands(self):
+        """Register management commands"""
+        self.bot.on(events.NewMessage(pattern=r"/cleanup_sessions"))(admin_required(self._cleanup_sessions_handler))
+        self.bot.on(events.NewMessage(pattern=r"/restart_bot"))(admin_required(self._restart_bot_handler))
 
-            text = (
-                "📊 **System Information**\n\n"
-                f"**Platform:** {platform_name}\n"
-                f"**Python:** {sys.version.split()[0]}\n"
-                f"**CPU Usage:** {cpu_info}\n"
-                f"**Memory:** {memory_info}\n"
-                f"**Disk:** {disk_info}\n\n"
-                "**Bot Statistics:**\n"
-                f"• Active Users: {user_count}\n"
-                f"• Total Accounts: {account_count}\n"
-                f"• Bot Status: {
-                    'Connected' if self.bot.is_connected() else 'Disconnected'}\n"
-                f"• Cache Status: {
-                    'Active' if hasattr(
-                        self.bot_manager,
-                        'cache') else 'N/A'}\n"
-                f"• Uptime: {self._get_uptime()}"
-            )
-            await event.reply(text)
+    def _register_startup_commands(self):
+        """Register startup configuration commands"""
+        self.bot.on(events.NewMessage(pattern=r"/startup_enable"))(admin_required(self._startup_enable_handler))
+        self.bot.on(events.NewMessage(pattern=r"/startup_disable"))(admin_required(self._startup_disable_handler))
+        self.bot.on(events.NewMessage(pattern=r"/startup_status"))(admin_required(self._startup_status_handler))
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/health"))
-        async def health_handler(event):
-            """Health check command"""
-            text = (
-                "🏥 **System Health Check**\n\n"
-                f"**Bot Connection:** {
-                    '✅ Active' if self.bot.is_connected() else '❌ Inactive'}\n"
-                f"**Database:** {'✅ Connected' if mongodb.db else '❌ Disconnected'}\n"
-                f"**Event Handlers:** {len(self.bot.list_event_handlers())} active\n"
-                f"**User Clients:** {len(self.bot_manager.user_clients)}\n\n"
-                "**Component Status:**\n"
-                f"• OTP Manager: {'✅' if self.bot_manager.otp_manager else '❌'}\n"
-                f"• Menu System: {'✅' if self.bot_manager.menu_system else '❌'}\n"
-                f"• Messaging: {'✅' if self.bot_manager.messaging_manager else '❌'}\n"
-                f"• Automation: {'✅' if self.bot_manager.automation_engine else '❌'}"
-            )
-            await event.reply(text)
+    async def _sysinfo_handler(self, event):
+        """System information command"""
+        cpu_info, memory_info, disk_info = await self._get_container_stats()
+        user_count = await mongodb.db.users.count_documents({})
+        account_count = await mongodb.db.accounts.count_documents({})
+        platform_name = self._detect_platform()
+        text = self._build_sysinfo_text(cpu_info, memory_info, disk_info, user_count, account_count, platform_name)
+        await event.reply(text)
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/stats"))
-        async def stats_handler(event):
-            """Bot statistics command"""
-            user_count = await mongodb.db.users.count_documents({})
-            account_count = await mongodb.db.accounts.count_documents({})
-            active_accounts = await mongodb.db.accounts.count_documents(
-                {"is_active": True}
-            )
-            otp_enabled = await mongodb.db.accounts.count_documents(
-                {"otp_destroyer_enabled": True}
-            )
+    async def _health_handler(self, event):
+        """Health check command"""
+        text = self._build_health_text()
+        await event.reply(text)
 
-            text = (
-                "📈 **Bot Statistics**\n\n"
-                f"**Users & Accounts:**\n"
-                f"• Total Users: {user_count}\n"
-                f"• Total Accounts: {account_count}\n"
-                f"• Active Accounts: {active_accounts}\n"
-                f"• OTP Protected: {otp_enabled}\n\n"
-                f"**System:**\n"
-                f"• Uptime: {self._get_uptime()}\n"
-                f"• Components: {len(self.bot_manager.component_manager.initialized_components)}\n"
-                f"• Handlers: {len(self.bot.list_event_handlers())}\n"
-                f"• Memory Usage: {self._get_memory_usage()}\n"
-                f"• Platform: {self._detect_platform()}"
-            )
-            await event.reply(text)
+    async def _stats_handler(self, event):
+        """Bot statistics command"""
+        stats = await self._gather_stats()
+        text = self._build_stats_text(stats)
+        await event.reply(text)
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/logs"))
-        async def logs_handler(event):
-            """Show recent logs"""
-            text = (
-                "📋 **System Logs**\n\n"
-                "**Recent Activity:**\n"
-                f"• Bot Status: {'Running' if self.bot.is_connected() else 'Stopped'}\n"
-                f"• Database: {'Connected' if mongodb.db else 'Disconnected'}\n"
-                f"• Active Handlers: {len(self.bot.list_event_handlers())}\n"
-                f"• User Sessions: {
-                    sum(
-                        len(clients) for clients in self.bot_manager.user_clients.values())}\n\n"
-                "**Log Levels:**\n"
-                "• INFO: General operations\n"
-                "• WARNING: Potential issues\n"
-                "• ERROR: System errors\n"
-                "• DEBUG: Detailed debugging\n\n"
-                "Use log files for detailed history."
-            )
-            await event.reply(text)
+    async def _logs_handler(self, event):
+        """Show recent logs"""
+        text = self._build_logs_text()
+        await event.reply(text)
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/cleanup_sessions"))
-        async def cleanup_sessions_handler(event):
-            """Clean up inactive sessions"""
-            await event.reply("🔄 Starting session cleanup...")
-            try:
-                cleaned = 0
-                for user_id, clients in list(self.bot_manager.user_clients.items()):
-                    for account_name, client in list(clients.items()):
-                        if not client.is_connected():
-                            del self.bot_manager.user_clients[user_id][account_name]
-                            cleaned += 1
+    async def _cleanup_sessions_handler(self, event):
+        """Clean up inactive sessions"""
+        await event.reply("🔄 Starting session cleanup...")
+        try:
+            cleaned = self._cleanup_inactive_sessions()
+            await event.reply(f"✅ Session cleanup completed. Removed {cleaned} inactive sessions.")
+        except Exception as e:
+            await event.reply(f"❌ Session cleanup failed: {str(e)}")
 
-                await event.reply(
-                    f"✅ Session cleanup completed. Removed {cleaned} inactive sessions."
-                )
-            except Exception as e:
-                await event.reply(f"❌ Session cleanup failed: {str(e)}")
+    async def _restart_bot_handler(self, event):
+        """Restart bot services"""
+        await event.reply("🔄 Restarting bot services...")
+        try:
+            await event.reply("⚠️ Bot restart initiated. This may cause temporary disconnection.")
+        except Exception as e:
+            await event.reply(f"❌ Restart failed: {str(e)}")
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/restart_bot"))
-        async def restart_bot_handler(event):
-            """Restart bot services"""
-            await event.reply("🔄 Restarting bot services...")
-            try:
-                await event.reply(
-                    "⚠️ Bot restart initiated. This may cause temporary disconnection."
-                )
-            except Exception as e:
-                await event.reply(f"❌ Restart failed: {str(e)}")
+    async def _startup_enable_handler(self, event):
+        """Enable startup notifications"""
+        await self._toggle_startup_notifications(event.sender_id, True)
+        await event.reply("✅ Startup notifications enabled.")
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/startup_enable"))
-        async def startup_enable_handler(event):
-            """Enable startup notifications"""
-            user_id = event.sender_id
-            await mongodb.db.users.update_one(
-                {"telegram_id": user_id},
-                {"$set": {"startup_notifications": True}},
-                upsert=True,
-            )
-            await event.reply("✅ Startup notifications enabled.")
+    async def _startup_disable_handler(self, event):
+        """Disable startup notifications"""
+        await self._toggle_startup_notifications(event.sender_id, False)
+        await event.reply("❌ Startup notifications disabled.")
 
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/startup_disable"))
-        async def startup_disable_handler(event):
-            """Disable startup notifications"""
-            user_id = event.sender_id
-            await mongodb.db.users.update_one(
-                {"telegram_id": user_id},
-                {"$set": {"startup_notifications": False}},
-                upsert=True,
-            )
-            await event.reply("❌ Startup notifications disabled.")
-
-        @admin_required
-        @self.bot.on(events.NewMessage(pattern=r"/startup_status"))
-        async def startup_status_handler(event):
-            """Show startup status"""
-            user_id = event.sender_id
-            user = await mongodb.db.users.find_one({"telegram_id": user_id})
-            startup_notifications = (
-                user.get("startup_notifications", True) if user else True
-            )
-
-            text = (
-                "🚀 **Startup Configuration**\n\n"
-                f"**Settings:**\n"
-                f"• Startup Notifications: {
-                    '✅ Enabled' if startup_notifications else '❌ Disabled'}\n"
-                f"• Auto-load Accounts: ✅ Enabled\n"
-                f"• Health Checks: ✅ Enabled\n"
-                f"• Component Init: ✅ Enabled\n\n"
-                f"**Last Startup:** {self._get_uptime()} ago\n"
-                f"**Components Loaded:** {len(self.bot_manager.component_manager.initialized_components)}\n"
-                f"**Status:** {
-                    '✅ All systems operational' if self.bot_manager.is_running else '❌ System issues detected'}"
-            )
-            await event.reply(text)
+    async def _startup_status_handler(self, event):
+        """Show startup status"""
+        text = await self._build_startup_status_text(event.sender_id)
+        await event.reply(text)
 
     def _get_uptime(self) -> str:
         """Get bot uptime"""
@@ -306,3 +204,112 @@ class DeveloperCommands:
             logger.error(f"Error getting container stats: {e}")
 
         return cpu_info, memory_info, disk_info
+
+    def _build_sysinfo_text(self, cpu_info, memory_info, disk_info, user_count, account_count, platform_name):
+        """Build system information text"""
+        return (
+            "📊 **System Information**\n\n"
+            f"**Platform:** {platform_name}\n"
+            f"**Python:** {sys.version.split()[0]}\n"
+            f"**CPU Usage:** {cpu_info}\n"
+            f"**Memory:** {memory_info}\n"
+            f"**Disk:** {disk_info}\n\n"
+            "**Bot Statistics:**\n"
+            f"• Active Users: {user_count}\n"
+            f"• Total Accounts: {account_count}\n"
+            f"• Bot Status: {'Connected' if self.bot.is_connected() else 'Disconnected'}\n"
+            f"• Cache Status: {'Active' if hasattr(self.bot_manager, 'cache') else 'N/A'}\n"
+            f"• Uptime: {self._get_uptime()}"
+        )
+
+    def _build_health_text(self):
+        """Build health check text"""
+        return (
+            "🏥 **System Health Check**\n\n"
+            f"**Bot Connection:** {'✅ Active' if self.bot.is_connected() else '❌ Inactive'}\n"
+            f"**Database:** {'✅ Connected' if mongodb.db else '❌ Disconnected'}\n"
+            f"**Event Handlers:** {len(self.bot.list_event_handlers())} active\n"
+            f"**User Clients:** {len(self.bot_manager.user_clients)}\n\n"
+            "**Component Status:**\n"
+            f"• OTP Manager: {'✅' if self.bot_manager.otp_manager else '❌'}\n"
+            f"• Menu System: {'✅' if self.bot_manager.menu_system else '❌'}\n"
+            f"• Messaging: {'✅' if self.bot_manager.messaging_manager else '❌'}\n"
+            f"• Automation: {'✅' if self.bot_manager.automation_engine else '❌'}"
+        )
+
+    async def _gather_stats(self):
+        """Gather bot statistics"""
+        return {
+            "user_count": await mongodb.db.users.count_documents({}),
+            "account_count": await mongodb.db.accounts.count_documents({}),
+            "active_accounts": await mongodb.db.accounts.count_documents({"is_active": True}),
+            "otp_enabled": await mongodb.db.accounts.count_documents({"otp_destroyer_enabled": True})
+        }
+
+    def _build_stats_text(self, stats):
+        """Build statistics text"""
+        return (
+            "📈 **Bot Statistics**\n\n"
+            "**Users & Accounts:**\n"
+            f"• Total Users: {stats['user_count']}\n"
+            f"• Total Accounts: {stats['account_count']}\n"
+            f"• Active Accounts: {stats['active_accounts']}\n"
+            f"• OTP Protected: {stats['otp_enabled']}\n\n"
+            "**System:**\n"
+            f"• Uptime: {self._get_uptime()}\n"
+            f"• Components: {len(self.bot_manager.component_manager.initialized_components)}\n"
+            f"• Handlers: {len(self.bot.list_event_handlers())}\n"
+            f"• Memory Usage: {self._get_memory_usage()}\n"
+            f"• Platform: {self._detect_platform()}"
+        )
+
+    def _build_logs_text(self):
+        """Build logs text"""
+        return (
+            "📋 **System Logs**\n\n"
+            "**Recent Activity:**\n"
+            f"• Bot Status: {'Running' if self.bot.is_connected() else 'Stopped'}\n"
+            f"• Database: {'Connected' if mongodb.db else 'Disconnected'}\n"
+            f"• Active Handlers: {len(self.bot.list_event_handlers())}\n"
+            f"• User Sessions: {sum(len(clients) for clients in self.bot_manager.user_clients.values())}\n\n"
+            "**Log Levels:**\n"
+            "• INFO: General operations\n"
+            "• WARNING: Potential issues\n"
+            "• ERROR: System errors\n"
+            "• DEBUG: Detailed debugging\n\n"
+            "Use log files for detailed history."
+        )
+
+    def _cleanup_inactive_sessions(self):
+        """Clean up inactive sessions"""
+        cleaned = 0
+        for user_id, clients in list(self.bot_manager.user_clients.items()):
+            for account_name, client in list(clients.items()):
+                if not client.is_connected():
+                    del self.bot_manager.user_clients[user_id][account_name]
+                    cleaned += 1
+        return cleaned
+
+    async def _toggle_startup_notifications(self, user_id: int, enabled: bool):
+        """Toggle startup notifications"""
+        await mongodb.db.users.update_one(
+            {"telegram_id": user_id},
+            {"$set": {"startup_notifications": enabled}},
+            upsert=True,
+        )
+
+    async def _build_startup_status_text(self, user_id: int):
+        """Build startup status text"""
+        user = await mongodb.db.users.find_one({"telegram_id": user_id})
+        startup_notifications = user.get("startup_notifications", True) if user else True
+        return (
+            "🚀 **Startup Configuration**\n\n"
+            "**Settings:**\n"
+            f"• Startup Notifications: {'✅ Enabled' if startup_notifications else '❌ Disabled'}\n"
+            "• Auto-load Accounts: ✅ Enabled\n"
+            "• Health Checks: ✅ Enabled\n"
+            "• Component Init: ✅ Enabled\n\n"
+            f"**Last Startup:** {self._get_uptime()} ago\n"
+            f"**Components Loaded:** {len(self.bot_manager.component_manager.initialized_components)}\n"
+            f"**Status:** {'✅ All systems operational' if self.bot_manager.is_running else '❌ System issues detected'}"
+        )
