@@ -23,7 +23,11 @@ class ContactHandler:
 
     def register_handlers(self):
         """Register all contact handlers"""
+        self._register_menu_handler()
+        self._register_callback_handler()
+        self._register_input_handler()
 
+    def _register_menu_handler(self):
         @self.bot.on(events.NewMessage(pattern=r"^/contacts$"))
         async def contacts_menu(event):
             """Main contacts menu"""
@@ -58,6 +62,7 @@ class ContactHandler:
                 buttons=buttons,
             )
 
+    def _register_callback_handler(self):
         @self.bot.on(events.CallbackQuery(pattern=r"^contacts:"))
         async def handle_contacts_callback(event):
             """Handle contact button callbacks"""
@@ -124,6 +129,7 @@ class ContactHandler:
                 logger.error(f"Contact callback error: {e}")
                 await event.answer("❌ Error processing request")
 
+    def _register_input_handler(self):
         @self.bot.on(
             events.NewMessage(
                 func=lambda e: e.sender_id in self.pending_actions
