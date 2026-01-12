@@ -256,206 +256,42 @@ class DMReplyHandler:
 
     def _setup_bot_handlers(self):
         """Set up bot handlers for topic replies"""
-
         @self.bot.on(events.NewMessage())
         async def handle_topic_reply(event):
             try:
-                # Only process group messages
                 if not event.is_group:
                     return
-
-                # Check if this is from a user with DM reply enabled
-                user = await mongodb.db.users.find_one(
-                    {"dm_reply_group_id": event.chat_id}
-                )
+                user = await mongodb.db.users.find_one({"dm_reply_group_id": event.chat_id})
                 if not user or event.sender_id != user["telegram_id"]:
                     return
-
-                # Skip if no text or media
                 if not event.text and not event.media:
                     return
-
-                # Get topic ID - check multiple attributes
-                topic_id = None
-                reply_to = getattr(event.message, "reply_to", None)
-
-                if reply_to:
-                    # Forum topics use reply_to_top_id
-                    topic_id = getattr(reply_to, "reply_to_top_id", None)
-                    if not topic_id:
-                        topic_id = getattr(reply_to, "reply_to_msg_id", None)
-
-                # If no reply_to, check if message is directly in a topic
-                if not topic_id and hasattr(event.message, "reply_to_msg_id"):
-                    topic_id = event.message.reply_to_msg_id
-
-                logger.info(
-                    f"Topic reply detected: topic_id={topic_id}, chat={
-                        event.chat_id}, text={
-                        event.text[
-                            :50]}"
-                )
-
+                topic_id = self._extract_topic_id(event)
+                logger.info(f"Topic reply detected: topic_id={topic_id}, chat={event.chat_id}, text={event.text[:50]}")
                 if not topic_id:
                     logger.debug("No topic_id found, skipping")
                     return
-
-                # Find topic mapping
-                topic_mapping = await mongodb.db.dm_topics.find_one(
-                    {"group_id": event.chat_id, "topic_id": topic_id}
-                )
-
+                topic_mapping = await mongodb.db.dm_topics.find_one({"group_id": event.chat_id, "topic_id": topic_id})
                 if not topic_mapping:
-                    logger.warning(
-                        f"No mapping found for topic {topic_id} in group {
-                            event.chat_id}"
-                    )
-                    # List all mappings for debugging
-                    all_mappings = await mongodb.db.dm_topics.find(
-                        {"group_id": event.chat_id}
-                    ).to_list(None)
-                    logger.info(
-                        f"Available mappings: {[(m['topic_id'],
-                                                 m.get('topic_title')) for m in all_mappings]}"
-                    )
+                    await self._log_missing_mapping(event.chat_id, topic_id)
                     return
-
                 sender_id = topic_mapping["sender_id"]
                 account_id = topic_mapping["account_id"]
-
                 managed_client = await self._get_client_by_account_id(account_id)
                 if not managed_client:
-                    # Account not loaded - try to load it now
-                    logger.info(
-                        f"Account {account_id} not loaded, attempting to load..."
-                    )
-                    await event.reply("⚠️ Account not loaded. Loading now...")
-
-                    # Find account in database
-                    accounts = await mongodb.db.accounts.find(
-                        {"is_active": True}
-                    ).to_list(None)
-                    target_account = None
-
-                    for acc in accounts:
-                        # Match by account's telegram_id stored in DB or by checking
-                        # session
-                        if acc.get("session_string"):
-                            # We need to check if this account matches the account_id
-                            # The account_id in topic mapping is the Telegram user ID of the account
-                            # We can try to load and check
-                            try:
-                                from telethon import TelegramClient
-                                from telethon.sessions import StringSession
-
-                                from ..core.config import config
-
-                                temp_client = TelegramClient(
-                                    StringSession(acc["session_string"]),
-                                    config.telegram.api_id,
-                                    config.telegram.api_hash,
-                                )
-                                await temp_client.connect()
-                                me = await temp_client.get_me()
-                                await temp_client.disconnect()
-
-                                if me.id == account_id:
-                                    target_account = acc
-                                    break
-                            except BaseException:
-                                continue
-
-                    if target_account:
-                        try:
-                            # Load the account
-                            await self.bot_manager.start_user_client(
-                                target_account["user_id"],
-                                target_account["name"],
-                                target_account["session_string"],
-                            )
-
-                            # Setup DM handler for newly loaded account
-                            managed_client = await self._get_client_by_account_id(
-                                account_id
-                            )
-                            if managed_client:
-                                await self.setup_new_client_handler(
-                                    target_account["user_id"],
-                                    target_account["name"],
-                                    managed_client,
-                                )
-                                await event.reply("✅ Account loaded successfully!")
-                            else:
-                                await event.reply(
-                                    "❌ Failed to load account. Please try again."
-                                )
-                                return
-                        except Exception as load_error:
-                            logger.error(f"Failed to load account: {load_error}")
-                            await event.reply(
-                                f"❌ Failed to load account: {str(load_error)[:100]}"
-                            )
-                            return
-                    else:
-                        await event.reply(
-                            "❌ Account not found. Please re-add the account."
-                        )
+                    managed_client = await self._load_account_client(event, account_id)
+                    if not managed_client:
                         return
-
-                logger.info(
-                    f"Sending reply from account {account_id} to user {sender_id}"
-                )
-
-                # Resolve entity first to ensure we can send to this user
-                try:
-                    await managed_client.get_entity(sender_id)
-                except Exception as entity_error:
-                    error_msg = f"❌ Cannot send message - user not found. They may have blocked the account or deleted their profile."
-                    await event.reply(error_msg)
-                    logger.error(
-                        f"Entity resolution failed for user {sender_id}: {entity_error}"
-                    )
+                logger.info(f"Sending reply from account {account_id} to user {sender_id}")
+                if not await self._verify_entity_access(managed_client, sender_id, event):
                     return
-
-                # Simulate human typing if text
                 if event.text:
-                    await self._simulate_human_reply_behavior(
-                        managed_client, sender_id, event.text
-                    )
-
-                # Send the message with media support
-                if event.media:
-                    await managed_client.send_file(
-                        sender_id, event.media, caption=event.text
-                    )
-                    logger.info(f"✅ Media sent")
-                else:
-                    reply_text = event.text
-                    # AI-enhance reply if enabled
-                    if self.ai_model and await self._is_ai_enhancement_enabled(
-                        user["telegram_id"]
-                    ):
-                        try:
-                            enhanced_reply = await self._ai_enhance_reply(
-                                reply_text, sender_id, managed_client
-                            )
-                            if enhanced_reply:
-                                reply_text = enhanced_reply
-                        except Exception as ai_error:
-                            logger.debug(f"AI enhancement failed: {ai_error}")
-
-                    await managed_client.send_message(sender_id, reply_text)
-                    logger.info(f"✅ Reply sent: {reply_text[:50]}")
-
+                    await self._simulate_human_reply_behavior(managed_client, sender_id, event.text)
+                await self._send_reply_message(managed_client, sender_id, event, user)
             except Exception as e:
                 logger.error(f"Failed to handle topic reply: {e}")
                 try:
-                    await BotLogger.log_error(
-                        "Topic Reply Error",
-                        str(e)[:500],
-                        event.sender_id,
-                        "Topic reply handler",
-                    )
+                    await BotLogger.log_error("Topic Reply Error", str(e)[:500], event.sender_id, "Topic reply handler")
                 except BaseException:
                     pass
 
@@ -831,3 +667,105 @@ Enhanced reply:"""
             logger.debug(f"Auto-reply typing simulation error: {e}")
             # Fallback to simple delay
             await asyncio.sleep(random.uniform(1.0, 3.0))
+
+    def _extract_topic_id(self, event):
+        """Extract topic ID from event message"""
+        topic_id = None
+        reply_to = getattr(event.message, "reply_to", None)
+        if reply_to:
+            topic_id = getattr(reply_to, "reply_to_top_id", None)
+            if not topic_id:
+                topic_id = getattr(reply_to, "reply_to_msg_id", None)
+        if not topic_id and hasattr(event.message, "reply_to_msg_id"):
+            topic_id = event.message.reply_to_msg_id
+        return topic_id
+
+    async def _log_missing_mapping(self, chat_id: int, topic_id: int):
+        """Log missing topic mapping for debugging"""
+        logger.warning(f"No mapping found for topic {topic_id} in group {chat_id}")
+        all_mappings = await mongodb.db.dm_topics.find({"group_id": chat_id}).to_list(None)
+        logger.info(f"Available mappings: {[(m['topic_id'], m.get('topic_title')) for m in all_mappings]}")
+
+    async def _load_account_client(self, event, account_id: int):
+        """Load account client if not already loaded"""
+        logger.info(f"Account {account_id} not loaded, attempting to load...")
+        await event.reply("⚠️ Account not loaded. Loading now...")
+        accounts = await mongodb.db.accounts.find({"is_active": True}).to_list(None)
+        target_account = await self._find_matching_account(accounts, account_id)
+        if target_account:
+            return await self._start_and_setup_account(event, target_account, account_id)
+        await event.reply("❌ Account not found. Please re-add the account.")
+        return None
+
+    async def _find_matching_account(self, accounts, account_id: int):
+        """Find account matching the account_id"""
+        for acc in accounts:
+            if acc.get("session_string"):
+                try:
+                    from telethon import TelegramClient
+                    from telethon.sessions import StringSession
+                    from ..core.config import config
+                    temp_client = TelegramClient(
+                        StringSession(acc["session_string"]),
+                        config.telegram.api_id,
+                        config.telegram.api_hash,
+                    )
+                    await temp_client.connect()
+                    me = await temp_client.get_me()
+                    await temp_client.disconnect()
+                    if me.id == account_id:
+                        return acc
+                except BaseException:
+                    continue
+        return None
+
+    async def _start_and_setup_account(self, event, target_account, account_id: int):
+        """Start and setup account client"""
+        try:
+            await self.bot_manager.start_user_client(
+                target_account["user_id"],
+                target_account["name"],
+                target_account["session_string"],
+            )
+            managed_client = await self._get_client_by_account_id(account_id)
+            if managed_client:
+                await self.setup_new_client_handler(
+                    target_account["user_id"],
+                    target_account["name"],
+                    managed_client,
+                )
+                await event.reply("✅ Account loaded successfully!")
+                return managed_client
+            await event.reply("❌ Failed to load account. Please try again.")
+        except Exception as load_error:
+            logger.error(f"Failed to load account: {load_error}")
+            await event.reply(f"❌ Failed to load account: {str(load_error)[:100]}")
+        return None
+
+    async def _verify_entity_access(self, client, sender_id: int, event) -> bool:
+        """Verify we can access the target entity"""
+        try:
+            await client.get_entity(sender_id)
+            return True
+        except Exception as entity_error:
+            error_msg = "❌ Cannot send message - user not found. They may have blocked the account or deleted their profile."
+            await event.reply(error_msg)
+            logger.error(f"Entity resolution failed for user {sender_id}: {entity_error}")
+            return False
+
+    async def _send_reply_message(self, client, sender_id: int, event, user):
+        """Send reply message with optional AI enhancement"""
+        if event.media:
+            await client.send_file(sender_id, event.media, caption=event.text)
+            logger.info("✅ Media sent")
+        else:
+            reply_text = event.text
+            if self.ai_model and await self._is_ai_enhancement_enabled(user["telegram_id"]):
+                try:
+                    enhanced_reply = await self._ai_enhance_reply(reply_text, sender_id, client)
+                    if enhanced_reply:
+                        reply_text = enhanced_reply
+                except Exception as ai_error:
+                    logger.debug(f"AI enhancement failed: {ai_error}")
+            await client.send_message(sender_id, reply_text)
+            logger.info(f"✅ Reply sent: {reply_text[:50]}")

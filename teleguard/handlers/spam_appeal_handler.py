@@ -67,220 +67,12 @@ class SpamAppealHandler:
 
     def register_handlers(self):
         """Register appeal handlers with smart detection"""
-
-        @self.bot.on(events.NewMessage(pattern=r"^/spam_stats$"))
-        async def spam_stats_command(event):
-            """Show spam detector statistics"""
-            try:
-                if hasattr(self.bot_manager, "spam_detector"):
-                    stats = self.bot_manager.spam_detector.get_detection_stats()
-                    stats_text = "📊 **Spam Detector Statistics**\n\n"
-
-                    for spam_type, count in stats.items():
-                        if spam_type != "total_messages":
-                            type_name = spam_type.replace("_", " ").title()
-                            stats_text += f"• {type_name}: {count} messages\n"
-
-                    stats_text += (
-                        f"\n📝 Total Messages: {stats.get('total_messages', 0)}"
-                    )
-                    await event.reply(stats_text)
-                else:
-                    await event.reply("❌ Spam detector not available")
-            except Exception as e:
-                logger.error(f"Spam stats command error: {e}")
-                await event.reply("❌ Error getting spam statistics")
-
-        @self.bot.on(events.NewMessage(pattern=r"^/test_appeal_messages$"))
-        async def test_appeal_messages_command(event):
-            """Test appeal message loading and selection"""
-            user_id = event.sender_id
-            try:
-                # Check if user is admin
-                from ..core.config import config
-
-                if user_id not in config.security.admin_ids:
-                    await event.reply("❌ Admin access required")
-                    return
-
-                # Test message loading
-                message_count = len(self.appeal_messages)
-
-                # Test message selection
-                test_message = await self._select_smart_appeal_message("test context")
-
-                response = (
-                    f"🧪 **Appeal Messages Test**\n\n"
-                    f"📁 **Loaded Messages:** {message_count}\n"
-                    f"📄 **Test Selection Length:** {len(test_message)} chars\n\n"
-                    f"**Sample Message Preview:**\n"
-                    f"```\n{test_message[:200]}...\n```\n\n"
-                    f"✅ Appeal message system is working!"
-                )
-
-                await event.reply(response)
-
-            except Exception as e:
-                logger.error(f"Test appeal messages error: {e}")
-                await event.reply(f"❌ Test failed: {str(e)}")
-
-        @self.bot.on(events.NewMessage(pattern=r"^/appeal(?:\s+(.+))?$"))
-        async def appeal_command(event):
-            user_id = event.sender_id
-            try:
-                # Automatically disable session protection for appeal process
-                from ..core.mongo_database import mongodb
-
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id},
-                    {
-                        "$set": {
-                            "session_protection_disabled": True,
-                            "protection_bypass_until": int(
-                                asyncio.get_event_loop().time()
-                            )
-                            + 1800,  # 30 minutes
-                        },
-                        "$unset": {
-                            "session_protection_active": "",
-                            "protection_cooldown": "",
-                            "last_protection_trigger": "",
-                        },
-                    },
-                )
-
-                # Get accounts from database to show proper names
-                accounts = await mongodb.db.accounts.find(
-                    {"user_id": user_id, "is_active": True}
-                ).to_list(length=None)
-
-                if not accounts:
-                    await event.reply(
-                        "❌ No accounts found. Add an account first using /start"
-                    )
-                    return
-
-                context = (
-                    event.pattern_match.group(1) if event.pattern_match.group(1) else ""
-                )
-
-                # Show account selection if multiple accounts
-                if len(accounts) > 1:
-                    buttons = []
-                    for account in accounts[:10]:  # Limit to 10 accounts
-                        # Use display_name or name, fallback to phone
-                        display_name = (
-                            account.get("display_name")
-                            or account.get("name")
-                            or account.get("phone", "Unknown")
-                        )
-                        # Use account ID as callback data to avoid confusion
-                        buttons.append(
-                            [
-                                Button.inline(
-                                    f"📱 {display_name}",
-                                    f"appeal_account_id:{account['_id']}",
-                                )
-                            ]
-                        )
-
-                    buttons.append([Button.inline("❌ Cancel", "appeal_cancel")])
-
-                    await event.reply(
-                        f"🧠 **Smart Spam Appeal**\n\n"
-                        f"Select account to appeal spam restrictions:\n\n"
-                        f"📊 Available accounts: {len(accounts)}",
-                        buttons=buttons,
-                    )
-                else:
-                    # Single account - proceed directly
-                    account = accounts[0]
-                    display_name = (
-                        account.get("display_name")
-                        or account.get("name")
-                        or account.get("phone", "Unknown")
-                    )
-                    await self._start_appeal_for_account(
-                        user_id, display_name, context, event
-                    )
-
-            except Exception as e:
-                logger.error(f"Appeal command error: {e}")
-                await event.reply("❌ Error sending smart appeal. Please try again.")
-
-        @self.bot.on(events.CallbackQuery(pattern=b"appeal_account_id:(.+)"))
-        async def appeal_account_callback(event):
-            user_id = event.sender_id
-            account_id = event.data.decode().split(":", 1)[1]
-            try:
-                await event.answer()
-                await event.delete()
-
-                # Get account details from database using ID
-                from bson import ObjectId
-
-                from ..core.mongo_database import mongodb
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-
-                if not account:
-                    await event.respond("❌ Account not found.")
-                    return
-
-                # Use the correct account name for client lookup
-                account_name = (
-                    account.get("name")
-                    or account.get("phone")
-                    or account.get("display_name", "Unknown")
-                )
-                # Small delay before processing (like human clicking)
-                await asyncio.sleep(random.uniform(0.2, 0.8))
-                await self._start_appeal_for_account(user_id, account_name, "", event)
-
-            except Exception as e:
-                logger.error(f"Appeal account callback error: {e}")
-                await event.respond("❌ Error starting appeal process.")
-
-        @self.bot.on(events.CallbackQuery(pattern=b"appeal_cancel"))
-        async def appeal_cancel_callback(event):
-            try:
-                await event.answer()
-                await event.delete()
-                await event.respond("❌ Appeal process cancelled.")
-            except Exception as e:
-                logger.error(f"Appeal cancel callback error: {e}")
-
-        @self.bot.on(events.CallbackQuery(pattern=b"captcha_(done|refresh|cancel)"))
-        async def captcha_callback(event):
-            user_id = event.sender_id
-            action = event.data.decode().split("_")[1]
-            try:
-                await event.answer()
-                await event.delete()
-                if user_id not in self.active_appeals:
-                    await event.respond("⚠️ No active appeal process found.")
-                    return
-
-                state = self.active_appeals[user_id]
-
-                if action == "cancel":
-                    self.active_appeals.pop(user_id, None)
-                    await event.respond("❌ Appeal process cancelled.")
-                    return
-                elif action == "done":
-                    state["state"] = "captcha_solved"
-                    await event.respond(
-                        "✅ **Captcha Verification Confirmed**\n\n"
-                        "Looking for 'Done' button in @spambot...\n"
-                        "⏳ Please wait..."
-                    )
-                    await asyncio.sleep(3)
-                    await self._auto_click_done(user_id)
-            except Exception as e:
-                logger.error(f"Captcha callback error: {e}")
-                await event.respond("❌ Error processing captcha verification.")
+        self.bot.on(events.NewMessage(pattern=r"^/spam_stats$"))(self._spam_stats_handler)
+        self.bot.on(events.NewMessage(pattern=r"^/test_appeal_messages$"))(self._test_appeal_messages_handler)
+        self.bot.on(events.NewMessage(pattern=r"^/appeal(?:\s+(.+))?$"))(self._appeal_command_handler)
+        self.bot.on(events.CallbackQuery(pattern=b"appeal_account_id:(.+)"))(self._appeal_account_callback_handler)
+        self.bot.on(events.CallbackQuery(pattern=b"appeal_cancel"))(self._appeal_cancel_handler)
+        self.bot.on(events.CallbackQuery(pattern=b"captcha_(done|refresh|cancel)"))(self._captcha_callback_handler)
 
     async def _start_appeal_process(self, user_id: int):
         """Start the automated appeal process"""
@@ -1507,3 +1299,155 @@ Generate 4 diverse examples:"""
                 logger.warning(f"No active appeal for user {user_id}")
 
         logger.info(f"Handler registered successfully for user {user_id}")
+
+    async def _spam_stats_handler(self, event):
+        """Show spam detector statistics"""
+        try:
+            if hasattr(self.bot_manager, "spam_detector"):
+                stats = self.bot_manager.spam_detector.get_detection_stats()
+                stats_text = "📊 **Spam Detector Statistics**\n\n"
+                for spam_type, count in stats.items():
+                    if spam_type != "total_messages":
+                        type_name = spam_type.replace("_", " ").title()
+                        stats_text += f"• {type_name}: {count} messages\n"
+                stats_text += f"\n📝 Total Messages: {stats.get('total_messages', 0)}"
+                await event.reply(stats_text)
+            else:
+                await event.reply("❌ Spam detector not available")
+        except Exception as e:
+            logger.error(f"Spam stats command error: {e}")
+            await event.reply("❌ Error getting spam statistics")
+
+    async def _test_appeal_messages_handler(self, event):
+        """Test appeal message loading and selection"""
+        user_id = event.sender_id
+        try:
+            from ..core.config import config
+            if user_id not in config.security.admin_ids:
+                await event.reply("❌ Admin access required")
+                return
+            message_count = len(self.appeal_messages)
+            test_message = await self._select_smart_appeal_message("test context")
+            response = (
+                f"🧪 **Appeal Messages Test**\n\n"
+                f"📁 **Loaded Messages:** {message_count}\n"
+                f"📄 **Test Selection Length:** {len(test_message)} chars\n\n"
+                f"**Sample Message Preview:**\n"
+                f"```\n{test_message[:200]}...\n```\n\n"
+                f"✅ Appeal message system is working!"
+            )
+            await event.reply(response)
+        except Exception as e:
+            logger.error(f"Test appeal messages error: {e}")
+            await event.reply(f"❌ Test failed: {str(e)}")
+
+    async def _appeal_command_handler(self, event):
+        """Handle /appeal command"""
+        user_id = event.sender_id
+        try:
+            from ..core.mongo_database import mongodb
+            await self._disable_session_protection(user_id)
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "is_active": True}
+            ).to_list(length=None)
+            if not accounts:
+                await event.reply("❌ No accounts found. Add an account first using /start")
+                return
+            context = event.pattern_match.group(1) if event.pattern_match.group(1) else ""
+            if len(accounts) > 1:
+                await self._show_account_selection(event, accounts)
+            else:
+                account = accounts[0]
+                display_name = account.get("display_name") or account.get("name") or account.get("phone", "Unknown")
+                await self._start_appeal_for_account(user_id, display_name, context, event)
+        except Exception as e:
+            logger.error(f"Appeal command error: {e}")
+            await event.reply("❌ Error sending smart appeal. Please try again.")
+
+    async def _disable_session_protection(self, user_id: int):
+        """Disable session protection for appeal process"""
+        from ..core.mongo_database import mongodb
+        await mongodb.db.accounts.update_many(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "session_protection_disabled": True,
+                    "protection_bypass_until": int(asyncio.get_event_loop().time()) + 1800,
+                },
+                "$unset": {
+                    "session_protection_active": "",
+                    "protection_cooldown": "",
+                    "last_protection_trigger": "",
+                },
+            },
+        )
+
+    async def _show_account_selection(self, event, accounts):
+        """Show account selection buttons"""
+        buttons = []
+        for account in accounts[:10]:
+            display_name = account.get("display_name") or account.get("name") or account.get("phone", "Unknown")
+            buttons.append([Button.inline(f"📱 {display_name}", f"appeal_account_id:{account['_id']}")])
+        buttons.append([Button.inline("❌ Cancel", "appeal_cancel")])
+        await event.reply(
+            f"🧠 **Smart Spam Appeal**\n\n"
+            f"Select account to appeal spam restrictions:\n\n"
+            f"📊 Available accounts: {len(accounts)}",
+            buttons=buttons,
+        )
+
+    async def _appeal_account_callback_handler(self, event):
+        """Handle account selection callback"""
+        user_id = event.sender_id
+        account_id = event.data.decode().split(":", 1)[1]
+        try:
+            await event.answer()
+            await event.delete()
+            from bson import ObjectId
+            from ..core.mongo_database import mongodb
+            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            if not account:
+                await event.respond("❌ Account not found.")
+                return
+            account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
+            await asyncio.sleep(random.uniform(0.2, 0.8))
+            await self._start_appeal_for_account(user_id, account_name, "", event)
+        except Exception as e:
+            logger.error(f"Appeal account callback error: {e}")
+            await event.respond("❌ Error starting appeal process.")
+
+    async def _appeal_cancel_handler(self, event):
+        """Handle appeal cancellation"""
+        try:
+            await event.answer()
+            await event.delete()
+            await event.respond("❌ Appeal process cancelled.")
+        except Exception as e:
+            logger.error(f"Appeal cancel callback error: {e}")
+
+    async def _captcha_callback_handler(self, event):
+        """Handle captcha verification callbacks"""
+        user_id = event.sender_id
+        action = event.data.decode().split("_")[1]
+        try:
+            await event.answer()
+            await event.delete()
+            if user_id not in self.active_appeals:
+                await event.respond("⚠️ No active appeal process found.")
+                return
+            state = self.active_appeals[user_id]
+            if action == "cancel":
+                self.active_appeals.pop(user_id, None)
+                await event.respond("❌ Appeal process cancelled.")
+            elif action == "done":
+                state["state"] = "captcha_solved"
+                await event.respond(
+                    "✅ **Captcha Verification Confirmed**\n\n"
+                    "Looking for 'Done' button in @spambot...\n"
+                    "⏳ Please wait..."
+                )
+                await asyncio.sleep(3)
+                await self._auto_click_done(user_id)
+        except Exception as e:
+            logger.error(f"Captcha callback error: {e}")
+            await event.respond("❌ Error processing captcha verification.")
