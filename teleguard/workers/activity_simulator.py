@@ -179,33 +179,21 @@ class ActivitySimulator:
         self, client, activity: str, account_id: int, user_id: int, account_name: str
     ):
         """Execute activity with comprehensive audit logging"""
+        activity_map = {
+            "view_random_entity": self._view_random_entity,
+            "react_to_random_post": self._react_to_random_post,
+            "browse_profiles": self._browse_profiles,
+            "vote_in_random_poll": self._vote_in_random_poll,
+            "join_or_leave_public_channel": self._join_or_leave_channel,
+            "send_message": self._send_message,
+            "post_comment": self._post_comment,
+            "scroll_and_read": self._scroll_and_read,
+            "typing_simulation": self._typing_simulation,
+        }
         try:
-            if activity == "view_random_entity":
-                await self._view_random_entity(
-                    client, account_id, user_id, account_name
-                )
-            elif activity == "react_to_random_post":
-                await self._react_to_random_post(
-                    client, account_id, user_id, account_name
-                )
-            elif activity == "browse_profiles":
-                await self._browse_profiles(client, account_id, user_id, account_name)
-            elif activity == "vote_in_random_poll":
-                await self._vote_in_random_poll(
-                    client, account_id, user_id, account_name
-                )
-            elif activity == "join_or_leave_public_channel":
-                await self._join_or_leave_channel(
-                    client, account_id, user_id, account_name
-                )
-            elif activity == "send_message":
-                await self._send_message(client, account_id, user_id, account_name)
-            elif activity == "post_comment":
-                await self._post_comment(client, account_id, user_id, account_name)
-            elif activity == "scroll_and_read":
-                await self._scroll_and_read(client, account_id, user_id, account_name)
-            elif activity == "typing_simulation":
-                await self._typing_simulation(client, account_id, user_id, account_name)
+            handler = activity_map.get(activity)
+            if handler:
+                await handler(client, account_id, user_id, account_name)
         except errors.FloodWaitError as e:
             logger.warning(f"Rate limited for {account_name}, waiting {e.seconds}s")
             await asyncio.sleep(e.seconds)

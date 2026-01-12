@@ -85,37 +85,21 @@ class AutomationWorker:
         """Execute a single automation job"""
         try:
             import json
-
-            # Safely parse job config to prevent code injection
-            try:
-                config = json.loads(job["job_config"])
-                if not isinstance(config, dict):
-                    logger.error(f"Invalid job config format for job {job['_id']}")
-                    return
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON in job config for job {job['_id']}: {e}")
+            config = self._parse_job_config(job)
+            if not config:
                 return
-            if job["job_type"] == "auto_reply":
-                await self._handle_auto_reply(job["account_id"], config)
-            elif job["job_type"] == "scheduled_message":
-                await self._handle_scheduled_message(job["account_id"], config)
-            elif job["job_type"] == "online_maker":
-                await self._handle_online_maker(job["account_id"], config)
-            elif job["job_type"] == "ai_smart_reply":
-                await self._handle_ai_smart_reply(job["account_id"], config)
-            elif job["job_type"] == "group_engagement":
-                await self._handle_group_engagement(job["account_id"], config)
-            elif job["job_type"] == "natural_activity":
-                await self._handle_natural_activity(job["account_id"], config)
-            update_data = {"last_run": datetime.utcnow().isoformat()}
-            if config.get("interval"):
-                next_run = datetime.utcnow() + timedelta(seconds=config["interval"])
-                update_data["next_run"] = next_run.isoformat()
-            else:
-                update_data["enabled"] = False  # One-time job
-            await mongodb.db.automation_jobs.update_one(
-                {"_id": job["_id"]}, {"$set": update_data}
-            )
+            job_handlers = {
+                "auto_reply": self._handle_auto_reply,
+                "scheduled_message": self._handle_scheduled_message,
+                "online_maker": self._handle_online_maker,
+                "ai_smart_reply": self._handle_ai_smart_reply,
+                "group_engagement": self._handle_group_engagement,
+                "natural_activity": self._handle_natural_activity,
+            }
+            handler = job_handlers.get(job["job_type"])
+            if handler:
+                await handler(job["account_id"], config)
+            await self._update_job_schedule(job, config)
         except Exception as e:
             logger.error(f"Failed to execute job {job['_id']}: {e}")
 
@@ -328,53 +312,13 @@ Enhanced message:"""
             client = await self._get_client(account_id)
             if not client or not self.ai_model:
                 return
-
             groups = config.get("groups", [])
-            engagement_types = config.get(
-                "types", ["react", "reply", "mention_response"]
-            )
-
+            engagement_types = config.get("types", ["react", "reply", "mention_response"])
             for group_id in groups:
                 try:
-                    messages = await client.get_messages(group_id, limit=30)
-                    me = await client.get_me()
-
-                    for message in messages:
-                        if message.sender_id == me.id:
-                            continue
-
-                        # Check for mentions
-                        if (
-                            "mention_response" in engagement_types
-                            and me.username
-                            and f"@{me.username}" in (message.text or "").lower()
-                        ):
-
-                            reply = await self._ai_generate_mention_reply(message)
-                            if reply:
-                                await asyncio.sleep(random.uniform(3, 8))
-                                await message.reply(reply)
-                                break
-
-                        # Random engagement
-                        elif random.random() < 0.1:  # 10% chance
-                            if "react" in engagement_types and random.random() < 0.5:
-                                # Add reaction
-                                reactions = ["👍", "❤️", "😄", "🔥", "👏"]
-                                await message.react(random.choice(reactions))
-
-                            elif "reply" in engagement_types:
-                                reply = await self._ai_generate_contextual_reply(
-                                    message, group_id
-                                )
-                                if reply:
-                                    await asyncio.sleep(random.uniform(5, 12))
-                                    await message.reply(reply)
-                                    break
-
+                    await self._process_group_engagement(client, group_id, engagement_types)
                 except Exception as e:
                     logger.error(f"Group engagement error for {group_id}: {e}")
-
         except Exception as e:
             logger.error(f"Group engagement error: {e}")
 
@@ -581,3 +525,63 @@ Reply:"""
                             await asyncio.sleep(random.uniform(1, 3))
         except Exception as e:
             logger.error(f"Natural activity simulation error: {e}")
+
+    def _parse_job_config(self, job: dict):
+        """Parse and validate job config"""
+        import json
+        try:
+            config = json.loads(job["job_config"])
+            if not isinstance(config, dict):
+                logger.error(f"Invalid job config format for job {job['_id']}")
+                return None
+            return config
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in job config for job {job['_id']}: {e}")
+            return None
+
+    async def _update_job_schedule(self, job: dict, config: dict):
+        """Update job schedule after execution"""
+        update_data = {"last_run": datetime.utcnow().isoformat()}
+        if config.get("interval"):
+            next_run = datetime.utcnow() + timedelta(seconds=config["interval"])
+            update_data["next_run"] = next_run.isoformat()
+        else:
+            update_data["enabled"] = False
+        await mongodb.db.automation_jobs.update_one({"_id": job["_id"]}, {"$set": update_data})
+
+    async def _process_group_engagement(self, client, group_id, engagement_types):
+        """Process engagement for a single group"""
+        messages = await client.get_messages(group_id, limit=30)
+        me = await client.get_me()
+        for message in messages:
+            if message.sender_id == me.id:
+                continue
+            if await self._handle_mention_response(message, me, engagement_types):
+                break
+            if await self._handle_random_engagement(message, group_id, engagement_types):
+                break
+
+    async def _handle_mention_response(self, message, me, engagement_types) -> bool:
+        """Handle mention responses"""
+        if "mention_response" in engagement_types and me.username and f"@{me.username}" in (message.text or "").lower():
+            reply = await self._ai_generate_mention_reply(message)
+            if reply:
+                await asyncio.sleep(random.uniform(3, 8))
+                await message.reply(reply)
+                return True
+        return False
+
+    async def _handle_random_engagement(self, message, group_id, engagement_types) -> bool:
+        """Handle random engagement"""
+        if random.random() < 0.1:
+            if "react" in engagement_types and random.random() < 0.5:
+                reactions = ["👍", "❤️", "😄", "🔥", "👏"]
+                await message.react(random.choice(reactions))
+                return False
+            elif "reply" in engagement_types:
+                reply = await self._ai_generate_contextual_reply(message, group_id)
+                if reply:
+                    await asyncio.sleep(random.uniform(5, 12))
+                    await message.reply(reply)
+                    return True
+        return False
