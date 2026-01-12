@@ -285,71 +285,61 @@ class ActivitySimulator:
             entities = [d for d in dialogs if d.is_channel or d.is_group]
             if not entities:
                 return
+            
             for entity in random.sample(entities, min(5, len(entities))):
-                messages = await client.get_messages(entity, limit=50)
-                for message in messages:
-                    if (
-                        message.media
-                        and isinstance(message.media, MessageMediaPoll)
-                        and not message.media.poll.closed
-                    ):
-                        poll = message.media.poll
-                        if poll.answers:
-                            answer = random.choice(poll.answers)
-                            await client(
-                                functions.messages.SendVoteRequest(
-                                    peer=entity,
-                                    msg_id=message.id,
-                                    options=[answer.option],
-                                )
-                            )
-                            # Log poll vote
-                            await self._log_activity(
-                                account_id,
-                                user_id,
-                                entity.name,
-                                poll.question,
-                                answer.text,
-                            )
-                            return
+                if await self._try_vote_in_entity(client, entity, account_id, user_id):
+                    return
         except Exception as e:
             logger.error(f"Poll vote error for {account_name}: {e}")
+
+    async def _try_vote_in_entity(self, client, entity, account_id: int, user_id: int) -> bool:
+        """Try to vote in a poll in the given entity"""
+        messages = await client.get_messages(entity, limit=50)
+        for message in messages:
+            if message.media and isinstance(message.media, MessageMediaPoll) and not message.media.poll.closed:
+                poll = message.media.poll
+                if poll.answers:
+                    answer = random.choice(poll.answers)
+                    await client(functions.messages.SendVoteRequest(peer=entity, msg_id=message.id, options=[answer.option]))
+                    await self._log_activity(account_id, user_id, entity.name, poll.question, answer.text)
+                    return True
+        return False
 
     async def _join_or_leave_channel(
         self, client, account_id: int, user_id: int, account_name: str
     ):
         """Join or leave channel with audit logging"""
         try:
-            # Only 5% chance to execute this action
             if random.random() > 0.05:
                 return
+            
             action = random.choice(["join", "leave"])
             if action == "join":
-                search_terms = ["news", "tech", "music", "movies", "books"]
-                term = random.choice(search_terms)
-                results = await client(
-                    functions.contacts.SearchRequest(q=term, limit=10)
-                )
-                channels = [c for c in results.chats if c.broadcast and not c.megagroup]
-                if channels:
-                    channel = random.choice(channels)
-                    await client(functions.channels.JoinChannelRequest(channel))
-                    # Log channel join
-                    await self._log_activity(
-                        account_id, user_id, channel.title, channel.id
-                    )
-            else:  # leave
-                dialogs = await client.get_dialogs(limit=100)
-                old_channels = [d for d in dialogs if d.is_channel and not d.is_group]
-                if old_channels:
-                    channel = random.choice(old_channels)
-                    await client(functions.channels.LeaveChannelRequest(channel))
-                    # Log channel leave
-                    await self._log_activity(
-                        account_id, user_id, channel.name, channel.id
-                    )
+                await self._join_random_channel(client, account_id, user_id)
+            else:
+                await self._leave_random_channel(client, account_id, user_id)
         except Exception as e:
             logger.error(f"Join/leave error for {account_name}: {e}")
+
+    async def _join_random_channel(self, client, account_id: int, user_id: int):
+        """Join a random channel"""
+        search_terms = ["news", "tech", "music", "movies", "books"]
+        term = random.choice(search_terms)
+        results = await client(functions.contacts.SearchRequest(q=term, limit=10))
+        channels = [c for c in results.chats if c.broadcast and not c.megagroup]
+        if channels:
+            channel = random.choice(channels)
+            await client(functions.channels.JoinChannelRequest(channel))
+            await self._log_activity(account_id, user_id, channel.title, channel.id)
+
+    async def _leave_random_channel(self, client, account_id: int, user_id: int):
+        """Leave a random channel"""
+        dialogs = await client.get_dialogs(limit=100)
+        old_channels = [d for d in dialogs if d.is_channel and not d.is_group]
+        if old_channels:
+            channel = random.choice(old_channels)
+            await client(functions.channels.LeaveChannelRequest(channel))
+            await self._log_activity(account_id, user_id, channel.name, channel.id)
 
     async def _send_message(
         self, client, account_id: int, user_id: int, account_name: str
@@ -389,41 +379,33 @@ class ActivitySimulator:
     ):
         """Post comment with audit logging (very rare)"""
         try:
-            # Only 0.5% chance to post a comment
             if random.random() > 0.005:
                 return
+            
             dialogs = await client.get_dialogs(limit=30)
             channels = [d for d in dialogs if d.is_channel and not d.is_group]
             if not channels:
                 return
+            
             channel = random.choice(channels)
             messages = await client.get_messages(channel, limit=10)
-            # Find a message to comment on
-            for message in messages:
-                if message.id and not message.out:
-                    comments = [
-                        "👍",
-                        "Great post!",
-                        "Thanks for sharing",
-                        "Interesting",
-                        "Nice!",
-                    ]
-                    comment_text = random.choice(comments)
-                    # Try to comment (this might not work on all channels)
-                    try:
-                        await client.send_message(
-                            channel, comment_text, reply_to=message.id
-                        )
-                        # Log comment posted
-                        await self._log_activity(
-                            account_id, user_id, channel.name, comment_text
-                        )
-                        break
-                    except Exception as e:
-                        logger.warning(f"Could not post comment on {channel.name}: {e}")
-                        continue
+            await self._try_post_comment(client, channel, messages, account_id, user_id, account_name)
         except Exception as e:
             logger.error(f"Post comment error for {account_name}: {e}")
+
+    async def _try_post_comment(self, client, channel, messages, account_id: int, user_id: int, account_name: str):
+        """Try to post a comment on a message"""
+        comments = ["👍", "Great post!", "Thanks for sharing", "Interesting", "Nice!"]
+        for message in messages:
+            if message.id and not message.out:
+                comment_text = random.choice(comments)
+                try:
+                    await client.send_message(channel, comment_text, reply_to=message.id)
+                    await self._log_activity(account_id, user_id, channel.name, comment_text)
+                    break
+                except Exception as e:
+                    logger.warning(f"Could not post comment on {channel.name}: {e}")
+                    continue
 
     async def _scroll_and_read(
         self, client, account_id: int, user_id: int, account_name: str
@@ -434,43 +416,40 @@ class ActivitySimulator:
             entities = [d for d in dialogs if d.is_channel or d.is_group]
             if not entities:
                 return
+            
             entity = random.choice(entities)
-            # Simulate scrolling through messages
             total_messages = random.randint(20, 50)
             messages = await client.get_messages(entity, limit=total_messages)
-            # Simulate reading with realistic pauses
-            read_count = 0
-            for i, message in enumerate(messages):
-                if message.text:
-                    # Extremely realistic reading time (like actual human reading)
-                    read_time = self._calculate_realistic_reading_time(message.text)
-                    await asyncio.sleep(read_time)
-                    read_count += 1
-                    # Realistic scrolling behavior with natural pauses
-                    if i % random.randint(4, 8) == 0:
-                        pause_type = random.choices(
-                            ["quick_pause", "thinking_pause", "distraction"],
-                            weights=[60, 30, 10],
-                        )[0]
-
-                        if pause_type == "quick_pause":
-                            pause_time = random.uniform(1.5, 4.0)
-                        elif pause_type == "thinking_pause":
-                            pause_time = random.uniform(4.0, 12.0)
-                        else:  # distraction
-                            pause_time = random.uniform(15.0, 60.0)
-
-                        await asyncio.sleep(pause_time)
-            # Log scrolling activity
-            await self._log_activity(
-                account_id,
-                user_id,
-                entity.name,
-                read_count,
-                sum([1, 2, 3]),  # Approximate total time
-            )
+            
+            read_count = await self._simulate_reading(messages)
+            await self._log_activity(account_id, user_id, entity.name, read_count, sum([1, 2, 3]))
         except Exception as e:
             logger.error(f"Scroll and read error for {account_name}: {e}")
+
+    async def _simulate_reading(self, messages) -> int:
+        """Simulate reading messages with realistic pauses"""
+        read_count = 0
+        for i, message in enumerate(messages):
+            if message.text:
+                read_time = self._calculate_realistic_reading_time(message.text)
+                await asyncio.sleep(read_time)
+                read_count += 1
+                
+                if i % random.randint(4, 8) == 0:
+                    pause_time = self._get_pause_time()
+                    await asyncio.sleep(pause_time)
+        return read_count
+
+    def _get_pause_time(self) -> float:
+        """Get pause time based on pause type"""
+        pause_type = random.choices(["quick_pause", "thinking_pause", "distraction"], weights=[60, 30, 10])[0]
+        
+        if pause_type == "quick_pause":
+            return random.uniform(1.5, 4.0)
+        elif pause_type == "thinking_pause":
+            return random.uniform(4.0, 12.0)
+        else:
+            return random.uniform(15.0, 60.0)
 
     async def _typing_simulation(
         self, client, account_id: int, user_id: int, account_name: str

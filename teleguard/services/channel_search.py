@@ -105,84 +105,58 @@ class ChannelSearch:
     async def get_recommended_channels(self, user_id: int):
         """Get recommended channels based on user's current channels"""
         try:
-            # Get user's current channels
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            user_channels = set()
-
-            for account in accounts:
-                if hasattr(self.account_manager, "command_handlers"):
-                    success, channels = (
-                        await self.account_manager.command_handlers.channel_manager.get_user_channels(
-                            user_id, account["phone"]
-                        )
-                    )
-                    if success:
-                        for ch in channels:
-                            if ch.get("username"):
-                                user_channels.add(ch["username"].lower())
-
-            # Simple recommendation logic based on categories
-            recommendations = []
-            if any("tech" in ch or "programming" in ch for ch in user_channels):
-                recommendations.extend(
-                    [
-                        {
-                            "title": "Python Developers",
-                            "username": "pythondev",
-                            "type": "channel",
-                            "reason": "Tech interest",
-                        },
-                        {
-                            "title": "Web Development",
-                            "username": "webdev",
-                            "type": "channel",
-                            "reason": "Programming focus",
-                        },
-                    ]
-                )
-
-            if any("crypto" in ch or "bitcoin" in ch for ch in user_channels):
-                recommendations.extend(
-                    [
-                        {
-                            "title": "Crypto News",
-                            "username": "cryptonews",
-                            "type": "channel",
-                            "reason": "Crypto interest",
-                        },
-                        {
-                            "title": "Trading Signals",
-                            "username": "tradingsignals",
-                            "type": "channel",
-                            "reason": "Trading focus",
-                        },
-                    ]
-                )
-
-            # Default recommendations if no specific interests detected
-            if not recommendations:
-                recommendations = [
-                    {
-                        "title": "General News",
-                        "username": "generalnews",
-                        "type": "channel",
-                        "reason": "Popular",
-                    },
-                    {
-                        "title": "Tech Updates",
-                        "username": "techupdates",
-                        "type": "channel",
-                        "reason": "Trending",
-                    },
-                ]
-
-            return recommendations[:10]  # Limit to 10 recommendations
-
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            user_channels = await self._collect_user_channels(accounts, user_id)
+            recommendations = self._generate_recommendations(user_channels)
+            return recommendations[:10]
         except Exception as e:
             logger.error(f"Error getting recommendations: {e}")
             return []
+
+    async def _collect_user_channels(self, accounts, user_id: int) -> set:
+        """Collect all user channels from accounts"""
+        user_channels = set()
+        for account in accounts:
+            if hasattr(self.account_manager, "command_handlers"):
+                success, channels = await self.account_manager.command_handlers.channel_manager.get_user_channels(user_id, account["phone"])
+                if success:
+                    for ch in channels:
+                        if ch.get("username"):
+                            user_channels.add(ch["username"].lower())
+        return user_channels
+
+    def _generate_recommendations(self, user_channels: set) -> list:
+        """Generate recommendations based on user interests"""
+        recommendations = []
+        
+        if any("tech" in ch or "programming" in ch for ch in user_channels):
+            recommendations.extend(self._get_tech_recommendations())
+        
+        if any("crypto" in ch or "bitcoin" in ch for ch in user_channels):
+            recommendations.extend(self._get_crypto_recommendations())
+        
+        if not recommendations:
+            recommendations = self._get_default_recommendations()
+        
+        return recommendations
+
+    def _get_tech_recommendations(self) -> list:
+        return [
+            {"title": "Python Developers", "username": "pythondev", "type": "channel", "reason": "Tech interest"},
+            {"title": "Web Development", "username": "webdev", "type": "channel", "reason": "Programming focus"},
+        ]
+
+    def _get_crypto_recommendations(self) -> list:
+        return [
+            {"title": "Crypto News", "username": "cryptonews", "type": "channel", "reason": "Crypto interest"},
+            {"title": "Trading Signals", "username": "tradingsignals", "type": "channel", "reason": "Trading focus"},
+        ]
+
+    def _get_default_recommendations(self) -> list:
+        return [
+            {"title": "General News", "username": "generalnews", "type": "channel", "reason": "Popular"},
+            {"title": "Tech Updates", "username": "techupdates", "type": "channel", "reason": "Trending"},
+        ]
 
     async def _get_client(self, user_id: int, account_name: str):
         """Get Telegram client for account"""
