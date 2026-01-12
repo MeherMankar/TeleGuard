@@ -490,7 +490,9 @@ class AutoReplyHandler:
 
     def setup_auto_reply_menu(self):
         """Setup auto-reply menu handlers"""
+        self._register_auto_reply_callback()
 
+    def _register_auto_reply_callback(self):
         @self.bot.on(events.CallbackQuery(pattern=r"^auto_reply:"))
         async def handle_auto_reply_menu(event):
             user_id = event.sender_id
@@ -499,93 +501,17 @@ class AutoReplyHandler:
                 if data == "auto_reply:main":
                     await self._refresh_main_menu(event, user_id)
                 elif data == "auto_reply:toggle":
-                    # Show account selection for per-account control
-                    encrypted_accounts = await mongodb.db.accounts.find(
-                        {"user_id": user_id}
-                    ).to_list(None)
-                    if encrypted_accounts:
-                        accounts = [
-                            DataEncryption.decrypt_account_data(acc)
-                            for acc in encrypted_accounts
-                        ]
-                        buttons = []
-                        for account in accounts:
-                            status = (
-                                "🟢"
-                                if account.get("auto_reply_enabled", False)
-                                else "🔴"
-                            )
-                            buttons.append(
-                                [
-                                    Button.inline(
-                                        f"{status} {account['name']}",
-                                        f"auto_reply:toggle_account:{account['name']}",
-                                    )
-                                ]
-                            )
-                        buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
-                        await event.edit(
-                            "📱 **Select Account to Toggle Auto-Reply:**",
-                            buttons=buttons,
-                        )
-                    else:
-                        await event.answer("No accounts found!")
+                    await self._handle_toggle_accounts(event, user_id)
                 elif data == "auto_reply:keyword_settings":
                     await self._refresh_keyword_settings(event, user_id)
                 elif data == "auto_reply:time_settings":
                     await self._refresh_time_settings(event, user_id)
                 elif data == "auto_reply:toggle_keywords":
-                    settings = (
-                        await mongodb.db.auto_reply_settings.find_one(
-                            {"user_id": user_id}
-                        )
-                        or {}
-                    )
-                    new_status = not settings.get("keyword_replies_enabled", False)
-                    await mongodb.db.auto_reply_settings.update_one(
-                        {"user_id": user_id},
-                        {"$set": {"keyword_replies_enabled": new_status}},
-                        upsert=True,
-                    )
-                    status_text = "enabled" if new_status else "disabled"
-                    await event.answer(f"Keyword replies {status_text}!")
-                    await self._refresh_keyword_settings(event, user_id)
+                    await self._handle_toggle_keywords(event, user_id)
                 elif data == "auto_reply:toggle_time":
-                    settings = (
-                        await mongodb.db.auto_reply_settings.find_one(
-                            {"user_id": user_id}
-                        )
-                        or {}
-                    )
-                    new_status = not settings.get("time_based_replies_enabled", False)
-                    await mongodb.db.auto_reply_settings.update_one(
-                        {"user_id": user_id},
-                        {"$set": {"time_based_replies_enabled": new_status}},
-                        upsert=True,
-                    )
-                    status_text = "enabled" if new_status else "disabled"
-                    await event.answer(f"Time-based replies {status_text}!")
-                    await self._refresh_time_settings(event, user_id)
+                    await self._handle_toggle_time(event, user_id)
                 elif data == "auto_reply:keywords":
-                    user_keywords = await self._get_user_keywords(user_id)
-                    if user_keywords:
-                        keyword_list = "\n".join(
-                            [f"• {k}: {v[:50]}..." for k, v in user_keywords.items()]
-                        )
-                    else:
-                        keyword_list = "No keywords configured."
-                    buttons = [
-                        [Button.inline("➕ Add Keyword", "auto_reply:add_keyword")],
-                        [
-                            Button.inline(
-                                "➖ Remove Keyword", "auto_reply:remove_keyword"
-                            )
-                        ],
-                        [Button.inline("🔙 Back", "auto_reply:main")],
-                    ]
-                    await event.edit(
-                        f"🔑 **Active Keywords:**\n\n{keyword_list}", buttons=buttons
-                    )
+                    await self._handle_keywords_menu(event, user_id)
                 elif data == "auto_reply:add_keyword":
                     self.pending_actions[user_id] = {
                         "action": "add_keyword",
@@ -597,213 +523,17 @@ class AutoReplyHandler:
                         buttons=buttons,
                     )
                 elif data == "auto_reply:remove_keyword":
-                    user_keywords = await self._get_user_keywords(user_id)
-                    if user_keywords:
-                        buttons = [
-                            [Button.inline(f"❌ {k}", f"auto_reply:delete:{k}")]
-                            for k in user_keywords.keys()
-                        ]
-                        buttons.append(
-                            [Button.inline("🔙 Back", "auto_reply:keywords")]
-                        )
-                        await event.edit(
-                            "➖ **Remove Keyword**\n\nSelect keyword to delete:",
-                            buttons=buttons,
-                        )
-                    else:
-                        await event.edit(
-                            "⚠️ No keywords to remove.",
-                            buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]],
-                        )
+                    await self._handle_remove_keyword_menu(event, user_id)
                 elif data.startswith("auto_reply:delete:"):
-                    keyword = data.split(":", 2)[2]
-                    user_keywords = await self._get_user_keywords(user_id)
-                    if keyword in user_keywords:
-                        await self._remove_user_keyword(user_id, keyword)
-                        await event.edit(
-                            f"✅ Keyword '{keyword}' removed!",
-                            buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]],
-                        )
-                    else:
-                        await event.edit(
-                            "❌ Keyword not found.",
-                            buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]],
-                        )
+                    await self._handle_delete_keyword(event, user_id, data)
                 elif data == "auto_reply:analytics":
-                    stats = f"📊 **Auto-Reply Analytics**\n\n"
-                    stats += f"📨 Total Messages: {self.analytics['total_messages']}\n"
-                    stats += (
-                        f"🤖 Auto-Replies Sent: {self.analytics['auto_replies_sent']}\n"
-                    )
-                    stats += f"❓ Unmatched Queries: {
-                        self.analytics['unmatched_queries']}\n\n"
-                    stats += f"🔑 **Keyword Hits:**\n"
-                    for keyword, count in self.analytics["keyword_hits"].items():
-                        stats += f"• {keyword}: {count}\n"
-                    buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
-                    await event.edit(stats, buttons=buttons)
+                    await self._handle_analytics(event)
                 elif data == "auto_reply:hours":
-                    current_hours = f"{
-                        self.business_hours['start'].strftime('%H:%M')} - {
-                        self.business_hours['end'].strftime('%H:%M')}"
-                    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-                    active_days = ", ".join(
-                        [days[i] for i in self.business_hours["days"]]
-                    )
-                    text = f"🕒 **Availability Hours**\n\n"
-                    text += f"⏰ Hours: {current_hours}\n"
-                    text += f"📅 Days: {active_days}\n\n"
-                    text += f"During these hours, responses will indicate availability."
-                    buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
-                    await event.edit(text, buttons=buttons)
+                    await self._handle_hours(event)
                 elif data.startswith("auto_reply:toggle_account:"):
-                    account_name = data.replace("auto_reply:toggle_account:", "", 1)
-                    # Prevent rapid clicks (debouncing)
-                    current_time = time_module.time()
-                    toggle_key = f"{user_id}:{account_name}"
-                    if toggle_key in self.last_toggle_time:
-                        if (
-                            current_time - self.last_toggle_time[toggle_key] < 2
-                        ):  # 2 second cooldown
-                            await event.answer(
-                                "⏳ Please wait before toggling again..."
-                            )
-                            return
-                    self.last_toggle_time[toggle_key] = current_time
-                    try:
-                        # Try to find account by encrypted name first, then by plain
-                        # name
-                        account_doc = None
-                        try:
-                            account_doc = await mongodb.db.accounts.find_one(
-                                {
-                                    "user_id": user_id,
-                                    "name_enc": DataEncryption.encrypt_field(
-                                        account_name
-                                    ),
-                                }
-                            )
-                        except BaseException:
-                            pass
-                        # If not found with encrypted name, try plain name
-                        if not account_doc:
-                            account_doc = await mongodb.db.accounts.find_one(
-                                {"user_id": user_id, "name": account_name}
-                            )
-                        if account_doc:
-                            # Decrypt account data if encrypted
-                            account = DataEncryption.decrypt_account_data(account_doc)
-                            current_status = account.get("auto_reply_enabled", False)
-                            new_status = not current_status
-                            update_query = {"user_id": user_id}
-                            if "name_enc" in account_doc:
-                                update_query["name_enc"] = account_doc["name_enc"]
-                                update_data = {
-                                    "$set": {
-                                        "auto_reply_enabled_enc": DataEncryption.encrypt_field(
-                                            new_status
-                                        )
-                                    }
-                                }
-                            else:
-                                update_query["name"] = account_name
-                                update_data = {
-                                    "$set": {"auto_reply_enabled": new_status}
-                                }
-                            result = await mongodb.db.accounts.update_one(
-                                update_query, update_data
-                            )
-                            if result.modified_count > 0:
-                                logger.info(
-                                    f"Auto-reply toggle for {account_name}: {current_status} -> {new_status}"
-                                )
-                                status_text = (
-                                    "🟢 enabled" if new_status else "🔴 disabled"
-                                )
-                                await event.answer(
-                                    f"Auto-reply {status_text} for {account_name}!"
-                                )
-                                # Refresh account list with current data
-                                encrypted_accounts = await mongodb.db.accounts.find(
-                                    {"user_id": user_id}
-                                ).to_list(100)
-                                accounts = [
-                                    DataEncryption.decrypt_account_data(acc)
-                                    for acc in encrypted_accounts
-                                ]
-                                buttons = []
-                                for acc in accounts:
-                                    acc_status = acc.get("auto_reply_enabled", False)
-                                    status_icon = "🟢" if acc_status else "🔴"
-                                    buttons.append(
-                                        [
-                                            Button.inline(
-                                                f"{status_icon} {acc['name']}",
-                                                f"auto_reply:toggle_account:{
-                                                    acc['name']}",
-                                            )
-                                        ]
-                                    )
-                                buttons.append(
-                                    [Button.inline("🔙 Back", "auto_reply:main")]
-                                )
-                                try:
-                                    await event.edit(
-                                        "📱 **Select Account to Toggle Auto-Reply:**",
-                                        buttons=buttons,
-                                    )
-                                except Exception as edit_error:
-                                    if "MessageNotModifiedError" not in str(
-                                        edit_error
-                                    ) and "Content of the message was not modified" not in str(
-                                        edit_error
-                                    ):
-                                        logger.error(
-                                            f"Error refreshing account list: {edit_error}"
-                                        )
-                            else:
-                                await event.answer("❌ Failed to update account status")
-                                logger.error(
-                                    f"Database update failed for account {account_name}"
-                                )
-                        else:
-                            await event.answer("❌ Account not found!")
-                            logger.warning(
-                                f"Account {account_name} not found for user {user_id}"
-                            )
-                    except Exception as toggle_error:
-                        logger.error(
-                            f"Error toggling auto-reply for {account_name}: {toggle_error}"
-                        )
-                        await event.answer("❌ Error toggling auto-reply")
+                    await self._handle_toggle_account(event, user_id, data)
                 elif data == "auto_reply:reset":
-                    try:
-                        # Clear database settings
-                        await mongodb.db.auto_reply_settings.delete_one(
-                            {"user_id": user_id}
-                        )
-                        # Clear account auto-reply flags (handle both encrypted and
-                        # unencrypted)
-                        await mongodb.db.accounts.update_many(
-                            {"user_id": user_id},
-                            {
-                                "$unset": {
-                                    "auto_reply_enabled_enc": "",
-                                    "auto_reply_enabled": "",
-                                }
-                            },
-                        )
-                        # Force cleanup all handlers
-                        await self.force_cleanup_user_handlers(user_id)
-                        await event.edit(
-                            "✅ **Complete Auto-Reply Reset**\n\nAll settings, keywords, and handlers cleared. Duplicate replies should stop now.",
-                            buttons=[[Button.inline("🔙 Back", "auto_reply:main")]],
-                        )
-                    except Exception as reset_error:
-                        logger.error(
-                            f"Error during auto-reply reset for user {user_id}: {reset_error}"
-                        )
-                        await event.answer("❌ Error during reset")
+                    await self._handle_reset(event, user_id)
             except Exception as e:
                 if "MessageNotModifiedError" not in str(
                     e
@@ -836,3 +566,151 @@ class AutoReplyHandler:
             <= current_time.time()
             <= self.business_hours["end"]
         )
+
+    async def _handle_toggle_accounts(self, event, user_id):
+        encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+        if encrypted_accounts:
+            accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
+            buttons = []
+            for account in accounts:
+                status = "🟢" if account.get("auto_reply_enabled", False) else "🔴"
+                buttons.append([Button.inline(f"{status} {account['name']}", f"auto_reply:toggle_account:{account['name']}")])
+            buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
+            await event.edit("📱 **Select Account to Toggle Auto-Reply:**", buttons=buttons)
+        else:
+            await event.answer("No accounts found!")
+
+    async def _handle_toggle_keywords(self, event, user_id):
+        settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+        new_status = not settings.get("keyword_replies_enabled", False)
+        await mongodb.db.auto_reply_settings.update_one({"user_id": user_id}, {"$set": {"keyword_replies_enabled": new_status}}, upsert=True)
+        status_text = "enabled" if new_status else "disabled"
+        await event.answer(f"Keyword replies {status_text}!")
+        await self._refresh_keyword_settings(event, user_id)
+
+    async def _handle_toggle_time(self, event, user_id):
+        settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+        new_status = not settings.get("time_based_replies_enabled", False)
+        await mongodb.db.auto_reply_settings.update_one({"user_id": user_id}, {"$set": {"time_based_replies_enabled": new_status}}, upsert=True)
+        status_text = "enabled" if new_status else "disabled"
+        await event.answer(f"Time-based replies {status_text}!")
+        await self._refresh_time_settings(event, user_id)
+
+    async def _handle_keywords_menu(self, event, user_id):
+        user_keywords = await self._get_user_keywords(user_id)
+        if user_keywords:
+            keyword_list = "\n".join([f"• {k}: {v[:50]}..." for k, v in user_keywords.items()])
+        else:
+            keyword_list = "No keywords configured."
+        buttons = [
+            [Button.inline("➕ Add Keyword", "auto_reply:add_keyword")],
+            [Button.inline("➖ Remove Keyword", "auto_reply:remove_keyword")],
+            [Button.inline("🔙 Back", "auto_reply:main")],
+        ]
+        await event.edit(f"🔑 **Active Keywords:**\n\n{keyword_list}", buttons=buttons)
+
+    async def _handle_remove_keyword_menu(self, event, user_id):
+        user_keywords = await self._get_user_keywords(user_id)
+        if user_keywords:
+            buttons = [[Button.inline(f"❌ {k}", f"auto_reply:delete:{k}")] for k in user_keywords.keys()]
+            buttons.append([Button.inline("🔙 Back", "auto_reply:keywords")])
+            await event.edit("➖ **Remove Keyword**\n\nSelect keyword to delete:", buttons=buttons)
+        else:
+            await event.edit("⚠️ No keywords to remove.", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
+
+    async def _handle_delete_keyword(self, event, user_id, data):
+        keyword = data.split(":", 2)[2]
+        user_keywords = await self._get_user_keywords(user_id)
+        if keyword in user_keywords:
+            await self._remove_user_keyword(user_id, keyword)
+            await event.edit(f"✅ Keyword '{keyword}' removed!", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
+        else:
+            await event.edit("❌ Keyword not found.", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
+
+    async def _handle_analytics(self, event):
+        stats = f"📊 **Auto-Reply Analytics**\n\n"
+        stats += f"📨 Total Messages: {self.analytics['total_messages']}\n"
+        stats += f"🤖 Auto-Replies Sent: {self.analytics['auto_replies_sent']}\n"
+        stats += f"❓ Unmatched Queries: {self.analytics['unmatched_queries']}\n\n"
+        stats += f"🔑 **Keyword Hits:**\n"
+        for keyword, count in self.analytics["keyword_hits"].items():
+            stats += f"• {keyword}: {count}\n"
+        buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
+        await event.edit(stats, buttons=buttons)
+
+    async def _handle_hours(self, event):
+        current_hours = f"{self.business_hours['start'].strftime('%H:%M')} - {self.business_hours['end'].strftime('%H:%M')}"
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        active_days = ", ".join([days[i] for i in self.business_hours["days"]])
+        text = f"🕒 **Availability Hours**\n\n"
+        text += f"⏰ Hours: {current_hours}\n"
+        text += f"📅 Days: {active_days}\n\n"
+        text += f"During these hours, responses will indicate availability."
+        buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
+        await event.edit(text, buttons=buttons)
+
+    async def _handle_toggle_account(self, event, user_id, data):
+        account_name = data.replace("auto_reply:toggle_account:", "", 1)
+        current_time = time_module.time()
+        toggle_key = f"{user_id}:{account_name}"
+        if toggle_key in self.last_toggle_time:
+            if current_time - self.last_toggle_time[toggle_key] < 2:
+                await event.answer("⏳ Please wait before toggling again...")
+                return
+        self.last_toggle_time[toggle_key] = current_time
+        try:
+            account_doc = None
+            try:
+                account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
+            except BaseException:
+                pass
+            if not account_doc:
+                account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+            if account_doc:
+                account = DataEncryption.decrypt_account_data(account_doc)
+                current_status = account.get("auto_reply_enabled", False)
+                new_status = not current_status
+                update_query = {"user_id": user_id}
+                if "name_enc" in account_doc:
+                    update_query["name_enc"] = account_doc["name_enc"]
+                    update_data = {"$set": {"auto_reply_enabled_enc": DataEncryption.encrypt_field(new_status)}}
+                else:
+                    update_query["name"] = account_name
+                    update_data = {"$set": {"auto_reply_enabled": new_status}}
+                result = await mongodb.db.accounts.update_one(update_query, update_data)
+                if result.modified_count > 0:
+                    logger.info(f"Auto-reply toggle for {account_name}: {current_status} -> {new_status}")
+                    status_text = "🟢 enabled" if new_status else "🔴 disabled"
+                    await event.answer(f"Auto-reply {status_text} for {account_name}!")
+                    encrypted_accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
+                    accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
+                    buttons = []
+                    for acc in accounts:
+                        acc_status = acc.get("auto_reply_enabled", False)
+                        status_icon = "🟢" if acc_status else "🔴"
+                        buttons.append([Button.inline(f"{status_icon} {acc['name']}", f"auto_reply:toggle_account:{acc['name']}")])  
+                    buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
+                    try:
+                        await event.edit("📱 **Select Account to Toggle Auto-Reply:**", buttons=buttons)
+                    except Exception as edit_error:
+                        if "MessageNotModifiedError" not in str(edit_error) and "Content of the message was not modified" not in str(edit_error):
+                            logger.error(f"Error refreshing account list: {edit_error}")
+                else:
+                    await event.answer("❌ Failed to update account status")
+                    logger.error(f"Database update failed for account {account_name}")
+            else:
+                await event.answer("❌ Account not found!")
+                logger.warning(f"Account {account_name} not found for user {user_id}")
+        except Exception as toggle_error:
+            logger.error(f"Error toggling auto-reply for {account_name}: {toggle_error}")
+            await event.answer("❌ Error toggling auto-reply")
+
+    async def _handle_reset(self, event, user_id):
+        try:
+            await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
+            await mongodb.db.accounts.update_many({"user_id": user_id}, {"$unset": {"auto_reply_enabled_enc": "", "auto_reply_enabled": ""}})
+            await self.force_cleanup_user_handlers(user_id)
+            await event.edit("✅ **Complete Auto-Reply Reset**\n\nAll settings, keywords, and handlers cleared. Duplicate replies should stop now.", buttons=[[Button.inline("🔙 Back", "auto_reply:main")]])
+        except Exception as reset_error:
+            logger.error(f"Error during auto-reply reset for user {user_id}: {reset_error}")
+            await event.answer("❌ Error during reset")
