@@ -205,60 +205,20 @@ class UnifiedMessagingSystem:
         except Exception as e:
             logger.error(f"Auto-reply error for {account_name}: {e}")
 
-    async def _find_or_create_topic(
-        self, admin_group_id: int, sender_id: int, account_id: int, sender, user_id: int
-    ) -> Optional[int]:
+    async def _find_or_create_topic(self, admin_group_id: int, sender_id: int, account_id: int, sender, user_id: int) -> Optional[int]:
         """Find existing topic or create new one"""
         try:
-            existing_topic = await self._find_existing_topic(
-                admin_group_id, sender_id, account_id
-            )
+            existing_topic = await self._find_existing_topic(admin_group_id, sender_id, account_id)
             if existing_topic:
                 return existing_topic
-            try:
-                chat_info = await self.bot.get_entity(admin_group_id)
-                if not getattr(chat_info, "forum", False):
-                    return None
-            except Exception as e:
+            if not await self._verify_forum_enabled(admin_group_id):
                 return None
-            # Get account info for topic title
-            account_client = await self._get_client_by_id(account_id)
-            account_info = None
-            if account_client:
-                try:
-                    account_info = await account_client.get_me()
-                except Exception:
-                    pass
+            account_info = await self._get_account_info(account_id)
             topic_title = self._get_topic_title(sender, account_info)
-            try:
-                result = await self.bot(
-                    functions.channels.CreateForumTopicRequest(
-                        channel=admin_group_id,
-                        title=topic_title,
-                        random_id=hash(f"{sender_id}_{account_id}_{user_id}"),
-                    )
-                )
-            except Exception as create_error:
-                return None
-            # Extract topic ID from result
-            topic_id = None
-            if hasattr(result, "updates") and result.updates:
-                for update in result.updates:
-                    if hasattr(update, "message") and update.message:
-                        topic_id = update.message.id
-                        break
-                    elif hasattr(update, "id"):
-                        topic_id = update.id
-                        break
-            if not topic_id:
-                return None
-            # Store mapping in database for persistence
-            await self._store_topic_mapping(
-                admin_group_id, topic_id, sender_id, account_id
-            )
-            await self._create_system_message(
-                admin_group_id, topic_id, sender_id, account_id
-            )
+            topic_id = await self._create_new_topic(admin_group_id, topic_title, sender_id, account_id, user_id)
+            if topic_id:
+                await self._store_topic_mapping(admin_group_id, topic_id, sender_id, account_id)
+                await self._create_system_message(admin_group_id, topic_id, sender_id, account_id)
             return topic_id
         except Exception as e:
             logger.error(f"Failed to create topic: {e}")
@@ -639,3 +599,39 @@ class UnifiedMessagingSystem:
         self.registered_client_objects.clear()
         if hasattr(self.bot_manager, "registered_handlers"):
             self.bot_manager.registered_handlers["messaging"].clear()
+
+    async def _verify_forum_enabled(self, admin_group_id: int) -> bool:
+        """Verify forum is enabled for group"""
+        try:
+            chat_info = await self.bot.get_entity(admin_group_id)
+            return getattr(chat_info, "forum", False)
+        except Exception:
+            return False
+
+    async def _get_account_info(self, account_id: int):
+        """Get account info for topic title"""
+        account_client = await self._get_client_by_id(account_id)
+        if account_client:
+            try:
+                return await account_client.get_me()
+            except Exception:
+                pass
+        return None
+
+    async def _create_new_topic(self, admin_group_id: int, topic_title: str, sender_id: int, account_id: int, user_id: int) -> Optional[int]:
+        """Create new forum topic"""
+        try:
+            result = await self.bot(functions.channels.CreateForumTopicRequest(
+                channel=admin_group_id,
+                title=topic_title,
+                random_id=hash(f"{sender_id}_{account_id}_{user_id}"),
+            ))
+            if hasattr(result, "updates") and result.updates:
+                for update in result.updates:
+                    if hasattr(update, "message") and update.message:
+                        return update.message.id
+                    elif hasattr(update, "id"):
+                        return update.id
+            return None
+        except Exception:
+            return None
