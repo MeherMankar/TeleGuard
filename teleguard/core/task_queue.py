@@ -97,10 +97,6 @@ class TaskQueue:
             logger.error("Task execution failed", task_id=task.task_id, attempt=task.attempts, error=str(e))
             await self._handle_task_failure(task)
 
-
-# Global task queue
-task_queue = TaskQueue()
-
     async def _handle_task_failure(self, task: Task):
         """Handle task failure with retry logic"""
         if task.attempts >= task.max_retries:
@@ -109,3 +105,7 @@ task_queue = TaskQueue()
         else:
             task.next_run = datetime.now(timezone.utc) + timedelta(seconds=task.retry_delay)
             logger.info("Task scheduled for retry", task_id=task.task_id, next_run=task.next_run.isoformat())
+
+
+# Global task queue
+task_queue = TaskQueue()
