@@ -291,5 +291,3 @@ class AdminHandlers:
             await event.reply(status_text)
         except Exception as e:
             await event.reply(f"❌ Failed to get backup status: {e}")
-
-    def _register_backup_handlers(self):

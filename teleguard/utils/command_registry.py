@@ -96,7 +96,7 @@ class CommandRegistry:
         """Register commands with BotFather"""
         try:
             from telethon.tl.functions.bots import SetBotCommandsRequest
-            from telethon.tl.types import BotCommand
+            from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
             commands = [
                 BotCommand(command=cmd, description=desc[:64])  # BotFather limit
@@ -106,7 +106,11 @@ class CommandRegistry:
             ]
 
             await bot(
-                SetBotCommandsRequest(scope=None, lang_code="en", commands=commands)
+                SetBotCommandsRequest(
+                    scope=BotCommandScopeDefault(),
+                    lang_code="en",
+                    commands=commands
+                )
             )
 
             logger.info(f"Registered {len(commands)} commands with BotFather")
