@@ -37,105 +37,29 @@ class OnlineMaker:
         ping_count = 0
         try:
             while True:
-                # Find account by multiple criteria
-                account = None
-                for field in ["name", "phone", "display_name"]:
-                    account = await mongodb.db.accounts.find_one(
-                        {"user_id": user_id, field: account_name}
-                    )
-                    if account:
-                        break
-
+                account = await self._find_account(user_id, account_name)
                 if not account or not account.get("online_maker_enabled", False):
-                    logger.info(
-                        f"Online maker disabled or account not found for {account_name}"
-                    )
+                    logger.info(f"Online maker disabled or account not found for {account_name}")
                     break
-
-                user_clients_dict = self.user_clients.get(user_id, {})
-                client = None
-
-                # Try different keys to find the client
-                possible_keys = [
-                    account_name,
-                    account.get("phone"),
-                    account.get("name"),
-                    account.get("display_name"),
-                ]
-
-                for key in possible_keys:
-                    if key and key in user_clients_dict:
-                        client = user_clients_dict[key]
-                        if client and client.is_connected():
-                            break
-                        client = None
-
+                client = await self._find_connected_client(user_id, account_name, account)
                 if not client:
-                    logger.warning(
-                        f"Client not found or disconnected for {account_name}"
-                    )
-                    await asyncio.sleep(60)  # Wait 1 minute before retrying
+                    await asyncio.sleep(60)
                     continue
-                try:
-                    # Send update status to stay online
-                    from telethon.tl.functions.account import UpdateStatusRequest
-
-                    await client(UpdateStatusRequest(offline=False))
+                update_success = await self._update_online_status(client)
+                if update_success:
                     ping_count += 1
-                except Exception as e:
-                    error_msg = str(e)
-                    if (
-                        "authorization key" in error_msg
-                        and "simultaneously" in error_msg
-                    ):
-                        logger.warning("Session conflict, stopping online maker")
-                        await mongodb.db.accounts.update_one(
-                            {
-                                "user_id": user_id,
-                                "$or": [
-                                    {"name": account_name},
-                                    {"phone": account_name},
-                                ],
-                            },
-                            {"$set": {"online_maker_enabled": False}},
-                        )
-                        break
-                    elif "FLOOD_WAIT" in error_msg:
-                        import re
-
-                        wait_time = re.search(r"(\d+)", error_msg)
-                        if wait_time:
-                            wait_seconds = min(
-                                int(wait_time.group(1)), 300
-                            )  # Max 5 minutes
-                            logger.warning(f"Flood wait, waiting {wait_seconds}s")
-                            await asyncio.sleep(wait_seconds)
-                        continue
-                    else:
-                        logger.error(f"Online status update failed: {e}")
-                # Smart interval system for 24/7 operation
-                # More frequent pings during active hours, less during night
-                import time
-
-                current_hour = time.localtime().tm_hour
-                if 6 <= current_hour <= 23:  # Active hours (6 AM - 11 PM)
-                    base_interval = random.randint(45, 90)  # 45-90 seconds
-                else:  # Night hours (12 AM - 5 AM)
-                    base_interval = random.randint(90, 180)  # 1.5-3 minutes
-                await asyncio.sleep(base_interval)
-                # Take strategic breaks to avoid detection
-                # Every 50-80 pings (40-120 minutes), take a 2-8 minute break
-                if ping_count > 0 and ping_count % random.randint(50, 80) == 0:
-                    break_time = random.randint(120, 480)  # 2-8 minutes
-                    await asyncio.sleep(break_time)
+                elif update_success is None:
+                    await self._disable_online_maker(user_id, account_name)
+                    break
+                await asyncio.sleep(self._calculate_interval())
+                if self._should_take_break(ping_count):
+                    await asyncio.sleep(random.randint(120, 480))
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Online maker error: {e}")
         finally:
-            # Clean up task
-            task_key = f"{user_id}:{account_name}"
-            self.running_tasks.pop(task_key, None)
+            self.running_tasks.pop(f"{user_id}:{account_name}", None)
 
     async def setup_existing_online_makers(self):
         """Set up online makers for accounts that have it enabled"""
@@ -197,3 +121,64 @@ class OnlineMaker:
         except Exception as e:
             logger.error(f"Failed to force offline all accounts: {e}")
             return count
+
+    async def _find_account(self, user_id: int, account_name: str):
+        """Find account by multiple criteria"""
+        for field in ["name", "phone", "display_name"]:
+            account = await mongodb.db.accounts.find_one({" user_id": user_id, field: account_name})
+            if account:
+                return account
+        return None
+
+    async def _find_connected_client(self, user_id: int, account_name: str, account: dict):
+        """Find connected client for account"""
+        user_clients_dict = self.user_clients.get(user_id, {})
+        possible_keys = [account_name, account.get("phone"), account.get("name"), account.get("display_name")]
+        for key in possible_keys:
+            if key and key in user_clients_dict:
+                client = user_clients_dict[key]
+                if client and client.is_connected():
+                    return client
+        logger.warning(f"Client not found or disconnected for {account_name}")
+        return None
+
+    async def _update_online_status(self, client):
+        """Update online status, returns True on success, False on error, None on session conflict"""
+        try:
+            from telethon.tl.functions.account import UpdateStatusRequest
+            await client(UpdateStatusRequest(offline=False))
+            return True
+        except Exception as e:
+            error_msg = str(e)
+            if "authorization key" in error_msg and "simultaneously" in error_msg:
+                logger.warning("Session conflict, stopping online maker")
+                return None
+            elif "FLOOD_WAIT" in error_msg:
+                import re
+                wait_time = re.search(r"(\d+)", error_msg)
+                if wait_time:
+                    wait_seconds = min(int(wait_time.group(1)), 300)
+                    logger.warning(f"Flood wait, waiting {wait_seconds}s")
+                    await asyncio.sleep(wait_seconds)
+            else:
+                logger.error(f"Online status update failed: {e}")
+            return False
+
+    async def _disable_online_maker(self, user_id: int, account_name: str):
+        """Disable online maker for account"""
+        await mongodb.db.accounts.update_one(
+            {"user_id": user_id, "$or": [{"name": account_name}, {"phone": account_name}]},
+            {"$set": {"online_maker_enabled": False}}
+        )
+
+    def _calculate_interval(self) -> int:
+        """Calculate smart interval based on time of day"""
+        import time
+        current_hour = time.localtime().tm_hour
+        if 6 <= current_hour <= 23:
+            return random.randint(45, 90)
+        return random.randint(90, 180)
+
+    def _should_take_break(self, ping_count: int) -> bool:
+        """Determine if should take strategic break"""
+        return ping_count > 0 and ping_count % random.randint(50, 80) == 0

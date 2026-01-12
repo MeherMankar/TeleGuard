@@ -368,101 +368,18 @@ class ChannelManager:
     async def _get_client(self, user_id: int, account_phone: str):
         """Get Telethon client for account"""
         try:
-            user_clients = self.user_clients.get(user_id, {})
+            user_clients = await self._load_user_clients(user_id)
             if not user_clients:
-                # Try to reload clients from database
-                await self._reload_user_clients(user_id)
-                user_clients = self.user_clients.get(user_id, {})
-                if not user_clients:
-                    # Check if user has accounts but sessions are invalid
-                    accounts = await mongodb.db.accounts.find(
-                        {"user_id": user_id}
-                    ).to_list(length=None)
-                    if accounts:
-                        invalid_sessions = [
-                            acc for acc in accounts if acc.get("session_invalid")
-                        ]
-                        if invalid_sessions:
-                            logger.error(
-                                f"User {user_id} has accounts but sessions are invalid due to IP conflicts"
-                            )
-                        else:
-                            logger.error(
-                                f"User {user_id} has accounts but no active clients loaded"
-                            )
-                    else:
-                        logger.error(
-                            f"No accounts found for user {user_id}. User needs to add accounts first."
-                        )
-                    return None
-
-            # Try to find client by phone directly first
+                return None
             client = user_clients.get(account_phone)
             if client:
                 return client
-
-            # Find account by phone in database
-            try:
-                account = await mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "phone": account_phone}
-                )
-            except Exception as db_error:
-                logger.error(f"MongoDB query error: {db_error}")
-                return None
-
+            account = await self._find_account_by_phone(user_id, account_phone)
             if not account:
-                logger.error(f"Account not found: {account_phone} for user {user_id}")
                 return None
-
-            # Try to find client by account name
-            client = user_clients.get(account["name"])
+            client = await self._find_client_by_account(user_clients, account)
             if not client:
-                # Try display name if different
-                if (
-                    account.get("display_name")
-                    and account["display_name"] != account["name"]
-                ):
-                    client = user_clients.get(account["display_name"])
-
-            if not client:
-                # Try to reload this specific account
-                if account.get("session_string"):
-                    try:
-                        await self.bot_manager.start_user_client(
-                            user_id, account["name"], account["session_string"]
-                        )
-                        client = self.user_clients.get(user_id, {}).get(account["name"])
-                        if client:
-                            return client
-                    except Exception as reload_error:
-                        error_msg = str(reload_error)
-                        if (
-                            "authorization key" in error_msg
-                            and "different IP addresses" in error_msg
-                        ):
-                            logger.error(
-                                f"Session invalidated for {
-                                    account['name']}: Session used from different IP"
-                            )
-                            # Mark account as inactive due to invalid session
-                            await mongodb.db.accounts.update_one(
-                                {"user_id": user_id, "phone": account_phone},
-                                {"$set": {"is_active": False, "session_invalid": True}},
-                            )
-                        else:
-                            logger.error(
-                                f"Failed to reload client for {
-                                    account['name']}: {reload_error}"
-                            )
-
-                logger.error(
-                    f"Client not found for account {
-                        account['name']} (phone: {account_phone}). Available clients: {
-                        list(
-                            user_clients.keys())}"
-                )
-                return None
-
+                client = await self._reload_account_client(user_id, account, account_phone)
             return client
         except Exception as e:
             logger.error(f"Get client error: {e}")
@@ -604,3 +521,71 @@ class ChannelManager:
             if match:
                 return match.group(1)
         return None
+
+    async def _load_user_clients(self, user_id: int):
+        """Load user clients, reload if necessary"""
+        user_clients = self.user_clients.get(user_id, {})
+        if not user_clients:
+            await self._reload_user_clients(user_id)
+            user_clients = self.user_clients.get(user_id, {})
+            if not user_clients:
+                await self._log_no_clients_error(user_id)
+                return None
+        return user_clients
+
+    async def _log_no_clients_error(self, user_id: int):
+        """Log appropriate error when no clients found"""
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+        if accounts:
+            invalid_sessions = [acc for acc in accounts if acc.get("session_invalid")]
+            if invalid_sessions:
+                logger.error(f"User {user_id} has accounts but sessions are invalid due to IP conflicts")
+            else:
+                logger.error(f"User {user_id} has accounts but no active clients loaded")
+        else:
+            logger.error(f"No accounts found for user {user_id}. User needs to add accounts first.")
+
+    async def _find_account_by_phone(self, user_id: int, account_phone: str):
+        """Find account by phone in database"""
+        try:
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": account_phone})
+            if not account:
+                logger.error(f"Account not found: {account_phone} for user {user_id}")
+            return account
+        except Exception as db_error:
+            logger.error(f"MongoDB query error: {db_error}")
+            return None
+
+    async def _find_client_by_account(self, user_clients: dict, account: dict):
+        """Find client by account name or display name"""
+        client = user_clients.get(account["name"])
+        if not client and account.get("display_name") and account["display_name"] != account["name"]:
+            client = user_clients.get(account["display_name"])
+        return client
+
+    async def _reload_account_client(self, user_id: int, account: dict, account_phone: str):
+        """Reload specific account client"""
+        if not account.get("session_string"):
+            logger.error(f"Client not found for account {account['name']} (phone: {account_phone}). Available clients: {list(self.user_clients.get(user_id, {}).keys())}")
+            return None
+        try:
+            await self.bot_manager.start_user_client(user_id, account["name"], account["session_string"])
+            client = self.user_clients.get(user_id, {}).get(account["name"])
+            if client:
+                return client
+        except Exception as reload_error:
+            await self._handle_reload_error(reload_error, user_id, account, account_phone)
+        logger.error(f"Client not found for account {account['name']} (phone: {account_phone}). Available clients: {list(self.user_clients.get(user_id, {}).keys())}")
+        return None
+
+    async def _handle_reload_error(self, error: Exception, user_id: int, account: dict, account_phone: str):
+        """Handle errors during client reload"""
+        error_msg = str(error)
+        if "authorization key" in error_msg and "different IP addresses" in error_msg:
+            logger.error(f"Session invalidated for {account['name']}: Session used from different IP")
+            await mongodb.db.accounts.update_one(
+                {"user_id": user_id, "phone": account_phone},
+                {"$set": {"is_active": False, "session_invalid": True}}
+            )
+        else:
+            logger.error(f"Failed to reload client for {account['name']}: {error}")
