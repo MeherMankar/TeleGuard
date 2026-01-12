@@ -58,127 +58,29 @@ class AccountCleaner:
     def __init__(self):
         pass  # Delays are randomized per operation
 
-    async def cleanup_account(
-        self,
-        client: TelegramClient,
-        cleanup_settings: Dict[str, bool],
-        progress_callback: Optional[callable] = None,
-    ) -> str:
+    async def cleanup_account(self, client: TelegramClient, cleanup_settings: Dict[str, bool], progress_callback: Optional[callable] = None) -> str:
         """Perform account cleanup with progress tracking"""
-
         progress = CleanupProgress()
         results = []
-
         try:
             if not await client.is_user_authorized():
                 return "❌ Session is invalid, re-authorization required"
-
             if progress_callback:
-                await progress_callback(
-                    "✅ Connection established\n⏳ Analyzing account..."
-                )
-
-            # Get all dialogs
-            dialogs = []
-            dialog_count = 0
-            async for dialog in client.iter_dialogs():
-                dialogs.append(dialog)
-                dialog_count += 1
-                if dialog_count % 10 == 0 and progress_callback:
-                    await progress_callback(f"📋 Found {dialog_count} dialogs...")
-
+                await progress_callback("✅ Connection established\n⏳ Analyzing account...")
+            dialogs = await self._collect_dialogs(progress_callback)
             progress.total_items = len(dialogs)
             progress.current_operation = f"Found {len(dialogs)} dialogs"
-
             if progress_callback:
                 await progress_callback(progress.get_progress_text())
-
-            # Execute cleanup operations
-            if cleanup_settings.get("personal_chats", False):
-                count = await self._cleanup_personal_chats(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"💬 Deleted personal chats: {count}")
-
-            if cleanup_settings.get("bot_chats", False):
-                count = await self._cleanup_bot_chats(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"🤖 Deleted bot chats: {count}")
-
-            if cleanup_settings.get("groups", False):
-                count = await self._leave_groups(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"👥 Left groups: {count}")
-
-            if cleanup_settings.get("channels", False):
-                count = await self._leave_channels(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"📺 Unsubscribed from channels: {count}")
-
-            if cleanup_settings.get("contacts", False):
-                count = await self._cleanup_contacts(
-                    client, progress, progress_callback
-                )
-                results.append(f"📞 Deleted contacts: {count}")
-
-            if cleanup_settings.get("telegram_chat", False):
-                count = await self._cleanup_telegram_chat(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(
-                    f"📢 Cleaned Telegram dialog: {'✅' if count > 0 else '❌'}"
-                )
-
-            if cleanup_settings.get("spambot_chat", False):
-                count = await self._cleanup_spambot_chat(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"🚫 Spambot cleanup: {count}")
-
-            if cleanup_settings.get("owned_groups", False):
-                count = await self._delete_owned_groups(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"🗑️ Deleted owned groups: {count}")
-
-            if cleanup_settings.get("owned_channels", False):
-                count = await self._delete_owned_channels(
-                    client, dialogs, progress, progress_callback
-                )
-                results.append(f"📺 Deleted owned channels: {count}")
-
-            # Final verification
-            if progress_callback:
-                await progress_callback("🔍 Final verification...")
-
-            remaining_count = await self._final_cleanup_check(
-                client, cleanup_settings, progress, progress_callback
-            )
+            results = await self._execute_cleanup_operations(client, dialogs, cleanup_settings, progress, progress_callback)
+            remaining_count = await self._final_cleanup_check(client, cleanup_settings, progress, progress_callback)
             if remaining_count > 0:
                 results.append(f"🧹 Additionally cleaned: {remaining_count}")
-
-            final_result = "\n".join(results) if results else "✅ Cleanup completed"
-
-            # Add summary statistics
-            summary = f"""
-📊 Cleanup Summary:
-{final_result}
-
-⏱️ Total time: {int((datetime.now() - progress.start_time).total_seconds())}s
-📈 Items processed: {progress.processed_items}
-✅ Items deleted: {progress.deleted_items}
-⚠️ Errors: {len(progress.errors)}
-"""
-            return summary
-
+            return self._generate_summary(results, progress)
         except FloodWaitError as e:
             error_msg = f"Rate limited by Telegram: wait {e.seconds} seconds"
             progress.add_error(error_msg)
             return f"⏳ {error_msg}"
-
         except Exception as e:
             error_msg = f"Cleanup error: {str(e)}"
             progress.add_error(error_msg)
@@ -789,3 +691,49 @@ class AccountCleaner:
 
         except Exception as e:
             return {"error": str(e)}
+
+    async def _collect_dialogs(self, progress_callback):
+        """Collect all dialogs with progress updates"""
+        dialogs = []
+        dialog_count = 0
+        async for dialog in client.iter_dialogs():
+            dialogs.append(dialog)
+            dialog_count += 1
+            if dialog_count % 10 == 0 and progress_callback:
+                await progress_callback(f"📋 Found {dialog_count} dialogs...")
+        return dialogs
+
+    async def _execute_cleanup_operations(self, client, dialogs, cleanup_settings, progress, progress_callback):
+        """Execute all cleanup operations based on settings"""
+        results = []
+        cleanup_map = {
+            "personal_chats": (self._cleanup_personal_chats, "💬 Deleted personal chats"),
+            "bot_chats": (self._cleanup_bot_chats, "🤖 Deleted bot chats"),
+            "groups": (self._leave_groups, "👥 Left groups"),
+            "channels": (self._leave_channels, "📺 Unsubscribed from channels"),
+            "contacts": (self._cleanup_contacts, "📞 Deleted contacts"),
+            "telegram_chat": (self._cleanup_telegram_chat, "📢 Cleaned Telegram dialog"),
+            "spambot_chat": (self._cleanup_spambot_chat, "🚫 Spambot cleanup"),
+            "owned_groups": (self._delete_owned_groups, "🗑️ Deleted owned groups"),
+            "owned_channels": (self._delete_owned_channels, "📺 Deleted owned channels"),
+        }
+        for setting, (method, label) in cleanup_map.items():
+            if cleanup_settings.get(setting, False):
+                count = await method(client, dialogs, progress, progress_callback) if setting != "contacts" else await method(client, progress, progress_callback)
+                results.append(f"{label}: {count if setting != 'telegram_chat' else ('✅' if count > 0 else '❌')}")
+        if progress_callback:
+            await progress_callback("🔍 Final verification...")
+        return results
+
+    def _generate_summary(self, results, progress):
+        """Generate cleanup summary"""
+        final_result = "\n".join(results) if results else "✅ Cleanup completed"
+        return f"""
+📊 Cleanup Summary:
+{final_result}
+
+⏱️ Total time: {int((datetime.now() - progress.start_time).total_seconds())}s
+📈 Items processed: {progress.processed_items}
+✅ Items deleted: {progress.deleted_items}
+⚠️ Errors: {len(progress.errors)}
+"""

@@ -130,60 +130,17 @@ class MessagingManager:
         if random.random() < 0.6:  # 60% chance to review
             await asyncio.sleep(random.uniform(0.3, 2.0))
 
-    async def send_message(
-        self, user_id: int, account_name: str, target: str, message: str
-    ) -> bool:
+    async def send_message(self, user_id: int, account_name: str, target: str, message: str) -> bool:
         """Send a message with smart routing and human-like behavior"""
         try:
             client = await self._get_best_client(user_id, account_name, target)
             if not client:
-                logger.error(
-                    f"No connected client found for user {user_id}, account {account_name}"
-                )
+                logger.error(f"No connected client found for user {user_id}, account {account_name}")
                 return False
-
-            # Resolve target - use InputPeerUser for usernames to start new chats
-            try:
-                pass
-
-                if target.startswith("@"):
-                    # Search for user to get full info
-                    try:
-                        target_entity = await client.get_entity(target)
-                    except BaseException:
-                        # If not found in contacts, try resolving username
-                        from telethon import functions
-
-                        result = await client(
-                            functions.contacts.ResolveUsernameRequest(
-                                username=target[1:]
-                            )
-                        )
-                        if result.users:
-                            target_entity = result.users[0]
-                        else:
-                            raise ValueError(f"Username {target} not found")
-                elif target.startswith("-") or target.isdigit():
-                    target_entity = await client.get_entity(int(target))
-                else:
-                    target_entity = await client.get_entity(target)
-            except Exception as e:
-                logger.error(f"Failed to resolve target {target}: {e}")
+            target_entity = await self._resolve_target_entity(client, target)
+            if not target_entity:
                 return False
-
-            # Human-like typing simulation
-            from telethon import functions
-            from telethon.tl import types
-
-            await client(
-                functions.messages.SetTypingRequest(
-                    peer=target_entity, action=types.SendMessageTypingAction()
-                )
-            )
-            typing_delay = len(message) * random.uniform(0.03, 0.08)
-            typing_delay = min(max(typing_delay, 1.0), 8.0)
-            await asyncio.sleep(typing_delay)
-
+            await self._simulate_typing(client, target_entity, message)
             await client.send_message(target_entity, message)
             logger.info(f"Message sent from {account_name} to {target}")
             return True
@@ -249,3 +206,32 @@ class MessagingManager:
                 "active_accounts": 0,
                 "dm_topics_created": 0,
             }
+
+    async def _resolve_target_entity(self, client, target: str):
+        """Resolve target to entity"""
+        try:
+            if target.startswith("@"):
+                try:
+                    return await client.get_entity(target)
+                except BaseException:
+                    from telethon import functions
+                    result = await client(functions.contacts.ResolveUsernameRequest(username=target[1:]))
+                    if result.users:
+                        return result.users[0]
+                    raise ValueError(f"Username {target} not found")
+            elif target.startswith("-") or target.isdigit():
+                return await client.get_entity(int(target))
+            else:
+                return await client.get_entity(target)
+        except Exception as e:
+            logger.error(f"Failed to resolve target {target}: {e}")
+            return None
+
+    async def _simulate_typing(self, client, target_entity, message: str):
+        """Simulate human-like typing"""
+        from telethon import functions
+        from telethon.tl import types
+        await client(functions.messages.SetTypingRequest(peer=target_entity, action=types.SendMessageTypingAction()))
+        typing_delay = len(message) * random.uniform(0.03, 0.08)
+        typing_delay = min(max(typing_delay, 1.0), 8.0)
+        await asyncio.sleep(typing_delay)
