@@ -144,8 +144,14 @@ class AdvancedSpamHandler:
             )
 
     def register_handlers(self):
-        handler_self = self
+        """Register all spam handler callbacks"""
+        self._register_warning_handlers()
+        self._register_menu_handlers()
+        self._register_operation_handlers()
+        self._register_message_handler()
 
+    def _register_warning_handlers(self):
+        """Register warning acceptance handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"accept_spam_warning"))
         async def accept_warning(event):
             user_id = event.sender_id
@@ -157,7 +163,7 @@ class AdvancedSpamHandler:
             await event.answer("✅ Terms accepted. Redirecting...", alert=True)
 
             # Show main menu with operations
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             buttons = [
                 [
@@ -241,11 +247,13 @@ class AdvancedSpamHandler:
                     buttons=[[Button.inline("🏠 Main Menu", b"menu:main")]],
                 )
 
+    def _register_menu_handlers(self):
+        """Register menu navigation handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"advanced_spam"))
         async def advanced_menu(event):
             await event.answer()
             user_id = event.sender_id
-            await handler_self._get_accounts(user_id)
+            await self._get_accounts(user_id)
 
             buttons = [
                 [
@@ -286,12 +294,23 @@ class AdvancedSpamHandler:
 
             await event.edit(text, buttons=buttons)
 
-        # Mass Inviter
+    def _register_operation_handlers(self):
+        """Register all operation handlers"""
+        self._register_mass_invite_handlers()
+        self._register_contact_scrape_handlers()
+        self._register_username_check_handlers()
+        self._register_forward_bomb_handlers()
+        self._register_message_flood_handlers()
+        self._register_raid_handlers()
+        self._register_send_all_groups_handlers()
+
+    def _register_mass_invite_handlers(self):
+        """Register mass invite handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"mass_invite"))
         async def mass_invite_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -346,14 +365,15 @@ class AdvancedSpamHandler:
             user_id = event.sender_id
 
             await event.answer("🌐 Starting mass invite to all groups...", alert=True)
-            await handler_self._execute_mass_invite_all(event, phone, user_id)
+            await self._execute_mass_invite_all(event, phone, user_id)
 
-        # Contact Scraper
+    def _register_contact_scrape_handlers(self):
+        """Register contact scraper handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"contact_scrape"))
         async def contact_scrape_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -414,14 +434,15 @@ class AdvancedSpamHandler:
             user_id = event.sender_id
 
             await event.answer("🌐 Starting scrape from all groups...", alert=True)
-            await handler_self._execute_contact_scrape_all(event, phone, user_id)
+            await self._execute_contact_scrape_all(event, phone, user_id)
 
-        # Username Checker
+    def _register_username_check_handlers(self):
+        """Register username checker handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"username_check"))
         async def username_check_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -454,12 +475,13 @@ class AdvancedSpamHandler:
                 f"Send base username (e.g., 'test'):"
             )
 
-        # Forward Bomber
+    def _register_forward_bomb_handlers(self):
+        """Register forward bomber handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"forward_bomb"))
         async def forward_bomb_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -527,12 +549,13 @@ class AdvancedSpamHandler:
                 f"Send source chat username/link:"
             )
 
-        # Message Flooder
+    def _register_message_flood_handlers(self):
+        """Register message flooder handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"message_flood"))
         async def message_flood_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -600,12 +623,13 @@ class AdvancedSpamHandler:
                 f"Send the message to flood:"
             )
 
-        # Raid Coordinator
+    def _register_raid_handlers(self):
+        """Register raid coordinator handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"raid_coord"))
         async def raid_coord_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if len(accounts) < 2:
                 await event.answer("❌ Need at least 2 accounts", alert=True)
@@ -628,7 +652,7 @@ class AdvancedSpamHandler:
         async def stealth_raid_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if len(accounts) < 2:
                 await event.answer("❌ Need at least 2 accounts", alert=True)
@@ -651,7 +675,7 @@ class AdvancedSpamHandler:
         async def multi_raid_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if len(accounts) < 3:
                 await event.answer("❌ Need at least 3 accounts", alert=True)
@@ -669,12 +693,13 @@ class AdvancedSpamHandler:
                 f"Send target groups (one per line):"
             )
 
-        # Send to All Groups
+    def _register_send_all_groups_handlers(self):
+        """Register send to all groups handlers"""
         @self.bot.on(events.CallbackQuery(pattern=b"send_all_groups"))
         async def send_all_groups_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -707,7 +732,8 @@ class AdvancedSpamHandler:
                 f"Send the message you want to broadcast to all groups:"
             )
 
-        # Message handler for operations
+    def _register_message_handler(self):
+        """Register message handler for operations"""
         @self.bot.on(events.NewMessage(func=lambda e: e.is_private))
         async def operation_handler(event):
             user_id = event.sender_id
