@@ -20,73 +20,54 @@ class HelpHandler:
 
     def register_handlers(self):
         """Register help command handlers"""
+        self.bot.on(events.NewMessage(pattern=r"^/help$"))(self._help_command)
+        self.bot.on(events.CallbackQuery(pattern=b"help_(.+)"))(self._help_category_callback)
+        self.bot.on(events.CallbackQuery(pattern=b"help_main"))(self._help_main_callback)
 
-        @self.bot.on(events.NewMessage(pattern=r"^/help$"))
-        async def help_command(event):
-            """Show comprehensive help"""
-            user_id = event.sender_id
-            is_admin = user_id in ADMIN_IDS
+    async def _help_command(self, event):
+        """Show comprehensive help"""
+        user_id = event.sender_id
+        is_admin = user_id in ADMIN_IDS
+        help_text = self._generate_help_text(is_admin)
+        buttons = self._build_help_buttons(is_admin)
+        await event.reply(help_text, buttons=buttons)
 
-            help_text = self._generate_help_text(is_admin)
+    async def _help_category_callback(self, event):
+        """Handle help category selection"""
+        category = event.data.decode().split("_", 1)[1]
+        if category == "close":
+            await event.delete()
+            return
+        await event.answer()
+        help_text = self._get_category_help(category)
+        buttons = [
+            [Button.inline("⬅️ Back to Help", b"help_main")],
+            [Button.inline("❌ Close", b"help_close")],
+        ]
+        await event.edit(help_text, buttons=buttons)
 
-            buttons = [
-                [Button.inline("📱 Account Commands", b"help_accounts")],
-                [Button.inline("🛡️ Security Commands", b"help_security")],
-                [Button.inline("💬 Messaging Commands", b"help_messaging")],
-                [Button.inline("📊 Monitoring Commands", b"help_monitoring")],
-                [Button.inline("🤖 Automation Commands", b"help_automation")],
-            ]
+    async def _help_main_callback(self, event):
+        """Return to main help"""
+        await event.answer()
+        user_id = event.sender_id
+        is_admin = user_id in ADMIN_IDS
+        help_text = self._generate_help_text(is_admin)
+        buttons = self._build_help_buttons(is_admin)
+        await event.edit(help_text, buttons=buttons)
 
-            if is_admin:
-                buttons.append([Button.inline("👨‍💼 Admin Commands", b"help_admin")])
-
-            buttons.append([Button.inline("❌ Close", b"help_close")])
-
-            await event.reply(help_text, buttons=buttons)
-
-        @self.bot.on(events.CallbackQuery(pattern=b"help_(.+)"))
-        async def help_category_callback(event):
-            """Handle help category selection"""
-            category = event.data.decode().split("_", 1)[1]
-
-            if category == "close":
-                await event.delete()
-                return
-
-            await event.answer()
-
-            help_text = self._get_category_help(category)
-
-            buttons = [
-                [Button.inline("⬅️ Back to Help", b"help_main")],
-                [Button.inline("❌ Close", b"help_close")],
-            ]
-
-            await event.edit(help_text, buttons=buttons)
-
-        @self.bot.on(events.CallbackQuery(pattern=b"help_main"))
-        async def help_main_callback(event):
-            """Return to main help"""
-            await event.answer()
-            user_id = event.sender_id
-            is_admin = user_id in ADMIN_IDS
-
-            help_text = self._generate_help_text(is_admin)
-
-            buttons = [
-                [Button.inline("📱 Account Commands", b"help_accounts")],
-                [Button.inline("🛡️ Security Commands", b"help_security")],
-                [Button.inline("💬 Messaging Commands", b"help_messaging")],
-                [Button.inline("📊 Monitoring Commands", b"help_monitoring")],
-                [Button.inline("🤖 Automation Commands", b"help_automation")],
-            ]
-
-            if is_admin:
-                buttons.append([Button.inline("👨‍💼 Admin Commands", b"help_admin")])
-
-            buttons.append([Button.inline("❌ Close", b"help_close")])
-
-            await event.edit(help_text, buttons=buttons)
+    def _build_help_buttons(self, is_admin: bool):
+        """Build help menu buttons"""
+        buttons = [
+            [Button.inline("📱 Account Commands", b"help_accounts")],
+            [Button.inline("🛡️ Security Commands", b"help_security")],
+            [Button.inline("💬 Messaging Commands", b"help_messaging")],
+            [Button.inline("📊 Monitoring Commands", b"help_monitoring")],
+            [Button.inline("🤖 Automation Commands", b"help_automation")],
+        ]
+        if is_admin:
+            buttons.append([Button.inline("👨💼 Admin Commands", b"help_admin")])
+        buttons.append([Button.inline("❌ Close", b"help_close")])
+        return buttons
 
     def _generate_help_text(self, is_admin: bool = False) -> str:
         """Generate main help text"""
@@ -157,7 +138,7 @@ class HelpHandler:
                 },
             },
             "admin": {
-                "title": "👨‍💼 Admin Commands",
+                "title": "👨💼 Admin Commands",
                 "commands": {
                     "stats": "Bot statistics",
                     "broadcast": "Broadcast message",

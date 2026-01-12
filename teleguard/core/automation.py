@@ -99,16 +99,19 @@ class AutomationEngine:
         try:
             config = json.loads(job.get("job_config", "{}"))
             account_id = job.get("account_id")
-            if job.get("job_type") == "auto_reply":
-                await self._execute_auto_reply(account_id, config)
-            elif job.get("job_type") == "scheduled_post":
-                await self._execute_scheduled_post(account_id, config)
-            elif job.get("job_type") == "auto_join":
-                await self._execute_auto_join(account_id, config)
-            elif job.get("job_type") == "ai_group_interaction":
-                await self._execute_ai_group_interaction(account_id, config)
-            elif job.get("job_type") == "human_activity_simulation":
-                await self._execute_human_activity(account_id, config)
+            job_type = job.get("job_type")
+            
+            job_handlers = {
+                "auto_reply": self._execute_auto_reply,
+                "scheduled_post": self._execute_scheduled_post,
+                "auto_join": self._execute_auto_join,
+                "ai_group_interaction": self._execute_ai_group_interaction,
+                "human_activity_simulation": self._execute_human_activity
+            }
+            
+            handler = job_handlers.get(job_type)
+            if handler:
+                await handler(account_id, config)
         except Exception as e:
             logger.error(f"Execute job error: {e}")
 
