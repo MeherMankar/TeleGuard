@@ -71,33 +71,38 @@ class GroupManager:
             groups = [d for d in dialogs if d.is_group or d.is_channel]
 
             if not groups:
-                await event.edit(
-                    f"👥 **Groups - {account_name}**\n\n" "No groups found.",
-                    buttons=[[Button.inline("🔙 Back", "group_manager")]],
-                )
+                await self._show_no_groups(event, account_name)
                 return
 
-            text = f"👥 **Groups - {account_name}**\n\n"
-            buttons = []
-
-            for group in groups[:20]:
-                title = group.title[:30]
-                buttons.append(
-                    [
-                        Button.inline(
-                            f"📤 {title}", f"group_leave:{account_name}:{group.id}"
-                        )
-                    ]
-                )
-
-            buttons.append([Button.inline("🔙 Back", "group_manager")])
-
-            await event.edit(
-                text + f"Found {len(groups)} groups. Select to leave:", buttons=buttons
-            )
+            await self._show_groups_list(event, account_name, groups)
         except Exception as e:
             logger.error(f"List groups error: {e}")
             await event.answer("❌ Error loading groups", alert=True)
+
+    async def _show_no_groups(self, event, account_name):
+        """Show no groups message"""
+        await event.edit(
+            f"👥 **Groups - {account_name}**\n\n" "No groups found.",
+            buttons=[[Button.inline("🔙 Back", "group_manager")]],
+        )
+
+    async def _show_groups_list(self, event, account_name, groups):
+        """Show list of groups"""
+        text = f"👥 **Groups - {account_name}**\n\n"
+        buttons = []
+        for group in groups[:20]:
+            title = group.title[:30]
+            buttons.append(
+                [
+                    Button.inline(
+                        f"📤 {title}", f"group_leave:{account_name}:{group.id}"
+                    )
+                ]
+            )
+        buttons.append([Button.inline("🔙 Back", "group_manager")])
+        await event.edit(
+            text + f"Found {len(groups)} groups. Select to leave:", buttons=buttons
+        )
 
     async def _leave_group(self, event):
         """Leave a group"""
