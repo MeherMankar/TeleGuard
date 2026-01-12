@@ -46,31 +46,50 @@ def format_display_name(account) -> str:
             return account.get(k)
         return getattr(account, k, None)
 
-    # Prefer stored display_name
     display = _get("display_name")
     if display and display != "Unknown":
         return display
-    # Build from name components
-    first = _get("first_name") or _get("first")
-    last = _get("last_name") or _get("last")
-    username = _get("username")
-    phone = _get("phone")
-    uid = _get("_id") or _get("id")
+
+    base = _build_base_name(_get)
+    extra = _get_extra_info(_get)
+    
+    if extra and str(extra) not in base:
+        return f"{base} ({extra})"
+    return base
+
+
+def _build_base_name(getter) -> str:
+    """Build base name from account info"""
+    first = getter("first_name") or getter("first")
+    last = getter("last_name") or getter("last")
     name = " ".join(p for p in (first, last) if p)
     if name:
-        base = name
-    elif username:
-        base = f"@{username}"
-    elif phone:
-        base = format_phone_number(phone)
-    elif uid:
-        base = f"ID:{uid}"
-    else:
-        base = "Unknown"
-    extra = username or format_phone_number(phone) if phone else None
-    if extra and str(extra) not in base:
-        base = f"{base} ({extra})"
-    return base
+        return name
+    
+    username = getter("username")
+    if username:
+        return f"@{username}"
+    
+    phone = getter("phone")
+    if phone:
+        return format_phone_number(phone)
+    
+    uid = getter("_id") or getter("id")
+    if uid:
+        return f"ID:{uid}"
+    
+    return "Unknown"
+
+
+def _get_extra_info(getter) -> str:
+    """Get extra info for display name"""
+    username = getter("username")
+    if username:
+        return username
+    phone = getter("phone")
+    if phone:
+        return format_phone_number(phone)
+    return None
 
 
 async def find_account_doc(db, account_id_or_phone):

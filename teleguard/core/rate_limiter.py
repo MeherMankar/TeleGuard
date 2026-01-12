@@ -114,9 +114,6 @@ class RateLimiter:
         return sum(count for _, count in self.operations[account_phone][operation])
 
 
-# Global rate limiter instance
-rate_limiter = RateLimiter()
-
     def _check_cooldown(self, account_phone: str, operation: str) -> Optional[str]:
         """Check cooldown, returns error message if on cooldown"""
         if operation not in self.COOLDOWNS:
@@ -143,3 +140,7 @@ rate_limiter = RateLimiter()
         if count >= limit:
             return f"⚠️ Rate limit reached: {count}/{limit} {operation}s per hour"
         return None
+
+
+# Global rate limiter instance
+rate_limiter = RateLimiter()

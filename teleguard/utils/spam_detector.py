@@ -59,99 +59,45 @@ class SpamDetector:
 
         for message in self.appeal_messages:
             message_lower = message.lower()
-
-            # Two-way restriction messages
-            if any(
-                keyword in message_lower
-                for keyword in [
-                    "two-way restriction",
-                    "two way restriction",
-                    "dual verification",
-                    "two-step verification",
-                    "dual authentication",
-                ]
-            ):
-                categories[SpamLimitType.TWO_WAY_RESTRICTION].append(message)
-
-            # Spamblock messages
-            elif any(
-                keyword in message_lower
-                for keyword in [
-                    "spamblock",
-                    "spam block",
-                    "flagged with a spamblock",
-                    "spamblock restrictions",
-                    "blocked with a spamblock",
-                ]
-            ):
-                categories[SpamLimitType.SPAMBLOCK].append(message)
-
-            # New account restriction messages
-            elif any(
-                keyword in message_lower
-                for keyword in [
-                    "new account",
-                    "newly registered",
-                    "recently created",
-                    "fresh account",
-                    "first-time",
-                    "newcomer",
-                    "brand-new",
-                ]
-            ):
-                categories[SpamLimitType.NEW_ACCOUNT_RESTRICTION].append(message)
-
-            # Verification required messages
-            elif any(
-                keyword in message_lower
-                for keyword in [
-                    "verification",
-                    "captcha",
-                    "human verification",
-                    "identity confirmation",
-                    "authentication",
-                ]
-            ):
-                categories[SpamLimitType.VERIFICATION_REQUIRED].append(message)
-
-            # Professional/technical appeals
-            elif any(
-                keyword in message_lower
-                for keyword in [
-                    "professional",
-                    "business",
-                    "enterprise",
-                    "developer",
-                    "api",
-                    "technical",
-                    "research",
-                    "academic",
-                    "organization",
-                ]
-            ):
-                categories[SpamLimitType.PROFESSIONAL_APPEAL].append(message)
-
-            # Technical appeals with specific use cases
-            elif any(
-                keyword in message_lower
-                for keyword in [
-                    "cybersecurity",
-                    "accessibility",
-                    "medical",
-                    "emergency",
-                    "crisis",
-                    "humanitarian",
-                    "educational",
-                    "cultural",
-                ]
-            ):
-                categories[SpamLimitType.TECHNICAL_APPEAL].append(message)
-
-            # General restriction messages (fallback)
-            else:
-                categories[SpamLimitType.GENERAL_RESTRICTION].append(message)
+            spam_type = self._detect_message_category(message_lower)
+            categories[spam_type].append(message)
 
         return categories
+
+    def _detect_message_category(self, message_lower: str) -> SpamLimitType:
+        """Detect category for a single message"""
+        if self._is_two_way_restriction(message_lower):
+            return SpamLimitType.TWO_WAY_RESTRICTION
+        elif self._is_spamblock(message_lower):
+            return SpamLimitType.SPAMBLOCK
+        elif self._is_new_account(message_lower):
+            return SpamLimitType.NEW_ACCOUNT_RESTRICTION
+        elif self._is_verification(message_lower):
+            return SpamLimitType.VERIFICATION_REQUIRED
+        elif self._is_professional(message_lower):
+            return SpamLimitType.PROFESSIONAL_APPEAL
+        elif self._is_technical(message_lower):
+            return SpamLimitType.TECHNICAL_APPEAL
+        else:
+            return SpamLimitType.GENERAL_RESTRICTION
+
+    def _is_two_way_restriction(self, text: str) -> bool:
+        return any(kw in text for kw in ["two-way restriction", "two way restriction", "dual verification", "two-step verification", "dual authentication"])
+
+    def _is_spamblock(self, text: str) -> bool:
+        return any(kw in text for kw in ["spamblock", "spam block", "flagged with a spamblock", "spamblock restrictions", "blocked with a spamblock"])
+
+    def _is_new_account(self, text: str) -> bool:
+        return any(kw in text for kw in ["new account", "newly registered", "recently created", "fresh account", "first-time", "newcomer", "brand-new"])
+
+    def _is_verification(self, text: str) -> bool:
+        return any(kw in text for kw in ["verification", "captcha", "human verification", "identity confirmation", "authentication"])
+
+    def _is_professional(self, text: str) -> bool:
+        return any(kw in text for kw in ["professional", "business", "enterprise", "developer", "api", "technical", "research", "academic", "organization"])
+
+    def _is_technical(self, text: str) -> bool:
+        return any(kw in text for kw in ["cybersecurity", "accessibility", "medical", "emergency", "crisis", "humanitarian", "educational", "cultural"])
 
     async def ai_detect_spam_type(self, context: str) -> Optional[SpamLimitType]:
         """Use AI to detect spam limitation type"""
@@ -198,52 +144,16 @@ Respond with only the type name (e.g., "spamblock"):"""
         """Detect the type of spam limitation from spambot context"""
         context_lower = context.lower()
 
-        # Check for specific spam limit indicators
-        if any(
-            keyword in context_lower
-            for keyword in [
-                "two-way",
-                "dual verification",
-                "two-step",
-                "dual authentication",
-            ]
-        ):
+        if self._is_two_way_restriction(context_lower):
             return SpamLimitType.TWO_WAY_RESTRICTION
-
-        elif any(
-            keyword in context_lower
-            for keyword in [
-                "spamblock",
-                "spam block",
-                "flagged as spam",
-                "spam restrictions",
-            ]
-        ):
+        elif self._is_spamblock(context_lower):
             return SpamLimitType.SPAMBLOCK
-
-        elif any(
-            keyword in context_lower
-            for keyword in ["new account", "recently created", "fresh registration"]
-        ):
+        elif any(kw in context_lower for kw in ["new account", "recently created", "fresh registration"]):
             return SpamLimitType.NEW_ACCOUNT_RESTRICTION
-
-        elif any(
-            keyword in context_lower
-            for keyword in [
-                "verify",
-                "captcha",
-                "human verification",
-                "prove you are human",
-            ]
-        ):
+        elif any(kw in context_lower for kw in ["verify", "captcha", "human verification", "prove you are human"]):
             return SpamLimitType.VERIFICATION_REQUIRED
-
-        elif any(
-            keyword in context_lower
-            for keyword in ["professional", "business", "enterprise", "api access"]
-        ):
+        elif any(kw in context_lower for kw in ["professional", "business", "enterprise", "api access"]):
             return SpamLimitType.PROFESSIONAL_APPEAL
-
         else:
             return SpamLimitType.GENERAL_RESTRICTION
 
@@ -385,59 +295,50 @@ Respond with only the type name (e.g., "spamblock"):"""
         filtered = []
 
         for message in messages:
-            message_lower = message.lower()
-
-            # Match context-specific keywords
-            if any(word in context_lower for word in ["mistake", "error", "wrong"]):
-                if any(
-                    keyword in message_lower
-                    for keyword in ["mistake", "error", "wrong"]
-                ):
-                    filtered.append(message)
-
-            elif any(word in context_lower for word in ["details", "explain", "why"]):
-                if len(message) > 200:  # Prefer longer, detailed messages
-                    filtered.append(message)
-
-            elif any(word in context_lower for word in ["professional", "business"]):
-                if any(
-                    keyword in message_lower
-                    for keyword in ["professional", "business", "work"]
-                ):
-                    filtered.append(message)
+            if self._matches_context(message.lower(), context_lower):
+                filtered.append(message)
 
         return filtered
+
+    def _matches_context(self, message_lower: str, context_lower: str) -> bool:
+        """Check if message matches context"""
+        if any(w in context_lower for w in ["mistake", "error", "wrong"]):
+            return any(kw in message_lower for kw in ["mistake", "error", "wrong"])
+        elif any(w in context_lower for w in ["details", "explain", "why"]):
+            return len(message_lower) > 200
+        elif any(w in context_lower for w in ["professional", "business"]):
+            return any(kw in message_lower for kw in ["professional", "business", "work"])
+        return False
 
     def _filter_by_preferences(
         self, messages: List[str], preferences: Dict
     ) -> List[str]:
         """Filter messages based on user preferences"""
         filtered = []
-
-        tone = preferences.get("tone", "polite")  # polite, formal, casual
-        length = preferences.get("length", "medium")  # short, medium, long
+        tone = preferences.get("tone", "polite")
+        length = preferences.get("length", "medium")
 
         for message in messages:
-            # Filter by tone
-            if tone == "formal":
-                if any(
-                    word in message.lower()
-                    for word in ["dear", "kindly", "respectfully"]
-                ):
-                    filtered.append(message)
-            elif tone == "casual":
-                if any(word in message.lower() for word in ["hello", "hi", "hope you"]):
-                    filtered.append(message)
-
-            # Filter by length
-            elif length == "short" and len(message) < 300:
-                filtered.append(message)
-            elif length == "long" and len(message) > 500:
-                filtered.append(message)
-            elif length == "medium" and 300 <= len(message) <= 500:
+            if self._matches_preferences(message, tone, length):
                 filtered.append(message)
 
         return filtered if filtered else messages
+
+    def _matches_preferences(self, message: str, tone: str, length: str) -> bool:
+        """Check if message matches preferences"""
+        message_lower = message.lower()
+        
+        if tone == "formal" and any(w in message_lower for w in ["dear", "kindly", "respectfully"]):
+            return True
+        elif tone == "casual" and any(w in message_lower for w in ["hello", "hi", "hope you"]):
+            return True
+        elif length == "short" and len(message) < 300:
+            return True
+        elif length == "long" and len(message) > 500:
+            return True
+        elif length == "medium" and 300 <= len(message) <= 500:
+            return True
+        return False
 
     def get_detection_stats(self) -> Dict:
         """Get statistics about message categorization"""

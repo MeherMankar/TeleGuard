@@ -98,50 +98,67 @@ async def str_to_session_file(
     """
     if not session_string or not file_path:
         return False, "Invalid arguments"
-    if file_path.endswith(".session"):
-        session_name = file_path[:-8]
-    else:
-        session_name = file_path
+    
+    session_name = _get_session_name(file_path)
     string_client = TelegramClient(StringSession(session_string), api_id, api_hash)
+    
     try:
-        dc_id = getattr(string_client.session, "dc_id", None)
-        server_address = getattr(string_client.session, "server_address", None)
-        port = getattr(string_client.session, "port", None)
-        auth_key = getattr(string_client.session, "auth_key", None)
-        if not auth_key:
-            try:
-                await string_client.connect()
-                auth_key = getattr(string_client.session, "auth_key", None)
-            except Exception:
-                pass
-            finally:
-                try:
-                    await string_client.disconnect()
-                except Exception:
-                    pass
-
+        auth_key = await _extract_auth_key(string_client)
         if not auth_key:
             return False, "Session auth_key unavailable; cannot create file session"
-
-        file_client = TelegramClient(session_name, api_id, api_hash)
-        try:
-            try:
-                if hasattr(file_client.session, "set_dc") and dc_id is not None:
-                    file_client.session.set_dc(dc_id, server_address or "", port or 0)
-                if hasattr(file_client.session, "auth_key"):
-                    file_client.session.auth_key = auth_key
-                file_client.session.save()
-                return True, f"{session_name}.session"
-            except Exception as e:
-                return False, f"Failed to write session file: {e}"
-        finally:
-            try:
-                await file_client.disconnect()
-            except Exception:
-                pass
+        
+        return await _create_file_session(session_name, api_id, api_hash, string_client, auth_key)
     except Exception as e:
         try:
             await string_client.disconnect()
         except Exception:
             pass
         return False, str(e)
+
+
+def _get_session_name(file_path: str) -> str:
+    """Extract session name from file path"""
+    if file_path.endswith(".session"):
+        return file_path[:-8]
+    return file_path
+
+
+async def _extract_auth_key(string_client):
+    """Extract auth key from string client"""
+    auth_key = getattr(string_client.session, "auth_key", None)
+    if not auth_key:
+        try:
+            await string_client.connect()
+            auth_key = getattr(string_client.session, "auth_key", None)
+        except Exception:
+            pass
+        finally:
+            try:
+                await string_client.disconnect()
+            except Exception:
+                pass
+    return auth_key
+
+
+async def _create_file_session(session_name: str, api_id: int, api_hash: str, string_client, auth_key) -> Tuple[bool, str]:
+    """Create file-backed session from string session"""
+    dc_id = getattr(string_client.session, "dc_id", None)
+    server_address = getattr(string_client.session, "server_address", None)
+    port = getattr(string_client.session, "port", None)
+    
+    file_client = TelegramClient(session_name, api_id, api_hash)
+    try:
+        try:
+            if hasattr(file_client.session, "set_dc") and dc_id is not None:
+                file_client.session.set_dc(dc_id, server_address or "", port or 0)
+            if hasattr(file_client.session, "auth_key"):
+                file_client.session.auth_key = auth_key
+            file_client.session.save()
+            return True, f"{session_name}.session"
+        except Exception as e:
+            return False, f"Failed to write session file: {e}"
+    finally:
+        try:
+            await file_client.disconnect()
+        except Exception:
+            pass
