@@ -19,6 +19,14 @@ class SpamFiltersHandler:
         self.user_clients = bot_manager.user_clients
 
     def register_handlers(self):
+        self._register_main_menu_handler()
+        self._register_delay_handlers()
+        self._register_user_filter_handlers()
+        self._register_blacklist_handlers()
+        self._register_settings_handlers()
+        self._register_message_handler()
+
+    def _register_main_menu_handler(self):
         @self.bot.on(events.CallbackQuery(pattern=b"spam_filters"))
         async def filters_menu(event):
             await event.answer()
@@ -49,6 +57,8 @@ class SpamFiltersHandler:
             )
 
             await event.respond(text, buttons=buttons)
+
+    def _register_delay_handlers(self):
 
         @self.bot.on(events.CallbackQuery(pattern=b"filter_delays"))
         async def delays_menu(event):
@@ -139,6 +149,7 @@ class SpamFiltersHandler:
                 upsert=True,
             )
 
+    def _register_user_filter_handlers(self):
         @self.bot.on(events.CallbackQuery(pattern=b"filter_users"))
         async def users_filter_menu(event):
             await event.answer()
@@ -209,6 +220,7 @@ class SpamFiltersHandler:
         async def toggle_bots(event):
             await self._toggle_filter(event, "no_bots")
 
+    def _register_blacklist_handlers(self):
         @self.bot.on(events.CallbackQuery(pattern=b"manage_blacklist"))
         async def blacklist_menu(event):
             await event.answer()
@@ -288,6 +300,7 @@ class SpamFiltersHandler:
             await event.answer("✅ Blacklist cleared", alert=True)
             await blacklist_menu(event)
 
+    def _register_settings_handlers(self):
         @self.bot.on(events.CallbackQuery(pattern=b"filter_settings"))
         async def settings_menu(event):
             await event.answer()
@@ -338,6 +351,7 @@ class SpamFiltersHandler:
             )
             await settings_menu(event)
 
+    def _register_message_handler(self):
         @self.bot.on(events.NewMessage(incoming=True))
         async def handle_filter_inputs(msg_event):
             user_id = msg_event.sender_id
