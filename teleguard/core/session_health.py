@@ -24,26 +24,18 @@ class SessionHealth:
     async def check_session(self, client, account_phone: str) -> tuple[bool, str]:
         """Check if session is healthy"""
         try:
-            # Try to get current user info
             me = await client.get_me()
-
             if not me:
                 self._record_issue(account_phone, "critical", "Cannot get user info")
                 return False, "❌ Session invalid - cannot get user info"
-
-            # Check if client is connected
             if not client.is_connected():
                 self._record_issue(account_phone, "warning", "Client disconnected")
                 return False, "⚠️ Client disconnected"
-
-            # Session is healthy
             self._record_healthy(account_phone)
             return True, "✅ Session healthy"
-
         except (AuthKeyError, UnauthorizedError) as e:
             self._record_issue(account_phone, "critical", f"Auth error: {str(e)}")
             return False, f"❌ Session expired: {str(e)}"
-
         except Exception as e:
             self._record_issue(account_phone, "warning", f"Check failed: {str(e)}")
             return False, f"⚠️ Health check failed: {str(e)}"
