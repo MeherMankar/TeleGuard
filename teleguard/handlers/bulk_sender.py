@@ -25,7 +25,14 @@ class BulkSender:
 
     def register_handlers(self):
         """Register bulk sender command handlers"""
+        self._register_main_command()
+        self._register_list_command()
+        self._register_contacts_command()
+        self._register_all_command()
+        self._register_jobs_command()
+        self._register_stop_command()
 
+    def _register_main_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_send$"))
         async def bulk_send_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -48,6 +55,7 @@ class BulkSender:
                 "Example: `Check this out [Visit Site](https://example.com) [More Info](info_callback)`"
             )
 
+    def _register_list_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_send_list\s+(.+)"))
         async def bulk_send_list_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -80,6 +88,7 @@ class BulkSender:
             except Exception as e:
                 await event.reply(f"❌ Error: {str(e)}")
 
+    def _register_contacts_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_send_contacts\s+(\S+)\s+(.+)"))
         async def bulk_send_contacts_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -112,6 +121,7 @@ class BulkSender:
             except Exception as e:
                 await event.reply(f"❌ Error: {str(e)}")
 
+    def _register_all_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_send_all\s+(.+)"))
         async def bulk_send_all_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -153,6 +163,7 @@ class BulkSender:
             except Exception as e:
                 await event.reply(f"❌ Error: {str(e)}")
 
+    def _register_jobs_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_jobs$"))
         async def bulk_jobs_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -174,6 +185,7 @@ class BulkSender:
                 status_text += f"🔹 `{job['id'][:8]}` - {progress} ({job['status']}){account_info}\n"
             await event.reply(status_text)
 
+    def _register_stop_command(self):
         @self.bot.on(events.NewMessage(pattern=r"^/bulk_stop\s+(\S+)$"))
         async def bulk_stop_command(event):
             if not event.is_private or event.sender_id not in ADMIN_IDS:
@@ -266,178 +278,21 @@ class BulkSender:
         job = self.active_jobs.get(job_id)
         if not job:
             return
-
         status_msg = None
         try:
-            # Send initial status
-            status_msg = await job["event"].reply(
-                f"🚀 **Campaign Started**\n\n"
-                f"Account: {job['account_name']}\n"
-                f"Total Users: {job['total']}\n"
-                f"Sent: 0/{job['total']}\n"
-                f"Progress: ░░░░░░░░░░ 0%"
-            )
-
+            status_msg = await self._send_initial_status(job)
             for i, target in enumerate(job["targets"]):
                 if job["status"] != "running":
                     break
-
-                try:
-                    # Resolve target with access_hash from source account
-                    entity = None
-                    try:
-                        if target.startswith("@"):
-                            entity = await client.get_entity(target)
-                        elif target.isdigit():
-                            user_id = int(target)
-
-                            # Try direct resolution first
-                            try:
-                                entity = await client.get_entity(user_id)
-                            except BaseException:
-                                # Get access_hash from any account that has this user
-                                access_hash = (
-                                    await self._get_access_hash_from_any_account(
-                                        job["user_id"], user_id
-                                    )
-                                )
-
-                                if access_hash:
-                                    # Use InputPeerUser with access_hash
-                                    from telethon.tl.types import InputPeerUser
-
-                                    entity = InputPeerUser(user_id, access_hash)
-                                    logger.info(f"Using access_hash for user {user_id}")
-                                else:
-                                    logger.warning(
-                                        f"No access_hash found for {user_id}"
-                                    )
-                                    job["failed"] += 1
-                                    continue
-                        else:
-                            entity = await client.get_entity(target)
-                    except Exception as e:
-                        logger.error(f"Failed to resolve {target}: {e}")
-                        job["failed"] += 1
-                        continue
-
-                    if not entity:
-                        job["failed"] += 1
-                        continue
-
-                    # Send message
-                    if job["buttons"]:
-                        from telethon.tl.types import (
-                            KeyboardButtonCallback,
-                            KeyboardButtonUrl,
-                            ReplyInlineMarkup,
-                        )
-
-                        keyboard_rows = []
-                        current_row = []
-                        for btn in job["buttons"]:
-                            if btn["type"] == "url":
-                                button = KeyboardButtonUrl(btn["text"], btn["data"])
-                            else:
-                                button = KeyboardButtonCallback(
-                                    btn["text"], btn["data"].encode()
-                                )
-                            current_row.append(button)
-                            if len(current_row) >= 2:
-                                keyboard_rows.append(current_row)
-                                current_row = []
-                        if current_row:
-                            keyboard_rows.append(current_row)
-                        markup = (
-                            ReplyInlineMarkup(keyboard_rows) if keyboard_rows else None
-                        )
-                        await client.send_message(
-                            entity, job["message"], buttons=markup
-                        )
-                    else:
-                        await client.send_message(entity, job["message"])
-
-                    job["sent"] += 1
-                    logger.info(f"✅ Sent to {target} ({job['sent']}/{job['total']})")
-
-                    # Record message operation for rate limiting
-                    account = await mongodb.db.accounts.find_one(
-                        {"user_id": job["user_id"], "name": job["account_name"]}
-                    )
-                    if account:
-                        rate_limiter.record_operation(
-                            account.get("phone", job["account_name"]), "message"
-                        )
-
-                    # Update progress every 5 messages or at milestones
-                    if (i + 1) % 5 == 0 or (i + 1) == job["total"]:
-                        progress_pct = int((job["sent"] / job["total"]) * 100)
-                        progress_bar = "■" * (progress_pct // 10) + "░" * (
-                            10 - progress_pct // 10
-                        )
-
-                        if status_msg:
-                            try:
-                                await status_msg.edit(
-                                    f"📤 **Campaign Running**\n\n"
-                                    f"Account: {job['account_name']}\n"
-                                    f"Total Users: {job['total']}\n"
-                                    f"Sent: {job['sent']}/{job['total']}\n"
-                                    f"Failed: {job['failed']}\n"
-                                    f"Progress: {progress_bar} {progress_pct}%"
-                                )
-                            except BaseException:
-                                pass
-
-                    # Rate limiting - 8-15 seconds between messages (human-like)
-                    import random
-
-                    await asyncio.sleep(random.uniform(8, 15))
-
-                except Exception as e:
-                    job["failed"] += 1
-                    error_msg = str(e)
-                    logger.error(f"❌ Failed to send to {target}: {error_msg}")
-
-                    # Check for flood wait
-                    if "FloodWaitError" in error_msg or "FLOOD_WAIT" in error_msg:
-                        import re
-
-                        wait_match = re.search(r"(\d+)", error_msg)
-                        if wait_match:
-                            wait_time = int(wait_match.group(1))
-                            if status_msg:
-                                await status_msg.edit(
-                                    f"⏸️ **Rate Limited**\n\n"
-                                    f"Waiting {wait_time} seconds...\n"
-                                    f"Sent: {job['sent']}/{job['total']}"
-                                )
-                            await asyncio.sleep(wait_time)
-
-            # Job completed
+                await self._send_to_target(job, client, target, i, status_msg)
             job["status"] = "completed"
-
-            if status_msg:
-                await status_msg.edit(
-                    f"✅ **Campaign Completed**\n\n"
-                    f"Account: {job['account_name']}\n"
-                    f"Total Users: {job['total']}\n"
-                    f"Sent: {job['sent']}/{job['total']}\n"
-                    f"Failed: {job['failed']}\n"
-                    f"Progress: ■■■■■■■■■■ 100%"
-                )
-
+            await self._send_final_status(job, status_msg)
         except Exception as e:
             job["status"] = "error"
             logger.error(f"Bulk job error: {e}")
             if status_msg:
-                await status_msg.edit(
-                    f"❌ **Campaign Failed**\n\n"
-                    f"Error: {str(e)}\n"
-                    f"Sent: {job['sent']}/{job['total']}"
-                )
+                await status_msg.edit(f"❌ **Campaign Failed**\n\nError: {str(e)}\nSent: {job['sent']}/{job['total']}")
         finally:
-            # Clean up after 1 hour
             await asyncio.sleep(3600)
             self.active_jobs.pop(job_id, None)
 
@@ -518,3 +373,111 @@ class BulkSender:
             buttons.append({"text": text, "data": data, "type": button_type})
         clean_message = re.sub(button_pattern, "", message).strip()
         return clean_message, buttons
+
+    async def _send_initial_status(self, job):
+        return await job["event"].reply(
+            f"\ud83d\ude80 **Campaign Started**\\n\\n"
+            f"Account: {job['account_name']}\\n"
+            f"Total Users: {job['total']}\\n"
+            f"Sent: 0/{job['total']}\\n"
+            f"Progress: \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 0%"
+        )
+
+    async def _send_final_status(self, job, status_msg):
+        if status_msg:
+            await status_msg.edit(
+                f"\u2705 **Campaign Completed**\\n\\n"
+                f"Account: {job['account_name']}\\n"
+                f"Total Users: {job['total']}\\n"
+                f"Sent: {job['sent']}/{job['total']}\\n"
+                f"Failed: {job['failed']}\\n"
+                f"Progress: \u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0 100%"
+            )
+
+    async def _send_to_target(self, job, client, target, index, status_msg):
+        try:
+            entity = await self._resolve_target(job, client, target)
+            if not entity:
+                job["failed"] += 1
+                return
+            await self._send_message_to_entity(job, client, entity)
+            job["sent"] += 1
+            logger.info(f"\u2705 Sent to {target} ({job['sent']}/{job['total']})")
+            await self._record_and_update_progress(job, index, status_msg)
+            import random
+            await asyncio.sleep(random.uniform(8, 15))
+        except Exception as e:
+            await self._handle_send_error(job, target, e, status_msg)
+
+    async def _resolve_target(self, job, client, target):
+        try:
+            if target.startswith("@"):
+                return await client.get_entity(target)
+            elif target.isdigit():
+                user_id = int(target)
+                try:
+                    return await client.get_entity(user_id)
+                except BaseException:
+                    access_hash = await self._get_access_hash_from_any_account(job["user_id"], user_id)
+                    if access_hash:
+                        from telethon.tl.types import InputPeerUser
+                        logger.info(f"Using access_hash for user {user_id}")
+                        return InputPeerUser(user_id, access_hash)
+                    logger.warning(f"No access_hash found for {user_id}")
+                    return None
+            else:
+                return await client.get_entity(target)
+        except Exception as e:
+            logger.error(f"Failed to resolve {target}: {e}")
+            return None
+
+    async def _send_message_to_entity(self, job, client, entity):
+        if job["buttons"]:
+            from telethon.tl.types import KeyboardButtonCallback, KeyboardButtonUrl, ReplyInlineMarkup
+            keyboard_rows = []
+            current_row = []
+            for btn in job["buttons"]:
+                button = KeyboardButtonUrl(btn["text"], btn["data"]) if btn["type"] == "url" else KeyboardButtonCallback(btn["text"], btn["data"].encode())
+                current_row.append(button)
+                if len(current_row) >= 2:
+                    keyboard_rows.append(current_row)
+                    current_row = []
+            if current_row:
+                keyboard_rows.append(current_row)
+            markup = ReplyInlineMarkup(keyboard_rows) if keyboard_rows else None
+            await client.send_message(entity, job["message"], buttons=markup)
+        else:
+            await client.send_message(entity, job["message"])
+
+    async def _record_and_update_progress(self, job, index, status_msg):
+        account = await mongodb.db.accounts.find_one({"user_id": job["user_id"], "name": job["account_name"]})
+        if account:
+            rate_limiter.record_operation(account.get("phone", job["account_name"]), "message")
+        if (index + 1) % 5 == 0 or (index + 1) == job["total"]:
+            progress_pct = int((job["sent"] / job["total"]) * 100)
+            progress_bar = "\u25a0" * (progress_pct // 10) + "\u2591" * (10 - progress_pct // 10)
+            if status_msg:
+                try:
+                    await status_msg.edit(
+                        f"\ud83d\udce4 **Campaign Running**\\n\\n"
+                        f"Account: {job['account_name']}\\n"
+                        f"Total Users: {job['total']}\\n"
+                        f"Sent: {job['sent']}/{job['total']}\\n"
+                        f"Failed: {job['failed']}\\n"
+                        f"Progress: {progress_bar} {progress_pct}%"
+                    )
+                except BaseException:
+                    pass
+
+    async def _handle_send_error(self, job, target, error, status_msg):
+        job["failed"] += 1
+        error_msg = str(error)
+        logger.error(f"\u274c Failed to send to {target}: {error_msg}")
+        if "FloodWaitError" in error_msg or "FLOOD_WAIT" in error_msg:
+            import re
+            wait_match = re.search(r"(\\d+)", error_msg)
+            if wait_match:
+                wait_time = int(wait_match.group(1))
+                if status_msg:
+                    await status_msg.edit(f"\u23f8\ufe0f **Rate Limited**\\n\\nWaiting {wait_time} seconds...\\nSent: {job['sent']}/{job['total']}")
+                await asyncio.sleep(wait_time)
