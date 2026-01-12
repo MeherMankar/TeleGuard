@@ -37,33 +37,7 @@ class TemplateHandler:
             event.sender_id
             data = event.data.decode("utf-8")
             try:
-                if data == "template:main":
-                    await self.show_main_menu(event)
-                elif data == "template:create":
-                    await self.show_create_menu(event)
-                elif data == "template:create_text":
-                    await self.start_text_template_creation(event)
-                elif data == "template:create_media":
-                    await self.start_media_template_creation(event)
-                elif data == "template:view":
-                    await self.show_view_menu(event)
-                elif data == "template:categories":
-                    await self.show_categories_menu(event)
-                elif data.startswith("template:view_category:"):
-                    category = data.replace("template:view_category:", "")
-                    await self.show_templates_by_category(event, category)
-                elif data.startswith("template:edit:"):
-                    template_id = data.replace("template:edit:", "")
-                    await self.show_template_details(event, template_id)
-                elif data.startswith("template:delete:"):
-                    template_id = data.replace("template:delete:", "")
-                    await self.delete_template(event, template_id)
-                elif data.startswith("template:use:"):
-                    template_id = data.replace("template:use:", "")
-                    await self.start_template_usage(event, template_id)
-                elif data.startswith("template:select_account:"):
-                    account_name = data.replace("template:select_account:", "")
-                    await self.select_account_for_template(event, account_name)
+                await self._route_template_action(event, data)
             except Exception as e:
                 logger.error(f"Template callback error: {e}")
                 await event.answer("❌ Error processing request")
@@ -481,3 +455,28 @@ class TemplateHandler:
             )
         buttons.append([Button.inline("🔙 Back", "messaging:main")])
         return text, buttons
+
+    async def _route_template_action(self, event, data: str):
+        """Route template action to appropriate handler"""
+        if data == "template:main":
+            await self.show_main_menu(event)
+        elif data == "template:create":
+            await self.show_create_menu(event)
+        elif data == "template:create_text":
+            await self.start_text_template_creation(event)
+        elif data == "template:create_media":
+            await self.start_media_template_creation(event)
+        elif data == "template:view":
+            await self.show_view_menu(event)
+        elif data == "template:categories":
+            await self.show_categories_menu(event)
+        elif data.startswith("template:view_category:"):
+            await self.show_templates_by_category(event, data.replace("template:view_category:", ""))
+        elif data.startswith("template:edit:"):
+            await self.show_template_details(event, data.replace("template:edit:", ""))
+        elif data.startswith("template:delete:"):
+            await self.delete_template(event, data.replace("template:delete:", ""))
+        elif data.startswith("template:use:"):
+            await self.start_template_usage(event, data.replace("template:use:", ""))
+        elif data.startswith("template:select_account:"):
+            await self.select_account_for_template(event, data.replace("template:select_account:", ""))

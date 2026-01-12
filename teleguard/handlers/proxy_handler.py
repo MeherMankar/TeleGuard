@@ -36,47 +36,9 @@ class ProxyHandler:
             try:
                 data = event.data.decode("utf-8")
                 user_id = event.sender_id
-
                 parts = data.split(":")
                 action = parts[1] if len(parts) > 1 else None
-
-                if action == "menu":
-                    await self._show_proxy_menu(event, user_id)
-                elif action == "list":
-                    await self._show_proxy_list(event, user_id)
-                elif action == "add":
-                    await self._start_add_proxy(event, user_id)
-                elif action == "test":
-                    proxy_id = parts[2] if len(parts) > 2 else None
-                    await self._test_proxy(event, user_id, proxy_id)
-                elif action == "delete":
-                    proxy_id = parts[2] if len(parts) > 2 else None
-                    await self._delete_proxy(event, user_id, proxy_id)
-                elif action == "assign":
-                    await self._show_account_selection(event, user_id)
-                elif action == "assign_new":
-                    proxy_id = parts[2] if len(parts) > 2 else None
-                    await self._show_account_selection_for_proxy(
-                        event, user_id, proxy_id
-                    )
-                elif action == "set_default":
-                    proxy_id = parts[2] if len(parts) > 2 else None
-                    await self._set_default_proxy(event, user_id, proxy_id)
-                elif action == "assign_to":
-                    account_id = parts[2] if len(parts) > 2 else None
-                    await self._show_proxy_selection_for_account(
-                        event, user_id, account_id
-                    )
-                elif action == "set":
-                    account_id = parts[2] if len(parts) > 2 else None
-                    proxy_id = parts[3] if len(parts) > 3 else None
-                    await self._assign_proxy(event, user_id, account_id, proxy_id)
-                elif action == "remove":
-                    account_id = parts[2] if len(parts) > 2 else None
-                    await self._remove_proxy(event, user_id, account_id)
-                elif action == "view_accounts":
-                    await self._show_accounts_with_proxies(event, user_id)
-
+                await self._route_proxy_action(event, user_id, action, parts)
                 try:
                     await event.answer()
                 except BaseException:
@@ -724,3 +686,23 @@ class ProxyHandler:
         ]
 
         await self._safe_edit(event, text, buttons=buttons)
+
+    async def _route_proxy_action(self, event, user_id: int, action: str, parts: list):
+        """Route proxy action to appropriate handler"""
+        action_map = {
+            "menu": lambda: self._show_proxy_menu(event, user_id),
+            "list": lambda: self._show_proxy_list(event, user_id),
+            "add": lambda: self._start_add_proxy(event, user_id),
+            "test": lambda: self._test_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
+            "delete": lambda: self._delete_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
+            "assign": lambda: self._show_account_selection(event, user_id),
+            "assign_new": lambda: self._show_account_selection_for_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
+            "set_default": lambda: self._set_default_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
+            "assign_to": lambda: self._show_proxy_selection_for_account(event, user_id, parts[2] if len(parts) > 2 else None),
+            "set": lambda: self._assign_proxy(event, user_id, parts[2] if len(parts) > 2 else None, parts[3] if len(parts) > 3 else None),
+            "remove": lambda: self._remove_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
+            "view_accounts": lambda: self._show_accounts_with_proxies(event, user_id),
+        }
+        handler = action_map.get(action)
+        if handler:
+            await handler()
