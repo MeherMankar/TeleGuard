@@ -72,11 +72,7 @@ class TaskQueue:
         while self.running:
             try:
                 current_time = datetime.now(timezone.utc)
-                ready_tasks = [
-                    task
-                    for task in self.tasks.values()
-                    if task.next_run <= current_time
-                ]
+                ready_tasks = [task for task in self.tasks.values() if task.next_run <= current_time]
                 for task in ready_tasks:
                     await self._execute_task(task)
                 await asyncio.sleep(10)
@@ -95,31 +91,21 @@ class TaskQueue:
                 await task.func(*task.args, **task.kwargs)
             else:
                 task.func(*task.args, **task.kwargs)
-            # Task completed successfully
             del self.tasks[task.task_id]
             logger.info("Task completed", task_id=task.task_id)
         except Exception as e:
-            logger.error(
-                "Task execution failed",
-                task_id=task.task_id,
-                attempt=task.attempts,
-                error=str(e),
-            )
-            if task.attempts >= task.max_retries:
-                # Max retries reached, remove task
-                del self.tasks[task.task_id]
-                logger.error("Task failed permanently", task_id=task.task_id)
-            else:
-                # Schedule retry
-                task.next_run = datetime.now(timezone.utc) + timedelta(
-                    seconds=task.retry_delay
-                )
-                logger.info(
-                    "Task scheduled for retry",
-                    task_id=task.task_id,
-                    next_run=task.next_run.isoformat(),
-                )
+            logger.error("Task execution failed", task_id=task.task_id, attempt=task.attempts, error=str(e))
+            await self._handle_task_failure(task)
 
 
 # Global task queue
 task_queue = TaskQueue()
+
+    async def _handle_task_failure(self, task: Task):
+        """Handle task failure with retry logic"""
+        if task.attempts >= task.max_retries:
+            del self.tasks[task.task_id]
+            logger.error("Task failed permanently", task_id=task.task_id)
+        else:
+            task.next_run = datetime.now(timezone.utc) + timedelta(seconds=task.retry_delay)
+            logger.info("Task scheduled for retry", task_id=task.task_id, next_run=task.next_run.isoformat())

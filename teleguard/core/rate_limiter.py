@@ -39,34 +39,14 @@ class RateLimiter:
         # {account_phone: {operation: last_timestamp}}
         self.last_operation: Dict[str, Dict[str, float]] = defaultdict(dict)
 
-    def can_perform(
-        self, account_phone: str, operation: str
-    ) -> tuple[bool, Optional[str]]:
+    def can_perform(self, account_phone: str, operation: str) -> tuple[bool, Optional[str]]:
         """Check if operation can be performed"""
-        # Check cooldown
-        if operation in self.COOLDOWNS:
-            last_time = self.last_operation.get(account_phone, {}).get(operation)
-            if last_time:
-                elapsed = time.time() - last_time
-                cooldown = self.COOLDOWNS[operation]
-                if elapsed < cooldown:
-                    remaining = int(cooldown - elapsed)
-                    minutes = remaining // 60
-                    seconds = remaining % 60
-                    return False, f"⏳ Cooldown active. Wait {minutes}m {seconds}s"
-
-        # Check rate limit
-        if operation in self.LIMITS:
-            self._cleanup_old_operations(account_phone, operation)
-            count = self._get_operation_count(account_phone, operation)
-            limit = self.LIMITS[operation]
-
-            if count >= limit:
-                return (
-                    False,
-                    f"⚠️ Rate limit reached: {count}/{limit} {operation}s per hour",
-                )
-
+        cooldown_result = self._check_cooldown(account_phone, operation)
+        if cooldown_result:
+            return False, cooldown_result
+        rate_limit_result = self._check_rate_limit(account_phone, operation)
+        if rate_limit_result:
+            return False, rate_limit_result
         return True, None
 
     def record_operation(self, account_phone: str, operation: str, count: int = 1):
@@ -136,3 +116,30 @@ class RateLimiter:
 
 # Global rate limiter instance
 rate_limiter = RateLimiter()
+
+    def _check_cooldown(self, account_phone: str, operation: str) -> Optional[str]:
+        """Check cooldown, returns error message if on cooldown"""
+        if operation not in self.COOLDOWNS:
+            return None
+        last_time = self.last_operation.get(account_phone, {}).get(operation)
+        if not last_time:
+            return None
+        elapsed = time.time() - last_time
+        cooldown = self.COOLDOWNS[operation]
+        if elapsed < cooldown:
+            remaining = int(cooldown - elapsed)
+            minutes = remaining // 60
+            seconds = remaining % 60
+            return f"⏳ Cooldown active. Wait {minutes}m {seconds}s"
+        return None
+
+    def _check_rate_limit(self, account_phone: str, operation: str) -> Optional[str]:
+        """Check rate limit, returns error message if limit reached"""
+        if operation not in self.LIMITS:
+            return None
+        self._cleanup_old_operations(account_phone, operation)
+        count = self._get_operation_count(account_phone, operation)
+        limit = self.LIMITS[operation]
+        if count >= limit:
+            return f"⚠️ Rate limit reached: {count}/{limit} {operation}s per hour"
+        return None

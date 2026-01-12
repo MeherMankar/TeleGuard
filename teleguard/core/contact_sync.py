@@ -18,57 +18,22 @@ class ContactSync:
         """Sync contacts from Telegram to local database"""
         try:
             telegram_contacts = await client.get_contacts()
-            added = 0
-            updated = 0
-            errors = 0
+            added, updated, errors = 0, 0, 0
             for tg_contact in telegram_contacts:
                 if not isinstance(tg_contact, User):
                     continue
                 try:
-                    existing = await ContactDB.get_contact(
-                        tg_contact.id, managed_by_account
-                    )
-                    if existing:
-                        update_data = {
-                            "first_name": tg_contact.first_name or existing.first_name,
-                            "last_name": tg_contact.last_name,
-                            "username": tg_contact.username,
-                            "phone": tg_contact.phone,
-                        }
-                        # Only update if there are changes
-                        if any(
-                            getattr(existing, k) != v
-                            for k, v in update_data.items()
-                            if v is not None
-                        ):
-                            await ContactDB.update_contact(
-                                tg_contact.id, managed_by_account, update_data
-                            )
-                            updated += 1
-                    else:
-                        contact = Contact(
-                            user_id=tg_contact.id,
-                            first_name=tg_contact.first_name or f"User_{tg_contact.id}",
-                            last_name=tg_contact.last_name,
-                            username=tg_contact.username,
-                            phone=tg_contact.phone,
-                            managed_by_account=managed_by_account,
-                        )
-                        success = await ContactDB.add_contact(contact)
-                        if success:
-                            added += 1
-                        else:
-                            errors += 1
+                    result = await ContactSync._sync_single_contact(tg_contact, managed_by_account)
+                    if result == "added":
+                        added += 1
+                    elif result == "updated":
+                        updated += 1
+                    elif result == "error":
+                        errors += 1
                 except Exception as e:
                     logger.error(f"Error syncing contact {tg_contact.id}: {e}")
                     errors += 1
-            return {
-                "success": True,
-                "added": added,
-                "updated": updated,
-                "errors": errors,
-                "total_telegram": len(telegram_contacts),
-            }
+            return {"success": True, "added": added, "updated": updated, "errors": errors, "total_telegram": len(telegram_contacts)}
         except Exception as e:
             logger.error(f"Error syncing from Telegram: {e}")
             return {"success": False, "error": str(e)}
@@ -132,3 +97,30 @@ class ContactSync:
         except Exception as e:
             logger.error(f"Error in two-way sync: {e}")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def _sync_single_contact(tg_contact, managed_by_account: str) -> str:
+        """Sync a single contact, returns 'added', 'updated', 'error', or 'skipped'"""
+        existing = await ContactDB.get_contact(tg_contact.id, managed_by_account)
+        if existing:
+            update_data = {
+                "first_name": tg_contact.first_name or existing.first_name,
+                "last_name": tg_contact.last_name,
+                "username": tg_contact.username,
+                "phone": tg_contact.phone,
+            }
+            if any(getattr(existing, k) != v for k, v in update_data.items() if v is not None):
+                await ContactDB.update_contact(tg_contact.id, managed_by_account, update_data)
+                return "updated"
+            return "skipped"
+        else:
+            contact = Contact(
+                user_id=tg_contact.id,
+                first_name=tg_contact.first_name or f"User_{tg_contact.id}",
+                last_name=tg_contact.last_name,
+                username=tg_contact.username,
+                phone=tg_contact.phone,
+                managed_by_account=managed_by_account,
+            )
+            success = await ContactDB.add_contact(contact)
+            return "added" if success else "error"
