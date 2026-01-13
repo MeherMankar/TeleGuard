@@ -25,154 +25,97 @@ class ErrorHandler:
     def get_user_friendly_error(error: Exception) -> str:
         """Convert technical errors to user-friendly messages"""
         error_str = str(error)
-        type(error).__name__
-
-        # Phone number errors
-        if (
-            isinstance(error, PhoneNumberInvalidError)
-            or "phone number is invalid" in error_str.lower()
-        ):
-            return (
-                "❌ **Invalid Phone Number**\n\n"
-                "Please check:\n"
-                "• Correct country code (e.g., +1 for US)\n"
-                "• Valid phone number format\n"
-                "• No extra characters or spaces\n\n"
-                "Example: +1234567890"
-            )
-
-        # Rate limiting errors
+        
+        # Check specific error types first
+        if isinstance(error, PhoneNumberInvalidError) or "phone number is invalid" in error_str.lower():
+            return ErrorHandler._phone_number_error()
         if isinstance(error, FloodWaitError) or "flood" in error_str.lower():
-            wait_time = getattr(error, "seconds", 0)
-            if wait_time > 0:
-                hours = wait_time // 3600
-                minutes = (wait_time % 3600) // 60
-                if hours > 0:
-                    time_str = f"{hours}h {minutes}m"
-                elif minutes > 0:
-                    time_str = f"{minutes}m"
-                else:
-                    time_str = f"{wait_time}s"
-                return (
-                    f"⏰ **Rate Limited**\n\n"
-                    f"Please wait {time_str} before trying again.\n\n"
-                    "This is a Telegram limitation to prevent spam."
-                )
-            else:
-                return (
-                    "⏰ **Rate Limited**\n\n"
-                    "Too many requests. Please wait before trying again."
-                )
-
-        # 2FA errors
-        if (
-            isinstance(error, SessionPasswordNeededError)
-            or "password" in error_str.lower()
-        ):
-            return (
-                "🔐 **Two-Factor Authentication Required**\n\n"
-                "Please enter your 2FA password.\n"
-                "Your message will be deleted for security."
-            )
-
-        # OTP errors
+            return ErrorHandler._flood_wait_error(error)
+        if isinstance(error, SessionPasswordNeededError) or "password" in error_str.lower():
+            return ErrorHandler._2fa_required_error()
         if isinstance(error, PhoneCodeExpiredError) or "expired" in error_str.lower():
-            return (
-                "⏰ **Verification Code Expired**\n\n"
-                "Please request a new code:\n"
-                "1. Go to Account Settings\n"
-                "2. Add Account again\n"
-                "3. Enter the new code quickly"
-            )
-
+            return ErrorHandler._code_expired_error()
         if isinstance(error, PhoneCodeInvalidError) or "invalid" in error_str.lower():
-            return (
-                "❌ **Invalid Verification Code**\n\n"
-                "Please check the code and try again.\n"
-                "Make sure all digits are correct."
-            )
-
-        # Session errors
-        if (
-            isinstance(error, AuthKeyUnregisteredError)
-            or "authorization key" in error_str.lower()
-        ):
-            return (
-                "🔑 **Session Invalid**\n\n"
-                "Your session has expired or was used elsewhere.\n"
-                "Please re-add this account to continue."
-            )
-
-        # Account deactivated
-        if (
-            isinstance(error, UserDeactivatedError)
-            or "deactivated" in error_str.lower()
-        ):
-            return (
-                "🚫 **Account Deactivated**\n\n"
-                "This Telegram account has been deactivated.\n"
-                "Please contact Telegram support."
-            )
-
-        # Network errors
+            return ErrorHandler._code_invalid_error()
+        if isinstance(error, AuthKeyUnregisteredError) or "authorization key" in error_str.lower():
+            return ErrorHandler._session_invalid_error()
+        if isinstance(error, UserDeactivatedError) or "deactivated" in error_str.lower():
+            return ErrorHandler._account_deactivated_error()
+        
+        # Check error string patterns
         if "network" in error_str.lower() or "connection" in error_str.lower():
-            return (
-                "🌐 **Network Error**\n\n"
-                "Connection issue detected. Please:\n"
-                "• Check your internet connection\n"
-                "• Try again in a few moments"
-            )
-
-        # Generic timeout
+            return ErrorHandler._network_error()
         if "timeout" in error_str.lower():
-            return (
-                "⏱️ **Operation Timed Out**\n\n"
-                "The operation took too long. Please try again."
-            )
-
-        # Account-related errors
+            return ErrorHandler._timeout_error()
         if "account" in error_str.lower() or "client" in error_str.lower():
-            if "authorization" in error_str.lower() or "auth" in error_str.lower():
-                return (
-                    "🔑 **Account Authorization Error**\n\n"
-                    "Your account session has expired or is invalid.\n"
-                    "Please re-add this account to continue using it."
-                )
-            elif "connection" in error_str.lower() or "network" in error_str.lower():
-                return (
-                    "🌐 **Account Connection Error**\n\n"
-                    "Unable to connect your account. This could be due to:\n"
-                    "• Network connectivity issues\n"
-                    "• Telegram server problems\n"
-                    "• Account restrictions\n\n"
-                    "Please try again in a few minutes."
-                )
-            elif "banned" in error_str.lower() or "restricted" in error_str.lower():
-                return (
-                    "🚫 **Account Restricted**\n\n"
-                    "This account appears to be restricted or banned.\n"
-                    "Please check your account status in the official Telegram app."
-                )
-            else:
-                return (
-                    "⚠️ **Account Error**\n\n"
-                    "There was an issue with your account.\n"
-                    "Please try again or contact support if the problem persists."
-                )
-
-        # Default error message for account-related issues
-        if any(
-            keyword in error_str.lower()
-            for keyword in ["account", "session", "client", "login", "auth"]
-        ):
-            return (
-                "⚠️ **Account Issue**\n\n"
-                "An error occurred with your account. Please try again.\n"
-                "If the problem persists, you may need to re-add the account."
-            )
-
-        # Default error message
+            return ErrorHandler._account_related_error(error_str)
+        if any(keyword in error_str.lower() for keyword in ["account", "session", "client", "login", "auth"]):
+            return ErrorHandler._generic_account_error()
+        
         return f"❌ **Error**: {error_str}"
+
+    @staticmethod
+    def _phone_number_error():
+        return (
+            "❌ **Invalid Phone Number**\n\n"
+            "Please check:\n"
+            "• Correct country code (e.g., +1 for US)\n"
+            "• Valid phone number format\n"
+            "• No extra characters or spaces\n\n"
+            "Example: +1234567890"
+        )
+
+    @staticmethod
+    def _flood_wait_error(error):
+        wait_time = getattr(error, "seconds", 0)
+        if wait_time > 0:
+            hours = wait_time // 3600
+            minutes = (wait_time % 3600) // 60
+            time_str = f"{hours}h {minutes}m" if hours > 0 else (f"{minutes}m" if minutes > 0 else f"{wait_time}s")
+            return f"⏰ **Rate Limited**\n\nPlease wait {time_str} before trying again.\n\nThis is a Telegram limitation to prevent spam."
+        return "⏰ **Rate Limited**\n\nToo many requests. Please wait before trying again."
+
+    @staticmethod
+    def _2fa_required_error():
+        return "🔐 **Two-Factor Authentication Required**\n\nPlease enter your 2FA password.\nYour message will be deleted for security."
+
+    @staticmethod
+    def _code_expired_error():
+        return "⏰ **Verification Code Expired**\n\nPlease request a new code:\n1. Go to Account Settings\n2. Add Account again\n3. Enter the new code quickly"
+
+    @staticmethod
+    def _code_invalid_error():
+        return "❌ **Invalid Verification Code**\n\nPlease check the code and try again.\nMake sure all digits are correct."
+
+    @staticmethod
+    def _session_invalid_error():
+        return "🔑 **Session Invalid**\n\nYour session has expired or was used elsewhere.\nPlease re-add this account to continue."
+
+    @staticmethod
+    def _account_deactivated_error():
+        return "🚫 **Account Deactivated**\n\nThis Telegram account has been deactivated.\nPlease contact Telegram support."
+
+    @staticmethod
+    def _network_error():
+        return "🌐 **Network Error**\n\nConnection issue detected. Please:\n• Check your internet connection\n• Try again in a few moments"
+
+    @staticmethod
+    def _timeout_error():
+        return "⏱️ **Operation Timed Out**\n\nThe operation took too long. Please try again."
+
+    @staticmethod
+    def _account_related_error(error_str):
+        if "authorization" in error_str.lower() or "auth" in error_str.lower():
+            return "🔑 **Account Authorization Error**\n\nYour account session has expired or is invalid.\nPlease re-add this account to continue using it."
+        elif "connection" in error_str.lower() or "network" in error_str.lower():
+            return "🌐 **Account Connection Error**\n\nUnable to connect your account. This could be due to:\n• Network connectivity issues\n• Telegram server problems\n• Account restrictions\n\nPlease try again in a few minutes."
+        elif "banned" in error_str.lower() or "restricted" in error_str.lower():
+            return "🚫 **Account Restricted**\n\nThis account appears to be restricted or banned.\nPlease check your account status in the official Telegram app."
+        return "⚠️ **Account Error**\n\nThere was an issue with your account.\nPlease try again or contact support if the problem persists."
+
+    @staticmethod
+    def _generic_account_error():
+        return "⚠️ **Account Issue**\n\nAn error occurred with your account. Please try again.\nIf the problem persists, you may need to re-add the account."
 
     @staticmethod
     async def handle_client_error(
