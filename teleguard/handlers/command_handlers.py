@@ -38,10 +38,18 @@ class CommandHandlers:
         self.bot.on(events.NewMessage(pattern=r"/cancel"))(self._handle_cancel)
         self.bot.on(events.NewMessage(pattern=r"/accs"))(self._handle_accs)
         self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))(self._handle_add)
+        self.bot.on(events.NewMessage(pattern=r"/remove"))(self._handle_remove)
         self.bot.on(events.NewMessage(pattern=r"/reconnect"))(self._handle_reconnect)
         self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
         self.bot.on(events.NewMessage(pattern=r"/appeal"))(self._handle_appeal)
         self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
+        self.bot.on(events.NewMessage(pattern=r"/otp"))(self._handle_otp)
+        self.bot.on(events.NewMessage(pattern=r"/sessions"))(self._handle_sessions)
+        self.bot.on(events.NewMessage(pattern=r"/export_session"))(self._handle_export_session)
+        self.bot.on(events.NewMessage(pattern=r"/import_session"))(self._handle_import_session)
+        self.bot.on(events.NewMessage(pattern=r"/dm"))(self._handle_dm)
+        self.bot.on(events.NewMessage(pattern=r"/reply"))(self._handle_reply)
+        self.bot.on(events.NewMessage(pattern=r"/spam"))(self._handle_spam)
 
     def _register_callback_handlers(self):
         """Register callback handlers"""
@@ -405,3 +413,27 @@ class CommandHandlers:
         except Exception as e:
             logger.error(f"Failed to send account selection: {e}")
             await self.bot.send_message(user_id, "❌ Error loading accounts")
+
+    async def _handle_remove(self, event):
+        await event.reply("Use menu: Account Settings → Manage Account → Remove")
+
+    async def _handle_otp(self, event):
+        await event.reply("Use menu: OTP Manager")
+
+    async def _handle_sessions(self, event):
+        await event.reply("Use menu: Account Settings → Session Management")
+
+    async def _handle_export_session(self, event):
+        await event.reply("Use menu: Account Settings → Session Management → Export")
+
+    async def _handle_import_session(self, event):
+        await event.reply("Use menu: Account Settings → Import Session")
+
+    async def _handle_dm(self, event):
+        await event.reply("Use menu: Messaging → Unified DM Manager")
+
+    async def _handle_reply(self, event):
+        await event.reply("Use menu: Messaging → Auto-Reply")
+
+    async def _handle_spam(self, event):
+        await event.reply("Use menu: Cleanup → Spam Appeal")
