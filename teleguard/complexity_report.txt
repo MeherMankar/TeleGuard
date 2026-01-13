@@ -1,0 +1,161 @@
+core\account_cleaner.py
+    M 564:4 AccountCleaner.get_cleanup_preview - E
+    M 371:4 AccountCleaner._delete_owned_groups - C
+    M 150:4 AccountCleaner._leave_groups - C
+    M 487:4 AccountCleaner._final_cleanup_check - C
+    C 55:0 AccountCleaner - C
+    M 309:4 AccountCleaner._cleanup_telegram_chat - C
+    M 434:4 AccountCleaner._delete_owned_channels - C
+core\automation.py
+    M 274:4 AutomationEngine._ai_should_respond - C
+    M 537:4 AutomationEngine._ai_reply_to_mentions - C
+core\bot_manager.py
+    M 385:4 BotManager._start_user_client - E
+    M 251:4 BotManager._load_existing_sessions - D
+    M 1002:4 BotManager.add_user_account - C
+    M 1102:4 BotManager.remove_account_by_id - C
+    M 1317:4 BotManager.cleanup - C
+    M 1739:4 BotManager._share_account_with_coowners - C
+core\client_manager.py
+    M 316:4 FullClientManager._get_account_client - C
+core\otp_manager.py
+    M 54:4 OTPManager.register_handlers - C
+    M 714:4 OTPManager.toggle_destroyer - C
+core\proxy_manager.py
+    M 135:4 ProxyManager.test_proxy - C
+    M 24:4 ProxyManager.parse_telegram_proxy_link - C
+    M 263:4 ProxyManager.assign_proxy_to_account - C
+    M 453:4 ProxyManager.build_telethon_proxy - C
+core\session_guardian.py
+    M 652:4 SessionGuardian.send_periodic_summary - C
+handlers\admin_handlers.py
+    M 238:4 AdminHandlers._handle_cache_health - C
+handlers\advanced_spam_handler.py
+    M 902:4 AdvancedSpamHandler._execute_contact_scrape_all - C
+handlers\auth_handler.py
+    M 376:4 AuthManager._complete_normal_auth - D
+    M 305:4 AuthManager.complete_auth - C
+handlers\auto_reply_handler.py
+    M 652:4 AutoReplyHandler._handle_toggle_account - C
+handlers\channel_manager.py
+    M 250:4 ChannelManager.delete_channel - C
+    M 28:4 ChannelManager.join_channel - C
+    M 81:4 ChannelManager.leave_channel - C
+    M 175:4 ChannelManager.create_channel - C
+handlers\command_handlers.py
+    M 375:4 CommandHandlers._collect_contacts - C
+handlers\contact_handler.py
+    M 826:4 ContactHandler._process_import_file - E
+    M 191:4 ContactHandler._show_contacts_list - D
+    M 345:4 ContactHandler._process_add_contact - C
+    M 621:4 ContactHandler._handle_sync - C
+    M 1090:4 ContactHandler._process_export - C
+handlers\developer_commands.py
+    M 147:4 DeveloperCommands._get_container_stats - C
+handlers\dm_reply_handler.py
+    M 311:4 DMReplyHandler._get_or_create_topic - C
+    M 72:4 DMReplyHandler._setup_client_dm_handler - C
+handlers\menu_system.py
+    M 425:4 MenuSystem._handle_cleanup_callback - D
+    M 987:4 MenuSystem._handle_otp_callback_legacy - C
+    M 729:4 MenuSystem._send_cleanup_confirmation - C
+    M 3200:4 MenuSystem._handle_otp_setting_callback - C
+    M 497:4 MenuSystem._send_cleanup_confirmation - C
+    M 644:4 MenuSystem._send_cleanup_confirmation_new - C
+    M 1202:4 MenuSystem._handle_otp_setting_callback - C
+    M 1294:4 MenuSystem.send_otp_menu - C
+    M 3282:4 MenuSystem._handle_otp_toggle_callback - C
+    M 2364:4 MenuSystem._show_bulk_jobs_legacy - C
+    M 2838:4 MenuSystem._handle_export_fresh_session - C
+handlers\message_handlers.py
+    M 439:4 MessageHandlers._handle_2fa_management_actions - C
+    M 869:4 MessageHandlers._handle_channel_actions - C
+    M 349:4 MessageHandlers._process_verify_2fa - C
+    M 650:4 MessageHandlers._get_or_reconnect_client - C
+    M 1271:4 MessageHandlers._handle_session_creation_2fa - C
+    M 1564:4 MessageHandlers._route_pending_action - C
+    M 249:4 MessageHandlers._process_verify_otp - C
+    M 565:4 MessageHandlers._handle_profile_actions - C
+    M 62:4 MessageHandlers._handle_photo_upload - C
+    M 698:4 MessageHandlers._handle_messaging_actions - C
+    M 1235:4 MessageHandlers._fetch_and_store_account_name - C
+    M 811:4 MessageHandlers._handle_otp_actions - C
+handlers\proxy_handler.py
+    M 513:4 ProxyHandler._assign_proxy - C
+handlers\session_export_handler.py
+    M 1073:4 SessionExportHandler.process_fresh_session_2fa - E
+    M 284:4 SessionExportHandler._send_batch_sessions_zip - C
+    M 48:4 SessionExportHandler._show_account_selection - C
+handlers\session_import_handler.py
+    M 291:4 SessionImportHandler.process_zip_sessions - C
+handlers\session_login_handler.py
+    M 572:4 SessionLoginHandler._extract_from_sqlite - E
+    M 2106:4 SessionLoginHandler._fetch_otp_from_telegram - D
+    M 397:4 SessionLoginHandler._extract_pyrogram_session - D
+    M 1562:4 SessionLoginHandler.delete_dialogs_by_type - C
+    M 2260:4 SessionLoginHandler._fetch_otp_fallback - C
+    M 704:4 SessionLoginHandler._validate_session_string - C
+    M 1128:4 SessionLoginHandler._get_live_session_info - C
+    M 1627:4 SessionLoginHandler._process_session_via_temp_file - C
+    M 1839:4 SessionLoginHandler._update_fast_import_info - C
+    M 810:4 SessionLoginHandler._quick_connection_test - C
+    M 2364:4 SessionLoginHandler._process_zip_sessions - C
+    M 1749:4 SessionLoginHandler._finalize_session_import - C
+    M 1894:4 SessionLoginHandler._fetch_and_store_account_name - C
+    M 2031:4 SessionLoginHandler._execute_session_creation - C
+    M 1092:4 SessionLoginHandler._handle_session_operation - C
+    M 1369:4 SessionLoginHandler._export_contacts - C
+handlers\session_operations_handler.py
+    M 337:4 SessionOperationsHandler._get_session_analytics - C
+    M 627:4 SessionOperationsHandler.monitor_keywords - C
+handlers\spam_appeal_handler.py
+    M 158:4 SpamAppealHandler._process_spambot_response - E
+    M 970:4 SpamAppealHandler._get_user_client - D
+    M 405:4 SpamAppealHandler._score_message_quality - D
+    M 900:4 SpamAppealHandler._get_account_age_days - D
+    M 716:4 SpamAppealHandler._submit_appeal_message - C
+    M 1148:4 SpamAppealHandler._simulate_human_message_composition - C
+    M 330:4 SpamAppealHandler._select_smart_appeal_message - C
+    M 471:4 SpamAppealHandler._generate_ai_appeal_message - C
+    M 1081:4 SpamAppealHandler._start_appeal_for_account - C
+handlers\template_handler.py
+    M 325:4 TemplateHandler.process_media_template_input - C
+    M 257:4 TemplateHandler.process_text_template_input - C
+    M 459:4 TemplateHandler._route_template_action - C
+handlers\topic_actions_handler.py
+    M 107:4 TopicActionsHandler._block_user_from_topic - C
+    M 180:4 TopicActionsHandler._clear_history_from_topic - C
+    M 256:4 TopicActionsHandler._handle_general_topic_broadcast - C
+handlers\twofa_commands.py
+    M 141:4 TwoFACommands.handle_text_message - C
+handlers\unified_messaging.py
+    M 136:4 UnifiedMessagingSystem._handle_auto_reply - C
+    M 235:4 UnifiedMessagingSystem._get_topic_title - C
+handlers\menu_callbacks\help_callbacks.py
+    M 13:4 HelpCallbacks.handle_callback - C
+    M 134:4 HelpCallbacks.handle_developer_callback - C
+    C 12:0 HelpCallbacks - C
+handlers\menu_modules\callback_router.py
+    M 788:4 CallbackRouter.handle_channel_callback - E
+    M 362:4 CallbackRouter.handle_otp_setting_callback - C
+    M 507:4 CallbackRouter.handle_messaging_callback - C
+    M 574:4 CallbackRouter.handle_dm_reply_callback - C
+    M 451:4 CallbackRouter.handle_otp_pwd_callback - C
+handlers\menu_modules\cleanup_operations.py
+    M 49:4 CleanupOperations.execute_bulk_cleanup - C
+    M 188:4 CleanupOperations.execute_cleanup - C
+handlers\menu_modules\menu_builders.py
+    M 54:4 MenuBuilders.get_otp_account_buttons - C
+handlers\menu_modules\utility_helpers.py
+    C 9:0 UtilityHelpers - C
+    M 40:4 UtilityHelpers.format_display_name - C
+    M 11:4 UtilityHelpers.parse_callback - C
+utils\error_handler.py
+    M 25:4 ErrorHandler.get_user_friendly_error - E
+utils\spam_detector.py
+    M 327:4 SpamDetector._matches_preferences - C
+workers\automation_worker.py
+    M 268:4 AutomationWorker._handle_ai_smart_reply - C
+
+122 blocks (classes, functions, methods) analyzed.
+Average complexity: C (15.926229508196721)

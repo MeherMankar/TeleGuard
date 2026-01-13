@@ -192,82 +192,66 @@ class ContactHandler:
         """Show paginated contacts list"""
         from ..core.mongo_database import mongodb
 
-        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-            length=None
-        )
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
         if not accounts:
-            await event.edit(
-                "👥 **All Contacts**\n\n❌ No accounts found.",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
+            await self._show_no_accounts(event)
             return
+        
+        all_contacts, total_contacts = await self._fetch_all_contacts(user_id, accounts)
+        if not all_contacts:
+            await self._show_no_contacts(event)
+            return
+        
+        await self._display_contacts(event, all_contacts, total_contacts)
+
+    async def _show_no_accounts(self, event):
+        await event.edit(
+            "👥 **All Contacts**\n\n❌ No accounts found.",
+            buttons=[[Button.inline("🔙 Back", "contacts:main")]],
+        )
+
+    async def _show_no_contacts(self, event):
+        await event.edit(
+            "👥 **All Contacts**\n\n💭 No contacts found in active accounts.\n\nMake sure accounts are connected and have contacts.",
+            buttons=[[Button.inline("🔙 Back", "contacts:main")]],
+        )
+
+    async def _fetch_all_contacts(self, user_id, accounts):
         all_contacts = []
         total_contacts = 0
         for account in accounts:
-            if not account.get("is_active", False):
-                continue
-            try:
-                if (
-                    user_id in self.bot_manager.user_clients
-                    and account["name"] in self.bot_manager.user_clients[user_id]
-                ):
-                    client = self.bot_manager.user_clients[user_id][account["name"]]
-                    if client and client.is_connected():
-                        from telethon.tl.functions.contacts import GetContactsRequest
-                        from telethon.tl.types import User
+            if account.get("is_active", False):
+                contacts, count = await self._fetch_account_contacts(user_id, account)
+                all_contacts.extend(contacts)
+                total_contacts += count
+        return all_contacts, total_contacts
 
-                        result = await client(GetContactsRequest(hash=0))
-                        account_contacts = 0
-                        for user in result.users[:10]:  # Limit to first 10 per account
-                            if isinstance(user, User) and not user.bot:
-                                name = (
-                                    f"{user.first_name or ''} {user.last_name or ''}".strip()
-                                    or "Unknown"
-                                )
-                                username = (
-                                    f"@{user.username}"
-                                    if user.username
-                                    else "No username"
-                                )
-                                phone = user.phone or "No phone"
-                                all_contacts.append(
-                                    {
-                                        "name": name,
-                                        "username": username,
-                                        "phone": phone,
-                                        "account": account["name"],
-                                        "user_id": user.id,
-                                    }
-                                )
-                                account_contacts += 1
-                        total_contacts += len(
-                            [
-                                u
-                                for u in result.users
-                                if isinstance(u, User) and not u.bot
-                            ]
-                        )
-            except Exception as e:
-                logger.error(f"Error getting contacts for {account['name']}: {e}")
-                continue
-        if not all_contacts:
-            await event.edit(
-                "👥 **All Contacts**\n\n💭 No contacts found in active accounts.\n\nMake sure accounts are connected and have contacts.",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
-            return
-        text = (
-            f"👥 **All Contacts** (Showing {len(all_contacts)} of {total_contacts})\n\n"
-        )
-        buttons = []
-        for i, contact in enumerate(all_contacts[:8], 1):  # Show max 8 contacts
-            text += f"{i}. **{
-                contact['name']}**\n   {
-                contact['username']} | {
-                contact['phone']}\n   Account: {
-                contact['account']}\n\n"
-        buttons.append([Button.inline("🔙 Back", "contacts:main")])
-        await event.edit(text, buttons=buttons)
+    async def _fetch_account_contacts(self, user_id, account):
+        try:
+            client = self.bot_manager.user_clients.get(user_id, {}).get(account["name"])
+            if client and client.is_connected():
+                from telethon.tl.functions.contacts import GetContactsRequest
+                from telethon.tl.types import User
+
+                result = await client(GetContactsRequest(hash=0))
+                contacts = [self._format_contact(u, account["name"]) for u in result.users[:10] if isinstance(u, User) and not u.bot]
+                total = len([u for u in result.users if isinstance(u, User) and not u.bot])
+                return contacts, total
+        except Exception as e:
+            logger.error(f"Error getting contacts for {account['name']}: {e}")
+        return [], 0
+
+    def _format_contact(self, user, account_name):
+        name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Unknown"
+        username = f"@{user.username}" if user.username else "No username"
+        phone = user.phone or "No phone"
+        return {"name": name, "username": username, "phone": phone, "account": account_name, "user_id": user.id}
+
+    async def _display_contacts(self, event, all_contacts, total_contacts):
+        text = f"👥 **All Contacts** (Showing {len(all_contacts)} of {total_contacts})\n\n"
+        for i, contact in enumerate(all_contacts[:8], 1):
+            text += f"{i}. **{contact['name']}**\n   {contact['username']} | {contact['phone']}\n   Account: {contact['account']}\n\n"
+        await event.edit(text, buttons=[[Button.inline("🔙 Back", "contacts:main")]])
 
     async def _start_add_contact(self, event, user_id: int):
         """Start add contact process"""
@@ -346,129 +330,92 @@ class ContactHandler:
         """Process add contact input"""
         account = await self._get_user_account(user_id)
         try:
-            # Parse user input
-            if text.startswith("@"):
-                username = text[1:]
-                # Try to get user info from username
-                try:
-                    client = self._get_user_client(user_id)
-                    if client:
-                        user_entity = await client.get_entity(username)
-                        contact_user_id = user_entity.id
-                        first_name = user_entity.first_name or username
-                        last_name = user_entity.last_name
-                    else:
-                        await event.reply("❌ No active client found")
-                        return
-                except Exception:
-                    await event.reply("❌ User not found")
-                    return
-            elif text.startswith("+") or (
-                text.replace(" ", "").replace("-", "").isdigit()
-                and len(text.replace(" ", "").replace("-", "")) > 7
-            ):
-                phone = text.replace(" ", "").replace("-", "")
-                try:
-                    client = self._get_user_client(user_id)
-                    if client:
-                        # Try to resolve phone number to user
-                        from telethon.tl.functions.contacts import ResolvePhoneRequest
-
-                        try:
-                            result = await client(ResolvePhoneRequest(phone=phone))
-                            if result.users:
-                                user_entity = result.users[0]
-                                contact_user_id = user_entity.id
-                                first_name = (
-                                    user_entity.first_name or f"Contact_{phone}"
-                                )
-                                last_name = user_entity.last_name
-                                username = user_entity.username
-                            else:
-                                await event.reply(
-                                    "❌ Phone number not found in Telegram"
-                                )
-                                return
-                        except Exception:
-                            # If phone resolution fails, try importing the contact first
-                            from telethon.tl.functions.contacts import (
-                                ImportContactsRequest,
-                            )
-                            from telethon.tl.types import InputPhoneContact
-
-                            contact_to_add = InputPhoneContact(
-                                client_id=0,
-                                phone=phone,
-                                first_name=f"Contact_{phone[-4:]}",
-                                last_name="",
-                            )
-                            try:
-                                import_result = await client(
-                                    ImportContactsRequest([contact_to_add])
-                                )
-                                if import_result.users:
-                                    user_entity = import_result.users[0]
-                                    contact_user_id = user_entity.id
-                                    first_name = (
-                                        user_entity.first_name or f"Contact_{phone}"
-                                    )
-                                    last_name = user_entity.last_name
-                                    username = user_entity.username
-                                else:
-                                    await event.reply(
-                                        "❌ Could not add contact with this phone number"
-                                    )
-                                    return
-                            except Exception as e:
-                                await event.reply(
-                                    f"❌ Failed to import contact: Phone number may not be registered on Telegram"
-                                )
-                                return
-                    else:
-                        await event.reply("❌ No active client found")
-                        return
-                except Exception as e:
-                    await event.reply("❌ Error processing phone number")
-                    return
-            else:
-                try:
-                    contact_user_id = int(text)
-                    first_name = f"User_{contact_user_id}"
-                    last_name = None
-                    username = None
-                except ValueError:
-                    await event.reply(
-                        "❌ Invalid input. Send a user ID, @username, or phone number (+1234567890)"
-                    )
-                    return
-            existing = await ContactDB.get_contact(contact_user_id, account)
-            if existing:
+            contact_info = await self._parse_contact_input(user_id, text)
+            if not contact_info:
+                await event.reply("❌ Invalid input. Send a user ID, @username, or phone number (+1234567890)")
+                return
+            
+            if await self._contact_exists(contact_info["user_id"], account):
                 await event.reply("⚠️ Contact already exists!")
                 return
-            contact = Contact(
-                user_id=contact_user_id,
-                first_name=first_name,
-                last_name=last_name,
-                username=username,
-                managed_by_account=account,
-            )
-            success = await ContactDB.add_contact(contact)
-            if success:
-                del self.pending_actions[user_id]
-                buttons = [
-                    [
-                        Button.inline(
-                            "👤 View Contact", f"contact:view:{contact_user_id}"
-                        )
-                    ],
-                    [Button.inline("🔙 Back", "contacts:main")],
-                ]
-                await event.reply(f"✅ Contact added: {first_name}", buttons=buttons)
-            else:
-                await event.reply("❌ Failed to add contact")
+            
+            await self._save_and_confirm_contact(event, user_id, contact_info, account)
         except Exception as e:
             logger.error(f"Add contact error: {e}")
             await event.reply("❌ Error adding contact")
+
+    async def _parse_contact_input(self, user_id, text):
+        if text.startswith("@"):
+            return await self._parse_username(user_id, text[1:])
+        elif text.startswith("+") or (text.replace(" ", "").replace("-", "").isdigit() and len(text.replace(" ", "").replace("-", "")) > 7):
+            return await self._parse_phone(user_id, text)
+        else:
+            return self._parse_user_id(text)
+
+    async def _parse_username(self, user_id, username):
+        client = self._get_user_client(user_id)
+        if not client:
+            return None
+        try:
+            user_entity = await client.get_entity(username)
+            return {"user_id": user_entity.id, "first_name": user_entity.first_name or username, "last_name": user_entity.last_name, "username": user_entity.username}
+        except Exception:
+            return None
+
+    async def _parse_phone(self, user_id, text):
+        phone = text.replace(" ", "").replace("-", "")
+        client = self._get_user_client(user_id)
+        if not client:
+            return None
+        try:
+            from telethon.tl.functions.contacts import ResolvePhoneRequest
+            result = await client(ResolvePhoneRequest(phone=phone))
+            if result.users:
+                user_entity = result.users[0]
+                return {"user_id": user_entity.id, "first_name": user_entity.first_name or f"Contact_{phone}", "last_name": user_entity.last_name, "username": user_entity.username}
+        except Exception:
+            return await self._import_phone_contact(client, phone)
+        return None
+
+    async def _import_phone_contact(self, client, phone):
+        try:
+            from telethon.tl.functions.contacts import ImportContactsRequest
+            from telethon.tl.types import InputPhoneContact
+            contact_to_add = InputPhoneContact(client_id=0, phone=phone, first_name=f"Contact_{phone[-4:]}", last_name="")
+            import_result = await client(ImportContactsRequest([contact_to_add]))
+            if import_result.users:
+                user_entity = import_result.users[0]
+                return {"user_id": user_entity.id, "first_name": user_entity.first_name or f"Contact_{phone}", "last_name": user_entity.last_name, "username": user_entity.username}
+        except Exception:
+            pass
+        return None
+
+    def _parse_user_id(self, text):
+        try:
+            contact_user_id = int(text)
+            return {"user_id": contact_user_id, "first_name": f"User_{contact_user_id}", "last_name": None, "username": None}
+        except ValueError:
+            return None
+
+    async def _contact_exists(self, contact_user_id, account):
+        existing = await ContactDB.get_contact(contact_user_id, account)
+        return existing is not None
+
+    async def _save_and_confirm_contact(self, event, user_id, contact_info, account):
+        contact = Contact(
+            user_id=contact_info["user_id"],
+            first_name=contact_info["first_name"],
+            last_name=contact_info["last_name"],
+            username=contact_info["username"],
+            managed_by_account=account,
+        )
+        success = await ContactDB.add_contact(contact)
+        if success:
+            del self.pending_actions[user_id]
+            buttons = [[Button.inline("👤 View Contact", f"contact:view:{contact_info['user_id']}")], [Button.inline("🔙 Back", "contacts:main")]]
+            await event.reply(f"✅ Contact added: {contact_info['first_name']}", buttons=buttons)
+        else:
+            await event.reply("❌ Failed to add contact")
 
     async def _view_contact(self, event, user_id: int, contact_id: int):
         """View contact details"""
@@ -625,55 +572,56 @@ class ContactHandler:
         account = await self._get_user_account(user_id)
         client = self._get_user_client(user_id)
         if not client:
-            await event.edit(
-                "❌ No active client found",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
+            await event.edit("❌ No active client found", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
+        
         await event.edit("🔄 **Synchronizing...**\n\nPlease wait...")
         try:
-            if sync_type == "from_telegram":
-                result = await ContactSync.sync_from_telegram(client, account)
-            elif sync_type == "to_telegram":
-                result = await ContactSync.sync_to_telegram(client, account)
-            elif sync_type == "both":
-                result = await ContactSync.two_way_sync(client, account)
-            else:
+            result = await self._execute_sync(ContactSync, client, account, sync_type)
+            if not result:
                 await event.edit("❌ Invalid sync type")
                 return
-            if result["success"]:
-                if sync_type == "both":
-                    text = f"✅ **Two-way Sync Complete**\n\n"
-                    text += f"📥 From Telegram: {
-                        result['from_telegram']['added']} added, {
-                        result['from_telegram']['updated']} updated\n"
-                    text += f"📤 To Telegram: {result['to_telegram']['added']} added\n"
-                    if (
-                        result["from_telegram"]["errors"]
-                        or result["to_telegram"]["errors"]
-                    ):
-                        text += f"⚠️ Errors: {
-                            result['from_telegram']['errors'] +
-                            result['to_telegram']['errors']}"
-                else:
-                    text = f"✅ **Sync Complete**\n\n"
-                    if "added" in result:
-                        text += f"➕ Added: {result['added']}\n"
-                    if "updated" in result:
-                        text += f"🔄 Updated: {result['updated']}\n"
-                    if "errors" in result and result["errors"]:
-                        text += f"⚠️ Errors: {result['errors']}"
-            else:
-                text = f"❌ **Sync Failed**\n\nError: {
-                    result.get(
-                        'error', 'Unknown error')}"
-            buttons = [[Button.inline("🔙 Back", "contacts:main")]]
-            await event.edit(text, buttons=buttons)
+            
+            text = self._format_sync_result(result, sync_type)
+            await event.edit(text, buttons=[[Button.inline("🔙 Back", "contacts:main")]])
         except Exception as e:
             logger.error(f"Sync error: {e}")
-            await event.edit(
-                "❌ Sync failed", buttons=[[Button.inline("🔙 Back", "contacts:main")]]
-            )
+            await event.edit("❌ Sync failed", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
+
+    async def _execute_sync(self, ContactSync, client, account, sync_type):
+        if sync_type == "from_telegram":
+            return await ContactSync.sync_from_telegram(client, account)
+        elif sync_type == "to_telegram":
+            return await ContactSync.sync_to_telegram(client, account)
+        elif sync_type == "both":
+            return await ContactSync.two_way_sync(client, account)
+        return None
+
+    def _format_sync_result(self, result, sync_type):
+        if not result["success"]:
+            return f"❌ **Sync Failed**\n\nError: {result.get('error', 'Unknown error')}"
+        
+        if sync_type == "both":
+            return self._format_two_way_sync(result)
+        return self._format_one_way_sync(result)
+
+    def _format_two_way_sync(self, result):
+        text = f"✅ **Two-way Sync Complete**\n\n"
+        text += f"📥 From Telegram: {result['from_telegram']['added']} added, {result['from_telegram']['updated']} updated\n"
+        text += f"📤 To Telegram: {result['to_telegram']['added']} added\n"
+        if result["from_telegram"]["errors"] or result["to_telegram"]["errors"]:
+            text += f"⚠️ Errors: {result['from_telegram']['errors'] + result['to_telegram']['errors']}"
+        return text
+
+    def _format_one_way_sync(self, result):
+        text = f"✅ **Sync Complete**\n\n"
+        if "added" in result:
+            text += f"➕ Added: {result['added']}\n"
+        if "updated" in result:
+            text += f"🔄 Updated: {result['updated']}\n"
+        if "errors" in result and result["errors"]:
+            text += f"⚠️ Errors: {result['errors']}"
+        return text
 
     async def _show_groups(self, event, user_id: int):
         """Show contact groups"""
@@ -826,148 +774,140 @@ class ContactHandler:
     async def _process_import_file(self, event, user_id: int):
         """Process uploaded CSV file for contact import"""
         try:
-            if not event.message.document:
-                await event.reply("❌ Please send a CSV file")
+            if not await self._validate_import_file(event):
                 return
-
-            file_name = (
-                event.message.document.attributes[0].file_name
-                if event.message.document.attributes
-                else "file"
-            )
-            if not file_name.endswith(".csv"):
-                await event.reply("❌ Please send a CSV file")
-                return
-
+            
             await event.reply("📥 **Importing...**\n\n⏳ Processing file...")
-
             file_path = await event.download_media()
             if not file_path:
                 await event.reply("❌ Failed to download file")
                 return
+            
             account = await self._get_user_account(user_id)
             if not account:
                 await event.reply("❌ No active account found")
                 return
-            imported_count = 0
-            skipped_count = 0
-            error_count = 0
-            with open(file_path, "r", encoding="utf-8") as csvfile:
-                # Detect CSV format by reading first line
-                csvfile.readline().strip()
-                csvfile.seek(0)
-                reader = csv.DictReader(csvfile)
-                if "ID" in reader.fieldnames and "First Name" in reader.fieldnames:
-                    for row in reader:
-                        try:
-                            user_id_val = int(row["ID"])
-                            first_name = row.get("First Name", "").strip()
-                            last_name = row.get("Last Name", "").strip()
-                            username = row.get("Username", "").strip()
-                            phone = row.get("Phone", "").strip()
-                            # Skip bots
-                            if row.get("Is Bot", "False").lower() == "true":
-                                skipped_count += 1
-                                continue
-                            existing = await ContactDB.get_contact(user_id_val, account)
-                            if existing:
-                                skipped_count += 1
-                                continue
-                            contact = Contact(
-                                user_id=user_id_val,
-                                first_name=first_name or f"User_{user_id_val}",
-                                last_name=last_name or None,
-                                username=username or None,
-                                phone=phone or None,
-                                managed_by_account=account,
-                            )
-                            success = await ContactDB.add_contact(contact)
-                            if success:
-                                imported_count += 1
-                            else:
-                                error_count += 1
-                        except Exception as e:
-                            logger.error(f"Error importing contact: {e}")
-                            error_count += 1
-                            continue
-                elif "user_id" in reader.fieldnames:
-                    # TeleGuard format
-                    for row in reader:
-                        try:
-                            user_id_val = int(row["user_id"])
-                            first_name = row.get("first_name", "").strip()
-                            last_name = row.get("last_name", "").strip()
-                            username = row.get("username", "").strip()
-                            phone = row.get("phone", "").strip()
-                            tags = (
-                                row.get("tags", "").strip().split(",")
-                                if row.get("tags")
-                                else []
-                            )
-                            is_blacklisted = (
-                                row.get("is_blacklisted", "False").lower() == "true"
-                            )
-                            is_whitelisted = (
-                                row.get("is_whitelisted", "False").lower() == "true"
-                            )
-                            notes = row.get("notes", "").strip()
-                            existing = await ContactDB.get_contact(user_id_val, account)
-                            if existing:
-                                skipped_count += 1
-                                continue
-                            contact = Contact(
-                                user_id=user_id_val,
-                                first_name=first_name or f"User_{user_id_val}",
-                                last_name=last_name or None,
-                                username=username or None,
-                                phone=phone or None,
-                                tags=tags,
-                                is_blacklisted=is_blacklisted,
-                                is_whitelisted=is_whitelisted,
-                                notes=notes,
-                                managed_by_account=account,
-                            )
-                            success = await ContactDB.add_contact(contact)
-                            if success:
-                                imported_count += 1
-                            else:
-                                error_count += 1
-                        except Exception as e:
-                            logger.error(f"Error importing contact: {e}")
-                            error_count += 1
-                            continue
-                else:
-                    await event.reply(
-                        "❌ Unsupported CSV format. Please check the file headers."
-                    )
-                    import os
-
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                    return
-
-            import os
-
-            if os.path.exists(file_path):
-                os.remove(file_path)
-
-            del self.pending_actions[user_id]
-
-            text = (
-                f"📥 **Import Complete**\n\n"
-                f"✅ Imported: {imported_count}\n"
-                f"⏭️ Skipped: {skipped_count}\n"
-                f"❌ Errors: {error_count}\n\n"
-                f"Total processed: {imported_count + skipped_count + error_count}"
-            )
-            buttons = [[Button.inline("🔙 Back to Contacts", "contacts:main")]]
-            await event.reply(text, buttons=buttons)
-
+            
+            stats = await self._import_contacts_from_csv(file_path, account)
+            await self._cleanup_and_show_results(event, user_id, file_path, stats)
         except Exception as e:
             logger.error(f"Import file error: {e}")
             await event.reply(f"❌ Error processing file: {str(e)}")
             if user_id in self.pending_actions:
                 del self.pending_actions[user_id]
+
+    async def _validate_import_file(self, event):
+        if not event.message.document:
+            await event.reply("❌ Please send a CSV file")
+            return False
+        file_name = event.message.document.attributes[0].file_name if event.message.document.attributes else "file"
+        if not file_name.endswith(".csv"):
+            await event.reply("❌ Please send a CSV file")
+            return False
+        return True
+
+    async def _import_contacts_from_csv(self, file_path, account):
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+        
+        with open(file_path, "r", encoding="utf-8") as csvfile:
+            csvfile.readline().strip()
+            csvfile.seek(0)
+            reader = csv.DictReader(csvfile)
+            
+            if "ID" in reader.fieldnames and "First Name" in reader.fieldnames:
+                imported, skipped, errors = await self._import_export_format(reader, account)
+            elif "user_id" in reader.fieldnames:
+                imported, skipped, errors = await self._import_teleguard_format(reader, account)
+            else:
+                return None
+            
+            imported_count += imported
+            skipped_count += skipped
+            error_count += errors
+        
+        return {"imported": imported_count, "skipped": skipped_count, "errors": error_count}
+
+    async def _import_export_format(self, reader, account):
+        imported = skipped = errors = 0
+        for row in reader:
+            try:
+                if row.get("Is Bot", "False").lower() == "true":
+                    skipped += 1
+                    continue
+                
+                user_id_val = int(row["ID"])
+                if await ContactDB.get_contact(user_id_val, account):
+                    skipped += 1
+                    continue
+                
+                contact = Contact(
+                    user_id=user_id_val,
+                    first_name=row.get("First Name", "").strip() or f"User_{user_id_val}",
+                    last_name=row.get("Last Name", "").strip() or None,
+                    username=row.get("Username", "").strip() or None,
+                    phone=row.get("Phone", "").strip() or None,
+                    managed_by_account=account,
+                )
+                if await ContactDB.add_contact(contact):
+                    imported += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                logger.error(f"Error importing contact: {e}")
+                errors += 1
+        return imported, skipped, errors
+
+    async def _import_teleguard_format(self, reader, account):
+        imported = skipped = errors = 0
+        for row in reader:
+            try:
+                user_id_val = int(row["user_id"])
+                if await ContactDB.get_contact(user_id_val, account):
+                    skipped += 1
+                    continue
+                
+                tags = row.get("tags", "").strip().split(",") if row.get("tags") else []
+                contact = Contact(
+                    user_id=user_id_val,
+                    first_name=row.get("first_name", "").strip() or f"User_{user_id_val}",
+                    last_name=row.get("last_name", "").strip() or None,
+                    username=row.get("username", "").strip() or None,
+                    phone=row.get("phone", "").strip() or None,
+                    tags=tags,
+                    is_blacklisted=row.get("is_blacklisted", "False").lower() == "true",
+                    is_whitelisted=row.get("is_whitelisted", "False").lower() == "true",
+                    notes=row.get("notes", "").strip(),
+                    managed_by_account=account,
+                )
+                if await ContactDB.add_contact(contact):
+                    imported += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                logger.error(f"Error importing contact: {e}")
+                errors += 1
+        return imported, skipped, errors
+
+    async def _cleanup_and_show_results(self, event, user_id, file_path, stats):
+        import os
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        
+        if stats is None:
+            await event.reply("❌ Unsupported CSV format. Please check the file headers.")
+            return
+        
+        del self.pending_actions[user_id]
+        text = (
+            f"📥 **Import Complete**\n\n"
+            f"✅ Imported: {stats['imported']}\n"
+            f"⏭️ Skipped: {stats['skipped']}\n"
+            f"❌ Errors: {stats['errors']}\n\n"
+            f"Total processed: {stats['imported'] + stats['skipped'] + stats['errors']}"
+        )
+        await event.reply(text, buttons=[[Button.inline("🔙 Back to Contacts", "contacts:main")]])
 
     def _get_user_client(self, user_id: int):
         """Get user's first available client"""
@@ -1090,7 +1030,6 @@ class ContactHandler:
     async def _process_export(self, event, user_id: int, account_idx: int):
         """Process contact export for selected account"""
         from datetime import datetime
-
         from telethon.tl.functions.contacts import GetContactsRequest
         from telethon.tl.types import User
 
@@ -1101,111 +1040,65 @@ class ContactHandler:
 
         accounts = action.get("accounts", [])
         if account_idx >= len(accounts):
-            await event.edit(
-                "❌ Account not found",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
+            await event.edit("❌ Account not found", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
 
         account = accounts[account_idx]
-        account_name = account["name"]
-
         client = self._get_user_client(user_id)
         if not client:
-            await event.edit(
-                "❌ Account not connected",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
+            await event.edit("❌ Account not connected", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
 
         await event.edit("📤 **Exporting...**\n\n⏳ Fetching contacts...")
-
         try:
             result = await client(GetContactsRequest(hash=0))
-            contacts_data = []
-
-            for user in result.users:
-                if isinstance(user, User):
-                    contacts_data.append(
-                        {
-                            "id": user.id,
-                            "first_name": user.first_name or "",
-                            "last_name": user.last_name or "",
-                            "username": user.username or "",
-                            "phone": user.phone or "",
-                            "is_bot": user.bot,
-                            "is_verified": user.verified,
-                            "is_premium": getattr(user, "premium", False),
-                            "is_mutual": user.mutual_contact,
-                            "is_deleted": user.deleted,
-                        }
-                    )
-
+            contacts_data = [self._extract_user_data(user) for user in result.users if isinstance(user, User)]
+            
             if not contacts_data:
-                await event.edit(
-                    "📤 No contacts found",
-                    buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-                )
+                await event.edit("📤 No contacts found", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
                 return
-
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(
-                [
-                    "ID",
-                    "First Name",
-                    "Last Name",
-                    "Username",
-                    "Phone",
-                    "Is Bot",
-                    "Is Verified",
-                    "Is Premium",
-                    "Is Mutual Contact",
-                    "Is Deleted",
-                ]
-            )
-
-            for contact in contacts_data:
-                writer.writerow(
-                    [
-                        contact["id"],
-                        contact["first_name"],
-                        contact["last_name"],
-                        contact["username"],
-                        contact["phone"],
-                        contact["is_bot"],
-                        contact["is_verified"],
-                        contact["is_premium"],
-                        contact["is_mutual"],
-                        contact["is_deleted"],
-                    ]
-                )
-
-            csv_data = output.getvalue().encode("utf-8")
-            output.close()
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"contacts_{account_name}_{timestamp}.csv"
-
-            await self.bot.send_file(
-                user_id,
-                csv_data,
-                attributes=[],
-                file_name=filename,
-                caption=f"📤 **Export Complete**\n\n📱 Account: {account_name}\n📊 Total: {
-                    len(contacts_data)} contacts\n📅 {
-                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            )
-
+            
+            await self._send_csv_export(user_id, account["name"], contacts_data)
             del self.pending_actions[user_id]
-            await event.edit(
-                "✅ Export complete!",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
-
+            await event.edit("✅ Export complete!", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
         except Exception as e:
             logger.error(f"Export error: {e}")
-            await event.edit(
-                f"❌ Export failed: {str(e)[:100]}",
-                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
-            )
+            await event.edit(f"❌ Export failed: {str(e)[:100]}", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
+
+    def _extract_user_data(self, user):
+        return {
+            "id": user.id,
+            "first_name": user.first_name or "",
+            "last_name": user.last_name or "",
+            "username": user.username or "",
+            "phone": user.phone or "",
+            "is_bot": user.bot,
+            "is_verified": user.verified,
+            "is_premium": getattr(user, "premium", False),
+            "is_mutual": user.mutual_contact,
+            "is_deleted": user.deleted,
+        }
+
+    async def _send_csv_export(self, user_id, account_name, contacts_data):
+        from datetime import datetime
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "First Name", "Last Name", "Username", "Phone", "Is Bot", "Is Verified", "Is Premium", "Is Mutual Contact", "Is Deleted"])
+        
+        for contact in contacts_data:
+            writer.writerow([contact["id"], contact["first_name"], contact["last_name"], contact["username"], contact["phone"], contact["is_bot"], contact["is_verified"], contact["is_premium"], contact["is_mutual"], contact["is_deleted"]])
+        
+        csv_data = output.getvalue().encode("utf-8")
+        output.close()
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"contacts_{account_name}_{timestamp}.csv"
+        
+        await self.bot.send_file(
+            user_id,
+            csv_data,
+            attributes=[],
+            file_name=filename,
+            caption=f"📤 **Export Complete**\n\n📱 Account: {account_name}\n📊 Total: {len(contacts_data)} contacts\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        )
