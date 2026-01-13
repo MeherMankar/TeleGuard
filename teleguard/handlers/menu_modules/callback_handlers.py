@@ -153,57 +153,41 @@ class CallbackHandlers:
 
         try:
             if action == "manage":
-                await self.menu.send_otp_account_management(
-                    user_id, account_id, event.message_id
-                )
-            elif action == "enable":
-                success, message = await self._toggle_otp_destroyer(
-                    user_id, account_id, True
-                )
-                await event.answer(f"{'🛡️' if success else '❌'} {message}")
-                if success:
-                    await self.menu._handle_otp_setting_callback(
-                        event, user_id, "otp_setting:destroyer"
-                    )
-            elif action == "disable":
-                success, message = await self._toggle_otp_destroyer(
-                    user_id, account_id, False
-                )
-                await event.answer(f"{'🔴' if success else '❌'} {message}")
-                if success:
-                    await self.menu._handle_otp_setting_callback(
-                        event, user_id, "otp_setting:destroyer"
-                    )
-            elif action == "forward_enable":
-                success, message = await self._toggle_otp_forward(
-                    user_id, account_id, True
-                )
-                await event.answer(f"{'📤' if success else '❌'} {message}")
-                if success:
-                    await self.menu._handle_otp_setting_callback(
-                        event, user_id, "otp_setting:forward"
-                    )
-            elif action == "forward_disable":
-                success, message = await self._toggle_otp_forward(
-                    user_id, account_id, False
-                )
-                await event.answer(f"{'🔴' if success else '❌'} {message}")
-                if success:
-                    await self.menu._handle_otp_setting_callback(
-                        event, user_id, "otp_setting:forward"
-                    )
+                await self.menu.send_otp_account_management(user_id, account_id, event.message_id)
+            elif action in ["enable", "disable"]:
+                await self._handle_otp_toggle(event, user_id, account_id, action)
+            elif action in ["forward_enable", "forward_disable"]:
+                await self._handle_otp_forward_toggle(event, user_id, account_id, action)
             elif action == "temp":
-                success, message = await self._handle_temp_otp(user_id, account_id)
-                await event.answer(f"{'⏰' if success else '❌'} {message}")
-                if success:
-                    await self.menu._handle_otp_setting_callback(
-                        event, user_id, "otp_setting:temp"
-                    )
+                await self._handle_otp_temp(event, user_id, account_id)
             elif action == "audit":
                 await self._show_audit_log(user_id, account_id, event.message_id)
         except Exception as e:
             logger.error(f"OTP callback error: {e}")
             await event.answer("❌ Error processing OTP request")
+
+    async def _handle_otp_toggle(self, event, user_id, account_id, action):
+        """Handle OTP destroyer enable/disable"""
+        enabled = action == "enable"
+        success, message = await self._toggle_otp_destroyer(user_id, account_id, enabled)
+        await event.answer(f"{'🛡️' if success else '❌'} {message}")
+        if success:
+            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:destroyer")
+
+    async def _handle_otp_forward_toggle(self, event, user_id, account_id, action):
+        """Handle OTP forward enable/disable"""
+        enabled = action == "forward_enable"
+        success, message = await self._toggle_otp_forward(user_id, account_id, enabled)
+        await event.answer(f"{'📤' if success else '❌'} {message}")
+        if success:
+            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:forward")
+
+    async def _handle_otp_temp(self, event, user_id, account_id):
+        """Handle temp OTP request"""
+        success, message = await self._handle_temp_otp(user_id, account_id)
+        await event.answer(f"{'⏰' if success else '❌'} {message}")
+        if success:
+            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:temp")
 
     async def _toggle_otp_destroyer(self, user_id, account_id, enabled):
         """Toggle OTP destroyer with proper integration"""
@@ -421,47 +405,39 @@ class CallbackHandlers:
         parts = data.split(":")
         action = parts[1]
         account_id = parts[2] if len(parts) > 2 else "0"
+        
         if action == "toggle":
-            from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                new_status = not account.get("simulation_enabled", False)
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {"$set": {"simulation_enabled": new_status}},
-                )
-                if hasattr(self.account_manager, "activity_simulator"):
-                    if new_status:
-                        await self.account_manager.activity_simulator._start_account_simulation(
-                            user_id, account_id, account["name"]
-                        )
-                    else:
-                        task_key = f"{user_id}_{account_id}"
-                        if (
-                            task_key
-                            in self.account_manager.activity_simulator.simulation_tasks
-                        ):
-                            self.account_manager.activity_simulator.simulation_tasks[
-                                task_key
-                            ].cancel()
-                            del self.account_manager.activity_simulator.simulation_tasks[
-                                task_key
-                            ]
-                status = "enabled" if new_status else "disabled"
-                status_emoji = "🎭" if new_status else "🔴"
-                await event.answer(f"{status_emoji} Activity simulation {status}!")
-                await self.menu.send_account_management(
-                    user_id, account_id, event.message_id
-                )
-            else:
-                await event.answer("❌ Account not found")
+            await self._handle_simulate_toggle(event, user_id, account_id)
         elif action == "status":
             await self._show_simulation_status(user_id, account_id, event.message_id)
         elif action == "stats":
             await self._show_simulation_stats(user_id, account_id, event.message_id)
+
+    async def _handle_simulate_toggle(self, event, user_id, account_id):
+        """Handle simulation toggle"""
+        from bson import ObjectId
+
+        account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+        if not account:
+            await event.answer("❌ Account not found")
+            return
+
+        new_status = not account.get("simulation_enabled", False)
+        await mongodb.db.accounts.update_one({"_id": ObjectId(account_id)}, {"$set": {"simulation_enabled": new_status}})
+        
+        if hasattr(self.account_manager, "activity_simulator"):
+            if new_status:
+                await self.account_manager.activity_simulator._start_account_simulation(user_id, account_id, account["name"])
+            else:
+                task_key = f"{user_id}_{account_id}"
+                if task_key in self.account_manager.activity_simulator.simulation_tasks:
+                    self.account_manager.activity_simulator.simulation_tasks[task_key].cancel()
+                    del self.account_manager.activity_simulator.simulation_tasks[task_key]
+        
+        status = "enabled" if new_status else "disabled"
+        status_emoji = "🎭" if new_status else "🔴"
+        await event.answer(f"{status_emoji} Activity simulation {status}!")
+        await self.menu.send_account_management(user_id, account_id, event.message_id)
 
     async def _show_simulation_status(self, user_id, account_id, message_id):
         from bson import ObjectId
