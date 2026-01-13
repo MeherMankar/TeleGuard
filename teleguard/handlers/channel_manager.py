@@ -25,45 +25,20 @@ class ChannelManager:
         self.user_clients = bot_manager.user_clients
         self.pending_actions = bot_manager.pending_actions
 
-    async def join_channel(
-        self, user_id: int, account_phone: str, channel_link: str
-    ) -> tuple[bool, str]:
+    async def join_channel(self, user_id: int, account_phone: str, channel_link: str) -> tuple[bool, str]:
         """Join a channel/group via any Telegram link format"""
         try:
             Validators.validate_channel_link(channel_link)
             client = await self._get_client(user_id, account_phone)
             if not client:
-                # Check if account has invalid session
-                account = await mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "phone": account_phone}
-                )
-                if account and account.get("session_invalid"):
-                    raise AccountError(
-                        "Session expired due to IP conflict. Please remove and re-add this account."
-                    )
-                raise AccountError(
-                    "Account not connected. Please add an account first or check if the account is active."
-                )
+                return await self._handle_no_client_error(user_id, account_phone)
+            
             channel_link = channel_link.strip()
-            # Extract invite hash from various link formats
             invite_hash = self._extract_invite_hash(channel_link)
+            
             if invite_hash:
-                result = await client(
-                    functions.messages.ImportChatInviteRequest(invite_hash)
-                )
-                chat_title = (
-                    getattr(result.chats[0], "title", "Unknown")
-                    if result.chats
-                    else "Unknown"
-                )
-                return True, f"Successfully joined {chat_title}"
-            channel_entity = await self._resolve_channel(client, channel_link)
-            if not channel_entity:
-                raise ValidationError("Channel not found or invalid link")
-            await client(functions.channels.JoinChannelRequest(channel_entity))
-            channel_name = getattr(channel_entity, "title", channel_link)
-            await asyncio.sleep(random.uniform(2, 5))  # Human-like delay after join
-            return True, f"Successfully joined {channel_name}"
+                return await self._join_via_invite(client, invite_hash)
+            return await self._join_via_entity(client, channel_link)
         except errors.ChannelPrivateError:
             return False, "Channel is private or doesn't exist"
         except errors.UserAlreadyParticipantError:
@@ -78,77 +53,86 @@ class ChannelManager:
             logger.error(f"Join channel error: {e}")
             return False, "Failed to join channel. Please try again."
 
-    async def leave_channel(
-        self, user_id: int, account_phone: str, channel_link: str
-    ) -> tuple[bool, str]:
+    async def _handle_no_client_error(self, user_id: int, account_phone: str):
+        account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": account_phone})
+        if account and account.get("session_invalid"):
+            raise AccountError("Session expired due to IP conflict. Please remove and re-add this account.")
+        raise AccountError("Account not connected. Please add an account first or check if the account is active.")
+
+    async def _join_via_invite(self, client, invite_hash: str):
+        result = await client(functions.messages.ImportChatInviteRequest(invite_hash))
+        chat_title = getattr(result.chats[0], "title", "Unknown") if result.chats else "Unknown"
+        return True, f"Successfully joined {chat_title}"
+
+    async def _join_via_entity(self, client, channel_link: str):
+        channel_entity = await self._resolve_channel(client, channel_link)
+        if not channel_entity:
+            raise ValidationError("Channel not found or invalid link")
+        await client(functions.channels.JoinChannelRequest(channel_entity))
+        channel_name = getattr(channel_entity, "title", channel_link)
+        await asyncio.sleep(random.uniform(2, 5))
+        return True, f"Successfully joined {channel_name}"
+
+    async def leave_channel(self, user_id: int, account_phone: str, channel_link: str) -> tuple[bool, str]:
         """Leave a channel/group"""
         try:
             client = await self._get_client(user_id, account_phone)
             if not client:
                 return False, "Account not connected"
-
+            
             channel_link = channel_link.strip()
-
-            # If channel_link is just a number, treat as channel ID selection
-            if channel_link.isdigit():
-                channels = await self._get_user_channels_with_ids(client)
-                try:
-                    selected_index = int(channel_link) - 1
-                    if 0 <= selected_index < len(channels):
-                        channel_entity = channels[selected_index]["entity"]
-                        channel_name = channels[selected_index]["title"]
-                        channel_id = channels[selected_index]["id"]
-                    else:
-                        return False, "Invalid channel selection"
-                except (ValueError, IndexError):
-                    return False, "Invalid channel selection"
-            else:
-                # For invite links, check invite details and find matching channel
-                if self._extract_invite_hash(channel_link):
-                    channel_entity = await self._leave_via_invite_link(
-                        client, channel_link
-                    )
-                    if not channel_entity:
-                        return (
-                            False,
-                            "Channel not found or you're not a member. The invite link may be for a channel you haven't joined.",
-                        )
-                else:
-                    # Try to resolve channel entity for regular links
-                    channel_entity = await self._resolve_channel(client, channel_link)
-                    # If can't resolve, try to find in user's dialogs
-                    if not channel_entity:
-                        channel_entity = await self._find_channel_in_dialogs(
-                            client, channel_link
-                        )
-
-                if not channel_entity:
-                    return (
-                        False,
-                        "Channel not found. Use channel name, @username, or select from channel list.",
-                    )
-
-                channel_name = getattr(channel_entity, "title", channel_link)
-                channel_id = getattr(channel_entity, "id", "Unknown")
-
-            # Leave the channel/group
-            if hasattr(channel_entity, "broadcast") or hasattr(
-                channel_entity, "megagroup"
-            ):
-                await client(functions.channels.LeaveChannelRequest(channel_entity))
-            else:
-                # For regular groups
-                await client(
-                    functions.messages.DeleteChatUserRequest(channel_entity.id, "me")
-                )
-
-            await asyncio.sleep(random.uniform(2, 5))  # Human-like delay after leave
+            channel_entity, channel_name, channel_id = await self._resolve_leave_target(client, channel_link)
+            
+            if not channel_entity:
+                return False, "Channel not found. Use channel name, @username, or select from channel list."
+            
+            await self._execute_leave(client, channel_entity)
+            await asyncio.sleep(random.uniform(2, 5))
             return True, f"Successfully left {channel_name} (ID: {channel_id})"
         except errors.UserNotParticipantError:
             return False, "Not a member of this channel"
         except Exception as e:
             logger.error(f"Leave channel error: {e}")
             return False, f"Error: {str(e)}"
+
+    async def _resolve_leave_target(self, client, channel_link: str):
+        if channel_link.isdigit():
+            return await self._resolve_by_index(client, channel_link)
+        return await self._resolve_by_link(client, channel_link)
+
+    async def _resolve_by_index(self, client, channel_link: str):
+        channels = await self._get_user_channels_with_ids(client)
+        try:
+            selected_index = int(channel_link) - 1
+            if 0 <= selected_index < len(channels):
+                ch = channels[selected_index]
+                return ch["entity"], ch["title"], ch["id"]
+        except (ValueError, IndexError):
+            pass
+        return None, None, None
+
+    async def _resolve_by_link(self, client, channel_link: str):
+        if self._extract_invite_hash(channel_link):
+            channel_entity = await self._leave_via_invite_link(client, channel_link)
+            if not channel_entity:
+                return None, None, None
+        else:
+            channel_entity = await self._resolve_channel(client, channel_link)
+            if not channel_entity:
+                channel_entity = await self._find_channel_in_dialogs(client, channel_link)
+        
+        if not channel_entity:
+            return None, None, None
+        
+        channel_name = getattr(channel_entity, "title", channel_link)
+        channel_id = getattr(channel_entity, "id", "Unknown")
+        return channel_entity, channel_name, channel_id
+
+    async def _execute_leave(self, client, channel_entity):
+        if hasattr(channel_entity, "broadcast") or hasattr(channel_entity, "megagroup"):
+            await client(functions.channels.LeaveChannelRequest(channel_entity))
+        else:
+            await client(functions.messages.DeleteChatUserRequest(channel_entity.id, "me"))
 
     async def _leave_via_invite_link(self, client, invite_link: str):
         """Leave channel using invite link by checking invite details"""
@@ -172,167 +156,115 @@ class ChannelManager:
             logger.error(f"Leave via invite link error: {e}")
             return None
 
-    async def create_channel(
-        self,
-        user_id: int,
-        account_phone: str,
-        channel_type: str,
-        title: str,
-        about: str = "",
-        privacy: str = "private",
-    ) -> tuple[bool, str]:
+    async def create_channel(self, user_id: int, account_phone: str, channel_type: str, title: str, about: str = "", privacy: str = "private") -> tuple[bool, str]:
         """Create a new channel/group"""
         try:
             client = await self._get_client(user_id, account_phone)
             if not client:
-                # Check if account has invalid session
-                account = await mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "phone": account_phone}
-                )
-                if account and account.get("session_invalid"):
-                    return (
-                        False,
-                        "Session expired due to IP conflict. Please remove and re-add this account.",
-                    )
-                return False, "Account not connected. Try reconnecting the account."
-
-            # Create the channel/group
-            if channel_type.lower() == "channel":
-                result = await client(
-                    functions.channels.CreateChannelRequest(
-                        title=title, about=about, broadcast=True
-                    )
-                )
-            else:  # group
-                result = await client(
-                    functions.channels.CreateChannelRequest(
-                        title=title, about=about, megagroup=True
-                    )
-                )
-
-            # Set privacy if public
-            if privacy.lower() == "public" and result.chats:
-                try:
-                    channel = result.chats[0]
-                    # Make channel public by setting a username
-                    import random
-
-                    username = f"{
-                        title.lower().replace(
-                            ' ', '_')}_{
-                        random.randint(
-                            1000, 9999)}"
-                    username = "".join(c for c in username if c.isalnum() or c == "_")[
-                        :32
-                    ]
-
-                    await client(
-                        functions.channels.UpdateUsernameRequest(
-                            channel=channel, username=username
-                        )
-                    )
-                    return (
-                        True,
-                        f"Successfully created {privacy} {channel_type}: {title} (@{username})",
-                    )
-                except Exception as username_error:
-                    logger.warning(f"Failed to set username: {username_error}")
-                    return (
-                        True,
-                        f"Successfully created {channel_type}: {title} (private - username setting failed)",
-                    )
-
-            return True, f"Successfully created {privacy} {channel_type}: {title}"
+                return await self._handle_create_no_client(user_id, account_phone)
+            
+            result = await self._create_channel_entity(client, channel_type, title, about)
+            return await self._handle_channel_privacy(client, result, channel_type, title, privacy)
         except Exception as e:
             logger.error(f"Create channel error: {e}")
             return False, f"Error: {str(e)}"
 
-    async def delete_channel(
-        self, user_id: int, account_phone: str, channel_link: str
-    ) -> tuple[bool, str]:
+    async def _handle_create_no_client(self, user_id: int, account_phone: str):
+        account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": account_phone})
+        if account and account.get("session_invalid"):
+            return False, "Session expired due to IP conflict. Please remove and re-add this account."
+        return False, "Account not connected. Try reconnecting the account."
+
+    async def _create_channel_entity(self, client, channel_type: str, title: str, about: str):
+        if channel_type.lower() == "channel":
+            return await client(functions.channels.CreateChannelRequest(title=title, about=about, broadcast=True))
+        return await client(functions.channels.CreateChannelRequest(title=title, about=about, megagroup=True))
+
+    async def _handle_channel_privacy(self, client, result, channel_type: str, title: str, privacy: str):
+        if privacy.lower() == "public" and result.chats:
+            return await self._make_channel_public(client, result.chats[0], channel_type, title, privacy)
+        return True, f"Successfully created {privacy} {channel_type}: {title}"
+
+    async def _make_channel_public(self, client, channel, channel_type: str, title: str, privacy: str):
+        try:
+            username = f"{title.lower().replace(' ', '_')}_{random.randint(1000, 9999)}"
+            username = "".join(c for c in username if c.isalnum() or c == "_")[:32]
+            await client(functions.channels.UpdateUsernameRequest(channel=channel, username=username))
+            return True, f"Successfully created {privacy} {channel_type}: {title} (@{username})"
+        except Exception as username_error:
+            logger.warning(f"Failed to set username: {username_error}")
+            return True, f"Successfully created {channel_type}: {title} (private - username setting failed)"
+
+    async def delete_channel(self, user_id: int, account_phone: str, channel_link: str) -> tuple[bool, str]:
         """Delete a channel/group (owner only)"""
         try:
             client = await self._get_client(user_id, account_phone)
             if not client:
                 return False, "Account not connected"
-
-            # If channel_link is just a number, treat as channel ID selection
-            if channel_link.isdigit():
-                channels = await self._get_user_channels_with_ids(client)
-                try:
-                    selected_index = int(channel_link) - 1
-                    if 0 <= selected_index < len(channels):
-                        channel_entity = channels[selected_index]["entity"]
-                        channel_name = channels[selected_index]["title"]
-                        channel_id = channels[selected_index]["id"]
-                    else:
-                        return False, "Invalid channel selection"
-                except (ValueError, IndexError):
-                    return False, "Invalid channel selection"
-            else:
-                channel_entity = await self._resolve_channel(client, channel_link)
-                if not channel_entity:
-                    channel_entity = await self._find_channel_in_dialogs(
-                        client, channel_link
-                    )
-                if not channel_entity:
-                    return False, "Channel not found or you're not a member"
-                channel_name = getattr(channel_entity, "title", channel_link)
-                channel_id = getattr(channel_entity, "id", "Unknown")
-
-            # Check if user is admin/owner before attempting deletion
-            try:
-                participant = await client(
-                    functions.channels.GetParticipantRequest(
-                        channel=channel_entity, participant=client.get_me()
-                    )
-                )
-
-                # Check if user has delete permissions
-                if not (
-                    hasattr(participant.participant, "admin_rights")
-                    and getattr(
-                        participant.participant.admin_rights, "delete_messages", False
-                    )
-                ) and not isinstance(
-                    participant.participant, types.ChannelParticipantCreator
-                ):
-                    return (
-                        False,
-                        "You don't have permission to delete this channel. Only owners can delete channels.",
-                    )
-            except Exception as perm_error:
-                logger.warning(f"Could not check permissions: {perm_error}")
-                # Continue with deletion attempt
-
-            # Attempt to delete the channel
-            result = await client(
-                functions.channels.DeleteChannelRequest(channel_entity)
-            )
-
-            # Verify deletion by trying to get the channel again
-            try:
-                await client.get_entity(channel_entity)
-                return (
-                    False,
-                    f"Channel deletion may have failed. Channel {channel_name} still exists.",
-                )
-            except (errors.ChannelPrivateError, errors.PeerIdInvalidError):
-                # Channel no longer accessible, deletion successful
-                return True, f"Successfully deleted {channel_name} (ID: {channel_id})"
-
+            
+            channel_entity, channel_name, channel_id = await self._resolve_delete_target(client, channel_link)
+            if not channel_entity:
+                return False, "Channel not found or you're not a member"
+            
+            perm_check = await self._check_delete_permissions(client, channel_entity)
+            if not perm_check[0]:
+                return perm_check
+            
+            await client(functions.channels.DeleteChannelRequest(channel_entity))
+            return await self._verify_deletion(client, channel_entity, channel_name, channel_id)
         except errors.ChatAdminRequiredError:
             return False, "Only channel owners can delete channels"
         except errors.ChannelPrivateError:
             return False, "Channel is private or doesn't exist"
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Delete channel error: {e}")
-            if "CHAT_ADMIN_REQUIRED" in error_msg:
-                return False, "You don't have admin rights to delete this channel"
-            elif "CHANNEL_PRIVATE" in error_msg:
-                return False, "Channel is private or no longer exists"
-            return False, f"Failed to delete channel: {error_msg}"
+            return self._handle_delete_error(e)
+
+    async def _resolve_delete_target(self, client, channel_link: str):
+        if channel_link.isdigit():
+            return await self._resolve_by_index(client, channel_link)
+        
+        channel_entity = await self._resolve_channel(client, channel_link)
+        if not channel_entity:
+            channel_entity = await self._find_channel_in_dialogs(client, channel_link)
+        
+        if not channel_entity:
+            return None, None, None
+        
+        channel_name = getattr(channel_entity, "title", channel_link)
+        channel_id = getattr(channel_entity, "id", "Unknown")
+        return channel_entity, channel_name, channel_id
+
+    async def _check_delete_permissions(self, client, channel_entity):
+        try:
+            participant = await client(functions.channels.GetParticipantRequest(channel=channel_entity, participant=client.get_me()))
+            if not self._has_delete_permission(participant):
+                return False, "You don't have permission to delete this channel. Only owners can delete channels."
+        except Exception as perm_error:
+            logger.warning(f"Could not check permissions: {perm_error}")
+        return True, ""
+
+    def _has_delete_permission(self, participant):
+        if isinstance(participant.participant, types.ChannelParticipantCreator):
+            return True
+        if hasattr(participant.participant, "admin_rights"):
+            return getattr(participant.participant.admin_rights, "delete_messages", False)
+        return False
+
+    async def _verify_deletion(self, client, channel_entity, channel_name: str, channel_id):
+        try:
+            await client.get_entity(channel_entity)
+            return False, f"Channel deletion may have failed. Channel {channel_name} still exists."
+        except (errors.ChannelPrivateError, errors.PeerIdInvalidError):
+            return True, f"Successfully deleted {channel_name} (ID: {channel_id})"
+
+    def _handle_delete_error(self, error: Exception):
+        error_msg = str(error)
+        logger.error(f"Delete channel error: {error}")
+        if "CHAT_ADMIN_REQUIRED" in error_msg:
+            return False, "You don't have admin rights to delete this channel"
+        elif "CHANNEL_PRIVATE" in error_msg:
+            return False, "Channel is private or no longer exists"
+        return False, f"Failed to delete channel: {error_msg}"
 
     async def get_user_channels(
         self, user_id: int, account_phone: str
