@@ -240,29 +240,41 @@ class AdminHandlers:
             return
         try:
             health = await db_manager.health_check()
-            message = "🏥 **Cache Health Status**\n\n"
-            redis_status = "✅ Connected" if health.get("redis") else "❌ Disconnected"
-            redis_ping = "✅ OK" if health.get("redis_ping") else "❌ Failed"
-            message += f"🔹 **Redis Status:** {redis_status}\n"
-            message += f"🔹 **Redis Ping:** {redis_ping}\n\n"
-            mongo_status = "✅ Connected" if health.get("mongodb") else "❌ Disconnected"
-            mongo_ping = "✅ OK" if health.get("mongodb_ping") else "❌ Failed"
-            message += f"🔹 **MongoDB Status:** {mongo_status}\n"
-            message += f"🔹 **MongoDB Ping:** {mongo_ping}\n\n"
-            if health.get("redis") and health.get("mongodb"):
-                message += "🟢 **Overall Status:** Healthy"
-            elif health.get("mongodb"):
-                message += "🟡 **Overall Status:** Degraded (No Cache)"
-            else:
-                message += "🔴 **Overall Status:** Critical"
-            if health.get("cache_stats"):
-                cache_stats = health["cache_stats"]
-                message += f"\n\n📈 **Quick Stats:**\n"
-                message += f"   • Memory: {cache_stats.get('memory_used', 'N/A')}\n"
-                message += f"   • Clients: {cache_stats.get('connected_clients', 0)}\n"
+            message = self._build_health_message(health)
             await event.reply(message)
         except Exception as e:
             await event.reply(f"❌ Error checking cache health: {str(e)}")
+
+    def _build_health_message(self, health: dict) -> str:
+        message = "🏥 **Cache Health Status**\n\n"
+        message += self._format_redis_status(health)
+        message += self._format_mongo_status(health)
+        message += self._format_overall_status(health)
+        message += self._format_cache_stats(health)
+        return message
+
+    def _format_redis_status(self, health: dict) -> str:
+        redis_status = "✅ Connected" if health.get("redis") else "❌ Disconnected"
+        redis_ping = "✅ OK" if health.get("redis_ping") else "❌ Failed"
+        return f"🔹 **Redis Status:** {redis_status}\n🔹 **Redis Ping:** {redis_ping}\n\n"
+
+    def _format_mongo_status(self, health: dict) -> str:
+        mongo_status = "✅ Connected" if health.get("mongodb") else "❌ Disconnected"
+        mongo_ping = "✅ OK" if health.get("mongodb_ping") else "❌ Failed"
+        return f"🔹 **MongoDB Status:** {mongo_status}\n🔹 **MongoDB Ping:** {mongo_ping}\n\n"
+
+    def _format_overall_status(self, health: dict) -> str:
+        if health.get("redis") and health.get("mongodb"):
+            return "🟢 **Overall Status:** Healthy"
+        elif health.get("mongodb"):
+            return "🟡 **Overall Status:** Degraded (No Cache)"
+        return "🔴 **Overall Status:** Critical"
+
+    def _format_cache_stats(self, health: dict) -> str:
+        if not health.get("cache_stats"):
+            return ""
+        cache_stats = health["cache_stats"]
+        return f"\n\n📈 **Quick Stats:**\n   • Memory: {cache_stats.get('memory_used', 'N/A')}\n   • Clients: {cache_stats.get('connected_clients', 0)}\n"
 
     async def _handle_backup_status(self, event):
         if not await self._check_admin(event):

@@ -37,11 +37,6 @@ handlers\auth_handler.py
     M 305:4 AuthManager.complete_auth - C
 handlers\auto_reply_handler.py
     M 652:4 AutoReplyHandler._handle_toggle_account - C
-handlers\channel_manager.py
-    M 250:4 ChannelManager.delete_channel - C
-    M 28:4 ChannelManager.join_channel - C
-    M 81:4 ChannelManager.leave_channel - C
-    M 175:4 ChannelManager.create_channel - C
 handlers\command_handlers.py
     M 375:4 CommandHandlers._collect_contacts - C
 handlers\developer_commands.py
@@ -151,5 +146,5 @@ utils\spam_detector.py
 workers\automation_worker.py
     M 268:4 AutomationWorker._handle_ai_smart_reply - C
 
-117 blocks (classes, functions, methods) analyzed.
-Average complexity: C (15.743589743589743)
+2134 blocks (classes, functions, methods) analyzed.
+Average complexity: A (4.144798500468603)
