@@ -75,7 +75,7 @@ class UnifiedMessagingSystem:
                 elif is_bot:
                     return
 
-                admin_group_id = await self._get_user_admin_group(user_id)
+                admin_group_id = await self._get_user_admin_group(user_id, account_name)
                 if admin_group_id:
                     await self._handle_incoming_dm(
                         admin_group_id, event, sender, me, user_id
@@ -403,20 +403,19 @@ class UnifiedMessagingSystem:
         except Exception as e:
             logger.error(f"Failed to send bot message directly: {e}")
 
-    async def _get_user_admin_group(self, user_id: int) -> Optional[int]:
-        """Get admin group ID for user"""
+    async def _get_user_admin_group(self, user_id: int, account_name: str = None) -> Optional[int]:
+        """Get admin group ID for specific account"""
         try:
-            user = await mongodb.db.users.find_one({"telegram_id": user_id})
-            if not user:
-                return None
-            admin_group_id = user.get("dm_reply_group_id")
-            if not admin_group_id:
-                return None
-            try:
-                await self.bot.get_entity(admin_group_id)
-                return admin_group_id
-            except Exception as access_error:
-                return None
+            if account_name:
+                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if account and account.get("dm_reply_group_id"):
+                    admin_group_id = account["dm_reply_group_id"]
+                    try:
+                        await self.bot.get_entity(admin_group_id)
+                        return admin_group_id
+                    except Exception:
+                        return None
+            return None
         except Exception as e:
             logger.error(f"Failed to get admin group: {e}")
             return None
