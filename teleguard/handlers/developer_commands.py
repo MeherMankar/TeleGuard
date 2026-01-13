@@ -146,64 +146,65 @@ class DeveloperCommands:
 
     async def _get_container_stats(self) -> tuple:
         """Get container-specific resource stats"""
-        cpu_info = "0.0%"
-        memory_info = "N/A"
-        disk_info = "N/A"
-
         try:
             import psutil
-
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            cpu_info = f"{cpu_percent:.1f}%"
-
-            memory = psutil.virtual_memory()
-            memory_info = f"{memory.percent}% ({memory.used /
-                                                (1024**3):.1f}GB / {memory.total /
-                                                                    (1024**3):.1f}GB)"
-
-            try:
-                disk = psutil.disk_usage("/")
-                disk_info = f"{disk.percent}% ({disk.used /
-                                                (1024**3):.1f}GB / {disk.total /
-                                                                    (1024**3):.1f}GB)"
-            except BaseException:
-                disk_info = "N/A (Container filesystem)"
-
+            return self._get_stats_with_psutil(psutil)
         except ImportError:
-            try:
-                with open("/proc/meminfo", "r") as f:
-                    meminfo = {}
-                    for line in f:
-                        if ":" in line:
-                            key, value = line.split(":", 1)
-                            value_parts = value.strip().split()
-                            if value_parts:
-                                meminfo[key] = int(value_parts[0])
-
-                if "MemTotal" in meminfo and "MemAvailable" in meminfo:
-                    total_kb = meminfo["MemTotal"]
-                    available_kb = meminfo["MemAvailable"]
-                    used_kb = total_kb - available_kb
-                    percent = (used_kb / total_kb) * 100
-                    total_gb = total_kb / (1024**2)
-                    used_gb = used_kb / (1024**2)
-                    memory_info = f"{percent:.1f}% ({used_gb:.1f}GB / {total_gb:.1f}GB)"
-            except BaseException:
-                memory_info = "N/A"
-
-            try:
-                with open("/proc/loadavg", "r") as f:
-                    load_avg = float(f.read().split()[0])
-                cpu_info = f"{min(load_avg * 25, 100):.1f}%"
-            except BaseException:
-                cpu_info = "N/A"
-
-            disk_info = "N/A (Limited access)"
-
+            return self._get_stats_without_psutil()
         except Exception as e:
             logger.error(f"Error getting container stats: {e}")
+            return "0.0%", "N/A", "N/A"
 
+    def _get_stats_with_psutil(self, psutil):
+        cpu_info = f"{psutil.cpu_percent(interval=0.1):.1f}%"
+        memory = psutil.virtual_memory()
+        memory_info = f"{memory.percent}% ({memory.used / (1024**3):.1f}GB / {memory.total / (1024**3):.1f}GB)"
+        disk_info = self._get_disk_info(psutil)
         return cpu_info, memory_info, disk_info
+
+    def _get_disk_info(self, psutil):
+        try:
+            disk = psutil.disk_usage("/")
+            return f"{disk.percent}% ({disk.used / (1024**3):.1f}GB / {disk.total / (1024**3):.1f}GB)"
+        except BaseException:
+            return "N/A (Container filesystem)"
+
+    def _get_stats_without_psutil(self):
+        memory_info = self._read_meminfo()
+        cpu_info = self._read_loadavg()
+        disk_info = "N/A (Limited access)"
+        return cpu_info, memory_info, disk_info
+
+    def _read_meminfo(self):
+        try:
+            with open("/proc/meminfo", "r") as f:
+                meminfo = {}
+                for line in f:
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        value_parts = value.strip().split()
+                        if value_parts:
+                            meminfo[key] = int(value_parts[0])
+            
+            if "MemTotal" in meminfo and "MemAvailable" in meminfo:
+                total_kb = meminfo["MemTotal"]
+                available_kb = meminfo["MemAvailable"]
+                used_kb = total_kb - available_kb
+                percent = (used_kb / total_kb) * 100
+                total_gb = total_kb / (1024**2)
+                used_gb = used_kb / (1024**2)
+                return f"{percent:.1f}% ({used_gb:.1f}GB / {total_gb:.1f}GB)"
+        except BaseException:
+            pass
+        return "N/A"
+
+    def _read_loadavg(self):
+        try:
+            with open("/proc/loadavg", "r") as f:
+                load_avg = float(f.read().split()[0])
+                return f"{min(load_avg * 25, 100):.1f}%"
+        except BaseException:
+            return "N/A"
 
     def _build_sysinfo_text(self, cpu_info, memory_info, disk_info, user_count, account_count, platform_name):
         """Build system information text"""
