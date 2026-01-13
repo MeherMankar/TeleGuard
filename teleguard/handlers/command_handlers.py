@@ -307,33 +307,46 @@ class CommandHandlers:
             if not account:
                 await event.answer("❌ Account not found")
                 return
+            
             client = self.user_clients.get(user_id, {}).get(account_name)
             if not client or not client.is_connected():
                 await event.edit("❌ Account not connected")
                 return
+            
             me = await client.get_me()
-            text = f"📊 **SIM Statistics - {account_name}**\n\n"
-            text += f"📱 **Account Info:**\n"
-            text += f"• Name: {me.first_name} {me.last_name or ''}\n"
-            text += f"• Username: @{me.username or 'None'}\n"
-            text += f"• Phone: {me.phone or 'Hidden'}\n"
-            text += f"• ID: {me.id}\n"
-            text += f"• Premium: {'Yes' if me.premium else 'No'}\n"
-            text += f"• Verified: {'Yes' if me.verified else 'No'}\n\n"
-            try:
-                dialogs = await client.get_dialogs(limit=None)
-                text += f"📈 **Usage Stats:**\n"
-                text += f"• Total Chats: {len(dialogs)}\n"
-                text += f"• Online Status: {'Online' if account.get('online_maker_enabled') else 'Offline'}\n"
-                text += f"• Auto-Reply: {'Enabled' if account.get('auto_reply_enabled') else 'Disabled'}\n"
-                text += f"• OTP Destroyer: {'Enabled' if account.get('otp_destroyer_enabled') else 'Disabled'}\n"
-            except Exception:
-                text += f"📈 **Usage Stats:** Unable to load\n"
+            text = self._build_sim_stats_text(account_name, me, account, client)
             buttons = [[Button.inline("🔙 Back", f"manage:{account_name}")]]
             await event.edit(text, buttons=buttons)
         except Exception as e:
             logger.error(f"SIM stats error: {e}")
             await event.edit(f"❌ Error loading SIM stats: {str(e)}")
+
+    def _build_sim_stats_text(self, account_name, me, account, client):
+        """Build SIM statistics text"""
+        text = f"📊 **SIM Statistics - {account_name}**\n\n"
+        text += f"📱 **Account Info:**\n"
+        text += f"• Name: {me.first_name} {me.last_name or ''}\n"
+        text += f"• Username: @{me.username or 'None'}\n"
+        text += f"• Phone: {me.phone or 'Hidden'}\n"
+        text += f"• ID: {me.id}\n"
+        text += f"• Premium: {'Yes' if me.premium else 'No'}\n"
+        text += f"• Verified: {'Yes' if me.verified else 'No'}\n\n"
+        text += self._build_usage_stats(account, client)
+        return text
+
+    def _build_usage_stats(self, account, client):
+        """Build usage statistics section"""
+        try:
+            import asyncio
+            dialogs = asyncio.run(client.get_dialogs(limit=None))
+            stats = f"📈 **Usage Stats:**\n"
+            stats += f"• Total Chats: {len(dialogs)}\n"
+            stats += f"• Online Status: {'Online' if account.get('online_maker_enabled') else 'Offline'}\n"
+            stats += f"• Auto-Reply: {'Enabled' if account.get('auto_reply_enabled') else 'Disabled'}\n"
+            stats += f"• OTP Destroyer: {'Enabled' if account.get('otp_destroyer_enabled') else 'Disabled'}\n"
+            return stats
+        except Exception:
+            return f"📈 **Usage Stats:** Unable to load\n"
 
     async def _handle_export_contacts(self, event):
         user_id = event.sender_id
@@ -342,36 +355,13 @@ class CommandHandlers:
             if not accounts:
                 await event.edit("❌ No active accounts found")
                 return
-            all_contacts = []
-            for account in accounts:
-                account_name = account.get("name", "Unknown")
-                client = self.user_clients.get(user_id, {}).get(account_name)
-                if client and client.is_connected():
-                    try:
-                        from telethon.tl.functions.contacts import GetContactsRequest
-                        from telethon.tl.types import User
-                        result = await client(GetContactsRequest(hash=0))
-                        for user in result.users:
-                            if isinstance(user, User) and not user.bot:
-                                all_contacts.append({
-                                    "ID": user.id,
-                                    "First Name": user.first_name or "",
-                                    "Last Name": user.last_name or "",
-                                    "Username": user.username or "",
-                                    "Phone": user.phone or "",
-                                    "Account": account_name,
-                                })
-                    except Exception as e:
-                        logger.error(f"Error getting contacts from {account_name}: {e}")
+            
+            all_contacts = await self._collect_contacts(user_id, accounts)
             if not all_contacts:
                 await event.edit("❌ No contacts found to export")
                 return
-            import csv, io
-            output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=["ID", "First Name", "Last Name", "Username", "Phone", "Account"])
-            writer.writeheader()
-            writer.writerows(all_contacts)
-            csv_data = output.getvalue().encode("utf-8")
+            
+            csv_data = self._generate_csv(all_contacts)
             await event.edit("📤 **Exporting contacts...**")
             await self.bot.send_file(
                 user_id,
@@ -381,6 +371,40 @@ class CommandHandlers:
             )
         except Exception as e:
             await event.edit(f"❌ Export failed: {str(e)}")
+
+    async def _collect_contacts(self, user_id, accounts):
+        """Collect contacts from all accounts"""
+        all_contacts = []
+        for account in accounts:
+            account_name = account.get("name", "Unknown")
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            if client and client.is_connected():
+                try:
+                    from telethon.tl.functions.contacts import GetContactsRequest
+                    from telethon.tl.types import User
+                    result = await client(GetContactsRequest(hash=0))
+                    for user in result.users:
+                        if isinstance(user, User) and not user.bot:
+                            all_contacts.append({
+                                "ID": user.id,
+                                "First Name": user.first_name or "",
+                                "Last Name": user.last_name or "",
+                                "Username": user.username or "",
+                                "Phone": user.phone or "",
+                                "Account": account_name,
+                            })
+                except Exception as e:
+                    logger.error(f"Error getting contacts from {account_name}: {e}")
+        return all_contacts
+
+    def _generate_csv(self, contacts):
+        """Generate CSV data from contacts"""
+        import csv, io
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["ID", "First Name", "Last Name", "Username", "Phone", "Account"])
+        writer.writeheader()
+        writer.writerows(contacts)
+        return output.getvalue().encode("utf-8")
 
     async def _send_account_selection(self, user_id: int):
 
