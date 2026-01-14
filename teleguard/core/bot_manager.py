@@ -736,6 +736,13 @@ class BotManager:
         self.auth_manager = await self.component_manager.initialize_component(
             "auth_manager", AuthManager, self
         )
+        
+        # Initialize DM reply commands BEFORE menu system so its handlers are registered first
+        from ..handlers.dm_reply_commands import DMReplyCommands
+        logger.info("Initializing DM reply commands...")
+        self.dm_reply_commands = await self.component_manager.initialize_component(
+            "dm_reply_commands", DMReplyCommands, self.bot, self
+        )
 
         logger.info("Initializing menu system...")
         self.menu_system = await self.component_manager.initialize_component(
@@ -809,9 +816,7 @@ class BotManager:
         self.session_login_handler = await self.component_manager.initialize_component(
             "session_login_handler", SessionLoginHandler, self
         )
-        self.dm_reply_commands = await self.component_manager.initialize_component(
-            "dm_reply_commands", DMReplyCommands, self.bot, self
-        )
+        # dm_reply_commands already initialized in _initialize_core_components
         self.dm_reply_handler = await self.component_manager.initialize_component(
             "dm_reply_handler", DMReplyHandler, self
         )

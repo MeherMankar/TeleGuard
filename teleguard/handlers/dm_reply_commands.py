@@ -118,6 +118,7 @@ class DMReplyCommands:
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
             user_id = event.sender_id
+            logger.info(f"DM callback handler triggered: {data} from user {user_id}")
             
             if data.startswith("dm_link:"):
                 # Format: dm_link:account_name:group_id
@@ -127,8 +128,8 @@ class DMReplyCommands:
                     return
                 
                 account_name = parts[1].strip()
-                # Handle empty or invisible account names
-                if not account_name or account_name.isspace() or all(ord(c) > 127 for c in account_name):
+                # Only reject if completely empty
+                if not account_name:
                     await event.answer("❌ Invalid account name", alert=True)
                     return
                 

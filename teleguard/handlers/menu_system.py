@@ -277,11 +277,12 @@ class MenuSystem:
             try:
                 user_id = event.sender_id
                 data = event.data.decode("utf-8")
-                logger.info(f"Callback: {data} from user {user_id}")
-
-                # Handle DM reply callbacks (handled by dm_reply_commands)
+                
+                # Handle DM reply callbacks (handled by dm_reply_commands) - DON'T log or consume
                 if data.startswith("dm_"):
-                    return
+                    return  # Let dm_reply_commands handler process it
+                
+                logger.info(f"Callback: {data} from user {user_id}")
 
                 # Handle proxy callbacks
                 if data.startswith("proxy:"):

@@ -81,25 +81,8 @@ class SafeConsoleHandler(logging.StreamHandler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Remove emojis and problematic Unicode for Windows console
+            # Remove ALL non-ASCII characters for Windows console
             if sys.platform == 'win32':
-                # Replace common emojis with text equivalents
-                emoji_map = {
-                    '✅': '[OK]', '❌': '[X]', '🛡️': '[SHIELD]', '📱': '[PHONE]',
-                    '🔐': '[LOCK]', '💬': '[MSG]', '📢': '[CHANNEL]', '👥': '[USERS]',
-                    '🧹': '[CLEAN]', '🚀': '[START]', '⚠️': '[WARN]', '💥': '[ERROR]',
-                    '🌐': '[WEB]', '🔌': '[PLUG]', '📶': '[SIGNAL]', '🔍': '[SEARCH]',
-                    '🎨': '[ART]', '💾': '[SAVE]', '🏃': '[RUN]', '✨': '[STAR]',
-                    '⏳': '[WAIT]', '📝': '[NOTE]', '🆘': '[SOS]', '📋': '[LIST]',
-                    '🌡️': '[TEMP]', '🔗': '[LINK]', '🚫': '[BLOCK]', '⏹️': '[STOP]',
-                    '🔄': '[RELOAD]', '🛑': '[HALT]', '⌨️': '[KEY]', '📦': '[PKG]',
-                    '📁': '[FILE]', '🚨': '[ALERT]', '🔡': '[LOCK]', '🤖': '[BOT]',
-                    '📨': '[MAIL]', '📍': '[PIN]', '🎯': '[TARGET]', '📊': '[CHART]',
-                    '🕐': '[TIME]', '👤': '[USER]', '⚡': '[BOLT]', '🔒': '[SECURE]'
-                }
-                for emoji, text in emoji_map.items():
-                    msg = msg.replace(emoji, text)
-                # Remove ALL non-ASCII characters (including invisible Unicode)
                 msg = ''.join(char if ord(char) < 128 else '?' for char in msg)
             
             stream = self.stream
