@@ -69,17 +69,23 @@ class UnifiedMessagingSystem:
                 is_bot = getattr(sender, "bot", False)
                 is_telegram_official = sender.id in [777000, 42777]
 
+                logger.info(f"📨 Private message received on {account_name}: from={sender.id}, is_bot={is_bot}, is_official={is_telegram_official}")
+
                 if is_telegram_official:
                     await self._send_bot_message_directly(user_id, sender, me, event)
                     return
                 elif is_bot:
+                    logger.info(f"Skipping bot message from {sender.id}")
                     return
 
                 admin_group_id = await self._get_user_admin_group(user_id, account_name)
+                logger.info(f"Admin group for {account_name}: {admin_group_id}")
                 if admin_group_id:
                     await self._handle_incoming_dm(
                         admin_group_id, event, sender, me, user_id
                     )
+                else:
+                    logger.info(f"No admin group configured for {account_name}, skipping topic creation")
                 if not is_bot and not is_telegram_official:
                     await self._handle_auto_reply(client, event, user_id, account_name)
             except Exception as e:
@@ -138,13 +144,17 @@ class UnifiedMessagingSystem:
     ):
         """Handle incoming DM with automatic topic creation"""
         try:
+            logger.info(f"📨 Handling incoming DM: sender={sender.id}, account={me.id}, group={admin_group_id}")
             topic_id = await self._find_or_create_topic(
                 admin_group_id, sender.id, me.id, sender, user_id
             )
             if topic_id:
+                logger.info(f"✅ Forwarding to topic {topic_id}")
                 await self._forward_to_topic(
                     admin_group_id, topic_id, event, sender, me
                 )
+            else:
+                logger.error(f"❌ No topic_id returned, cannot forward message")
         except Exception as e:
             logger.error(f"Failed to handle incoming DM: {e}", exc_info=True)
 

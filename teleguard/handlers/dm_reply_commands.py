@@ -118,7 +118,9 @@ class DMReplyCommands:
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
             user_id = event.sender_id
-            logger.info(f"DM callback handler triggered: {data} from user {user_id}")
+            # Sanitize data for logging (remove problematic Unicode)
+            safe_data = ''.join(char if ord(char) < 128 else '?' for char in data)
+            logger.info(f"DM callback handler triggered: {safe_data} from user {user_id}")
             
             if data.startswith("dm_link:"):
                 # Format: dm_link:account_name:group_id
@@ -148,6 +150,14 @@ class DMReplyCommands:
                 )
                 
                 if result.modified_count > 0 or result.matched_count > 0:
+                    # Refresh handlers for this account to activate DM forwarding
+                    if hasattr(self.bot_manager, 'unified_messaging'):
+                        # Find the client for this account
+                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+                        if client:
+                            logger.info(f"Refreshing handlers for {account_name} after DM group setup")
+                            await self.bot_manager.unified_messaging.setup_new_client_handler(user_id, account_name, client)
+                    
                     await event.edit(
                         f"✅ **DM Manager Configured**\n\n"
                         f"📱 Account: {account_name}\n"
