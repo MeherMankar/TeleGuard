@@ -203,67 +203,57 @@ class DMReplyCommands:
             from ..core.mongo_database import mongodb
 
             try:
-                # Get user's DM group
-                user = await mongodb.db.users.find_one({"telegram_id": user_id})
-                if not user or not user.get("dm_reply_group_id"):
-                    await event.reply(
-                        "❌ No DM reply group configured. Use /set_dm_group first."
-                    )
-                    return
-
-                group_id = user["dm_reply_group_id"]
-
-                # Get all topic mappings
-                mappings = await mongodb.db.dm_topics.find(
-                    {"group_id": group_id}
-                ).to_list(None)
-
-                # Get user's accounts
+                # Get user's accounts with DM groups
                 accounts = await mongodb.db.accounts.find(
                     {"user_id": user_id, "is_active": True}
                 ).to_list(None)
 
                 msg = f"📊 **DM Reply Debug Info**\n\n"
-                msg += f"**Group ID:** `{group_id}`\n"
-                msg += f"**Active Accounts:** {len(accounts)}\n"
-                msg += f"**Topics Created:** {len(mappings)}\n\n"
+                msg += f"**Active Accounts:** {len(accounts)}\n\n"
 
                 if accounts:
                     msg += "**Your Accounts:**\n"
                     for acc in accounts:
-                        msg += f"  • {acc.get('name',
-                                              'Unknown')} (ID: `{acc.get('telegram_id',
-                                                                         'N/A')}`)"
-                        # Check if handler is registered
-                        handler_status = (
-                            "✅"
-                            if f"{user_id}:{acc.get('telegram_id')}"
-                            in self.bot_manager.dm_reply_handler.handled_clients
-                            else "❌"
-                        )
-                        msg += f" Handler: {handler_status}\n"
+                        acc_name = acc.get('name', 'Unknown')
+                        group_id = acc.get('dm_reply_group_id')
+                        msg += f"\n📱 **{acc_name}**\n"
+                        
+                        if group_id:
+                            msg += f"  Group ID: `{group_id}`\n"
+                            
+                            # Check if group is accessible and has forum enabled
+                            try:
+                                chat_info = await self.bot.get_entity(group_id)
+                                is_forum = getattr(chat_info, "forum", False)
+                                msg += f"  Forum Enabled: {'✅ Yes' if is_forum else '❌ No'}\n"
+                                
+                                # Get topic count for this group
+                                topic_count = await mongodb.db.topic_mappings.count_documents(
+                                    {"admin_group_id": group_id}
+                                )
+                                msg += f"  Topics Created: {topic_count}\n"
+                            except Exception as e:
+                                msg += f"  Status: ❌ Cannot access group ({str(e)[:50]})\n"
+                        else:
+                            msg += f"  Status: ❌ No DM group configured\n"
                     msg += "\n"
-
-                if mappings:
-                    msg += f"**Topics ({len(mappings)}):**\n"
-                    for m in mappings:
-                        msg += f"📌 {m.get('topic_title', 'Unknown')}\n"
-                        msg += f"  Topic ID: `{m['topic_id']}`\n"
-                        msg += f"  Sender: `{m['sender_id']}`\n"
-                        msg += f"  Account: `{m['account_id']}`\n\n"
                 else:
-                    msg += "**No topics created yet.**\n"
-                    msg += "Topics will be created when someone sends a DM to your accounts.\n\n"
+                    msg += "**No active accounts found.**\n\n"
 
-                msg += "**Note:**\n"
-                msg += "• Handlers auto-refresh when accounts are added\n"
-                msg += "• Make sure bot is admin in the group\n"
-                msg += "• Group must have Topics enabled\n"
+                # Get all topic mappings
+                all_mappings = await mongodb.db.topic_mappings.find({}).to_list(None)
+                msg += f"**Total Topics in Database:** {len(all_mappings)}\n\n"
+
+                msg += "**Setup Instructions:**\n"
+                msg += "1. Use /set_dm_group to configure\n"
+                msg += "2. Make sure group has Topics enabled\n"
+                msg += "3. Bot must be admin with topic permissions\n"
+                msg += "4. Send a test DM to your account\n"
 
                 await event.reply(msg)
 
             except Exception as e:
-                logger.error(f"Debug topics error: {e}")
+                logger.error(f"Debug topics error: {e}", exc_info=True)
                 await event.reply(f"❌ Error: {e}")
 
         @self.bot.on(events.NewMessage(pattern=r"^/refresh_dm_handlers$"))

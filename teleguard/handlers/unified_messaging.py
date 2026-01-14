@@ -94,19 +94,32 @@ class UnifiedMessagingSystem:
         @self.bot.on(events.NewMessage())
         async def admin_group_handler(event):
             try:
-                user = await mongodb.db.users.find_one(
-                    {"dm_reply_group_id": event.chat_id}
-                )
-                if not user:
-                    return
-                if event.sender_id != user["telegram_id"]:
-                    return
                 if not event.message.reply_to:
                     return
-                replied_msg_id = event.message.reply_to.reply_to_msg_id
-                mapping = await mongodb.db.topic_mappings.find_one(
-                    {"admin_group_id": event.chat_id, "topic_id": replied_msg_id}
+                
+                # Check if message is in a topic (forum thread)
+                reply_to = event.message.reply_to
+                topic_id = getattr(reply_to, "reply_to_top_id", None) or getattr(reply_to, "reply_to_msg_id", None)
+                
+                if not topic_id:
+                    return
+                
+                # Find which account this group belongs to
+                account = await mongodb.db.accounts.find_one(
+                    {"dm_reply_group_id": event.chat_id}
                 )
+                if not account:
+                    return
+                
+                # Verify sender is the account owner
+                if event.sender_id != account["user_id"]:
+                    return
+                
+                # Get topic mapping
+                mapping = await mongodb.db.topic_mappings.find_one(
+                    {"admin_group_id": event.chat_id, "topic_id": topic_id}
+                )
+                
                 if mapping:
                     await self._send_topic_reply(
                         {
@@ -115,6 +128,8 @@ class UnifiedMessagingSystem:
                         },
                         event.text,
                     )
+                else:
+                    logger.warning(f"No mapping found for topic {topic_id} in group {event.chat_id}")
             except Exception as e:
                 logger.error(f"Admin group handler error: {e}", exc_info=True)
 
@@ -191,20 +206,35 @@ class UnifiedMessagingSystem:
     async def _find_or_create_topic(self, admin_group_id: int, sender_id: int, account_id: int, sender, user_id: int) -> Optional[int]:
         """Find existing topic or create new one"""
         try:
+            logger.info(f"Looking for topic: sender={sender_id}, account={account_id}, group={admin_group_id}")
+            
             existing_topic = await self._find_existing_topic(admin_group_id, sender_id, account_id)
             if existing_topic:
+                logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
                 return existing_topic
+            
+            logger.info(f"No existing topic found, creating new one...")
+            
             if not await self._verify_forum_enabled(admin_group_id):
+                logger.error(f"❌ Forum not enabled for group {admin_group_id}")
                 return None
+            
             account_info = await self._get_account_info(account_id)
             topic_title = self._get_topic_title(sender, account_info)
+            
+            logger.info(f"Creating topic with title: {topic_title}")
             topic_id = await self._create_new_topic(admin_group_id, topic_title, sender_id, account_id, user_id)
+            
             if topic_id:
+                logger.info(f"✅ Topic created successfully with ID {topic_id}")
                 await self._store_topic_mapping(admin_group_id, topic_id, sender_id, account_id)
                 await self._create_system_message(admin_group_id, topic_id, sender_id, account_id)
+            else:
+                logger.error(f"❌ Failed to create topic for sender {sender_id}")
+            
             return topic_id
         except Exception as e:
-            logger.error(f"Failed to create topic: {e}")
+            logger.error(f"❌ Failed in find_or_create_topic: {e}", exc_info=True)
             return None
 
     async def _find_existing_topic(
@@ -411,9 +441,14 @@ class UnifiedMessagingSystem:
                 if account and account.get("dm_reply_group_id"):
                     admin_group_id = account["dm_reply_group_id"]
                     try:
-                        await self.bot.get_entity(admin_group_id)
+                        chat_info = await self.bot.get_entity(admin_group_id)
+                        is_forum = getattr(chat_info, "forum", False)
+                        if not is_forum:
+                            logger.warning(f"Group {admin_group_id} for account {account_name} does not have Topics enabled")
+                            return None
                         return admin_group_id
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"Failed to access group {admin_group_id}: {e}")
                         return None
             return None
         except Exception as e:
@@ -587,21 +622,24 @@ class UnifiedMessagingSystem:
     async def _create_new_topic(self, admin_group_id: int, topic_title: str, sender_id: int, account_id: int, user_id: int) -> Optional[int]:
         """Create new forum topic"""
         try:
+            import random
             result = await self.bot(functions.channels.CreateForumTopicRequest(
                 channel=admin_group_id,
                 title=topic_title,
-                random_id=hash(f"{sender_id}_{account_id}_{user_id}"),
+                random_id=random.randint(1, 2**63 - 1),
             ))
             if hasattr(result, "updates") and result.updates:
                 for update in result.updates:
                     if hasattr(update, "message") and update.message:
-                        logger.info(f"Created topic '{topic_title}' with ID {update.message.id}")
-                        return update.message.id
+                        topic_id = update.message.id
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        return topic_id
                     elif hasattr(update, "id"):
-                        logger.info(f"Created topic '{topic_title}' with ID {update.id}")
-                        return update.id
-            logger.error(f"Failed to extract topic ID from result")
+                        topic_id = update.id
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        return topic_id
+            logger.error(f"❌ Failed to extract topic ID from result for '{topic_title}'")
             return None
         except Exception as e:
-            logger.error(f"Failed to create topic '{topic_title}' in {admin_group_id}: {e}")
+            logger.error(f"❌ Failed to create topic '{topic_title}' in {admin_group_id}: {e}", exc_info=True)
             return None
