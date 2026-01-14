@@ -17,30 +17,74 @@ class DMReplyCommands:
     def register_handlers(self):
         """Register command handlers"""
 
-        @self.bot.on(events.NewMessage(pattern=r"^/set_dm_group$"))
-        async def set_dm_group_command(event):
-            if not event.is_private:
-                return
+        @self.bot.on(events.NewMessage(pattern=r"^/dm_reply$"))
+        async def dm_reply_command(event):
             user_id = event.sender_id
             
-            from ..core.mongo_database import mongodb
-            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
-            
-            if not accounts:
-                await event.reply("❌ No active accounts found. Add an account first.")
+            # If in group, set that group as DM reply group
+            if not event.is_private:
+                from ..core.mongo_database import mongodb
+                
+                # Check if user has accounts
+                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                if not accounts:
+                    await event.reply("❌ You don't have any active accounts. Add an account first in private chat with the bot.")
+                    return
+                
+                # Check if group has topics enabled
+                try:
+                    chat = await event.get_chat()
+                    is_forum = getattr(chat, "forum", False)
+                    if not is_forum:
+                        await event.reply(
+                            "❌ **Topics Not Enabled**\n\n"
+                            "This group doesn't have Topics enabled.\n\n"
+                            "**To enable:**\n"
+                            "1. Go to Group Settings\n"
+                            "2. Enable 'Topics'\n"
+                            "3. Try /dm_reply again"
+                        )
+                        return
+                except Exception as e:
+                    await event.reply(f"❌ Error checking group: {e}")
+                    return
+                
+                # Show account selection
+                from telethon import Button
+                buttons = []
+                for acc in accounts:
+                    acc_name = acc.get('name', 'Unknown')
+                    # Sanitize account name for display and callback
+                    display_name = acc_name if acc_name and not all(ord(c) > 127 for c in acc_name) else f"Account {acc.get('phone', 'Unknown')}"
+                    # Use original name for callback to match database
+                    buttons.append([Button.inline(f"📱 {display_name}", f"dm_link:{acc_name}:{event.chat_id}")])
+                buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
+                
+                await event.reply(
+                    f"✅ **Group Ready for DM Manager**\n\n"
+                    f"📍 Group: {chat.title}\n"
+                    f"🆔 ID: `{event.chat_id}`\n\n"
+                    f"Select which account's DMs should be forwarded here:",
+                    buttons=buttons
+                )
                 return
             
-            from telethon import Button
-            buttons = []
-            for acc in accounts:
-                acc_name = acc.get("name", "Unknown")
-                buttons.append([Button.inline(f"📱 {acc_name}", f"dm_set:{acc_name}")])
-            
+            # If in private chat, show setup instructions
             await event.reply(
-                "📨 **Set DM Reply Group**\n\n"
-                "Select the account to configure:",
-                buttons=buttons
+                "⚙️ **DM Manager Setup**\n\n"
+                "📋 **Steps:**\n"
+                "1. Create a new group\n"
+                "2. Enable Topics in group settings\n"
+                "3. Add this bot to the group as admin\n"
+                "4. In the group, send /dm_reply\n"
+                "5. Select which account to link\n\n"
+                "💡 All DMs to that account will create topics in the group."
             )
+        
+        # Alias for backward compatibility
+        @self.bot.on(events.NewMessage(pattern=r"^/set_dm_group$"))
+        async def set_dm_group_alias(event):
+            await dm_reply_command(event)
 
         @self.bot.on(events.NewMessage(pattern=r"^/dm_status$"))
         async def dm_status_command(event):
@@ -74,6 +118,52 @@ class DMReplyCommands:
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
             user_id = event.sender_id
+            
+            if data.startswith("dm_link:"):
+                # Format: dm_link:account_name:group_id
+                parts = data.split(":", 2)
+                if len(parts) != 3:
+                    await event.answer("❌ Invalid data", alert=True)
+                    return
+                
+                account_name = parts[1].strip()
+                # Handle empty or invisible account names
+                if not account_name or account_name.isspace() or all(ord(c) > 127 for c in account_name):
+                    await event.answer("❌ Invalid account name", alert=True)
+                    return
+                
+                try:
+                    group_id = int(parts[2])
+                except ValueError:
+                    await event.answer("❌ Invalid group ID", alert=True)
+                    return
+                
+                from ..core.mongo_database import mongodb
+                
+                # Update account with DM group
+                result = await mongodb.db.accounts.update_one(
+                    {"user_id": user_id, "name": account_name},
+                    {"$set": {"dm_reply_group_id": group_id}}
+                )
+                
+                if result.modified_count > 0 or result.matched_count > 0:
+                    await event.edit(
+                        f"✅ **DM Manager Configured**\n\n"
+                        f"📱 Account: {account_name}\n"
+                        f"📍 Group ID: `{group_id}`\n\n"
+                        f"🎯 **Active!** All DMs to {account_name} will now create topics here.\n\n"
+                        f"**How to reply:**\n"
+                        f"• Go to the topic for a conversation\n"
+                        f"• Reply to any message in the topic\n"
+                        f"• Your reply will be sent from {account_name}"
+                    )
+                else:
+                    await event.answer("❌ Account not found", alert=True)
+                return
+            
+            if data == "dm_cancel":
+                await event.edit("❌ Setup cancelled")
+                return
             
             if data.startswith("dm_set:"):
                 account_name = data.split(":", 1)[1]

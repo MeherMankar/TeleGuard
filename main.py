@@ -93,12 +93,14 @@ class SafeConsoleHandler(logging.StreamHandler):
                     '⏳': '[WAIT]', '📝': '[NOTE]', '🆘': '[SOS]', '📋': '[LIST]',
                     '🌡️': '[TEMP]', '🔗': '[LINK]', '🚫': '[BLOCK]', '⏹️': '[STOP]',
                     '🔄': '[RELOAD]', '🛑': '[HALT]', '⌨️': '[KEY]', '📦': '[PKG]',
-                    '📁': '[FILE]', '🚨': '[ALERT]'
+                    '📁': '[FILE]', '🚨': '[ALERT]', '🔡': '[LOCK]', '🤖': '[BOT]',
+                    '📨': '[MAIL]', '📍': '[PIN]', '🎯': '[TARGET]', '📊': '[CHART]',
+                    '🕐': '[TIME]', '👤': '[USER]', '⚡': '[BOLT]', '🔒': '[SECURE]'
                 }
                 for emoji, text in emoji_map.items():
                     msg = msg.replace(emoji, text)
-                # Remove any remaining Unicode characters that can't be encoded
-                msg = msg.encode('ascii', errors='replace').decode('ascii')
+                # Remove ALL non-ASCII characters (including invisible Unicode)
+                msg = ''.join(char if ord(char) < 128 else '?' for char in msg)
             
             stream = self.stream
             stream.write(msg + self.terminator)
@@ -108,7 +110,7 @@ class SafeConsoleHandler(logging.StreamHandler):
 
 console_handler = SafeConsoleHandler()
 
-console_handler.setLevel(logging.ERROR)
+console_handler.setLevel(logging.INFO)  # Changed from ERROR to INFO to see all messages
 console_handler.setFormatter(simple_formatter)
 
 # Remove all existing handlers from root logger
