@@ -358,6 +358,18 @@ class UnifiedMessagingSystem:
                 account_name = getattr(
                     managed_account, "first_name", f"ID: {managed_account.id}"
                 )
+            
+            # Handle stickers
+            if hasattr(event.message, 'sticker') and event.message.sticker:
+                await self.bot.send_file(
+                    admin_group_id,
+                    event.message.sticker,
+                    caption=f"📨 **From:** {sender_name}\n📱 **To:** {account_name}",
+                    reply_to=topic_id,
+                    parse_mode="md"
+                )
+                return
+            
             if event.text:
                 content = event.text
             elif event.media:
@@ -433,6 +445,17 @@ class UnifiedMessagingSystem:
                 account_name = getattr(
                     managed_account, "first_name", f"ID: {managed_account.id}"
                 )
+            
+            # Handle stickers
+            if hasattr(event.message, 'sticker') and event.message.sticker:
+                await self.bot.send_file(
+                    user_id,
+                    event.message.sticker,
+                    caption=f"🤖 **Bot Message**\n📨 **From:** {sender_name} (Bot)\n📱 **To:** {account_name}",
+                    parse_mode="md"
+                )
+                return
+            
             if event.text:
                 content = event.text
             elif event.media:
