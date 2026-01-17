@@ -69,17 +69,8 @@ class DMReplyCommands:
                 )
                 return
             
-            # If in private chat, show setup instructions
-            await event.reply(
-                "⚙️ **DM Manager Setup**\n\n"
-                "📋 **Steps:**\n"
-                "1. Create a new group\n"
-                "2. Enable Topics in group settings\n"
-                "3. Add this bot to the group as admin\n"
-                "4. In the group, send /dm_reply\n"
-                "5. Select which account to link\n\n"
-                "💡 All DMs to that account will create topics in the group."
-            )
+            # If in private chat, don't show any message (user should use menu)
+            return
         
         # Alias for backward compatibility
         @self.bot.on(events.NewMessage(pattern=r"^/set_dm_group$"))
