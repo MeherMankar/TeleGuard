@@ -394,14 +394,40 @@ class UnifiedMessagingSystem:
                 # Download and re-upload to topic (required for topics)
                 import tempfile
                 import os
+                from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
                 
-                # Get file extension from original message
+                # Get file extension based on media type
                 file_ext = ""
-                if hasattr(event.message.media, 'document') and event.message.media.document:
-                    for attr in event.message.media.document.attributes:
-                        if hasattr(attr, 'file_name'):
-                            file_ext = os.path.splitext(attr.file_name)[1]
-                            break
+                if isinstance(event.message.media, MessageMediaPhoto):
+                    file_ext = ".jpg"
+                elif isinstance(event.message.media, MessageMediaDocument):
+                    doc = event.message.media.document
+                    # Try to get from attributes first (most accurate)
+                    if hasattr(doc, 'attributes'):
+                        for attr in doc.attributes:
+                            if hasattr(attr, 'file_name'):
+                                file_ext = os.path.splitext(attr.file_name)[1]
+                                break
+                    # Fallback to mime_type
+                    if not file_ext and hasattr(doc, 'mime_type'):
+                        mime_map = {
+                            'video/mp4': '.mp4', 'video/mpeg': '.mpeg', 'video/x-matroska': '.mkv',
+                            'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi',
+                            'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+                            'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/flac': '.flac',
+                            'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+                            'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+                            'application/pdf': '.pdf', 'application/zip': '.zip', 'application/x-rar-compressed': '.rar',
+                            'application/x-7z-compressed': '.7z', 'application/x-tar': '.tar',
+                            'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                            'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+                            'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+                            'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+                            'application/json': '.json', 'application/xml': '.xml',
+                            'application/x-python': '.py', 'text/x-python': '.py',
+                            'application/javascript': '.js', 'text/javascript': '.js',
+                        }
+                        file_ext = mime_map.get(doc.mime_type, '')
                 
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
                 temp_file.close()
@@ -492,13 +518,40 @@ class UnifiedMessagingSystem:
                 temp_file = None
                 
                 try:
-                    # Get file extension from original message
+                    from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+                    
+                    # Get file extension based on media type
                     file_ext = ""
-                    if hasattr(message_obj.media, 'document') and message_obj.media.document:
-                        for attr in message_obj.media.document.attributes:
-                            if hasattr(attr, 'file_name'):
-                                file_ext = os.path.splitext(attr.file_name)[1]
-                                break
+                    if isinstance(message_obj.media, MessageMediaPhoto):
+                        file_ext = ".jpg"
+                    elif isinstance(message_obj.media, MessageMediaDocument):
+                        doc = message_obj.media.document
+                        # Try to get from attributes first (most accurate)
+                        if hasattr(doc, 'attributes'):
+                            for attr in doc.attributes:
+                                if hasattr(attr, 'file_name'):
+                                    file_ext = os.path.splitext(attr.file_name)[1]
+                                    break
+                        # Fallback to mime_type
+                        if not file_ext and hasattr(doc, 'mime_type'):
+                            mime_map = {
+                                'video/mp4': '.mp4', 'video/mpeg': '.mpeg', 'video/x-matroska': '.mkv',
+                                'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi',
+                                'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+                                'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/flac': '.flac',
+                                'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+                                'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+                                'application/pdf': '.pdf', 'application/zip': '.zip', 'application/x-rar-compressed': '.rar',
+                                'application/x-7z-compressed': '.7z', 'application/x-tar': '.tar',
+                                'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                                'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+                                'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+                                'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+                                'application/json': '.json', 'application/xml': '.xml',
+                                'application/x-python': '.py', 'text/x-python': '.py',
+                                'application/javascript': '.js', 'text/javascript': '.js',
+                            }
+                            file_ext = mime_map.get(doc.mime_type, '')
                     
                     # Download from bot and re-upload via managed client
                     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
@@ -571,13 +624,40 @@ class UnifiedMessagingSystem:
                 
                 # For large files (>100MB), use temp file; otherwise use bytes
                 if file_size > 100 * 1024 * 1024:  # 100MB
-                    # Get file extension
+                    from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+                    
+                    # Get file extension based on media type
                     file_ext = ""
-                    if hasattr(event.message.media, 'document') and event.message.media.document:
-                        for attr in event.message.media.document.attributes:
-                            if hasattr(attr, 'file_name'):
-                                file_ext = os.path.splitext(attr.file_name)[1]
-                                break
+                    if isinstance(event.message.media, MessageMediaPhoto):
+                        file_ext = ".jpg"
+                    elif isinstance(event.message.media, MessageMediaDocument):
+                        doc = event.message.media.document
+                        # Try to get from attributes first (most accurate)
+                        if hasattr(doc, 'attributes'):
+                            for attr in doc.attributes:
+                                if hasattr(attr, 'file_name'):
+                                    file_ext = os.path.splitext(attr.file_name)[1]
+                                    break
+                        # Fallback to mime_type
+                        if not file_ext and hasattr(doc, 'mime_type'):
+                            mime_map = {
+                                'video/mp4': '.mp4', 'video/mpeg': '.mpeg', 'video/x-matroska': '.mkv',
+                                'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi',
+                                'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
+                                'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/flac': '.flac',
+                                'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+                                'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+                                'application/pdf': '.pdf', 'application/zip': '.zip', 'application/x-rar-compressed': '.rar',
+                                'application/x-7z-compressed': '.7z', 'application/x-tar': '.tar',
+                                'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                                'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+                                'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+                                'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+                                'application/json': '.json', 'application/xml': '.xml',
+                                'application/x-python': '.py', 'text/x-python': '.py',
+                                'application/javascript': '.js', 'text/javascript': '.js',
+                            }
+                            file_ext = mime_map.get(doc.mime_type, '')
                     
                     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
                     temp_file.close()
