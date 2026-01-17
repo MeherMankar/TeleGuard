@@ -1049,6 +1049,20 @@ class BotManager:
                         f"Failed to setup DM handler for {account_name}: {dm_error}"
                     )
 
+            # Setup unified messaging handler for the new client
+            if self.unified_messaging and client:
+                try:
+                    await self.unified_messaging.setup_new_client_handler(
+                        user_id, account_name, client
+                    )
+                    logger.info(
+                        f"Unified messaging handler setup completed for {account_name}"
+                    )
+                except Exception as um_error:
+                    logger.error(
+                        f"Failed to setup unified messaging handler for {account_name}: {um_error}"
+                    )
+
             # Setup auto-reply handler for the new client
             if self.auto_reply_handler and client:
                 try:

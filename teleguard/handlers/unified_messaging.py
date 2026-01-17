@@ -582,10 +582,29 @@ class UnifiedMessagingSystem:
                 
                 import tempfile
                 import os
+                from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, DocumentAttributeSticker
                 temp_file = None
                 
                 try:
-                    from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+                    # Check if it's a sticker
+                    is_sticker = False
+                    if isinstance(message_obj.media, MessageMediaDocument):
+                        doc = message_obj.media.document
+                        if hasattr(doc, 'attributes'):
+                            for attr in doc.attributes:
+                                if isinstance(attr, DocumentAttributeSticker):
+                                    is_sticker = True
+                                    break
+                    
+                    # For stickers, send directly without downloading
+                    if is_sticker:
+                        await managed_client.send_file(
+                            target_entity,
+                            message_obj.media,
+                            caption=message_obj.text if message_obj.text else None
+                        )
+                        logger.info("Sticker sent successfully")
+                        return
                     
                     # Get file extension based on media type
                     file_ext = ""
