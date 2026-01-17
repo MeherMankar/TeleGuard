@@ -257,7 +257,7 @@ class UnifiedMessagingSystem:
     async def _find_existing_topic(
         self, admin_group_id: int, sender_id: int, account_id: int
     ) -> Optional[int]:
-        """Find existing topic for sender and account combination"""
+        """Find existing topic for sender (one topic per user)"""
         try:
             if not all(
                 isinstance(x, int) for x in [admin_group_id, sender_id, account_id]
@@ -268,7 +268,6 @@ class UnifiedMessagingSystem:
                 {
                     "admin_group_id": admin_group_id,
                     "sender_id": sender_id,
-                    "account_id": account_id,
                 }
             )
             if mapping:

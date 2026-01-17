@@ -454,7 +454,7 @@ class CommandHandlers:
         await event.reply("Use menu: Account Settings → Import Session")
 
     async def _handle_dm(self, event):
-        await event.reply("Use menu: Messaging → Unified DM Manager")
+        return
 
     async def _handle_reply(self, event):
         await event.reply("Use menu: Messaging → Auto-Reply")
