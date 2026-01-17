@@ -103,9 +103,9 @@ class UnifiedMessagingSystem:
                 if not event.message.reply_to:
                     return
                 
-                # Check if message is in a topic (forum thread)
+                # Get the topic ID - try both reply_to_top_id and reply_to_msg_id
                 reply_to = event.message.reply_to
-                topic_id = getattr(reply_to, "reply_to_top_id", None)
+                topic_id = getattr(reply_to, "reply_to_top_id", None) or getattr(reply_to, "reply_to_msg_id", None)
                 
                 if not topic_id:
                     return
