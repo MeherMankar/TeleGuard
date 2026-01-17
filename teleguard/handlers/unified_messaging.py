@@ -379,15 +379,23 @@ class UnifiedMessagingSystem:
                         admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                     )
                     
-                    # Forward message to topic (no download) - supports 2-4GB files
-                    from telethon.tl.functions.messages import ForwardMessagesRequest
-                    from telethon.tl.types import InputReplyToMessage
-                    await self.bot(ForwardMessagesRequest(
-                        from_peer=event.chat_id,
-                        id=[event.message.id],
-                        to_peer=admin_group_id,
-                        top_msg_id=topic_id
-                    ))
+                    # Download and re-upload to topic (required for topics)
+                    import tempfile
+                    import os
+                    temp_file = tempfile.NamedTemporaryFile(delete=False)
+                    temp_file.close()
+                    
+                    try:
+                        await event.client.download_media(event.message, file=temp_file.name)
+                        await self.bot.send_file(
+                            admin_group_id,
+                            temp_file.name,
+                            caption=event.text if event.text else None,
+                            reply_to=topic_id
+                        )
+                    finally:
+                        if os.path.exists(temp_file.name):
+                            os.unlink(temp_file.name)
                 finally:
                     # Clean up temp storage
                     if media_id:
