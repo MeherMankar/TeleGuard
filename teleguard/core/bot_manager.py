@@ -766,20 +766,17 @@ class BotManager:
         self.messaging_manager = await self.component_manager.initialize_component(
             "messaging_manager", MessagingManager, self
         )
+        
+        # Initialize UnifiedMessagingSystem for DM forwarding with topics
+        from ..handlers.unified_messaging import UnifiedMessagingSystem
+        logger.info("Initializing unified messaging system...")
+        self.unified_messaging = UnifiedMessagingSystem(self)
+        self.unified_messaging.setup_handlers()
+        logger.info("Unified messaging system initialized with DM forwarding")
+        
         print("  OTP Destroyer ready")
         print("  Messaging system ready")
         print("  Menu system ready")
-
-        # Verify OTP manager is working
-        if self.otp_manager:
-            handler_count = len(self.otp_manager.registered_handlers)
-            if handler_count > 0:
-                print(f"  OTP protection active for {handler_count} accounts")
-            else:
-                print("  OTP protection ready (no accounts loaded yet)")
-
-        # Set unified_messaging as alias to messaging_manager for compatibility
-        self.unified_messaging = self.messaging_manager
         # SessionMaster analytics and automation are integrated into handlers
 
     async def _initialize_handlers(self) -> None:
