@@ -140,7 +140,9 @@ class MessagingManager:
             target_entity = await self._resolve_target_entity(client, target)
             if not target_entity:
                 return False
-            await self._simulate_typing(client, target_entity, message)
+            from telethon.tl.types import InputPeerUser
+            if not isinstance(target_entity, InputPeerUser):
+                await self._simulate_typing(client, target_entity, message)
             await client.send_message(target_entity, message)
             logger.info(f"Message sent from {account_name} to {target}")
             return True
@@ -220,7 +222,19 @@ class MessagingManager:
                         return result.users[0]
                     raise ValueError(f"Username {target} not found")
             elif target.startswith("-") or target.isdigit():
-                return await client.get_entity(int(target))
+                # For user IDs, use get_input_entity which works with IDs directly
+                user_id = int(target)
+                try:
+                    return await client.get_entity(user_id)
+                except ValueError:
+                    async for dialog in client.iter_dialogs():
+                        if dialog.entity.id == user_id:
+                            return dialog.entity
+                    from telethon.tl.types import User
+                    async for participant in client.iter_participants(client.get_dialogs()):
+                        if isinstance(participant, User) and participant.id == user_id:
+                            return participant
+                    raise ValueError(f"User {user_id} not found")
             else:
                 return await client.get_entity(target)
         except Exception as e:

@@ -597,8 +597,10 @@ class CallbackRouter:
                     buttons = [
                         [Button.inline("⚙️ Setup DM Manager", "dm_reply:setup")],
                         [Button.inline("📊 View Status", "dm_reply:status")],
-                        [Button.inline("🔙 Back", "menu:messaging")],
                     ]
+                    if dm_group:
+                        buttons.append([Button.inline("🗑️ Remove DM Manager", "dm_reply:remove")])
+                    buttons.append([Button.inline("🔙 Back", "menu:messaging")])
                 await self.menu.bot.edit_message(
                     user_id, event.message_id, text, buttons=buttons
                 )
@@ -630,6 +632,33 @@ class CallbackRouter:
                 else:
                     text = f"📊 **DM Manager Status**\n\n❌ **Not Setup**\n\n📱 Accounts: {
                         len(accounts)}\n\n⚠️ DM forwarding is not active. Use Setup to configure."
+                buttons = [[Button.inline("🔙 Back", "dm_reply:main")]]
+                await self.menu.bot.edit_message(
+                    user_id, event.message_id, text, buttons=buttons
+                )
+            elif action == "remove":
+                user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                dm_group = user.get("dm_reply_group_id") if user else None
+                if dm_group:
+                    # Remove DM group from user
+                    await mongodb.db.users.update_one(
+                        {"telegram_id": user_id},
+                        {"$unset": {"dm_reply_group_id": ""}}
+                    )
+                    # Remove DM group from all accounts
+                    await mongodb.db.accounts.update_many(
+                        {"user_id": user_id},
+                        {"$unset": {"dm_reply_group_id": ""}}
+                    )
+                    # Delete all topic mappings for this group
+                    await mongodb.db.topic_mappings.delete_many(
+                        {"admin_group_id": dm_group}
+                    )
+                    text = "✅ **DM Manager Removed**\n\n🗑️ Successfully removed DM Manager configuration\n\n📝 **What was removed:**\n• Admin group link\n• All topic mappings\n• Account DM forwarding settings\n\n💡 You can set it up again anytime using Setup button."
+                    await event.answer("✅ DM Manager removed")
+                else:
+                    text = "❌ **Not Configured**\n\nDM Manager is not currently set up.\n\nUse Setup to configure it."
+                    await event.answer("❌ Not configured")
                 buttons = [[Button.inline("🔙 Back", "dm_reply:main")]]
                 await self.menu.bot.edit_message(
                     user_id, event.message_id, text, buttons=buttons
