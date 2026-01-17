@@ -150,13 +150,7 @@ class DMReplyCommands:
                 )
                 
                 if result.modified_count > 0 or result.matched_count > 0:
-                    # Refresh handlers for this account to activate DM forwarding
-                    if hasattr(self.bot_manager, 'unified_messaging'):
-                        # Find the client for this account
-                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
-                        if client:
-                            logger.info(f"Refreshing handlers for {account_name} after DM group setup")
-                            await self.bot_manager.unified_messaging.setup_new_client_handler(user_id, account_name, client)
+                    # Handlers are already set up, no need to refresh
                     
                     await event.edit(
                         f"✅ **DM Manager Configured**\n\n"

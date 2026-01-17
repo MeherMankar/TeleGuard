@@ -216,24 +216,31 @@ class UnifiedMessagingSystem:
     async def _find_or_create_topic(self, admin_group_id: int, sender_id: int, account_id: int, sender, user_id: int) -> Optional[int]:
         """Find existing topic or create new one"""
         try:
-            logger.info(f"Looking for topic: sender={sender_id}, account={account_id}, group={admin_group_id}")
+            logger.info(f"🔍 Looking for topic: sender={sender_id}, account={account_id}, group={admin_group_id}")
             
             existing_topic = await self._find_existing_topic(admin_group_id, sender_id, account_id)
             if existing_topic:
                 logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
                 return existing_topic
             
-            logger.info(f"No existing topic found, creating new one...")
+            logger.info(f"🆕 No existing topic found, creating new one...")
             
-            if not await self._verify_forum_enabled(admin_group_id):
+            forum_enabled = await self._verify_forum_enabled(admin_group_id)
+            logger.info(f"📋 Forum enabled check result: {forum_enabled}")
+            if not forum_enabled:
                 logger.error(f"❌ Forum not enabled for group {admin_group_id}")
                 return None
             
+            logger.info(f"👤 Getting account info for {account_id}...")
             account_info = await self._get_account_info(account_id)
-            topic_title = self._get_topic_title(sender, account_info)
+            logger.info(f"👤 Account info retrieved: {account_info is not None}")
             
-            logger.info(f"Creating topic with title: {topic_title}")
+            topic_title = self._get_topic_title(sender, account_info)
+            logger.info(f"📝 Topic title generated: '{topic_title}'")
+            
+            logger.info(f"🔨 Calling _create_new_topic...")
             topic_id = await self._create_new_topic(admin_group_id, topic_title, sender_id, account_id, user_id)
+            logger.info(f"🔨 _create_new_topic returned: {topic_id}")
             
             if topic_id:
                 logger.info(f"✅ Topic created successfully with ID {topic_id}")
@@ -633,22 +640,29 @@ class UnifiedMessagingSystem:
         """Create new forum topic"""
         try:
             import random
+            from telethon.tl import functions
+            
+            logger.info(f"🔨 Creating topic '{topic_title}' in group {admin_group_id}")
             result = await self.bot(functions.channels.CreateForumTopicRequest(
                 channel=admin_group_id,
                 title=topic_title,
+                icon_color=0x6FB9F0,
                 random_id=random.randint(1, 2**63 - 1),
             ))
+            logger.debug(f"Topic creation result type: {type(result)}, has updates: {hasattr(result, 'updates')}")
             if hasattr(result, "updates") and result.updates:
-                for update in result.updates:
+                logger.debug(f"Updates count: {len(result.updates)}")
+                for i, update in enumerate(result.updates):
+                    logger.debug(f"Update {i}: type={type(update)}, has message={hasattr(update, 'message')}, has id={hasattr(update, 'id')}")
                     if hasattr(update, "message") and update.message:
                         topic_id = update.message.id
-                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} (from message.id)")
                         return topic_id
                     elif hasattr(update, "id"):
                         topic_id = update.id
-                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} (from update.id)")
                         return topic_id
-            logger.error(f"❌ Failed to extract topic ID from result for '{topic_title}'")
+            logger.error(f"❌ Failed to extract topic ID from result: {result}")
             return None
         except Exception as e:
             logger.error(f"❌ Failed to create topic '{topic_title}' in {admin_group_id}: {e}", exc_info=True)
