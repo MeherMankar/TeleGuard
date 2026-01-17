@@ -1,5 +1,5 @@
 # Core dependencies
-telethon>=1.42.0
+telethon==1.36.0
 pyrogram>=2.0.106
 aiohttp>=3.11.10
 cryptography>=43.0.3

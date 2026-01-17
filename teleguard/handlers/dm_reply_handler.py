@@ -339,16 +339,16 @@ class DMReplyHandler:
 
             logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
 
-            # Create forum topic using send_message with reply_to for forum groups
+            # Since forum topics API is not available, just send to general chat
+            # The message will appear in the group's general chat
             result = await self.bot.send_message(
                 group_id,
-                f"📌 Topic: {topic_title}",
-                reply_to=1  # Reply to general topic to create new topic
+                f"📌 **{topic_title}**\n\n_New conversation started_"
             )
 
-            logger.debug(f"Topic creation result: {result}")
+            logger.debug(f"Message sent result: {result}")
 
-            # Extract topic ID from the message
+            # Use the message ID as topic_id for tracking
             topic_id = result.id if result else None
             
             if not topic_id:

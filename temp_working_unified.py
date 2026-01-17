@@ -103,9 +103,9 @@ class UnifiedMessagingSystem:
                 if not event.message.reply_to:
                     return
                 
-                # Get the topic ID - try both reply_to_top_id and reply_to_msg_id
+                # Check if message is in a topic (forum thread)
                 reply_to = event.message.reply_to
-                topic_id = getattr(reply_to, "reply_to_top_id", None) or getattr(reply_to, "reply_to_msg_id", None)
+                topic_id = getattr(reply_to, "reply_to_top_id", None)
                 
                 if not topic_id:
                     return
@@ -630,18 +630,25 @@ class UnifiedMessagingSystem:
         return None
 
     async def _create_new_topic(self, admin_group_id: int, topic_title: str, sender_id: int, account_id: int, user_id: int) -> Optional[int]:
-        """Create new forum topic - fallback to general chat if API unavailable"""
+        """Create new forum topic"""
         try:
-            # Send message to general chat (forum topics API not available in current Telethon)
-            result = await self.bot.send_message(
-                admin_group_id,
-                f"📌 **{topic_title}**\n\n_New conversation started_"
-            )
-            if result:
-                topic_id = result.id
-                logger.info(f"✅ Created message '{topic_title}' with ID {topic_id} for sender {sender_id}")
-                return topic_id
-            logger.error(f"❌ Failed to send message for '{topic_title}'")
+            import random
+            result = await self.bot(functions.channels.CreateForumTopicRequest(
+                channel=admin_group_id,
+                title=topic_title,
+                random_id=random.randint(1, 2**63 - 1),
+            ))
+            if hasattr(result, "updates") and result.updates:
+                for update in result.updates:
+                    if hasattr(update, "message") and update.message:
+                        topic_id = update.message.id
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        return topic_id
+                    elif hasattr(update, "id"):
+                        topic_id = update.id
+                        logger.info(f"✅ Created topic '{topic_title}' with ID {topic_id} for sender {sender_id}")
+                        return topic_id
+            logger.error(f"❌ Failed to extract topic ID from result for '{topic_title}'")
             return None
         except Exception as e:
             logger.error(f"❌ Failed to create topic '{topic_title}' in {admin_group_id}: {e}", exc_info=True)
