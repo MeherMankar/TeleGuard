@@ -101,25 +101,30 @@ class UnifiedMessagingSystem:
         @self.bot.on(events.NewMessage())
         async def admin_group_handler(event):
             try:
-                if not event.message.reply_to:
-                    return
-                
                 # Check if message is in a topic (forum thread)
                 reply_to = event.message.reply_to
-                topic_id = getattr(reply_to, "reply_to_top_id", None)
+                if not reply_to:
+                    return
+                
+                # Get topic ID - either from reply_to_top_id or reply_to_msg_id if it's the first message
+                topic_id = getattr(reply_to, "reply_to_top_id", None) or getattr(reply_to, "reply_to_msg_id", None)
                 
                 if not topic_id:
                     return
+                
+                logger.info(f"📩 Reply in topic {topic_id}, chat {event.chat_id}, sender {event.sender_id}")
                 
                 # Find which account this group belongs to
                 account = await mongodb.db.accounts.find_one(
                     {"dm_reply_group_id": event.chat_id}
                 )
                 if not account:
+                    logger.debug(f"No account found for group {event.chat_id}")
                     return
                 
                 # Verify sender is the account owner
                 if event.sender_id != account["user_id"]:
+                    logger.debug(f"Sender {event.sender_id} is not account owner {account['user_id']}")
                     return
                 
                 # Get topic mapping
@@ -128,7 +133,7 @@ class UnifiedMessagingSystem:
                 )
                 
                 if mapping:
-                    logger.info(f"Sending topic reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
+                    logger.info(f"✅ Found mapping, sending reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
                     await self._send_topic_reply(
                         {
                             "user_id": mapping["sender_id"],
@@ -138,7 +143,7 @@ class UnifiedMessagingSystem:
                         message_obj=event.message
                     )
                 else:
-                    logger.warning(f"No mapping found for topic {topic_id} in group {event.chat_id}")
+                    logger.warning(f"❌ No mapping found for topic {topic_id} in group {event.chat_id}")
             except Exception as e:
                 logger.error(f"Admin group handler error: {e}", exc_info=True)
 
