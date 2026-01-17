@@ -470,7 +470,7 @@ class UnifiedMessagingSystem:
             return None
 
     async def _send_topic_reply(self, mapping: dict, message_text: str = None, message_obj=None):
-        """Send reply from topic to original sender using copy (no download)"""
+        """Send reply from topic to original sender"""
         media_id = None
         try:
             target_user_id = mapping["user_id"]
@@ -483,25 +483,35 @@ class UnifiedMessagingSystem:
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
-            # If message object provided (media/sticker), forward without downloading
+            # If message object provided (media/sticker), download and re-upload
             if message_obj and message_obj.media:
-                logger.info(f"Forwarding media: type={type(message_obj.media)}")
+                logger.info(f"Sending media: type={type(message_obj.media)}")
+                
+                import tempfile
+                import os
+                temp_file = None
                 
                 try:
                     # Store metadata temporarily
                     media_id = await self._save_temp_media(message_obj)
                     
-                    # Forward media directly (no download) - supports 2-4GB files
-                    await managed_client.forward_messages(
+                    # Download from bot and re-upload via managed client
+                    temp_file = tempfile.NamedTemporaryFile(delete=False)
+                    temp_file.close()
+                    
+                    await self.bot.download_media(message_obj, file=temp_file.name)
+                    await managed_client.send_file(
                         target_user_id,
-                        message_obj.id,
-                        message_obj.chat_id
+                        temp_file.name,
+                        caption=message_obj.text if message_obj.text else None
                     )
-                    logger.info("Media forwarded successfully")
+                    logger.info("Media sent successfully")
                 finally:
                     # Clean up temp storage
                     if media_id:
                         await self._delete_temp_media(media_id)
+                    if temp_file and os.path.exists(temp_file.name):
+                        os.unlink(temp_file.name)
             # Text message
             elif message_text:
                 logger.info(f"Sending text message: {message_text[:50]}...")
