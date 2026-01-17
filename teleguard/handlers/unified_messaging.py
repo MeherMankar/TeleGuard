@@ -394,7 +394,16 @@ class UnifiedMessagingSystem:
                 # Download and re-upload to topic (required for topics)
                 import tempfile
                 import os
-                temp_file = tempfile.NamedTemporaryFile(delete=False)
+                
+                # Get file extension from original message
+                file_ext = ""
+                if hasattr(event.message.media, 'document') and event.message.media.document:
+                    for attr in event.message.media.document.attributes:
+                        if hasattr(attr, 'file_name'):
+                            file_ext = os.path.splitext(attr.file_name)[1]
+                            break
+                
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
                 temp_file.close()
                 
                 try:
@@ -403,7 +412,8 @@ class UnifiedMessagingSystem:
                         admin_group_id,
                         temp_file.name,
                         caption=event.text if event.text else None,
-                        reply_to=topic_id
+                        reply_to=topic_id,
+                        force_document=False
                     )
                 finally:
                     if os.path.exists(temp_file.name):
@@ -482,15 +492,24 @@ class UnifiedMessagingSystem:
                 temp_file = None
                 
                 try:
+                    # Get file extension from original message
+                    file_ext = ""
+                    if hasattr(message_obj.media, 'document') and message_obj.media.document:
+                        for attr in message_obj.media.document.attributes:
+                            if hasattr(attr, 'file_name'):
+                                file_ext = os.path.splitext(attr.file_name)[1]
+                                break
+                    
                     # Download from bot and re-upload via managed client
-                    temp_file = tempfile.NamedTemporaryFile(delete=False)
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
                     temp_file.close()
                     
                     await self.bot.download_media(message_obj, file=temp_file.name)
                     await managed_client.send_file(
                         target_user_id,
                         temp_file.name,
-                        caption=message_obj.text if message_obj.text else None
+                        caption=message_obj.text if message_obj.text else None,
+                        force_document=False
                     )
                     logger.info("Media sent successfully")
                 finally:
@@ -552,7 +571,15 @@ class UnifiedMessagingSystem:
                 
                 # For large files (>100MB), use temp file; otherwise use bytes
                 if file_size > 100 * 1024 * 1024:  # 100MB
-                    temp_file = tempfile.NamedTemporaryFile(delete=False)
+                    # Get file extension
+                    file_ext = ""
+                    if hasattr(event.message.media, 'document') and event.message.media.document:
+                        for attr in event.message.media.document.attributes:
+                            if hasattr(attr, 'file_name'):
+                                file_ext = os.path.splitext(attr.file_name)[1]
+                                break
+                    
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
                     temp_file.close()
                     await event.client.download_media(event.message, file=temp_file.name)
                     await self.bot.send_file(
