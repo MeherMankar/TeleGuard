@@ -439,21 +439,21 @@ class UnifiedMessagingSystem:
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
-            # If message object provided (media/sticker), copy without downloading
+            # If message object provided (media/sticker), forward without downloading
             if message_obj and message_obj.media:
-                logger.info(f"Sending media: type={type(message_obj.media)}")
+                logger.info(f"Forwarding media: type={type(message_obj.media)}")
                 
                 try:
                     # Store metadata temporarily
                     media_id = await self._save_temp_media(message_obj)
                     
-                    # Copy media directly (no download) - supports 2-4GB files
-                    await managed_client.send_file(
+                    # Forward media directly (no download) - supports 2-4GB files
+                    await managed_client.forward_messages(
                         target_user_id,
-                        message_obj.media,
-                        caption=message_obj.text if message_obj.text else None
+                        message_obj.id,
+                        message_obj.chat_id
                     )
-                    logger.info("Media sent successfully")
+                    logger.info("Media forwarded successfully")
                 finally:
                     # Clean up temp storage
                     if media_id:
