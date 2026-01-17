@@ -6,6 +6,7 @@ from typing import Optional
 from telethon import events, functions
 
 from ..core.mongo_database import mongodb
+from ..core.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +104,9 @@ class UnifiedMessagingSystem:
                 if not event.message.reply_to:
                     return
                 
-                # Get the topic ID - try both reply_to_top_id and reply_to_msg_id
+                # Check if message is in a topic (forum thread)
                 reply_to = event.message.reply_to
-                topic_id = getattr(reply_to, "reply_to_top_id", None) or getattr(reply_to, "reply_to_msg_id", None)
+                topic_id = getattr(reply_to, "reply_to_top_id", None)
                 
                 if not topic_id:
                     return
@@ -127,12 +128,14 @@ class UnifiedMessagingSystem:
                 )
                 
                 if mapping:
+                    logger.info(f"Sending topic reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
                     await self._send_topic_reply(
                         {
                             "user_id": mapping["sender_id"],
                             "account_id": mapping["account_id"],
                         },
-                        event.text,
+                        message_text=event.text,
+                        message_obj=event.message
                     )
                 else:
                     logger.warning(f"No mapping found for topic {topic_id} in group {event.chat_id}")
@@ -348,7 +351,8 @@ class UnifiedMessagingSystem:
     async def _forward_to_topic(
         self, admin_group_id: int, topic_id: int, event, sender, managed_account
     ):
-        """Forward DM to topic"""
+        """Forward DM to topic using copy (no download) - supports up to 4GB files"""
+        media_id = None
         try:
             sender_name = self._get_topic_title(sender)
             account_name = getattr(managed_account, "username", None)
@@ -361,19 +365,30 @@ class UnifiedMessagingSystem:
             
             caption = f"📨 **From:** {sender_name}\n📱 **To:** {account_name}"
             
-            # Handle media (photos, videos, documents, stickers, etc.)
+            # Handle media - copy without downloading
             if event.message.media:
-                # Add text if present
-                if event.text:
-                    caption += f"\n\n{event.text}"
-                
-                await self.bot.send_file(
-                    admin_group_id,
-                    event.message.media,
-                    caption=caption,
-                    reply_to=topic_id,
-                    parse_mode="md"
-                )
+                try:
+                    # Store metadata temporarily
+                    media_id = await self._save_temp_media(event.message)
+                    
+                    if event.text:
+                        caption += f"\n\n{event.text}"
+                    
+                    # Send caption first
+                    await self.bot.send_message(
+                        admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                    )
+                    
+                    # Copy media directly (no download) - supports 2-4GB files
+                    await self.bot.send_file(
+                        admin_group_id, 
+                        event.message.media,
+                        reply_to=topic_id
+                    )
+                finally:
+                    # Clean up temp storage
+                    if media_id:
+                        await self._delete_temp_media(media_id)
                 return
             
             # Text-only message
@@ -386,7 +401,7 @@ class UnifiedMessagingSystem:
                 admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
             )
         except Exception as e:
-            logger.error(f"Failed to forward to topic: {e}")
+            logger.error(f"Failed to forward to topic: {e}", exc_info=True)
 
     async def _get_topic_mapping(
         self, admin_group_id: int, topic_id: int
@@ -409,14 +424,46 @@ class UnifiedMessagingSystem:
             logger.error(f"Failed to get topic mapping: {e}")
             return None
 
-    async def _send_topic_reply(self, mapping: dict, message_text: str):
-        """Send reply from topic to original sender"""
+    async def _send_topic_reply(self, mapping: dict, message_text: str = None, message_obj=None):
+        """Send reply from topic to original sender using copy (no download)"""
+        media_id = None
         try:
             target_user_id = mapping["user_id"]
             managed_account_id = mapping["account_id"]
             managed_client = await self._get_client_by_id(managed_account_id)
-            if managed_client:
+            
+            if not managed_client:
+                logger.error(f"No client found for account {managed_account_id}")
+                return
+            
+            logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
+            
+            # If message object provided (media/sticker), copy without downloading
+            if message_obj and message_obj.media:
+                logger.info(f"Sending media: type={type(message_obj.media)}")
+                
+                try:
+                    # Store metadata temporarily
+                    media_id = await self._save_temp_media(message_obj)
+                    
+                    # Copy media directly (no download) - supports 2-4GB files
+                    await managed_client.send_file(
+                        target_user_id,
+                        message_obj.media,
+                        caption=message_obj.text if message_obj.text else None
+                    )
+                    logger.info("Media sent successfully")
+                finally:
+                    # Clean up temp storage
+                    if media_id:
+                        await self._delete_temp_media(media_id)
+            # Text message
+            elif message_text:
+                logger.info(f"Sending text message: {message_text[:50]}...")
                 await managed_client.send_message(target_user_id, message_text)
+                logger.info("Text sent successfully")
+            else:
+                logger.warning("No message text or media to send")
         except Exception as e:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
 
@@ -437,6 +484,9 @@ class UnifiedMessagingSystem:
         self, user_id: int, sender, managed_account, event
     ):
         """Send bot messages directly via bot instead of topics"""
+        import tempfile
+        import os
+        temp_file = None
         try:
             sender_name = self._get_topic_title(sender)
             account_name = getattr(managed_account, "username", None)
@@ -449,18 +499,39 @@ class UnifiedMessagingSystem:
             
             caption = f"🤖 **Bot Message**\n📨 **From:** {sender_name} (Bot)\n📱 **To:** {account_name}"
             
-            # Handle media (photos, videos, documents, stickers, etc.)
+            # Handle media
             if event.message.media:
-                # Add text if present
                 if event.text:
                     caption += f"\n\n{event.text}"
                 
-                await self.bot.send_file(
-                    user_id,
-                    event.message.media,
-                    caption=caption,
-                    parse_mode="md"
-                )
+                # Check file size
+                file_size = getattr(event.message.media, 'document', None)
+                if file_size:
+                    file_size = getattr(file_size, 'size', 0)
+                else:
+                    file_size = 0
+                
+                # For large files (>100MB), use temp file; otherwise use bytes
+                if file_size > 100 * 1024 * 1024:  # 100MB
+                    temp_file = tempfile.NamedTemporaryFile(delete=False)
+                    temp_file.close()
+                    await event.client.download_media(event.message, file=temp_file.name)
+                    await self.bot.send_file(
+                        user_id,
+                        temp_file.name,
+                        caption=caption,
+                        parse_mode="md",
+                        force_document=False
+                    )
+                else:
+                    media_bytes = await event.client.download_media(event.message, file=bytes)
+                    await self.bot.send_file(
+                        user_id,
+                        media_bytes,
+                        caption=caption,
+                        parse_mode="md",
+                        force_document=False
+                    )
                 return
             
             # Text-only message
@@ -471,7 +542,13 @@ class UnifiedMessagingSystem:
             
             await self.bot.send_message(user_id, direct_message, parse_mode="md")
         except Exception as e:
-            logger.error(f"Failed to send bot message directly: {e}")
+            logger.error(f"Failed to send bot message directly: {e}", exc_info=True)
+        finally:
+            if temp_file and os.path.exists(temp_file.name):
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
 
     async def _get_user_admin_group(self, user_id: int, account_name: str = None) -> Optional[int]:
         """Get admin group ID for specific account"""
@@ -658,6 +735,47 @@ class UnifiedMessagingSystem:
             except Exception:
                 pass
         return None
+
+    async def _should_filter_media(self, message) -> bool:
+        """Check if message should be filtered (media filter for free tier optimization)"""
+        if not hasattr(message, 'media') or not message.media:
+            return False
+        # Filter photos and videos to save MongoDB storage
+        from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+        if isinstance(message.media, MessageMediaPhoto):
+            return True
+        if isinstance(message.media, MessageMediaDocument):
+            if message.media.document:
+                mime = getattr(message.media.document, 'mime_type', '')
+                if mime.startswith(('video/', 'image/')):
+                    return True
+        return False
+
+    async def _save_temp_media(self, message) -> str:
+        """Save media temporarily to DB"""
+        try:
+            from bson import ObjectId
+            import time
+            
+            media_doc = {
+                "_id": ObjectId(),
+                "message_id": message.id,
+                "created_at": int(time.time())
+            }
+            
+            await mongodb.db.temp_media.insert_one(media_doc)
+            return str(media_doc["_id"])
+        except Exception as e:
+            logger.error(f"Failed to save temp media: {e}")
+            return None
+    
+    async def _delete_temp_media(self, media_id: str):
+        """Delete temp media from DB"""
+        try:
+            from bson import ObjectId
+            await mongodb.db.temp_media.delete_one({"_id": ObjectId(media_id)})
+        except Exception as e:
+            logger.error(f"Failed to delete temp media: {e}")
 
     async def _create_new_topic(self, admin_group_id: int, topic_title: str, sender_id: int, account_id: int, user_id: int) -> Optional[int]:
         """Create new forum topic"""

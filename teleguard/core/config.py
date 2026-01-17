@@ -94,6 +94,7 @@ class PerformanceConfig:
     max_client_idle_time: int = 3600
     health_check_interval: int = 300
     keep_alive_interval: int = 3600
+    media_filter_enabled: bool = True  # Media filter for free tier optimization
 
     def __post_init__(self):
         """Validate performance configuration"""
@@ -264,6 +265,7 @@ class ConfigManager:
             max_client_idle_time=self._get_int_env("MAX_CLIENT_IDLE_TIME", 3600),
             health_check_interval=self._get_int_env("HEALTH_CHECK_INTERVAL", 300),
             keep_alive_interval=self._get_int_env("KEEP_ALIVE_INTERVAL", 3600),
+            media_filter_enabled=self._get_bool_env("MEDIA_FILTER_ENABLED", True),
         )
 
     def _load_cache_config(self) -> CacheConfig:

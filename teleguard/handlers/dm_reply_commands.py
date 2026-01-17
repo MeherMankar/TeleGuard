@@ -141,17 +141,26 @@ class DMReplyCommands:
                 )
                 
                 if result.modified_count > 0 or result.matched_count > 0:
-                    # Handlers are already set up, no need to refresh
+                    # Trigger handler setup for this account
+                    logger.info(f"Setting up handlers for account {account_name} after DM group config")
+                    if hasattr(self.bot_manager, 'unified_messaging') and self.bot_manager.unified_messaging:
+                        # Get the client for this account
+                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+                        if client and client.is_connected():
+                            logger.info(f"Found connected client for {account_name}, setting up handlers")
+                            self.bot_manager.unified_messaging._setup_client_handlers(user_id, account_name, client)
+                        else:
+                            logger.warning(f"Client for {account_name} not found or not connected")
                     
                     await event.edit(
                         f"✅ **DM Manager Configured**\n\n"
-                        f"📱 Account: {account_name}\n"
+                        f"📱 Account configured\n"
                         f"📍 Group ID: `{group_id}`\n\n"
-                        f"🎯 **Active!** All DMs to {account_name} will now create topics here.\n\n"
+                        f"🎯 **Active!** Send a test DM to your account to create a topic.\n\n"
                         f"**How to reply:**\n"
                         f"• Go to the topic for a conversation\n"
                         f"• Reply to any message in the topic\n"
-                        f"• Your reply will be sent from {account_name}"
+                        f"• Your reply will be sent from your account"
                     )
                 else:
                     await event.answer("❌ Account not found", alert=True)
@@ -302,7 +311,23 @@ class DMReplyCommands:
                     for acc in accounts:
                         acc_name = acc.get('name', 'Unknown')
                         group_id = acc.get('dm_reply_group_id')
-                        msg += f"\n📱 **{acc_name}**\n"
+                        phone = acc.get('phone', 'N/A')
+                        msg += f"\n📱 **{acc_name}** ({phone})\n"
+                        
+                        # Check if client is loaded
+                        client = self.bot_manager.user_clients.get(user_id, {}).get(acc_name)
+                        if client:
+                            is_connected = client.is_connected() if client else False
+                            msg += f"  Client: {'✅ Loaded' if client else '❌ Not loaded'}\n"
+                            msg += f"  Connected: {'✅ Yes' if is_connected else '❌ No'}\n"
+                        else:
+                            msg += f"  Client: ❌ Not loaded\n"
+                        
+                        # Check if handlers are set up
+                        if hasattr(self.bot_manager, 'unified_messaging'):
+                            client_key = f"{user_id}:{acc_name}"
+                            has_handler = client_key in self.bot_manager.unified_messaging.handled_clients
+                            msg += f"  Handler: {'✅ Set up' if has_handler else '❌ Not set up'}\n"
                         
                         if group_id:
                             msg += f"  Group ID: `{group_id}`\n"
@@ -330,11 +355,11 @@ class DMReplyCommands:
                 all_mappings = await mongodb.db.topic_mappings.find({}).to_list(None)
                 msg += f"**Total Topics in Database:** {len(all_mappings)}\n\n"
 
-                msg += "**Setup Instructions:**\n"
-                msg += "1. Use /set_dm_group to configure\n"
-                msg += "2. Make sure group has Topics enabled\n"
-                msg += "3. Bot must be admin with topic permissions\n"
-                msg += "4. Send a test DM to your account\n"
+                msg += "**Next Steps:**\n"
+                msg += "1. Make sure client is loaded and connected\n"
+                msg += "2. Make sure handler is set up\n"
+                msg += "3. Send a test DM to your account\n"
+                msg += "4. Check logs for 📨 messages\n"
 
                 await event.reply(msg)
 
