@@ -158,8 +158,6 @@ class UnifiedMessagingSystem:
             )
             if topic_id:
                 logger.info(f"✅ Forwarding to topic {topic_id}")
-                # Store sender entity for later use in replies
-                await self._store_sender_entity(sender.id, me.id, sender)
                 await self._forward_to_topic(
                     admin_group_id, topic_id, event, sender, me
                 )
@@ -167,38 +165,6 @@ class UnifiedMessagingSystem:
                 logger.error(f"❌ No topic_id returned, cannot forward message")
         except Exception as e:
             logger.error(f"Failed to handle incoming DM: {e}", exc_info=True)
-
-    async def _store_sender_entity(self, sender_id: int, account_id: int, sender):
-        """Store sender entity info for later use"""
-        try:
-            entity_data = {
-                "sender_id": sender_id,
-                "account_id": account_id,
-                "access_hash": getattr(sender, "access_hash", 0),
-                "username": getattr(sender, "username", None),
-                "first_name": getattr(sender, "first_name", None),
-            }
-            await mongodb.db.sender_entities.update_one(
-                {"sender_id": sender_id, "account_id": account_id},
-                {"$set": entity_data},
-                upsert=True
-            )
-        except Exception as e:
-            logger.error(f"Failed to store sender entity: {e}")
-
-    async def _get_stored_entity(self, sender_id: int, account_id: int):
-        """Get stored sender entity info"""
-        try:
-            entity = await mongodb.db.sender_entities.find_one(
-                {"sender_id": sender_id, "account_id": account_id}
-            )
-            if entity and entity.get("access_hash"):
-                from telethon.tl.types import InputPeerUser
-                return InputPeerUser(user_id=sender_id, access_hash=entity["access_hash"])
-            return None
-        except Exception as e:
-            logger.error(f"Failed to get stored entity: {e}")
-            return None
 
     async def _handle_auto_reply(self, client, event, user_id: int, account_name: str):
         """Handle auto-reply if enabled for account"""
@@ -564,18 +530,6 @@ class UnifiedMessagingSystem:
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
-            # Try multiple methods to get entity
-            target_entity = None
-            try:
-                target_entity = await managed_client.get_input_entity(target_user_id)
-            except:
-                # Try stored entity
-                target_entity = await self._get_stored_entity(target_user_id, managed_account_id)
-                if not target_entity:
-                    # Last resort: use user_id directly
-                    from telethon.tl.types import InputPeerUser
-                    target_entity = InputPeerUser(user_id=target_user_id, access_hash=0)
-            
             # If message object provided (media/sticker), download and re-upload
             if message_obj and message_obj.media:
                 logger.info(f"Sending media: type={type(message_obj.media)}")
@@ -599,7 +553,7 @@ class UnifiedMessagingSystem:
                     # For stickers, send directly without downloading
                     if is_sticker:
                         await managed_client.send_file(
-                            target_entity,
+                            target_user_id,
                             message_obj.media,
                             caption=message_obj.text if message_obj.text else None
                         )
@@ -645,7 +599,7 @@ class UnifiedMessagingSystem:
                     
                     await self.bot.download_media(message_obj, file=temp_file.name)
                     await managed_client.send_file(
-                        target_entity,
+                        target_user_id,
                         temp_file.name,
                         caption=message_obj.text if message_obj.text else None,
                         force_document=False
@@ -657,7 +611,7 @@ class UnifiedMessagingSystem:
             # Text message
             elif message_text:
                 logger.info(f"Sending text message: {message_text[:50]}...")
-                await managed_client.send_message(target_entity, message_text)
+                await managed_client.send_message(target_user_id, message_text)
                 logger.info("Text sent successfully")
             else:
                 logger.warning("No message text or media to send")
