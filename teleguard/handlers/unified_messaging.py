@@ -631,15 +631,24 @@ class UnifiedMessagingSystem:
 
     async def _get_client_by_id(self, account_id: int):
         """Get managed client by account ID"""
+        logger.debug(f"Looking for client with account_id={account_id}")
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
-                if client and client.is_connected():
-                    try:
-                        me = await client.get_me()
-                        if me.id == account_id:
-                            return client
-                    except Exception:
+                if not client:
+                    continue
+                try:
+                    if not client.is_connected():
+                        logger.debug(f"Client {account_name} not connected, skipping")
                         continue
+                    me = await client.get_me()
+                    logger.debug(f"Checking client {account_name}: me.id={me.id}")
+                    if me.id == account_id:
+                        logger.info(f"Found client for account {account_id}: {account_name}")
+                        return client
+                except Exception as e:
+                    logger.debug(f"Error checking client {account_name}: {e}")
+                    continue
+        logger.error(f"No connected client found for account_id={account_id}")
         return None
 
     async def _send_bot_message_directly(
