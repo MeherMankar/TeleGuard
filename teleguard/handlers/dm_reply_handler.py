@@ -323,11 +323,14 @@ class DMReplyHandler:
                 # Update topic title if names changed
                 if existing_topic.get("topic_title") != topic_title:
                     try:
-                        # Update topic title by editing the first message
-                        await self.bot.edit_message(
-                            group_id,
-                            existing_topic["topic_id"],
-                            f"📌 Topic: {topic_title}"
+                        from telethon import functions
+
+                        await self.bot(
+                            functions.channels.EditForumTopicRequest(
+                                channel=group_id,
+                                topic_id=existing_topic["topic_id"],
+                                title=topic_title,
+                            )
                         )
                         await mongodb.db.dm_topics.update_one(
                             {"_id": existing_topic["_id"]},
@@ -339,17 +342,32 @@ class DMReplyHandler:
 
             logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
 
-            # Since forum topics API is not available, just send to general chat
-            # The message will appear in the group's general chat
-            result = await self.bot.send_message(
-                group_id,
-                f"📌 **{topic_title}**\n\n_New conversation started_"
+            from telethon import functions
+            import random
+
+            result = await self.bot(
+                functions.channels.CreateForumTopicRequest(
+                    channel=group_id,
+                    title=topic_title,
+                    icon_color=0x6FB9F0,
+                    random_id=random.randint(1, 2**63 - 1),
+                )
             )
 
-            logger.debug(f"Message sent result: {result}")
+            logger.debug(f"Topic creation result: {result}")
 
-            # Use the message ID as topic_id for tracking
-            topic_id = result.id if result else None
+            # Extract topic ID from the result
+            topic_id = None
+            if hasattr(result, "updates") and result.updates:
+                for update in result.updates:
+                    if hasattr(update, "message") and update.message:
+                        topic_id = update.message.id
+                        logger.info(f"Extracted topic_id from message.id: {topic_id}")
+                        break
+                    elif hasattr(update, "id"):
+                        topic_id = update.id
+                        logger.info(f"Extracted topic_id from update.id: {topic_id}")
+                        break
             
             if not topic_id:
                 logger.error(f"Failed to extract topic_id from result")
