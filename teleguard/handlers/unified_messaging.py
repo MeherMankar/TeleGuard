@@ -380,7 +380,13 @@ class UnifiedMessagingSystem:
                     )
                     
                     # Forward message (no download) - supports 2-4GB files
-                    await event.forward_to(admin_group_id, reply_to=topic_id)
+                    from telethon.tl.types import InputReplyToMessage
+                    await event.client.forward_messages(
+                        admin_group_id,
+                        event.message,
+                        event.chat_id,
+                        reply_to=InputReplyToMessage(reply_to_msg_id=topic_id)
+                    )
                 finally:
                     # Clean up temp storage
                     if media_id:
