@@ -359,28 +359,29 @@ class UnifiedMessagingSystem:
                     managed_account, "first_name", f"ID: {managed_account.id}"
                 )
             
-            # Handle stickers
-            if hasattr(event.message, 'sticker') and event.message.sticker:
+            caption = f"📨 **From:** {sender_name}\n📱 **To:** {account_name}"
+            
+            # Handle media (photos, videos, documents, stickers, etc.)
+            if event.message.media:
+                # Add text if present
+                if event.text:
+                    caption += f"\n\n{event.text}"
+                
                 await self.bot.send_file(
                     admin_group_id,
-                    event.message.sticker,
-                    caption=f"📨 **From:** {sender_name}\n📱 **To:** {account_name}",
+                    event.message.media,
+                    caption=caption,
                     reply_to=topic_id,
                     parse_mode="md"
                 )
                 return
             
+            # Text-only message
             if event.text:
-                content = event.text
-            elif event.media:
-                content = "[Media/File]"
+                forward_text = f"{caption}\n\n{event.text}"
             else:
-                content = "[Message]"
-            forward_text = (
-                f"📨 **From:** {sender_name}\n"
-                f"📱 **To:** {account_name}\n\n"
-                f"{content}"
-            )
+                forward_text = f"{caption}\n\n[Empty Message]"
+            
             await self.bot.send_message(
                 admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
             )
@@ -446,28 +447,28 @@ class UnifiedMessagingSystem:
                     managed_account, "first_name", f"ID: {managed_account.id}"
                 )
             
-            # Handle stickers
-            if hasattr(event.message, 'sticker') and event.message.sticker:
+            caption = f"🤖 **Bot Message**\n📨 **From:** {sender_name} (Bot)\n📱 **To:** {account_name}"
+            
+            # Handle media (photos, videos, documents, stickers, etc.)
+            if event.message.media:
+                # Add text if present
+                if event.text:
+                    caption += f"\n\n{event.text}"
+                
                 await self.bot.send_file(
                     user_id,
-                    event.message.sticker,
-                    caption=f"🤖 **Bot Message**\n📨 **From:** {sender_name} (Bot)\n📱 **To:** {account_name}",
+                    event.message.media,
+                    caption=caption,
                     parse_mode="md"
                 )
                 return
             
+            # Text-only message
             if event.text:
-                content = event.text
-            elif event.media:
-                content = "[Media/File]"
+                direct_message = f"{caption}\n\n{event.text}"
             else:
-                content = "[Message]"
-            direct_message = (
-                f"🤖 **Bot Message**\n"
-                f"📨 **From:** {sender_name} (Bot)\n"
-                f"📱 **To:** {account_name}\n\n"
-                f"{content}"
-            )
+                direct_message = f"{caption}\n\n[Empty Message]"
+            
             await self.bot.send_message(user_id, direct_message, parse_mode="md")
         except Exception as e:
             logger.error(f"Failed to send bot message directly: {e}")
