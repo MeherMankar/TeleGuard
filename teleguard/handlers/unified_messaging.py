@@ -379,12 +379,8 @@ class UnifiedMessagingSystem:
                         admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                     )
                     
-                    # Copy media directly (no download) - supports 2-4GB files
-                    await self.bot.send_file(
-                        admin_group_id, 
-                        event.message.media,
-                        reply_to=topic_id
-                    )
+                    # Forward message (no download) - supports 2-4GB files
+                    await event.forward_to(admin_group_id, reply_to=topic_id)
                 finally:
                     # Clean up temp storage
                     if media_id:
