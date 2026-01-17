@@ -323,10 +323,10 @@ class DMReplyHandler:
                 # Update topic title if names changed
                 if existing_topic.get("topic_title") != topic_title:
                     try:
-                        from telethon.tl.functions.channels import EditForumTopicRequest
+                        from telethon import functions
 
                         await self.bot(
-                            EditForumTopicRequest(
+                            functions.channels.EditForumTopicRequest(
                                 channel=group_id,
                                 topic_id=existing_topic["topic_id"],
                                 title=topic_title,
@@ -342,10 +342,10 @@ class DMReplyHandler:
 
             logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
 
-            from telethon.tl.functions.channels import CreateForumTopicRequest
+            from telethon import functions
 
             result = await self.bot(
-                CreateForumTopicRequest(
+                functions.channels.CreateForumTopicRequest(
                     channel=group_id,
                     title=topic_title,
                     icon_color=0x6FB9F0,
