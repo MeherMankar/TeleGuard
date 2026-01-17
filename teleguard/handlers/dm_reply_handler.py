@@ -323,14 +323,11 @@ class DMReplyHandler:
                 # Update topic title if names changed
                 if existing_topic.get("topic_title") != topic_title:
                     try:
-                        from telethon import functions
-
-                        await self.bot(
-                            functions.channels.EditForumTopicRequest(
-                                channel=group_id,
-                                topic_id=existing_topic["topic_id"],
-                                title=topic_title,
-                            )
+                        # Update topic title by editing the first message
+                        await self.bot.edit_message(
+                            group_id,
+                            existing_topic["topic_id"],
+                            f"📌 Topic: {topic_title}"
                         )
                         await mongodb.db.dm_topics.update_one(
                             {"_id": existing_topic["_id"]},
@@ -342,48 +339,23 @@ class DMReplyHandler:
 
             logger.info(f"Creating new topic: '{topic_title}' in group {group_id}")
 
-            from telethon import functions
-
-            result = await self.bot(
-                functions.channels.CreateForumTopicRequest(
-                    channel=group_id,
-                    title=topic_title,
-                    icon_color=0x6FB9F0,
-                    random_id=hash(topic_key) % (2**63),
-                )
+            # Create forum topic using send_message with reply_to for forum groups
+            result = await self.bot.send_message(
+                group_id,
+                f"📌 Topic: {topic_title}",
+                reply_to=1  # Reply to general topic to create new topic
             )
 
             logger.debug(f"Topic creation result: {result}")
 
-            topic_id = None
-            if hasattr(result, "updates") and result.updates:
-                for update in result.updates:
-                    if hasattr(update, "message"):
-                        if hasattr(update.message, "id"):
-                            topic_id = update.message.id
-                            logger.info(
-                                f"Extracted topic_id from message.id: {topic_id}"
-                            )
-                            break
-                        elif hasattr(update.message, "reply_to") and hasattr(
-                            update.message.reply_to, "reply_to_top_id"
-                        ):
-                            topic_id = update.message.reply_to.reply_to_top_id
-                            logger.info(
-                                f"Extracted topic_id from reply_to_top_id: {topic_id}"
-                            )
-                            break
-
-            if not topic_id and hasattr(result, "updates"):
-                for update in result.updates:
-                    if hasattr(update, "id"):
-                        topic_id = update.id
-                        logger.info(f"Extracted topic_id from update.id: {topic_id}")
-                        break
-
+            # Extract topic ID from the message
+            topic_id = result.id if result else None
+            
             if not topic_id:
-                logger.error(f"Failed to extract topic_id from result: {result}")
+                logger.error(f"Failed to extract topic_id from result")
                 return None
+            
+            logger.info(f"Created topic with ID: {topic_id}")
 
             # Save to database
             await mongodb.db.dm_topics.insert_one(
