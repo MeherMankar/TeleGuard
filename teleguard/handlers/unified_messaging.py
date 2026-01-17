@@ -375,9 +375,26 @@ class UnifiedMessagingSystem:
                         caption += f"\n\n{event.text}"
                     
                     # Send caption first
-                    await self.bot.send_message(
-                        admin_group_id, caption, reply_to=topic_id, parse_mode="md"
-                    )
+                    try:
+                        await self.bot.send_message(
+                            admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                        )
+                    except Exception as e:
+                        # Topic might be deleted, recreate it
+                        if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                            logger.warning(f"Topic {topic_id} deleted, creating new one")
+                            topic_id = await self._create_new_topic(
+                                admin_group_id, 
+                                self._get_topic_title(sender, managed_account),
+                                sender.id,
+                                managed_account.id,
+                                event.sender_id
+                            )
+                            if topic_id:
+                                await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                                await self.bot.send_message(
+                                    admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                                )
                     
                     # Download and re-upload to topic (required for topics)
                     import tempfile
@@ -408,9 +425,26 @@ class UnifiedMessagingSystem:
             else:
                 forward_text = f"{caption}\n\n[Empty Message]"
             
-            await self.bot.send_message(
-                admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
-            )
+            try:
+                await self.bot.send_message(
+                    admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
+                )
+            except Exception as e:
+                # Topic might be deleted, recreate it
+                if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                    logger.warning(f"Topic {topic_id} deleted, creating new one")
+                    topic_id = await self._create_new_topic(
+                        admin_group_id, 
+                        self._get_topic_title(sender, managed_account),
+                        sender.id,
+                        managed_account.id,
+                        event.sender_id
+                    )
+                    if topic_id:
+                        await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                        await self.bot.send_message(
+                            admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
+                        )
         except Exception as e:
             logger.error(f"Failed to forward to topic: {e}", exc_info=True)
 
