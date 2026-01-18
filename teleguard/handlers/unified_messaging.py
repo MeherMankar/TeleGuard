@@ -152,6 +152,13 @@ class UnifiedMessagingSystem:
     ):
         """Handle incoming DM with automatic topic creation"""
         try:
+            # Generate unique message ID for deduplication
+            message_id = f"{sender.id}_{me.id}_{event.id}"
+            if message_id in self.processed_messages:
+                logger.debug(f"Message {message_id} already processed in _handle_incoming_dm")
+                return
+            self.processed_messages.add(message_id)
+            
             logger.info(f"📨 Handling incoming DM: sender={sender.id}, account={me.id}, group={admin_group_id}")
             topic_id = await self._find_or_create_topic(
                 admin_group_id, sender.id, me.id, sender, user_id
@@ -372,6 +379,11 @@ class UnifiedMessagingSystem:
     ):
         """Forward DM to topic"""
         try:
+            # Check if bot is connected
+            if not self.bot.is_connected():
+                logger.error("❌ Bot is not connected!")
+                return
+            
             sender_name = self._get_topic_title(sender)
             account_name = getattr(managed_account, "username", None)
             if account_name:
@@ -382,6 +394,8 @@ class UnifiedMessagingSystem:
                 )
             
             caption = f"📨 **From:** {sender_name}\n📱 **To:** {account_name}"
+            
+            logger.info(f"🔄 Forwarding message to group={admin_group_id}, topic={topic_id}, has_media={event.message.media is not None}")
             
             # Handle media
             if event.message.media:
@@ -400,10 +414,12 @@ class UnifiedMessagingSystem:
                 if is_sticker:
                     # Send caption first
                     try:
-                        await self.bot.send_message(
+                        result = await self.bot.send_message(
                             admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                         )
+                        logger.info(f"✅ Sticker caption sent to topic {topic_id}")
                     except Exception as e:
+                        logger.error(f"❌ Failed to send sticker caption: {e}")
                         if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
                             logger.warning(f"Topic {topic_id} deleted, creating new one")
                             topic_id = await self._create_new_topic(
@@ -420,12 +436,15 @@ class UnifiedMessagingSystem:
                                 )
                     
                     # Forward sticker directly
-                    await self.bot.send_file(
-                        admin_group_id,
-                        event.message.media,
-                        reply_to=topic_id
-                    )
-                    logger.info("Sticker forwarded to topic")
+                    try:
+                        result = await self.bot.send_file(
+                            admin_group_id,
+                            event.message.media,
+                            reply_to=topic_id
+                        )
+                        logger.info(f"✅ Sticker sent to topic {topic_id}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to send sticker: {e}")
                     return
                 
                 # For other media, download and upload
@@ -433,10 +452,12 @@ class UnifiedMessagingSystem:
                     caption += f"\n\n{event.text}"
                 
                 try:
-                    await self.bot.send_message(
+                    result = await self.bot.send_message(
                         admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                     )
+                    logger.info(f"✅ Caption sent to topic {topic_id}")
                 except Exception as e:
+                    logger.error(f"❌ Failed to send caption: {e}")
                     if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
                         logger.warning(f"Topic {topic_id} deleted, creating new one")
                         topic_id = await self._create_new_topic(
@@ -479,13 +500,16 @@ class UnifiedMessagingSystem:
                 
                 try:
                     await event.client.download_media(event.message, file=temp_file.name)
-                    await self.bot.send_file(
+                    result = await self.bot.send_file(
                         admin_group_id,
                         temp_file.name,
                         caption=event.text if event.text else None,
                         reply_to=topic_id,
                         force_document=False
                     )
+                    logger.info(f"✅ Media file sent to topic {topic_id}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to send media file: {e}")
                 finally:
                     if os.path.exists(temp_file.name):
                         os.unlink(temp_file.name)
@@ -498,10 +522,12 @@ class UnifiedMessagingSystem:
                 forward_text = f"{caption}\n\n[Empty Message]"
             
             try:
-                await self.bot.send_message(
+                result = await self.bot.send_message(
                     admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
                 )
+                logger.info(f"✅ Message sent to topic {topic_id}, result: {result.id if result else 'None'}")
             except Exception as e:
+                logger.error(f"❌ Failed to send to topic {topic_id}: {e}")
                 if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
                     logger.warning(f"Topic {topic_id} deleted, creating new one")
                     topic_id = await self._create_new_topic(
