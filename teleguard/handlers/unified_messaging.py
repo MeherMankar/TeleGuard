@@ -544,16 +544,46 @@ class UnifiedMessagingSystem:
         """Send reply from topic to original sender"""
         try:
             target_user_id = mapping["user_id"]
-            managed_account_id = mapping["account_id"]
-            managed_client = await self._get_client_by_id(managed_account_id)
+            old_account_id = mapping["account_id"]
+            managed_client = await self._get_client_by_id(old_account_id)
             
             if not managed_client:
-                logger.error(f"No client found for account {managed_account_id}. Deleting stale mapping.")
-                # Delete stale mapping and sender record
-                await mongodb.db.topic_mappings.delete_many({"account_id": managed_account_id})
-                await mongodb.db.dm_senders.delete_many({"account_id": managed_account_id})
-                logger.info(f"Deleted stale mappings for account {managed_account_id}")
-                return
+                logger.error(f"No client found for account {old_account_id}. Finding current account.")
+                # Delete stale mapping
+                await mongodb.db.topic_mappings.delete_many({"account_id": old_account_id})
+                await mongodb.db.dm_senders.delete_many({"account_id": old_account_id})
+                
+                # Find current account for this user
+                topic_mapping = await mongodb.db.topic_mappings.find_one(
+                    {"admin_group_id": mapping.get("admin_group_id"), "sender_id": target_user_id}
+                )
+                if not topic_mapping:
+                    # Get any active account for this user
+                    for user_id, clients in self.user_clients.items():
+                        for account_name, client in clients.items():
+                            if client and client.is_connected():
+                                try:
+                                    me = await client.get_me()
+                                    # Update mapping with new account_id
+                                    await mongodb.db.topic_mappings.update_one(
+                                        {"sender_id": target_user_id},
+                                        {"$set": {"account_id": me.id}},
+                                        upsert=False
+                                    )
+                                    managed_client = client
+                                    managed_account_id = me.id
+                                    logger.info(f"Updated mapping to use account {me.id}")
+                                    break
+                                except Exception:
+                                    continue
+                        if managed_client:
+                            break
+                
+                if not managed_client:
+                    logger.error("No active account found")
+                    return
+            else:
+                managed_account_id = old_account_id
             
             # Get sender info from database
             sender_record = await mongodb.db.dm_senders.find_one(
