@@ -918,7 +918,10 @@ class UnifiedMessagingSystem:
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up handlers for newly added client"""
         if client and client.is_connected():
+            logger.info(f"Setting up unified messaging handler for {account_name}")
             self._setup_client_handlers(user_id, account_name, client)
+        else:
+            logger.warning(f"Client for {account_name} not connected, skipping handler setup")
 
     def cleanup_handlers(self):
         """Clean up all registered handlers"""
