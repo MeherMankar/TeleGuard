@@ -420,8 +420,11 @@ class UnifiedMessagingSystem:
                         logger.info(f"✅ Sticker caption sent to topic {topic_id}")
                     except Exception as e:
                         logger.error(f"❌ Failed to send sticker caption: {e}")
-                        if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
-                            logger.warning(f"Topic {topic_id} deleted, creating new one")
+                        if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                            logger.warning(f"Topic {topic_id} deleted, recreating...")
+                            await mongodb.db.topic_mappings.delete_one(
+                                {"admin_group_id": admin_group_id, "topic_id": topic_id}
+                            )
                             topic_id = await self._create_new_topic(
                                 admin_group_id, 
                                 self._get_topic_title(sender, managed_account),
@@ -431,6 +434,7 @@ class UnifiedMessagingSystem:
                             )
                             if topic_id:
                                 await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                                await self._create_system_message(admin_group_id, topic_id, sender.id, managed_account.id)
                                 await self.bot.send_message(
                                     admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                                 )
@@ -458,8 +462,11 @@ class UnifiedMessagingSystem:
                     logger.info(f"✅ Caption sent to topic {topic_id}")
                 except Exception as e:
                     logger.error(f"❌ Failed to send caption: {e}")
-                    if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
-                        logger.warning(f"Topic {topic_id} deleted, creating new one")
+                    if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                        logger.warning(f"Topic {topic_id} deleted, recreating...")
+                        await mongodb.db.topic_mappings.delete_one(
+                            {"admin_group_id": admin_group_id, "topic_id": topic_id}
+                        )
                         topic_id = await self._create_new_topic(
                             admin_group_id, 
                             self._get_topic_title(sender, managed_account),
@@ -469,6 +476,7 @@ class UnifiedMessagingSystem:
                         )
                         if topic_id:
                             await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                            await self._create_system_message(admin_group_id, topic_id, sender.id, managed_account.id)
                             await self.bot.send_message(
                                 admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                             )
@@ -528,20 +536,27 @@ class UnifiedMessagingSystem:
                 logger.info(f"✅ Message sent to topic {topic_id}, result: {result.id if result else 'None'}")
             except Exception as e:
                 logger.error(f"❌ Failed to send to topic {topic_id}: {e}")
-                if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
-                    logger.warning(f"Topic {topic_id} deleted, creating new one")
-                    topic_id = await self._create_new_topic(
+                if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                    logger.warning(f"Topic {topic_id} deleted, recreating...")
+                    # Delete old mapping
+                    await mongodb.db.topic_mappings.delete_one(
+                        {"admin_group_id": admin_group_id, "topic_id": topic_id}
+                    )
+                    # Create new topic
+                    new_topic_id = await self._create_new_topic(
                         admin_group_id, 
                         self._get_topic_title(sender, managed_account),
                         sender.id,
                         managed_account.id,
                         event.sender_id
                     )
-                    if topic_id:
-                        await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                    if new_topic_id:
+                        await self._store_topic_mapping(admin_group_id, new_topic_id, sender.id, managed_account.id)
+                        await self._create_system_message(admin_group_id, new_topic_id, sender.id, managed_account.id)
                         await self.bot.send_message(
-                            admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
+                            admin_group_id, forward_text, reply_to=new_topic_id, parse_mode="md"
                         )
+                        logger.info(f"✅ Message sent to recreated topic {new_topic_id}")
         except Exception as e:
             logger.error(f"Failed to forward to topic: {e}", exc_info=True)
 
