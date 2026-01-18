@@ -158,10 +158,18 @@ class UnifiedMessagingSystem:
             )
             if topic_id:
                 logger.info(f"✅ Forwarding to topic {topic_id}")
-                # Store sender in database for later replies
+                # Store sender info in database with access_hash for entity resolution
+                sender_data = {
+                    "account_id": me.id,
+                    "sender_id": sender.id,
+                    "access_hash": getattr(sender, "access_hash", 0),
+                    "username": getattr(sender, "username", None),
+                    "first_name": getattr(sender, "first_name", None),
+                    "last_name": getattr(sender, "last_name", None),
+                }
                 await mongodb.db.dm_senders.update_one(
                     {"account_id": me.id, "sender_id": sender.id},
-                    {"$set": {"account_id": me.id, "sender_id": sender.id}},
+                    {"$set": sender_data},
                     upsert=True
                 )
                 await self._forward_to_topic(
@@ -543,7 +551,22 @@ class UnifiedMessagingSystem:
                 logger.error(f"No client found for account {managed_account_id}. Mapping may be stale.")
                 return
             
+            # Get sender info from database
+            sender_record = await mongodb.db.dm_senders.find_one(
+                {"account_id": managed_account_id, "sender_id": target_user_id}
+            )
+            if not sender_record:
+                logger.error(f"No sender record found for {target_user_id}")
+                return
+            
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
+            
+            # Build InputPeerUser with stored access_hash
+            from telethon.tl.types import InputPeerUser
+            target_entity = InputPeerUser(
+                user_id=target_user_id,
+                access_hash=sender_record.get("access_hash", 0)
+            )
             
             # If message object provided (media/sticker)
             if message_obj and message_obj.media:
@@ -560,9 +583,8 @@ class UnifiedMessagingSystem:
                                 break
                 
                 if is_sticker:
-                    # Forward sticker directly
                     await managed_client.send_file(
-                        target_user_id,
+                        target_entity,
                         message_obj.media,
                         caption=message_obj.text if message_obj.text else None
                     )
@@ -598,7 +620,7 @@ class UnifiedMessagingSystem:
                 try:
                     await self.bot.download_media(message_obj, file=temp_file.name)
                     await managed_client.send_file(
-                        target_user_id,
+                        target_entity,
                         temp_file.name,
                         caption=message_obj.text if message_obj.text else None,
                         force_document=False
@@ -609,7 +631,7 @@ class UnifiedMessagingSystem:
                         os.unlink(temp_file.name)
             # Text message
             elif message_text:
-                await managed_client.send_message(target_user_id, message_text)
+                await managed_client.send_message(target_entity, message_text)
                 logger.info("Text sent successfully")
         except Exception as e:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
