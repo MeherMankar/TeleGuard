@@ -672,9 +672,11 @@ class BotManager:
                 timeout=2.0,
             )
             if account:
+                # Get Telegram user ID and store it
+                me = await client.get_me()
                 await mongodb.db.accounts.update_one(
                     {"user_id": user_id, "name": account_name},
-                    {"$unset": {"needs_reauth": ""}, "$set": {"is_active": True}},
+                    {"$unset": {"needs_reauth": ""}, "$set": {"is_active": True, "telegram_id": me.id}},
                 )
 
             logger.debug(f"Started client for user {user_id}, account {account_name}")
@@ -1242,6 +1244,19 @@ class BotManager:
                         # Always disconnect the client
                         await client.disconnect()
                 del self.user_clients[user_id][account_name]
+
+            # Clean up topic mappings for this account
+            if account:
+                try:
+                    me_id = account.get("telegram_id")
+                    if me_id:
+                        result = await mongodb.db.topic_mappings.delete_many(
+                            {"account_id": me_id}
+                        )
+                        if result.deleted_count > 0:
+                            logger.info(f"Cleaned up {result.deleted_count} topic mappings for {account_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up topic mappings: {e}")
 
             await mongodb.db.accounts.delete_one(
                 {"user_id": user_id, "name": account_name}

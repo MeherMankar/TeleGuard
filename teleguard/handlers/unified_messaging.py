@@ -540,22 +540,7 @@ class UnifiedMessagingSystem:
             managed_client = await self._get_client_by_id(managed_account_id)
             
             if not managed_client:
-                logger.error(f"No client found for account {managed_account_id}")
-                account = await mongodb.db.accounts.find_one({"_id": managed_account_id})
-                if not account:
-                    account = await mongodb.db.accounts.find_one({"phone": str(managed_account_id)})
-                if account:
-                    user_id = account.get("user_id")
-                    account_name = account.get("name", "Unknown")
-                    await self.bot.send_message(
-                        user_id,
-                        f"⚠️ Cannot send reply: Account **{account_name}** is not connected.\n\n"
-                        f"This usually happens due to:\n"
-                        f"1. Session conflict (account used elsewhere)\n"
-                        f"2. Account was removed\n\n"
-                        f"Please re-add the account using /add",
-                        parse_mode="md"
-                    )
+                logger.error(f"No client found for account {managed_account_id}. Mapping may be stale.")
                 return
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
