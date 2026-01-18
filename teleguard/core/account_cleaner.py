@@ -67,7 +67,7 @@ class AccountCleaner:
                 return "❌ Session is invalid, re-authorization required"
             if progress_callback:
                 await progress_callback("✅ Connection established\n⏳ Analyzing account...")
-            dialogs = await self._collect_dialogs(progress_callback)
+            dialogs = await self._collect_dialogs(client, progress_callback)
             progress.total_items = len(dialogs)
             progress.current_operation = f"Found {len(dialogs)} dialogs"
             if progress_callback:
@@ -692,7 +692,7 @@ class AccountCleaner:
         except Exception as e:
             return {"error": str(e)}
 
-    async def _collect_dialogs(self, progress_callback):
+    async def _collect_dialogs(self, client, progress_callback):
         """Collect all dialogs with progress updates"""
         dialogs = []
         dialog_count = 0

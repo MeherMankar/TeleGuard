@@ -337,7 +337,7 @@ class MenuSystem:
 
     async def _handle_contacts(self, event):
         """Handle Contacts menu"""
-        await event.answer("Contact management - use contact export from main menu")
+        await event.reply("Contact management - use contact export from main menu")
 
     async def _handle_spam_master(self, event):
         """Handle SpamMaster menu - redirect to advanced spam handler"""

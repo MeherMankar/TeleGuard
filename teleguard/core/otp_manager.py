@@ -318,7 +318,7 @@ class OTPManager:
                             await self.bot.send_message(
                                 user_id,
                                 f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-                                f"🔒 **Account Protected:** {account_name}\n"
+                                f"🔒 **Account Protected:** {account_name.encode('utf-8', errors='replace').decode('utf-8')}\n"
                                 f"🚫 **Login Code Destroyed:** {otp_code}\n"
                                 f"⚡ **Unauthorized Access Blocked**\n\n"
                                 f"✅ **Security Status:** Login codes permanently invalidated\n"
@@ -668,7 +668,7 @@ class OTPManager:
                             await self.bot.send_message(
                                 msg_user_id,
                                 f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-                                f"🔒 **Account Protected:** {msg_account_name}\n"
+                                f"🔒 **Account Protected:** {msg_account_name.encode('utf-8', errors='replace').decode('utf-8')}\n"
                                 f"🚫 **Login Code Destroyed:** {otp_code}\n"
                                 f"⚡ **Unauthorized Access Blocked**\n\n"
                                 f"✅ **Security Status:** Login codes permanently invalidated\n"
@@ -760,7 +760,8 @@ class OTPManager:
                         username = user.username if hasattr(user, "username") else None
                     except BaseException:
                         username = None
-                    await BotLogger.log_otp_enabled(user_id, phone, username)
+                    # BotLogger.log_otp_enabled doesn't exist, skip logging
+                    logger.info(f"OTP enabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
                     logger.error(f"Failed to log OTP enable: {log_error}")
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
@@ -785,7 +786,8 @@ class OTPManager:
                         username = user.username if hasattr(user, "username") else None
                     except BaseException:
                         username = None
-                    await BotLogger.log_otp_disabled(user_id, phone, username)
+                    # BotLogger.log_otp_disabled doesn't exist, skip logging
+                    logger.info(f"OTP disabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
                     logger.error(f"Failed to log OTP disable: {log_error}")
                 message = "❌ OTP Destroyer disabled"
