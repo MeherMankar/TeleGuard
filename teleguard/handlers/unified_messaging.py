@@ -158,8 +158,12 @@ class UnifiedMessagingSystem:
             )
             if topic_id:
                 logger.info(f"✅ Forwarding to topic {topic_id}")
-                # Store sender entity for replies
-                await self._store_sender_for_reply(me.id, sender)
+                # Store sender in database for later replies
+                await mongodb.db.dm_senders.update_one(
+                    {"account_id": me.id, "sender_id": sender.id},
+                    {"$set": {"account_id": me.id, "sender_id": sender.id}},
+                    upsert=True
+                )
                 await self._forward_to_topic(
                     admin_group_id, topic_id, event, sender, me
                 )
@@ -167,17 +171,6 @@ class UnifiedMessagingSystem:
                 logger.error(f"❌ No topic_id returned, cannot forward message")
         except Exception as e:
             logger.error(f"Failed to handle incoming DM: {e}", exc_info=True)
-
-    async def _store_sender_for_reply(self, account_id: int, sender):
-        """Store sender entity for later replies"""
-        try:
-            if not hasattr(self, '_sender_cache'):
-                self._sender_cache = {}
-            if account_id not in self._sender_cache:
-                self._sender_cache[account_id] = {}
-            self._sender_cache[account_id][sender.id] = sender
-        except Exception as e:
-            logger.debug(f"Failed to cache sender: {e}")
 
     async def _handle_auto_reply(self, client, event, user_id: int, account_name: str):
         """Handle auto-reply if enabled for account"""
@@ -542,108 +535,72 @@ class UnifiedMessagingSystem:
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
-            # Get cached sender entity
-            target_entity = target_user_id
-            if hasattr(self, '_sender_cache') and managed_account_id in self._sender_cache:
-                if target_user_id in self._sender_cache[managed_account_id]:
-                    target_entity = self._sender_cache[managed_account_id][target_user_id]
-            
-            # If message object provided (media/sticker), download and re-upload
+            # If message object provided (media/sticker)
             if message_obj and message_obj.media:
-                logger.info(f"Sending media: type={type(message_obj.media)}")
+                from telethon.tl.types import MessageMediaDocument, DocumentAttributeSticker
                 
+                # Check if it's a sticker - forward directly
+                is_sticker = False
+                if isinstance(message_obj.media, MessageMediaDocument):
+                    doc = message_obj.media.document
+                    if hasattr(doc, 'attributes'):
+                        for attr in doc.attributes:
+                            if isinstance(attr, DocumentAttributeSticker):
+                                is_sticker = True
+                                break
+                
+                if is_sticker:
+                    # Forward sticker directly
+                    await managed_client.send_file(
+                        target_user_id,
+                        message_obj.media,
+                        caption=message_obj.text if message_obj.text else None
+                    )
+                    logger.info("Sticker forwarded successfully")
+                    return
+                
+                # For other media, download and upload
                 import tempfile
                 import os
-                from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, DocumentAttributeSticker
-                temp_file = None
+                from telethon.tl.types import MessageMediaPhoto
+                
+                file_ext = ""
+                if isinstance(message_obj.media, MessageMediaPhoto):
+                    file_ext = ".jpg"
+                elif isinstance(message_obj.media, MessageMediaDocument):
+                    doc = message_obj.media.document
+                    if hasattr(doc, 'attributes'):
+                        for attr in doc.attributes:
+                            if hasattr(attr, 'file_name'):
+                                file_ext = os.path.splitext(attr.file_name)[1]
+                                break
+                    if not file_ext and hasattr(doc, 'mime_type'):
+                        mime_map = {
+                            'video/mp4': '.mp4', 'video/webm': '.webm', 'audio/mpeg': '.mp3',
+                            'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
+                            'application/pdf': '.pdf', 'application/zip': '.zip',
+                        }
+                        file_ext = mime_map.get(doc.mime_type, '')
+                
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+                temp_file.close()
                 
                 try:
-                    # Check if it's a sticker
-                    is_sticker = False
-                    if isinstance(message_obj.media, MessageMediaDocument):
-                        doc = message_obj.media.document
-                        if hasattr(doc, 'attributes'):
-                            for attr in doc.attributes:
-                                if isinstance(attr, DocumentAttributeSticker):
-                                    is_sticker = True
-                                    logger.info("Detected sticker via DocumentAttributeSticker")
-                                    break
-                        # Also check mime_type for stickers
-                        if not is_sticker and hasattr(doc, 'mime_type'):
-                            if 'sticker' in doc.mime_type.lower() or doc.mime_type in ['application/x-tgsticker', 'video/webm']:
-                                # Check if it's actually a sticker by looking at attributes
-                                if hasattr(doc, 'attributes'):
-                                    for attr in doc.attributes:
-                                        if hasattr(attr, 'stickerset'):
-                                            is_sticker = True
-                                            logger.info(f"Detected sticker via mime_type: {doc.mime_type}")
-                                            break
-                    
-                    # For stickers, send directly without downloading
-                    if is_sticker:
-                        await managed_client.send_file(
-                            target_entity,
-                            message_obj.media,
-                            caption=message_obj.text if message_obj.text else None
-                        )
-                        logger.info("Sticker sent successfully")
-                        return
-                    
-                    # Get file extension based on media type
-                    file_ext = ""
-                    if isinstance(message_obj.media, MessageMediaPhoto):
-                        file_ext = ".jpg"
-                    elif isinstance(message_obj.media, MessageMediaDocument):
-                        doc = message_obj.media.document
-                        # Try to get from attributes first (most accurate)
-                        if hasattr(doc, 'attributes'):
-                            for attr in doc.attributes:
-                                if hasattr(attr, 'file_name'):
-                                    file_ext = os.path.splitext(attr.file_name)[1]
-                                    break
-                        # Fallback to mime_type
-                        if not file_ext and hasattr(doc, 'mime_type'):
-                            mime_map = {
-                                'video/mp4': '.mp4', 'video/mpeg': '.mpeg', 'video/x-matroska': '.mkv',
-                                'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi',
-                                'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
-                                'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/flac': '.flac',
-                                'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
-                                'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
-                                'application/pdf': '.pdf', 'application/zip': '.zip', 'application/x-rar-compressed': '.rar',
-                                'application/x-7z-compressed': '.7z', 'application/x-tar': '.tar',
-                                'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-                                'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-                                'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-                                'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
-                                'application/json': '.json', 'application/xml': '.xml',
-                                'application/x-python': '.py', 'text/x-python': '.py',
-                                'application/javascript': '.js', 'text/javascript': '.js',
-                            }
-                            file_ext = mime_map.get(doc.mime_type, '')
-                    
-                    # Download from bot and re-upload via managed client
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
-                    temp_file.close()
-                    
                     await self.bot.download_media(message_obj, file=temp_file.name)
                     await managed_client.send_file(
-                        target_entity,
+                        target_user_id,
                         temp_file.name,
                         caption=message_obj.text if message_obj.text else None,
                         force_document=False
                     )
                     logger.info("Media sent successfully")
                 finally:
-                    if temp_file and os.path.exists(temp_file.name):
+                    if os.path.exists(temp_file.name):
                         os.unlink(temp_file.name)
             # Text message
             elif message_text:
-                logger.info(f"Sending text message: {message_text[:50]}...")
-                await managed_client.send_message(target_entity, message_text)
+                await managed_client.send_message(target_user_id, message_text)
                 logger.info("Text sent successfully")
-            else:
-                logger.warning("No message text or media to send")
         except Exception as e:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
 
