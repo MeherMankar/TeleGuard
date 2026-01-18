@@ -158,6 +158,8 @@ class UnifiedMessagingSystem:
             )
             if topic_id:
                 logger.info(f"✅ Forwarding to topic {topic_id}")
+                # Store sender entity for replies
+                await self._store_sender_for_reply(me.id, sender)
                 await self._forward_to_topic(
                     admin_group_id, topic_id, event, sender, me
                 )
@@ -165,6 +167,17 @@ class UnifiedMessagingSystem:
                 logger.error(f"❌ No topic_id returned, cannot forward message")
         except Exception as e:
             logger.error(f"Failed to handle incoming DM: {e}", exc_info=True)
+
+    async def _store_sender_for_reply(self, account_id: int, sender):
+        """Store sender entity for later replies"""
+        try:
+            if not hasattr(self, '_sender_cache'):
+                self._sender_cache = {}
+            if account_id not in self._sender_cache:
+                self._sender_cache[account_id] = {}
+            self._sender_cache[account_id][sender.id] = sender
+        except Exception as e:
+            logger.debug(f"Failed to cache sender: {e}")
 
     async def _handle_auto_reply(self, client, event, user_id: int, account_name: str):
         """Handle auto-reply if enabled for account"""
@@ -510,7 +523,6 @@ class UnifiedMessagingSystem:
             
             if not managed_client:
                 logger.error(f"No client found for account {managed_account_id}")
-                # Notify user that account is not available
                 account = await mongodb.db.accounts.find_one({"_id": managed_account_id})
                 if not account:
                     account = await mongodb.db.accounts.find_one({"phone": str(managed_account_id)})
@@ -530,6 +542,12 @@ class UnifiedMessagingSystem:
             
             logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
+            # Get cached sender entity
+            target_entity = target_user_id
+            if hasattr(self, '_sender_cache') and managed_account_id in self._sender_cache:
+                if target_user_id in self._sender_cache[managed_account_id]:
+                    target_entity = self._sender_cache[managed_account_id][target_user_id]
+            
             # If message object provided (media/sticker), download and re-upload
             if message_obj and message_obj.media:
                 logger.info(f"Sending media: type={type(message_obj.media)}")
@@ -540,7 +558,7 @@ class UnifiedMessagingSystem:
                 temp_file = None
                 
                 try:
-                    # Check if it's a sticker (including animated stickers)
+                    # Check if it's a sticker
                     is_sticker = False
                     if isinstance(message_obj.media, MessageMediaDocument):
                         doc = message_obj.media.document
@@ -564,7 +582,7 @@ class UnifiedMessagingSystem:
                     # For stickers, send directly without downloading
                     if is_sticker:
                         await managed_client.send_file(
-                            target_user_id,
+                            target_entity,
                             message_obj.media,
                             caption=message_obj.text if message_obj.text else None
                         )
@@ -610,7 +628,7 @@ class UnifiedMessagingSystem:
                     
                     await self.bot.download_media(message_obj, file=temp_file.name)
                     await managed_client.send_file(
-                        target_user_id,
+                        target_entity,
                         temp_file.name,
                         caption=message_obj.text if message_obj.text else None,
                         force_document=False
@@ -622,7 +640,7 @@ class UnifiedMessagingSystem:
             # Text message
             elif message_text:
                 logger.info(f"Sending text message: {message_text[:50]}...")
-                await managed_client.send_message(target_user_id, message_text)
+                await managed_client.send_message(target_entity, message_text)
                 logger.info("Text sent successfully")
             else:
                 logger.warning("No message text or media to send")
