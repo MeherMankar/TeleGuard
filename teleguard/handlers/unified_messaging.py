@@ -954,8 +954,58 @@ class UnifiedMessagingSystem:
         if client and client.is_connected():
             logger.info(f"Setting up unified messaging handler for {account_name}")
             self._setup_client_handlers(user_id, account_name, client)
+            # Auto-scrape existing DMs
+            await self.scrape_existing_dms(user_id, account_name, client)
         else:
             logger.warning(f"Client for {account_name} not connected, skipping handler setup")
+
+    async def scrape_existing_dms(self, user_id: int, account_name: str, client):
+        """Scrape existing DMs and create topics for them"""
+        try:
+            logger.info(f"🔍 Scraping existing DMs for {account_name}")
+            admin_group_id = await self._get_user_admin_group(user_id, account_name)
+            if not admin_group_id:
+                logger.info(f"No admin group configured for {account_name}, skipping scrape")
+                return
+            
+            me = await client.get_me()
+            dialogs = await client.get_dialogs(limit=50)
+            created_count = 0
+            
+            for dialog in dialogs:
+                if not dialog.is_user or dialog.entity.bot or dialog.entity.id in [777000, 42777]:
+                    continue
+                
+                # Check if topic already exists
+                existing = await self._find_existing_topic(admin_group_id, dialog.entity.id, me.id)
+                if existing:
+                    continue
+                
+                # Create topic for this user
+                topic_title = self._get_topic_title(dialog.entity, me)
+                topic_id = await self._create_new_topic(admin_group_id, topic_title, dialog.entity.id, me.id, user_id)
+                if topic_id:
+                    await self._store_topic_mapping(admin_group_id, topic_id, dialog.entity.id, me.id)
+                    await self._create_system_message(admin_group_id, topic_id, dialog.entity.id, me.id)
+                    # Store sender info
+                    sender_data = {
+                        "account_id": me.id,
+                        "sender_id": dialog.entity.id,
+                        "access_hash": getattr(dialog.entity, "access_hash", 0),
+                        "username": getattr(dialog.entity, "username", None),
+                        "first_name": getattr(dialog.entity, "first_name", None),
+                        "last_name": getattr(dialog.entity, "last_name", None),
+                    }
+                    await mongodb.db.dm_senders.update_one(
+                        {"account_id": me.id, "sender_id": dialog.entity.id},
+                        {"$set": sender_data},
+                        upsert=True
+                    )
+                    created_count += 1
+            
+            logger.info(f"✅ Created {created_count} topics from existing DMs for {account_name}")
+        except Exception as e:
+            logger.error(f"Failed to scrape existing DMs: {e}", exc_info=True)
 
     def cleanup_handlers(self):
         """Clean up all registered handlers"""
