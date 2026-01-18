@@ -548,7 +548,11 @@ class UnifiedMessagingSystem:
             managed_client = await self._get_client_by_id(managed_account_id)
             
             if not managed_client:
-                logger.error(f"No client found for account {managed_account_id}. Mapping may be stale.")
+                logger.error(f"No client found for account {managed_account_id}. Deleting stale mapping.")
+                # Delete stale mapping and sender record
+                await mongodb.db.topic_mappings.delete_many({"account_id": managed_account_id})
+                await mongodb.db.dm_senders.delete_many({"account_id": managed_account_id})
+                logger.info(f"Deleted stale mappings for account {managed_account_id}")
                 return
             
             # Get sender info from database
