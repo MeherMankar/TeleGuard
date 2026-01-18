@@ -377,16 +377,58 @@ class UnifiedMessagingSystem:
             
             # Handle media
             if event.message.media:
+                from telethon.tl.types import MessageMediaDocument, DocumentAttributeSticker
+                
+                # Check if it's a sticker - forward directly
+                is_sticker = False
+                if isinstance(event.message.media, MessageMediaDocument):
+                    doc = event.message.media.document
+                    if hasattr(doc, 'attributes'):
+                        for attr in doc.attributes:
+                            if isinstance(attr, DocumentAttributeSticker):
+                                is_sticker = True
+                                break
+                
+                if is_sticker:
+                    # Send caption first
+                    try:
+                        await self.bot.send_message(
+                            admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                        )
+                    except Exception as e:
+                        if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
+                            logger.warning(f"Topic {topic_id} deleted, creating new one")
+                            topic_id = await self._create_new_topic(
+                                admin_group_id, 
+                                self._get_topic_title(sender, managed_account),
+                                sender.id,
+                                managed_account.id,
+                                event.sender_id
+                            )
+                            if topic_id:
+                                await self._store_topic_mapping(admin_group_id, topic_id, sender.id, managed_account.id)
+                                await self.bot.send_message(
+                                    admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                                )
+                    
+                    # Forward sticker directly
+                    await self.bot.send_file(
+                        admin_group_id,
+                        event.message.media,
+                        reply_to=topic_id
+                    )
+                    logger.info("Sticker forwarded to topic")
+                    return
+                
+                # For other media, download and upload
                 if event.text:
                     caption += f"\n\n{event.text}"
                 
-                # Send caption first
                 try:
                     await self.bot.send_message(
                         admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                     )
                 except Exception as e:
-                    # Topic might be deleted, recreate it
                     if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
                         logger.warning(f"Topic {topic_id} deleted, creating new one")
                         topic_id = await self._create_new_topic(
@@ -402,41 +444,25 @@ class UnifiedMessagingSystem:
                                 admin_group_id, caption, reply_to=topic_id, parse_mode="md"
                             )
                 
-                # Download and re-upload to topic (required for topics)
                 import tempfile
                 import os
-                from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+                from telethon.tl.types import MessageMediaPhoto
                 
-                # Get file extension based on media type
                 file_ext = ""
                 if isinstance(event.message.media, MessageMediaPhoto):
                     file_ext = ".jpg"
                 elif isinstance(event.message.media, MessageMediaDocument):
                     doc = event.message.media.document
-                    # Try to get from attributes first (most accurate)
                     if hasattr(doc, 'attributes'):
                         for attr in doc.attributes:
                             if hasattr(attr, 'file_name'):
                                 file_ext = os.path.splitext(attr.file_name)[1]
                                 break
-                    # Fallback to mime_type
                     if not file_ext and hasattr(doc, 'mime_type'):
                         mime_map = {
-                            'video/mp4': '.mp4', 'video/mpeg': '.mpeg', 'video/x-matroska': '.mkv',
-                            'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-msvideo': '.avi',
-                            'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
-                            'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/flac': '.flac',
+                            'video/mp4': '.mp4', 'video/webm': '.webm', 'audio/mpeg': '.mp3',
                             'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif',
-                            'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
-                            'application/pdf': '.pdf', 'application/zip': '.zip', 'application/x-rar-compressed': '.rar',
-                            'application/x-7z-compressed': '.7z', 'application/x-tar': '.tar',
-                            'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-                            'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-                            'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-                            'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
-                            'application/json': '.json', 'application/xml': '.xml',
-                            'application/x-python': '.py', 'text/x-python': '.py',
-                            'application/javascript': '.js', 'text/javascript': '.js',
+                            'application/pdf': '.pdf', 'application/zip': '.zip',
                         }
                         file_ext = mime_map.get(doc.mime_type, '')
                 
@@ -468,7 +494,6 @@ class UnifiedMessagingSystem:
                     admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
                 )
             except Exception as e:
-                # Topic might be deleted, recreate it
                 if "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
                     logger.warning(f"Topic {topic_id} deleted, creating new one")
                     topic_id = await self._create_new_topic(
