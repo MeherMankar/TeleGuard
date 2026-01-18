@@ -619,44 +619,25 @@ class UnifiedMessagingSystem:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
 
     async def _get_client_by_id(self, account_id):
-        """Get managed client by account ID or phone"""
-        logger.info(f"Looking for client with account_id={account_id} (type={type(account_id).__name__})")
+        """Get managed client by Telegram user ID"""
+        logger.info(f"Looking for client with account_id={account_id}")
         
-        # Try to find by Telegram user ID first
         for user_id, clients in self.user_clients.items():
-            logger.debug(f"Checking user {user_id} with {len(clients)} clients")
             for account_name, client in clients.items():
                 if not client:
-                    logger.debug(f"Client {account_name} is None, skipping")
                     continue
                 try:
                     if not client.is_connected():
-                        logger.debug(f"Client {account_name} not connected, skipping")
                         continue
                     me = await client.get_me()
-                    me_phone = getattr(me, 'phone', None)
-                    logger.info(f"Checking client '{account_name}': me.id={me.id}, me.phone={me_phone}")
-                    
-                    # Match by Telegram ID
                     if me.id == account_id:
-                        logger.info(f"✅ Found client by ID {account_id}: {account_name}")
+                        logger.info(f"✅ Found client for account {account_id}: {account_name}")
                         return client
-                    
-                    # Match by phone number (try both with and without country code)
-                    if me_phone:
-                        # Remove + and spaces from phone
-                        clean_phone = str(me_phone).replace('+', '').replace(' ', '')
-                        clean_account_id = str(account_id).replace('+', '').replace(' ', '')
-                        logger.debug(f"Comparing phones: clean_phone={clean_phone}, clean_account_id={clean_account_id}")
-                        if clean_phone == clean_account_id:
-                            logger.info(f"✅ Found client by phone {account_id}: {account_name}")
-                            return client
                 except Exception as e:
                     logger.debug(f"Error checking client {account_name}: {e}")
                     continue
         
         logger.error(f"❌ No connected client found for account_id={account_id}")
-        logger.error(f"Available clients: {[(uid, list(clients.keys())) for uid, clients in self.user_clients.items()]}")
         return None
 
     async def _send_bot_message_directly(
