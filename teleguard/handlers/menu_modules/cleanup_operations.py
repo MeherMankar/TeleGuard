@@ -43,7 +43,7 @@ class CleanupOperations:
         await self.bot.edit_message(user_id, message_id, text)
         await self.bot.send_message(
             user_id,
-            "📝 **Reply with cleanup type:**\n\n**Examples:**\n• `personal,bots`\n• `channels,groups`\n• `all`\n\n**Options:** `personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
+            "📝 **Reply with cleanup type:**\n\n**Examples:**\n• `personal,bots`\n• `channels,groups`\n• `my_messages`\n• `all`\n\n**Options:** `personal`, `bots`, `telegram`, `spambot`, `my_messages`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
         )
 
     async def execute_bulk_cleanup(self, user_id, cleanup_types):
