@@ -32,26 +32,26 @@ class UnifiedMessagingSystem:
                     self._setup_client_handlers(user_id, account_name, client)
                     client_count += 1
         self._setup_admin_reply_handler()
+        logger.info(f"✅ Refreshed DM handlers: {client_count} accounts registered")
 
     def _setup_client_handlers(self, user_id: int, account_name: str, client):
         """Set up handlers for managed account"""
         client_key = f"{user_id}:{account_name}"
-        if client_key in self.handled_clients:
-            return
         client_obj_id = id(client)
+        
+        # Check if this exact client object already has handlers
         if client_obj_id in self.registered_client_objects:
+            logger.debug(f"Client object {client_key} already has handlers registered")
             self.handled_clients.add(client_key)
             return
-        if hasattr(client, "_event_builders") and client._event_builders:
-            for builder in client._event_builders:
-                if hasattr(builder, "func") and "private" in str(builder.func):
-                    self.handled_clients.add(client_key)
-                    self.registered_client_objects.add(client_obj_id)
-                    return
+        
+        # Register this client
         self.handled_clients.add(client_key)
-        self.registered_client_objects.add(id(client))
+        self.registered_client_objects.add(client_obj_id)
         if hasattr(self.bot_manager, "registered_handlers"):
             self.bot_manager.registered_handlers["messaging"].add(client_key)
+        
+        logger.info(f"📝 Registering DM handler for {account_name} (ID: {user_id})")
 
         @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
         async def private_message_handler(event):
