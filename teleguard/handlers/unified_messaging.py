@@ -590,35 +590,41 @@ class UnifiedMessagingSystem:
             
             if not managed_client:
                 logger.error(f"No client found for account {old_account_id}. Finding current account.")
-                # Delete stale mapping
-                await mongodb.db.topic_mappings.delete_many({"account_id": old_account_id})
-                await mongodb.db.dm_senders.delete_many({"account_id": old_account_id})
-                
-                # Find current account for this user
-                topic_mapping = await mongodb.db.topic_mappings.find_one(
-                    {"admin_group_id": mapping.get("admin_group_id"), "sender_id": target_user_id}
-                )
-                if not topic_mapping:
-                    # Get any active account for this user
-                    for user_id, clients in self.user_clients.items():
-                        for account_name, client in clients.items():
-                            if client and client.is_connected():
-                                try:
-                                    me = await client.get_me()
-                                    # Update mapping with new account_id
-                                    await mongodb.db.topic_mappings.update_one(
+                # Find any active account for this user
+                for user_id, clients in self.user_clients.items():
+                    for account_name, client in clients.items():
+                        if client and client.is_connected():
+                            try:
+                                me = await client.get_me()
+                                # Update mapping with new account_id
+                                await mongodb.db.topic_mappings.update_many(
+                                    {"sender_id": target_user_id},
+                                    {"$set": {"account_id": me.id}}
+                                )
+                                # Update sender record with new account_id
+                                old_sender = await mongodb.db.dm_senders.find_one(
+                                    {"account_id": old_account_id, "sender_id": target_user_id}
+                                )
+                                if old_sender:
+                                    await mongodb.db.dm_senders.update_one(
                                         {"sender_id": target_user_id},
-                                        {"$set": {"account_id": me.id}},
-                                        upsert=False
+                                        {"$set": {
+                                            "account_id": me.id,
+                                            "access_hash": old_sender.get("access_hash", 0),
+                                            "username": old_sender.get("username"),
+                                            "first_name": old_sender.get("first_name"),
+                                            "last_name": old_sender.get("last_name"),
+                                        }},
+                                        upsert=True
                                     )
-                                    managed_client = client
-                                    managed_account_id = me.id
-                                    logger.info(f"Updated mapping to use account {me.id}")
-                                    break
-                                except Exception:
-                                    continue
-                        if managed_client:
-                            break
+                                managed_client = client
+                                managed_account_id = me.id
+                                logger.info(f"✅ Updated mapping and sender record to use account {me.id}")
+                                break
+                            except Exception:
+                                continue
+                    if managed_client:
+                        break
                 
                 if not managed_client:
                     logger.error("No active account found")
