@@ -535,6 +535,8 @@ class AccountCleaner:
                 continue
 
         return total_deleted
+
+    async def _final_cleanup_check(
         self,
         client,
         cleanup_settings,
