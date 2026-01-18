@@ -84,6 +84,7 @@ class CleanupOperations:
             "groups": "groups" in cleanup_list,
             "owned_groups": "owned_groups" in cleanup_list,
             "owned_channels": "owned_channels" in cleanup_list,
+            "my_messages": "my_messages" in cleanup_list,
         }
 
         status_msg = await self.bot.send_message(
@@ -173,7 +174,7 @@ class CleanupOperations:
             )
             return
         display_name = format_display_name(account)
-        text = f"🧹 **Cleanup Selection - {display_name}**\n\n📋 **What would you like to clean?**\n\nSelect what to clean (you can choose multiple options):\n\n💬 **Personal chats** - Direct messages with users\n🤖 **Bot chats** - Conversations with bots\n📢 **Telegram official** - Telegram service chats\n🚫 **Spambot chats** - @spambot conversations\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete groups you own\n📺 **Delete owned channels** - Delete channels you own\n\n⚠️ **WARNING**: These actions cannot be undone!"
+        text = f"🧹 **Cleanup Selection - {display_name}**\n\n📋 **What would you like to clean?**\n\nSelect what to clean (you can choose multiple options):\n\n💬 **Personal chats** - Direct messages with users\n🤖 **Bot chats** - Conversations with bots\n📢 **Telegram official** - Telegram service chats\n🚫 **Spambot chats** - @spambot conversations\n🗑️ **My messages** - Delete all your sent messages from groups\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete groups you own\n📺 **Delete owned channels** - Delete channels you own\n\n⚠️ **WARNING**: These actions cannot be undone!"
         if self.bot_manager:
             self.bot_manager.pending_actions[user_id] = {
                 "action": "cleanup_selection",
@@ -182,7 +183,7 @@ class CleanupOperations:
         await self.bot.edit_message(user_id, message_id, text)
         await self.bot.send_message(
             user_id,
-            "📝 **Reply with your selection:**\n\nType what you want to clean, separated by commas:\n\n**Examples:**\n• `personal,bots` - Clean personal chats and bot chats\n• `channels,groups` - Exit all channels and groups\n• `all` - Clean everything\n\n**Available options:**\n`personal`, `bots`, `telegram`, `spambot`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
+            "📝 **Reply with your selection:**\n\nType what you want to clean, separated by commas:\n\n**Examples:**\n• `personal,bots` - Clean personal chats and bot chats\n• `channels,groups` - Exit all channels and groups\n• `my_messages` - Delete all your sent messages from groups\n• `all` - Clean everything\n\n**Available options:**\n`personal`, `bots`, `telegram`, `spambot`, `my_messages`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
         )
 
     async def execute_cleanup(self, event, user_id, account_id, cleanup_types):
@@ -246,6 +247,7 @@ class CleanupOperations:
             "groups": "groups" in cleanup_list,
             "owned_groups": "owned_groups" in cleanup_list,
             "owned_channels": "owned_channels" in cleanup_list,
+            "my_messages": "my_messages" in cleanup_list,
         }
 
         logger.info(f"Cleanup settings: {cleanup_settings}")

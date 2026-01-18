@@ -484,7 +484,57 @@ class AccountCleaner:
 
         return count
 
-    async def _final_cleanup_check(
+    async def _delete_my_messages_from_groups(
+        self,
+        client: TelegramClient,
+        dialogs,
+        progress: CleanupProgress,
+        progress_callback=None,
+    ) -> int:
+        """Delete all sent messages from groups and channels"""
+        from telethon.tl.functions.messages import DeleteMessagesRequest
+        from telethon.tl.functions.channels import DeleteMessagesRequest as DeleteChannelMessagesRequest
+
+        group_dialogs = [d for d in dialogs if isinstance(d.entity, (Chat, Channel))]
+        progress.current_operation = f"Scanning {len(group_dialogs)} groups/channels for messages"
+
+        total_deleted = 0
+        for i, dialog in enumerate(group_dialogs):
+            try:
+                message_ids = []
+                async for message in client.iter_messages(dialog.entity, from_user="me", limit=None):
+                    message_ids.append(message.id)
+                    if len(message_ids) >= 100:
+                        break
+
+                if message_ids:
+                    try:
+                        if isinstance(dialog.entity, Channel):
+                            await client(DeleteChannelMessagesRequest(channel=dialog.entity, id=message_ids))
+                        else:
+                            await client(DeleteMessagesRequest(revoke=True, id=message_ids))
+                        total_deleted += len(message_ids)
+                        progress.deleted_items += len(message_ids)
+                    except Exception as del_error:
+                        progress.add_error(f"Error deleting messages in {dialog.name}: {del_error}")
+
+                progress.processed_items += 1
+                progress.current_operation = f"Groups/Channels: {i + 1}/{len(group_dialogs)} | Deleted: {total_deleted}"
+
+                if progress_callback and (i + 1) % 5 == 0:
+                    await progress_callback(progress.get_progress_text())
+
+                await asyncio.sleep(random.uniform(2, 5))
+
+            except FloodWaitError as e:
+                progress.add_error(f"Rate limited in {dialog.name}: wait {e.seconds}s")
+                await asyncio.sleep(e.seconds)
+                continue
+            except Exception as e:
+                progress.add_error(f"Error processing {dialog.name}: {e}")
+                continue
+
+        return total_deleted
         self,
         client,
         cleanup_settings,
@@ -716,6 +766,7 @@ class AccountCleaner:
             "spambot_chat": (self._cleanup_spambot_chat, "🚫 Spambot cleanup"),
             "owned_groups": (self._delete_owned_groups, "🗑️ Deleted owned groups"),
             "owned_channels": (self._delete_owned_channels, "📺 Deleted owned channels"),
+            "my_messages": (self._delete_my_messages_from_groups, "🗑️ Deleted my messages"),
         }
         for setting, (method, label) in cleanup_map.items():
             if cleanup_settings.get(setting, False):
