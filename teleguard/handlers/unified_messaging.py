@@ -540,7 +540,7 @@ class UnifiedMessagingSystem:
                 temp_file = None
                 
                 try:
-                    # Check if it's a sticker
+                    # Check if it's a sticker (including animated stickers)
                     is_sticker = False
                     if isinstance(message_obj.media, MessageMediaDocument):
                         doc = message_obj.media.document
@@ -548,7 +548,18 @@ class UnifiedMessagingSystem:
                             for attr in doc.attributes:
                                 if isinstance(attr, DocumentAttributeSticker):
                                     is_sticker = True
+                                    logger.info("Detected sticker via DocumentAttributeSticker")
                                     break
+                        # Also check mime_type for stickers
+                        if not is_sticker and hasattr(doc, 'mime_type'):
+                            if 'sticker' in doc.mime_type.lower() or doc.mime_type in ['application/x-tgsticker', 'video/webm']:
+                                # Check if it's actually a sticker by looking at attributes
+                                if hasattr(doc, 'attributes'):
+                                    for attr in doc.attributes:
+                                        if hasattr(attr, 'stickerset'):
+                                            is_sticker = True
+                                            logger.info(f"Detected sticker via mime_type: {doc.mime_type}")
+                                            break
                     
                     # For stickers, send directly without downloading
                     if is_sticker:
