@@ -249,8 +249,26 @@ class UnifiedMessagingSystem:
             
             existing_topic = await self._find_existing_topic(admin_group_id, sender_id, account_id)
             if existing_topic:
-                logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
-                return existing_topic
+                # Verify topic still exists in Telegram
+                try:
+                    from telethon.tl.functions.channels import GetForumTopicsByIDRequest
+                    result = await self.bot(GetForumTopicsByIDRequest(
+                        channel=admin_group_id,
+                        topics=[existing_topic]
+                    ))
+                    if result.topics:
+                        logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
+                        return existing_topic
+                    else:
+                        logger.warning(f"⚠️ Topic {existing_topic} not found in Telegram, deleting mapping")
+                        await mongodb.db.topic_mappings.delete_one(
+                            {"admin_group_id": admin_group_id, "topic_id": existing_topic}
+                        )
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to verify topic {existing_topic}: {e}, deleting mapping")
+                    await mongodb.db.topic_mappings.delete_one(
+                        {"admin_group_id": admin_group_id, "topic_id": existing_topic}
+                    )
             
             logger.info(f"🆕 No existing topic found, creating new one...")
             
