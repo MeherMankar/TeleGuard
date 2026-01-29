@@ -72,10 +72,71 @@ class DMReplyCommands:
             # If in private chat, don't show any message (user should use menu)
             return
         
-        # Alias for backward compatibility
-        @self.bot.on(events.NewMessage(pattern=r"^/set_dm_group$"))
-        async def set_dm_group_alias(event):
-            await dm_reply_command(event)
+        @self.bot.on(events.NewMessage(pattern=r"^/enable_topics$"))
+        async def enable_topics_command(event):
+            if not event.is_private:
+                return
+            user_id = event.sender_id
+            from ..core.mongo_database import mongodb
+            
+            # Get accounts WITHOUT dm_reply_group_id
+            accounts = await mongodb.db.accounts.find({
+                "user_id": user_id,
+                "is_active": True,
+                "dm_reply_group_id": {"$exists": False}
+            }).to_list(None)
+            
+            if not accounts:
+                await event.reply(
+                    "✅ **All Accounts Have Topics Enabled**\n\n"
+                    "All your active accounts already have DM topics configured.\n\n"
+                    "Use /disable_topics to disable for specific accounts."
+                )
+                return
+            
+            from telethon import Button
+            buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_set:{acc.get('name')}")]
+                      for acc in accounts]
+            buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
+            
+            await event.reply(
+                "📨 **Enable DM Topics**\n\n"
+                f"Select account to enable ({len(accounts)} available):",
+                buttons=buttons
+            )
+
+        @self.bot.on(events.NewMessage(pattern=r"^/disable_topics$"))
+        async def disable_topics_command(event):
+            if not event.is_private:
+                return
+            user_id = event.sender_id
+            from ..core.mongo_database import mongodb
+            
+            # Get accounts WITH dm_reply_group_id
+            accounts = await mongodb.db.accounts.find({
+                "user_id": user_id,
+                "is_active": True,
+                "dm_reply_group_id": {"$exists": True}
+            }).to_list(None)
+            
+            if not accounts:
+                await event.reply(
+                    "❌ **No Topics Enabled**\n\n"
+                    "None of your accounts have DM topics enabled.\n\n"
+                    "Use /enable_topics to enable for specific accounts."
+                )
+                return
+            
+            from telethon import Button
+            buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_dis:{acc.get('name')}")]
+                      for acc in accounts]
+            buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
+            
+            await event.reply(
+                "🗑️ **Disable DM Topics**\n\n"
+                f"Select account to disable ({len(accounts)} enabled):",
+                buttons=buttons
+            )
 
         @self.bot.on(events.NewMessage(pattern=r"^/dm_status$"))
         async def dm_status_command(event):
@@ -191,9 +252,13 @@ class DMReplyCommands:
                 )
             elif data == "dm_enable":
                 from ..core.mongo_database import mongodb
-                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                accounts = await mongodb.db.accounts.find({
+                    "user_id": user_id,
+                    "is_active": True,
+                    "dm_reply_group_id": {"$exists": False}
+                }).to_list(None)
                 if not accounts:
-                    await event.edit("❌ No active accounts found.")
+                    await event.edit("✅ All accounts already have topics enabled.")
                     return
                 from telethon import Button
                 buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_set:{acc.get('name')}")]
@@ -219,9 +284,13 @@ class DMReplyCommands:
                 )
             elif data == "dm_disable":
                 from ..core.mongo_database import mongodb
-                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+                accounts = await mongodb.db.accounts.find({
+                    "user_id": user_id,
+                    "is_active": True,
+                    "dm_reply_group_id": {"$exists": True}
+                }).to_list(None)
                 if not accounts:
-                    await event.edit("❌ No active accounts found.")
+                    await event.edit("❌ No accounts have topics enabled.")
                     return
                 from telethon import Button
                 buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_dis:{acc.get('name')}")]
