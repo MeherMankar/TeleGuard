@@ -17,7 +17,6 @@ class DMReplyCommands:
     def register_handlers(self):
         """Register command handlers"""
 
-
         @self.bot.on(events.NewMessage(pattern=r"^/enable_topics$"))
         async def enable_topics_command(event):
             if not event.is_private:
@@ -83,103 +82,6 @@ class DMReplyCommands:
                 f"Select account to disable ({len(accounts)} enabled):",
                 buttons=buttons
             )
-
-        @self.bot.on(events.CallbackQuery(pattern=b"dm_"))
-        async def handle_dm_callbacks(event):
-            data = event.data.decode("utf-8")
-            user_id = event.sender_id
-            # Sanitize data for logging (remove problematic Unicode)
-            safe_data = ''.join(char if ord(char) < 128 else '?' for char in data)
-            logger.info(f"DM callback handler triggered: {safe_data} from user {user_id}")
-            
-            if data.startswith("dm_link:"):
-                # Format: dm_link:account_name:group_id
-                parts = data.split(":", 2)
-                if len(parts) != 3:
-                    await event.answer("❌ Invalid data", alert=True)
-                    return
-                
-                account_name = parts[1].strip()
-                # Only reject if completely empty
-                if not account_name:
-                    await event.answer("❌ Invalid account name", alert=True)
-                    return
-                
-                try:
-                    group_id = int(parts[2])
-                except ValueError:
-                    await event.answer("❌ Invalid group ID", alert=True)
-                    return
-                
-                from ..core.mongo_database import mongodb
-                
-                # Update account with DM group
-                result = await mongodb.db.accounts.update_one(
-                    {"user_id": user_id, "name": account_name},
-                    {"$set": {"dm_reply_group_id": group_id}}
-                )
-                
-                if result.modified_count > 0 or result.matched_count > 0:
-                    # Trigger handler setup for this account
-                    logger.info(f"Setting up handlers for account {account_name} after DM group config")
-                    if hasattr(self.bot_manager, 'unified_messaging') and self.bot_manager.unified_messaging:
-                        # Get the client for this account
-                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
-                        if client and client.is_connected():
-                            logger.info(f"Found connected client for {account_name}, setting up handlers")
-                            self.bot_manager.unified_messaging._setup_client_handlers(user_id, account_name, client)
-                        else:
-                            logger.warning(f"Client for {account_name} not found or not connected")
-                    
-                    await event.edit(
-                        f"✅ **DM Manager Configured**\n\n"
-                        f"📱 Account configured\n"
-                        f"📍 Group ID: `{group_id}`\n\n"
-                        f"🎯 **Active!** Send a test DM to your account to create a topic.\n\n"
-                        f"**How to reply:**\n"
-                        f"• Go to the topic for a conversation\n"
-                        f"• Reply to any message in the topic\n"
-                        f"• Your reply will be sent from your account"
-                    )
-                else:
-                    await event.answer("❌ Account not found", alert=True)
-                return
-            
-            if data == "dm_cancel":
-                await event.edit("❌ Setup cancelled")
-                return
-            if data.startswith("dm_dis:"):
-                account_name = data.split(":", 1)[1]
-                from ..core.mongo_database import mongodb
-                await mongodb.db.accounts.update_one(
-                    {"user_id": user_id, "name": account_name},
-                    {"$unset": {"dm_reply_group_id": ""}}
-                )
-                # Also delete all topic mappings for this account
-                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                if account:
-                    me_id = account.get("telegram_id")
-                    if me_id:
-                        deleted = await mongodb.db.topic_mappings.delete_many({"account_id": me_id})
-                        await mongodb.db.dm_senders.delete_many({"account_id": me_id})
-                        logger.info(f"Deleted {deleted.deleted_count} topics for account {account_name}")
-                await event.edit(
-                    f"✅ **DM Manager Disabled**\n\n"
-                    f"❌ Disabled for {account_name}\n"
-                    f"🗑️ All topics removed\n\n"
-                    f"Use /dm_reply in a forum group to enable again."
-                )
-
-    async def handle_dm_group_input(self, event, user_id, group_id_text):
-        """Handle DM group ID input - DEPRECATED, use /enable_topics in forum group instead"""
-        await event.reply(
-            "❌ **This method is deprecated**\n\n"
-            "Please use the new method:\n"
-            "1. Go to your forum group\n"
-            "2. Use /enable_topics command\n"
-            "3. Select the account\n\n"
-            "This is simpler and more reliable!"
-        )
 
         @self.bot.on(events.NewMessage(pattern=r"^/debug_topics$"))
         async def debug_topics_command(event):
@@ -295,3 +197,100 @@ class DMReplyCommands:
             except Exception as e:
                 logger.error(f"Refresh handlers error: {e}")
                 await event.reply(f"❌ Error: {e}")
+
+        @self.bot.on(events.CallbackQuery(pattern=b"dm_"))
+        async def handle_dm_callbacks(event):
+            data = event.data.decode("utf-8")
+            user_id = event.sender_id
+            # Sanitize data for logging (remove problematic Unicode)
+            safe_data = ''.join(char if ord(char) < 128 else '?' for char in data)
+            logger.info(f"DM callback handler triggered: {safe_data} from user {user_id}")
+            
+            if data.startswith("dm_link:"):
+                # Format: dm_link:account_name:group_id
+                parts = data.split(":", 2)
+                if len(parts) != 3:
+                    await event.answer("❌ Invalid data", alert=True)
+                    return
+                
+                account_name = parts[1].strip()
+                # Only reject if completely empty
+                if not account_name:
+                    await event.answer("❌ Invalid account name", alert=True)
+                    return
+                
+                try:
+                    group_id = int(parts[2])
+                except ValueError:
+                    await event.answer("❌ Invalid group ID", alert=True)
+                    return
+                
+                from ..core.mongo_database import mongodb
+                
+                # Update account with DM group
+                result = await mongodb.db.accounts.update_one(
+                    {"user_id": user_id, "name": account_name},
+                    {"$set": {"dm_reply_group_id": group_id}}
+                )
+                
+                if result.modified_count > 0 or result.matched_count > 0:
+                    # Trigger handler setup for this account
+                    logger.info(f"Setting up handlers for account {account_name} after DM group config")
+                    if hasattr(self.bot_manager, 'unified_messaging') and self.bot_manager.unified_messaging:
+                        # Get the client for this account
+                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+                        if client and client.is_connected():
+                            logger.info(f"Found connected client for {account_name}, setting up handlers")
+                            self.bot_manager.unified_messaging._setup_client_handlers(user_id, account_name, client)
+                        else:
+                            logger.warning(f"Client for {account_name} not found or not connected")
+                    
+                    await event.edit(
+                        f"✅ **DM Manager Configured**\n\n"
+                        f"📱 Account configured\n"
+                        f"📍 Group ID: `{group_id}`\n\n"
+                        f"🎯 **Active!** Send a test DM to your account to create a topic.\n\n"
+                        f"**How to reply:**\n"
+                        f"• Go to the topic for a conversation\n"
+                        f"• Reply to any message in the topic\n"
+                        f"• Your reply will be sent from your account"
+                    )
+                else:
+                    await event.answer("❌ Account not found", alert=True)
+                return
+            
+            if data == "dm_cancel":
+                await event.edit("❌ Setup cancelled")
+                return
+            if data.startswith("dm_dis:"):
+                account_name = data.split(":", 1)[1]
+                from ..core.mongo_database import mongodb
+                await mongodb.db.accounts.update_one(
+                    {"user_id": user_id, "name": account_name},
+                    {"$unset": {"dm_reply_group_id": ""}}
+                )
+                # Also delete all topic mappings for this account
+                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if account:
+                    me_id = account.get("telegram_id")
+                    if me_id:
+                        deleted = await mongodb.db.topic_mappings.delete_many({"account_id": me_id})
+                        await mongodb.db.dm_senders.delete_many({"account_id": me_id})
+                        logger.info(f"Deleted {deleted.deleted_count} topics for account {account_name}")
+                await event.edit(
+                    f"✅ **DM Manager Disabled**\n\n"
+                    f"❌ Disabled for {account_name}\n"
+                    f"🗑️ All topics removed\n\n"
+                    f"Use /dm_reply in a forum group to enable again."
+                )
+
+    async def handle_dm_group_input(self, event, user_id, group_id_text):
+        """Handle DM group ID input - DEPRECATED, use /enable_topics in forum group instead"""
+        await event.reply(
+            "❌ **This method is deprecated**\n\n"
+            "Please use the new method:\n"
+            "1. Go to your forum group\n"
+            "2. Use /enable_topics command\n"
+            "3. Select the account\n\n"
+            "This is simpler and more reliable!"
+        )
