@@ -19,10 +19,15 @@ class DMReplyCommands:
 
         @self.bot.on(events.NewMessage(pattern=r"^/enable_topics$"))
         async def enable_topics_command(event):
-            if not event.is_private:
-                return
+            logger.info(f"enable_topics command received from {event.sender_id}, is_private={event.is_private}")
             user_id = event.sender_id
             from ..core.mongo_database import mongodb
+            
+            # Debug: Check all accounts
+            all_accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+            logger.info(f"Total active accounts for user {user_id}: {len(all_accounts)}")
+            for acc in all_accounts:
+                logger.info(f"  Account: {acc.get('name')}, has dm_reply_group_id: {acc.get('dm_reply_group_id') is not None}")
             
             # Get accounts WITHOUT dm_reply_group_id
             accounts = await mongodb.db.accounts.find({
@@ -52,8 +57,7 @@ class DMReplyCommands:
 
         @self.bot.on(events.NewMessage(pattern=r"^/disable_topics$"))
         async def disable_topics_command(event):
-            if not event.is_private:
-                return
+            logger.info(f"disable_topics command received from {event.sender_id}, is_private={event.is_private}")
             user_id = event.sender_id
             from ..core.mongo_database import mongodb
             
@@ -198,13 +202,55 @@ class DMReplyCommands:
                 logger.error(f"Refresh handlers error: {e}")
                 await event.reply(f"❌ Error: {e}")
 
+        @self.bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private and (e.forward or (e.text and e.text.strip().startswith('-')))))
+        async def handle_forwarded_or_id(event):
+            user_id = event.sender_id
+            if not hasattr(self.bot_manager, 'pending_dm_setups') or user_id not in self.bot_manager.pending_dm_setups:
+                return
+            account_name = self.bot_manager.pending_dm_setups[user_id]
+            group_id = event.forward.chat.id if event.forward and event.forward.chat else (int(event.text.strip()) if event.text and event.text.strip().startswith('-') else None)
+            if not group_id:
+                return
+            try:
+                from ..core.mongo_database import mongodb
+                chat_info = await self.bot.get_entity(group_id)
+                if not getattr(chat_info, "forum", False):
+                    await event.reply("❌ Not a forum group. Enable Topics in settings.")
+                    return
+                result = await mongodb.db.accounts.update_one({"user_id": user_id, "name": account_name}, {"$set": {"dm_reply_group_id": group_id}})
+                if result.modified_count > 0 or result.matched_count > 0:
+                    if hasattr(self.bot_manager, 'unified_messaging') and self.bot_manager.unified_messaging:
+                        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+                        if client and client.is_connected():
+                            self.bot_manager.unified_messaging._setup_client_handlers(user_id, account_name, client)
+                    await event.reply(f"✅ **DM Topics Enabled!**\n\n📱 Account: {account_name}\n📍 Group: {chat_info.title}\n🆔 ID: `{group_id}`\n\n🎯 DMs will create topics!")
+                    del self.bot_manager.pending_dm_setups[user_id]
+            except Exception as e:
+                await event.reply(f"❌ Error: {str(e)}")
+
         @self.bot.on(events.CallbackQuery(pattern=b"dm_"))
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
             user_id = event.sender_id
-            # Sanitize data for logging (remove problematic Unicode)
             safe_data = ''.join(char if ord(char) < 128 else '?' for char in data)
             logger.info(f"DM callback handler triggered: {safe_data} from user {user_id}")
+            
+            if data.startswith("dm_set:"):
+                account_name = data.split(":", 1)[1]
+                await event.edit(
+                    f"📨 **Enable DM Topics for {account_name}**\n\n"
+                    f"**Option 1: Forward Message (Easy)**\n"
+                    f"1. Forward any message from your forum group\n"
+                    f"2. I'll auto-detect and configure it\n\n"
+                    f"**Option 2: Manual ID Entry**\n"
+                    f"• Send the group ID directly (e.g., `-1001234567890`)\n\n"
+                    f"💡 **Tip:** Make sure Topics are enabled in group settings!"
+                )
+                # Store pending setup
+                if not hasattr(self.bot_manager, 'pending_dm_setups'):
+                    self.bot_manager.pending_dm_setups = {}
+                self.bot_manager.pending_dm_setups[user_id] = account_name
+                return
             
             if data.startswith("dm_link:"):
                 # Format: dm_link:account_name:group_id

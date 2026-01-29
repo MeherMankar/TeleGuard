@@ -58,6 +58,12 @@ class UnifiedMessagingSystem:
             try:
                 if event.out:
                     return
+                
+                # Skip bot commands
+                if event.text and event.text.startswith('/'):
+                    logger.debug(f"Skipping bot command: {event.text}")
+                    return
+                
                 message_id = f"{event.chat_id}_{event.id}_{client_key}"
                 if message_id in self.processed_messages:
                     logger.debug(f"Message {message_id} already processed, skipping")
@@ -369,7 +375,10 @@ class UnifiedMessagingSystem:
                 f"Topic ID: `{topic_id}`"
             )
             await self.bot.send_message(
-                admin_group_id, system_text, reply_to=topic_id, parse_mode="md"
+                admin_group_id,
+                system_text,
+                reply_to=topic_id,
+                parse_mode="md"
             )
         except Exception as e:
             logger.error(f"Failed to create system message: {e}")
@@ -415,7 +424,10 @@ class UnifiedMessagingSystem:
                     # Send caption first
                     try:
                         result = await self.bot.send_message(
-                            admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                            admin_group_id,
+                            caption,
+                            reply_to=topic_id,
+                            parse_mode="md"
                         )
                         logger.info(f"✅ Sticker caption sent to topic {topic_id}")
                     except Exception as e:
@@ -457,7 +469,10 @@ class UnifiedMessagingSystem:
                 
                 try:
                     result = await self.bot.send_message(
-                        admin_group_id, caption, reply_to=topic_id, parse_mode="md"
+                        admin_group_id, 
+                        caption, 
+                        reply_to=topic_id,
+                        parse_mode="md"
                     )
                     logger.info(f"✅ Caption sent to topic {topic_id}")
                 except Exception as e:
@@ -537,8 +552,19 @@ class UnifiedMessagingSystem:
                 forward_text = f"{caption}\n\n[Empty Message]"
             
             try:
+                # For forum topics in Telethon, reply_to must be the message ID of the first message in the topic
+                # We send to the supergroup/channel entity with reply_to set to topic_id
+                from telethon.tl.types import InputPeerChannel
+                
+                # Get the channel entity
+                channel_entity = await self.bot.get_entity(admin_group_id)
+                
+                # Send message with reply_to pointing to the topic's first message
                 result = await self.bot.send_message(
-                    admin_group_id, forward_text, reply_to=topic_id, parse_mode="md"
+                    channel_entity,
+                    forward_text,
+                    reply_to=topic_id,
+                    parse_mode="md"
                 )
                 logger.info(f"✅ Message sent to topic {topic_id}, result: {result.id if result else 'None'}")
             except Exception as e:
