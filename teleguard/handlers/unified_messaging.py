@@ -508,12 +508,19 @@ class UnifiedMessagingSystem:
                 
                 try:
                     await event.client.download_media(event.message, file=temp_file.name)
+                    # Check if it's audio to send as voice/audio not document
+                    force_doc = True
+                    if isinstance(event.message.media, MessageMediaDocument):
+                        doc = event.message.media.document
+                        if hasattr(doc, 'mime_type') and doc.mime_type and doc.mime_type.startswith('audio/'):
+                            force_doc = False
                     result = await self.bot.send_file(
                         admin_group_id,
                         temp_file.name,
                         caption=event.text if event.text else None,
                         reply_to=topic_id,
-                        force_document=False
+                        force_document=force_doc,
+                        voice_note=False
                     )
                     logger.info(f"✅ Media file sent to topic {topic_id}")
                 except Exception as e:
@@ -700,11 +707,18 @@ class UnifiedMessagingSystem:
                 
                 try:
                     await self.bot.download_media(message_obj, file=temp_file.name)
+                    # Check if it's audio to send as voice/audio not document
+                    force_doc = True
+                    if isinstance(message_obj.media, MessageMediaDocument):
+                        doc = message_obj.media.document
+                        if hasattr(doc, 'mime_type') and doc.mime_type and doc.mime_type.startswith('audio/'):
+                            force_doc = False
                     await managed_client.send_file(
                         target_entity,
                         temp_file.name,
                         caption=message_obj.text if message_obj.text else None,
-                        force_document=False
+                        force_document=force_doc,
+                        voice_note=False
                     )
                     logger.info("Media sent successfully")
                 finally:

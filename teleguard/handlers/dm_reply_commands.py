@@ -226,6 +226,7 @@ class DMReplyCommands:
                 from telethon import Button
                 buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_dis:{acc.get('name')}")]
                           for acc in accounts]
+                buttons.append([Button.inline("🔙 Back", "dm_status")])
                 await event.edit(
                     "📨 **Disable DM Reply**\n\n"
                     "Select account:",
@@ -238,10 +239,19 @@ class DMReplyCommands:
                     {"user_id": user_id, "name": account_name},
                     {"$unset": {"dm_reply_group_id": ""}}
                 )
+                # Also delete all topic mappings for this account
+                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
+                if account:
+                    me_id = account.get("telegram_id")
+                    if me_id:
+                        deleted = await mongodb.db.topic_mappings.delete_many({"account_id": me_id})
+                        await mongodb.db.dm_senders.delete_many({"account_id": me_id})
+                        logger.info(f"Deleted {deleted.deleted_count} topics for account {account_name}")
                 await event.edit(
-                    f"📨 **Unified Messaging Disabled**\n\n"
-                    f"❌ Disabled for {account_name}\n\n"
-                    f"Use /set_dm_group to enable it again."
+                    f"✅ **DM Manager Disabled**\n\n"
+                    f"❌ Disabled for {account_name}\n"
+                    f"🗑️ All topics removed\n\n"
+                    f"Use /dm_reply in a forum group to enable again."
                 )
 
     async def handle_dm_group_input(self, event, user_id, group_id_text):
