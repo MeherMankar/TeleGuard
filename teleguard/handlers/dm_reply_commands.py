@@ -17,61 +17,7 @@ class DMReplyCommands:
     def register_handlers(self):
         """Register command handlers"""
 
-        @self.bot.on(events.NewMessage(pattern=r"^/dm_reply$"))
-        async def dm_reply_command(event):
-            user_id = event.sender_id
-            
-            # If in group, set that group as DM reply group
-            if not event.is_private:
-                from ..core.mongo_database import mongodb
-                
-                # Check if user has accounts
-                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
-                if not accounts:
-                    await event.reply("❌ You don't have any active accounts. Add an account first in private chat with the bot.")
-                    return
-                
-                # Check if group has topics enabled
-                try:
-                    chat = await event.get_chat()
-                    is_forum = getattr(chat, "forum", False)
-                    if not is_forum:
-                        await event.reply(
-                            "❌ **Topics Not Enabled**\n\n"
-                            "This group doesn't have Topics enabled.\n\n"
-                            "**To enable:**\n"
-                            "1. Go to Group Settings\n"
-                            "2. Enable 'Topics'\n"
-                            "3. Try /dm_reply again"
-                        )
-                        return
-                except Exception as e:
-                    await event.reply(f"❌ Error checking group: {e}")
-                    return
-                
-                # Show account selection
-                from telethon import Button
-                buttons = []
-                for acc in accounts:
-                    acc_name = acc.get('name', 'Unknown')
-                    # Sanitize account name for display and callback
-                    display_name = acc_name if acc_name and not all(ord(c) > 127 for c in acc_name) else f"Account {acc.get('phone', 'Unknown')}"
-                    # Use original name for callback to match database
-                    buttons.append([Button.inline(f"📱 {display_name}", f"dm_link:{acc_name}:{event.chat_id}")])
-                buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
-                
-                await event.reply(
-                    f"✅ **Group Ready for DM Manager**\n\n"
-                    f"📍 Group: {chat.title}\n"
-                    f"🆔 ID: `{event.chat_id}`\n\n"
-                    f"Select which account's DMs should be forwarded here:",
-                    buttons=buttons
-                )
-                return
-            
-            # If in private chat, don't show any message (user should use menu)
-            return
-        
+
         @self.bot.on(events.NewMessage(pattern=r"^/enable_topics$"))
         async def enable_topics_command(event):
             if not event.is_private:
@@ -138,34 +84,6 @@ class DMReplyCommands:
                 buttons=buttons
             )
 
-        @self.bot.on(events.NewMessage(pattern=r"^/dm_status$"))
-        async def dm_status_command(event):
-            if not event.is_private:
-                return
-            user_id = event.sender_id
-            admin_group_id = (
-                await self.bot_manager.unified_messaging._get_user_admin_group(user_id)
-            )
-            if admin_group_id:
-                status_text = (
-                    f"📨 **Unified Messaging Status**\n\n"
-                    f"✅ **Enabled**\n"
-                    f"📍 Group ID: `{admin_group_id}`\n\n"
-                    f"All DMs to your managed accounts automatically create topics in this group."
-                )
-                buttons = [
-                    [Button.inline("🔄 Change Group", "dm_change_group")],
-                    [Button.inline("❌ Disable", "dm_disable")],
-                ]
-            else:
-                status_text = (
-                    f"📨 **Unified Messaging Status**\n\n"
-                    f"❌ **Disabled**\n\n"
-                    f"Use /set_dm_group to enable automatic topic creation."
-                )
-                buttons = [[Button.inline("✅ Enable", "dm_enable")]]
-            await event.reply(status_text, buttons=buttons)
-
         @self.bot.on(events.CallbackQuery(pattern=b"dm_"))
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
@@ -230,78 +148,7 @@ class DMReplyCommands:
             if data == "dm_cancel":
                 await event.edit("❌ Setup cancelled")
                 return
-            
-            if data.startswith("dm_set:"):
-                account_name = data.split(":", 1)[1]
-                self.bot_manager.pending_actions[user_id] = {
-                    "action": "set_dm_group_id",
-                    "account_name": account_name
-                }
-                await event.edit(
-                    f"📨 **Set DM Group for {account_name}**\n\n"
-                    "Send me your **Forum Group** ID.\n\n"
-                    "**Requirements:**\n"
-                    "• Group must have Topics enabled\n"
-                    "• Bot must be admin with topic management permissions\n\n"
-                    "**How to get group ID:**\n"
-                    "1. Add @userinfobot to your forum group\n"
-                    "2. Send any message\n"
-                    "3. Copy the group ID (negative number)\n"
-                    "4. Remove @userinfobot from group\n\n"
-                    "Reply with the group ID:"
-                )
-            elif data == "dm_enable":
-                from ..core.mongo_database import mongodb
-                accounts = await mongodb.db.accounts.find({
-                    "user_id": user_id,
-                    "is_active": True,
-                    "dm_reply_group_id": {"$exists": False}
-                }).to_list(None)
-                if not accounts:
-                    await event.edit("✅ All accounts already have topics enabled.")
-                    return
-                from telethon import Button
-                buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_set:{acc.get('name')}")]
-                          for acc in accounts]
-                await event.edit(
-                    "📨 **Enable DM Reply**\n\n"
-                    "Select account to configure:",
-                    buttons=buttons
-                )
-            elif data == "dm_change_group":
-                from ..core.mongo_database import mongodb
-                accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
-                if not accounts:
-                    await event.edit("❌ No active accounts found.")
-                    return
-                from telethon import Button
-                buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_set:{acc.get('name')}")]
-                          for acc in accounts]
-                await event.edit(
-                    "📨 **Change DM Reply Group**\n\n"
-                    "Select account:",
-                    buttons=buttons
-                )
-            elif data == "dm_disable":
-                from ..core.mongo_database import mongodb
-                accounts = await mongodb.db.accounts.find({
-                    "user_id": user_id,
-                    "is_active": True,
-                    "dm_reply_group_id": {"$exists": True}
-                }).to_list(None)
-                if not accounts:
-                    await event.edit("❌ No accounts have topics enabled.")
-                    return
-                from telethon import Button
-                buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_dis:{acc.get('name')}")]
-                          for acc in accounts]
-                buttons.append([Button.inline("🔙 Back", "dm_status")])
-                await event.edit(
-                    "📨 **Disable DM Reply**\n\n"
-                    "Select account:",
-                    buttons=buttons
-                )
-            elif data.startswith("dm_dis:"):
+            if data.startswith("dm_dis:"):
                 account_name = data.split(":", 1)[1]
                 from ..core.mongo_database import mongodb
                 await mongodb.db.accounts.update_one(
@@ -324,48 +171,15 @@ class DMReplyCommands:
                 )
 
     async def handle_dm_group_input(self, event, user_id, group_id_text):
-        """Handle DM group ID input"""
-        try:
-            group_id = int(group_id_text.strip())
-            if group_id > 0:
-                await event.reply(
-                    "❌ Please provide a negative group ID (groups have negative IDs)"
-                )
-                return
-            
-            from ..core.mongo_database import mongodb
-            
-            # Get pending action to know which account
-            pending = self.bot_manager.pending_actions.get(user_id, {})
-            account_name = pending.get("account_name")
-            
-            if not account_name:
-                await event.reply("❌ No account selected. Please use the menu to set up DM group.")
-                return
-            
-            # Store group ID for specific account
-            await mongodb.db.accounts.update_one(
-                {"user_id": user_id, "name": account_name},
-                {"$set": {"dm_reply_group_id": group_id}}
-            )
-            
-            await event.reply(
-                f"✅ **Unified Messaging Configured**\n\n"
-                f"📍 Account: {account_name}\n"
-                f"📍 Group ID: `{group_id}`\n\n"
-                f"🎯 **Auto-Topic Creation Active**\n\n"
-                f"All DMs to {account_name} will now automatically create **Topics** in this group.\n\n"
-                f"**How it works:**\n"
-                f"• Private messages to this account create topics\n"
-                f"• Each conversation gets its own thread\n"
-                f"• Reply in topics to respond\n\n"
-                f"Use /dm_status to check status."
-            )
-        except ValueError:
-            await event.reply("❌ Invalid group ID. Please provide a numeric group ID.")
-        except Exception as e:
-            logger.error(f"Error setting DM group: {e}")
-            await event.reply("❌ An error occurred. Please try again.")
+        """Handle DM group ID input - DEPRECATED, use /enable_topics in forum group instead"""
+        await event.reply(
+            "❌ **This method is deprecated**\n\n"
+            "Please use the new method:\n"
+            "1. Go to your forum group\n"
+            "2. Use /enable_topics command\n"
+            "3. Select the account\n\n"
+            "This is simpler and more reliable!"
+        )
 
         @self.bot.on(events.NewMessage(pattern=r"^/debug_topics$"))
         async def debug_topics_command(event):
