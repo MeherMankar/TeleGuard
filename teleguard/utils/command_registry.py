@@ -12,42 +12,31 @@ logger = logging.getLogger(__name__)
 class CommandRegistry:
     """Registry for all bot commands"""
 
-    # Command definitions with descriptions
+    # Command definitions - only commands that exist in command_handlers.py
     COMMANDS = {
         # Basic Commands
         "start": "Start the bot and show main menu",
-        "help": "Show help and available commands",
+        "cancel": "Cancel current operation",
         # Account Management
         "add": "Add a new Telegram account",
         "accs": "List all your accounts",
-        "remove": "Remove an account",
+        "remove": "Remove an account (use menu)",
+        "reconnect": "Reconnect all accounts",
         # OTP & Security
-        "otp": "Toggle OTP Destroyer protection",
-        "otp_debug": "Debug OTP functionality (admin)",
+        "otp": "OTP Manager (use menu)",
+        "toggle_protection": "Toggle OTP protection",
         # Proxy Management
         "proxy": "Manage proxies for accounts",
         # Session Management
-        "sessions": "View active sessions",
-        "export_session": "Export session string",
-        "import_session": "Import session string",
-        # Messaging
-        "dm": "Manage direct messages",
-        "reply": "Set up auto-reply",
+        "sessions": "Session Management (use menu)",
+        "export_session": "Export session (use menu)",
+        "import_session": "Import session (use menu)",
+        # DM Topics
+        "enable_topics": "Enable DM topics for account",
+        "disable_topics": "Disable DM topics for account",
         # Spam & Appeals
         "appeal": "Appeal spam restriction",
-        "spam": "Advanced spam tools",
-        # Rate Limiting & Health
-        "limits": "View rate limits for accounts",
-        "health": "Check session health",
-        "reset_limits": "Reset rate limits for account",
-        # Transfer & Sharing
-        "transfer": "Transfer account ownership",
-        "coowners": "Manage co-owners",
-        # Admin Commands
-        "stats": "Bot statistics (admin)",
-        "broadcast": "Broadcast message (admin)",
-        "users": "List all users (admin)",
-        "logs": "View bot logs (admin)",
+        "spam": "Spam tools (use menu)",
     }
 
     @classmethod
@@ -65,22 +54,16 @@ class CommandRegistry:
     @classmethod
     def get_help_text(cls, category: str = None) -> str:
         """Generate help text for commands"""
-        if category:
-            # Filter by category (implement if needed)
-            pass
-
         help_text = "📋 **Available Commands**\n\n"
 
         categories = {
-            "🏠 Basic": ["start", "help", "menu"],
-            "📱 Accounts": ["add", "accs", "remove", "switch"],
-            "🛡️ Security": ["otp", "twofa", "set_2fa", "get_2fa", "sessions"],
-            "💬 Messaging": ["dm", "reply", "bulk_send"],
-            "📢 Channels": ["channels", "join", "leave"],
-            "👥 Contacts": ["contacts", "export_contacts"],
-            "🧹 Cleanup": ["cleanup", "appeal"],
-            "🤖 Automation": ["online", "simulate"],
-            "📊 Monitoring": ["limits", "health", "session_health"],
+            "🏠 Basic": ["start", "cancel"],
+            "📱 Accounts": ["add", "accs", "remove", "reconnect"],
+            "🛡️ Security": ["otp", "toggle_protection", "sessions"],
+            "🌐 Proxy": ["proxy"],
+            "📤 Sessions": ["export_session", "import_session"],
+            "💬 DM Topics": ["enable_topics", "disable_topics"],
+            "🧹 Spam": ["appeal", "spam"],
         }
 
         for category_name, commands in categories.items():
@@ -89,6 +72,7 @@ class CommandRegistry:
                 if cmd in cls.COMMANDS:
                     help_text += f"  /{cmd} - {cls.COMMANDS[cmd]}\n"
 
+        help_text += "\n💡 **Tip:** Most features are accessible via the menu buttons!"
         return help_text
 
     @classmethod
