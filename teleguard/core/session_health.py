@@ -1,12 +1,14 @@
 """
 Session Health Monitor
 Detects session issues early to prevent account logout
+Integrated with SessTg session validation features
 """
 
 import logging
 import time
 from datetime import datetime
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 from telethon.errors import AuthKeyError, UnauthorizedError
 
@@ -20,19 +22,38 @@ class SessionHealth:
         # {account_phone: {'status': str, 'last_check': float, 'errors': int, 'warnings': []}}
         self.health_status: Dict[str, dict] = {}
         self.check_interval = 300  # Check every 5 minutes
+        self.validation_log = []  # Track validation history
 
     async def check_session(self, client, account_phone: str) -> tuple[bool, str]:
         """Check if session is healthy"""
         try:
+            # Check if connected
+            if not client.is_connected():
+                self._record_issue(account_phone, "warning", "Client disconnected")
+                return False, "⚠️ Client disconnected"
+            
+            # Check authorization
+            if not await client.is_user_authorized():
+                self._record_issue(account_phone, "critical", "Not authorized")
+                return False, "❌ Session needs authorization"
+            
+            # Get user info
             me = await client.get_me()
             if not me:
                 self._record_issue(account_phone, "critical", "Cannot get user info")
                 return False, "❌ Session invalid - cannot get user info"
-            if not client.is_connected():
-                self._record_issue(account_phone, "warning", "Client disconnected")
-                return False, "⚠️ Client disconnected"
-            self._record_healthy(account_phone)
+            
+            # Record healthy status with user info
+            self._record_healthy(account_phone, {
+                'phone': me.phone,
+                'name': f"{me.first_name or ''} {me.last_name or ''}".strip(),
+                'username': me.username,
+                'id': me.id,
+                'premium': getattr(me, 'premium', False),
+            })
+            
             return True, "✅ Session healthy"
+            
         except (AuthKeyError, UnauthorizedError) as e:
             self._record_issue(account_phone, "critical", f"Auth error: {str(e)}")
             return False, f"❌ Session expired: {str(e)}"
@@ -48,6 +69,7 @@ class SessionHealth:
                 "last_check": None,
                 "errors": 0,
                 "warnings": [],
+                "user_info": None,
             }
         return self.health_status[account_phone]
 
@@ -71,13 +93,14 @@ class SessionHealth:
                 )
         return unhealthy
 
-    def _record_healthy(self, account_phone: str):
+    def _record_healthy(self, account_phone: str, user_info: Optional[Dict] = None):
         """Record healthy status"""
         self.health_status[account_phone] = {
             "status": "healthy",
             "last_check": time.time(),
             "errors": 0,
             "warnings": [],
+            "user_info": user_info,
         }
 
     def _record_issue(self, account_phone: str, severity: str, message: str):
@@ -114,7 +137,35 @@ class SessionHealth:
         if account_phone in self.health_status:
             del self.health_status[account_phone]
         logger.info(f"Reset health status for {account_phone}")
-
+    
+    def get_validation_stats(self) -> Dict:
+        """Get validation statistics"""
+        if not self.validation_log:
+            return {}
+        
+        latest = self.validation_log[-1]
+        return {
+            'last_check': latest['timestamp'],
+            'total_sessions': latest['total'],
+            'valid': latest['valid'],
+            'need_auth': latest['need_auth'],
+            'invalid': latest['invalid'],
+            'total_checks': len(self.validation_log),
+        }
+    
+    def log_validation(self, total: int, valid: int, need_auth: int, invalid: int):
+        """Log validation results"""
+        self.validation_log.append({
+            'timestamp': datetime.now(),
+            'total': total,
+            'valid': valid,
+            'need_auth': need_auth,
+            'invalid': invalid,
+        })
+        
+        # Keep only last 100 validation logs
+        if len(self.validation_log) > 100:
+            self.validation_log = self.validation_log[-100:]
 
 # Global session health monitor
 session_health = SessionHealth()

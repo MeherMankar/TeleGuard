@@ -2,6 +2,8 @@
 
 import json
 import logging
+import base64
+import struct
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -128,3 +130,53 @@ async def _extract_from_json(file_path):
     except Exception as e:
         logger.error(f"JSON extraction error: {e}")
         return False, None, str(e)
+
+
+async def convert_pyrogram_to_telethon(pyrogram_session: str, api_id: int, api_hash: str):
+    """Convert Pyrogram session string to Telethon format"""
+    try:
+        # Decode base64 Pyrogram session
+        decoded = base64.urlsafe_b64decode(pyrogram_session + "===")
+        
+        # Pyrogram session format: dc_id (1 byte) + auth_key (256 bytes)
+        if len(decoded) < 257:
+            return None, "Invalid Pyrogram session length"
+        
+        dc_id = decoded[0]
+        auth_key = decoded[1:257]
+        
+        logger.info(f"Pyrogram session decoded: DC {dc_id}, auth_key length {len(auth_key)}")
+        
+        # DC server mapping
+        dc_servers = {
+            1: ('149.154.175.53', 443),
+            2: ('149.154.167.51', 443),
+            3: ('149.154.175.100', 443),
+            4: ('149.154.167.91', 443),
+            5: ('91.108.56.130', 443),
+        }
+        
+        server, port = dc_servers.get(dc_id, ('149.154.175.53', 443))
+        
+        # Create Telethon StringSession format manually
+        # Format: 1 byte version + data center info + auth key
+        server_bytes = server.encode('ascii')
+        
+        # Pack session data according to Telethon's format
+        session_data = struct.pack('>B', 1)  # version = 1
+        session_data += struct.pack('>B', dc_id)  # dc_id
+        session_data += struct.pack('>H', len(server_bytes))  # server address length (2 bytes)
+        session_data += server_bytes  # server address
+        session_data += struct.pack('>H', port)  # port (2 bytes)
+        session_data += auth_key  # auth_key (256 bytes)
+        
+        # Encode to base64 for StringSession
+        telethon_string = base64.urlsafe_b64encode(session_data).decode('ascii').rstrip('=')
+        
+        logger.info(f"Telethon session created: length {len(telethon_string)}, DC {dc_id}")
+        logger.info(f"Successfully converted Pyrogram session to Telethon (DC: {dc_id})")
+        return telethon_string, "Conversion successful"
+        
+    except Exception as e:
+        logger.error(f"Pyrogram conversion failed: {e}", exc_info=True)
+        return None, f"Conversion error: {str(e)}"

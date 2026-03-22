@@ -3,11 +3,33 @@
 import json
 import logging
 import os
+import re
 import sys
 import traceback
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+
+
+def strip_emojis(text: str) -> str:
+    """Remove emoji characters from text for Windows console compatibility"""
+    if sys.platform != 'win32':
+        return text
+    
+    # Remove emojis and special Unicode characters
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002702-\U000027B0"
+        "\U000024C2-\U0001F251"
+        "\u2705\u2728\u26a0\ufe0f"  # specific problematic ones
+        "]+",
+        flags=re.UNICODE
+    )
+    return emoji_pattern.sub('', text)
 
 
 class StructuredLogger:
@@ -22,14 +44,17 @@ class StructuredLogger:
 
     def _format_message(self, level: str, message: str, **kwargs) -> str:
         """Format message with structured data"""
+        # Strip emojis from message for Windows compatibility
+        clean_message = strip_emojis(message)
+        
         log_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": level,
-            "message": message,
+            "message": clean_message,
             "correlation_id": self.correlation_id,
             **kwargs,
         }
-        return json.dumps(log_data, default=str)
+        return json.dumps(log_data, default=str, ensure_ascii=False)
 
     def info(self, message: str, *args, **kwargs):
         """Log info message with support for format args"""

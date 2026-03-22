@@ -412,7 +412,40 @@ class BotManager:
                     return
             except Exception as e:
                 logger.warning(f"Session pre-validation failed for {account_name}: {e}")
-                # Continue with conversion attempt if it's a Pyrogram session
+                # Try Pyrogram conversion before giving up
+                from ..utils.session_utils import convert_pyrogram_to_telethon
+                
+                if len(session_string) < 400:  # Likely Pyrogram format
+                    logger.info(f"Attempting Pyrogram to Telethon conversion for {account_name}")
+                    converted_session, result = await convert_pyrogram_to_telethon(
+                        session_string,
+                        config.telegram.api_id,
+                        config.telegram.api_hash
+                    )
+                    if converted_session:
+                        logger.info(f"Successfully converted Pyrogram session for {account_name}")
+                        session_string = converted_session
+                        # Verify converted session works
+                        try:
+                            test_converted = StringSession(session_string)
+                            if not test_converted.auth_key:
+                                logger.error(f"Converted session has no auth_key for {account_name}")
+                                return
+                            logger.info(f"Converted session validated successfully for {account_name}")
+                        except Exception as verify_error:
+                            logger.error(f"Converted session validation failed for {account_name}: {verify_error}")
+                            return
+                        # Update database with converted session
+                        await mongodb.db.accounts.update_one(
+                            {"user_id": user_id, "name": account_name},
+                            {"$set": {"session_string": converted_session}},
+                        )
+                    else:
+                        logger.error(f"Pyrogram conversion failed for {account_name}: {result}")
+                        return
+                else:
+                    logger.error(f"Session validation failed and not Pyrogram format for {account_name}")
+                    return
 
             # Get proxy if assigned to account, or auto-assign default proxy
             proxy_dict = None
@@ -461,86 +494,8 @@ class BotManager:
 
             device_params = DeviceSnooper.get_spoofed_device_params()
 
-            # Create StringSession with better error handling
-            try:
-                string_session = StringSession(session_string)
-            except ValueError as e:
-                if "Not a valid string" in str(e):
-                    # Try to convert Pyrogram session
-                    from ..utils.session_utils import (
-                        convert_pyrogram_to_telethon,
-                        detect_session_type,
-                    )
-
-                    session_type = detect_session_type(session_string)
-                    if session_type == "pyrogram":
-                        logger.info(f"Converting Pyrogram session for {account_name}")
-                        try:
-                            converted_session, result = (
-                                await convert_pyrogram_to_telethon(
-                                    session_string,
-                                    config.telegram.api_id,
-                                    config.telegram.api_hash,
-                                )
-                            )
-                            if converted_session:
-                                # Update database with converted session
-                                await mongodb.db.accounts.update_one(
-                                    {"user_id": user_id, "name": account_name},
-                                    {"$set": {"session_string": converted_session}},
-                                )
-                                # Use converted session
-                                session_string = converted_session
-                                string_session = StringSession(session_string)
-                            else:
-                                # Mark account as needing reauth instead of failing
-                                logger.warning(
-                                    f"Pyrogram session for {account_name} expired, marking for reauth"
-                                )
-                                await mongodb.db.accounts.update_one(
-                                    {"user_id": user_id, "name": account_name},
-                                    {
-                                        "$set": {
-                                            "needs_reauth": True,
-                                            "is_active": False,
-                                        }
-                                    },
-                                )
-                                raise ValueError(
-                                    f"Session expired - marked for reauth: {result}"
-                                )
-                        except Exception as conv_error:
-                            logger.error(f"Pyrogram conversion error: {conv_error}")
-                            raise ValueError(
-                                f"Failed to convert Pyrogram session: {conv_error}"
-                            )
-                    else:
-                        logger.error(
-                            f"Session string details - Length: {
-                                len(session_string)}, Type: {
-                                type(session_string)}, Valid: {
-                                session_string.isprintable() if isinstance(
-                                    session_string, str) else False}"
-                        )
-                        raise ValueError(f"Invalid session string format: {e}")
-                else:
-                    logger.error(
-                        f"Session string details - Length: {
-                            len(session_string)}, Type: {
-                            type(session_string)}, Valid: {
-                            session_string.isprintable() if isinstance(
-                                session_string, str) else False}"
-                    )
-                    raise ValueError(f"Invalid session string format: {e}")
-            except Exception as e:
-                logger.error(
-                    f"Session string details - Length: {
-                        len(session_string)}, Type: {
-                        type(session_string)}, Valid: {
-                        session_string.isprintable() if isinstance(
-                            session_string, str) else False}"
-                )
-                raise ValueError(f"Invalid session string format: {e}")
+            # Create StringSession (conversion already done above if needed)
+            string_session = StringSession(session_string)
 
             # Use Pyrogram for MTProto proxy connection, then convert to Telethon
             if proxy_dict and proxy_dict.get("type") == "mtproto":

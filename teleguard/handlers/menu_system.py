@@ -72,6 +72,18 @@ class MenuSystem:
 
         self.proxy_handler = ProxyHandler(account_manager)
         self.proxy_handler.register_handlers()
+        
+        # Initialize session validator handler
+        from ..handlers.session_validator_handler import SessionValidatorHandler
+        
+        self.session_validator_handler = SessionValidatorHandler(account_manager)
+        self.session_validator_handler.register_handlers()
+        
+        # Initialize online keeper handler
+        from ..handlers.online_keeper_handler import OnlineKeeperHandler
+        
+        self.online_keeper_handler = OnlineKeeperHandler(account_manager)
+        self.online_keeper_handler.register_handlers()
 
     def _parse_callback(self, callback_data: str):
         """Parse callback data - handles both JSON and colon-delimited formats"""
