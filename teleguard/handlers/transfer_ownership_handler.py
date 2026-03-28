@@ -341,9 +341,19 @@ class TransferOwnershipHandler:
             
             account_name = account.get("name") or account.get("phone")
             
-            # 1. Disconnect and remove client from original owner
+            # 1. If client exists - unregister OTP handler, disconnect and remove client from original owner
+            client = None
             if user_id in self.bot_manager.user_clients and account_name in self.bot_manager.user_clients[user_id]:
                 client = self.bot_manager.user_clients[user_id][account_name]
+                # Unregister OTP handler specifically for this client to avoid orphaned handlers
+                try:
+                    if hasattr(self.bot_manager, 'otp_manager') and hasattr(self.bot_manager.otp_manager, 'unregister_handler_for_client'):
+                        try:
+                            self.bot_manager.otp_manager.unregister_handler_for_client(user_id, account_name, client)
+                        except Exception as unregister_error:
+                            logger.error(f"Error unregistering OTP handler for {user_id}:{account_name}: {unregister_error}")
+                except Exception:
+                    pass
                 try:
                     if client and hasattr(client, 'disconnect'):
                         await client.disconnect()
@@ -351,12 +361,6 @@ class TransferOwnershipHandler:
                 except Exception as e:
                     logger.error(f"Error disconnecting client: {e}")
                 self.bot_manager.user_clients[user_id].pop(account_name, None)
-            
-            # 2. Remove OTP handler registration for original owner
-            handler_key = f"{user_id}:{account_name}"
-            if hasattr(self.bot_manager, 'otp_manager') and hasattr(self.bot_manager.otp_manager, 'registered_handlers'):
-                self.bot_manager.otp_manager.registered_handlers.discard(handler_key)
-                logger.info(f"Removed OTP handler for {handler_key}")
             
             # 3. Remove from session protection
             try:

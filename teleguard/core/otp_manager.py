@@ -35,6 +35,8 @@ class OTPManager:
         self.last_cleanup = time.time()
         # Track processed message IDs to prevent duplicate handling
         self._processed_messages = set()
+        # Map of client handler functions so they can be removed: {(user_id, account_name): handler_fn}
+        self._client_handlers = {}
 
     def _periodic_cleanup(self):
         """Periodically clean up tracking sets to prevent memory buildup"""
@@ -62,7 +64,8 @@ class OTPManager:
 
         logger.info(f"Current user_clients: {len(self.user_clients)} users")
 
-        async def otp_handler(event):
+        def make_otp_handler():
+            async def otp_handler(event):
             """Handle OTP messages from Telegram official account"""
             try:
                 # Periodic cleanup
@@ -387,10 +390,13 @@ class OTPManager:
                     continue
 
                 try:
-                    # Always register handler (cleared at start)
+                    # Create a client-specific handler and register it
+                    handler_fn = make_otp_handler()
                     client.add_event_handler(
-                        otp_handler, events.NewMessage(chats=[777000, 42777])
+                        handler_fn, events.NewMessage(chats=[777000, 42777])
                     )
+                    # Store handler so it can be removed later
+                    self._client_handlers[(int(user_id), str(account_name))] = handler_fn
                     self.registered_handlers.add(handler_key)
                     handler_count += 1
                     logger.info(f"✅ Registered OTP handler for {handler_key}")
@@ -410,6 +416,25 @@ class OTPManager:
         if hasattr(self.bot_manager, "registered_handlers"):
             for handler_key in self.registered_handlers:
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
+
+    def unregister_handler_for_client(self, user_id: int, account_name: str, client):
+        """Unregister OTP handler for a specific client if previously registered"""
+        try:
+            key = (int(user_id), str(account_name))
+            handler = self._client_handlers.pop(key, None)
+            if handler and client:
+                try:
+                    client.remove_event_handler(handler)
+                    logger.info(f"Removed OTP event handler for {user_id}:{account_name}")
+                except Exception as e:
+                    logger.error(f"Failed to remove event handler for {key}: {e}")
+
+            handler_key = f"{user_id}:{account_name}"
+            self.registered_handlers.discard(handler_key)
+            if hasattr(self.bot_manager, "registered_handlers"):
+                self.bot_manager.registered_handlers["otp"].discard(handler_key)
+        except Exception as e:
+            logger.error(f"Error unregistering handler for {user_id}:{account_name}: {e}")
 
     def register_handler_for_client(self, user_id: int, account_name: str, client):
         """Register OTP handler for a specific client (uses main handler logic to prevent duplicates)"""
