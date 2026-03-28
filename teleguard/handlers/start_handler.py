@@ -50,21 +50,3 @@ class StartHandler:
         if not user:
             await mongodb.create_user(user_id)
             logger.info(f"New user registered: {user_id}")
-            await self._save_to_github_db(user_id)
-
-    async def _save_to_github_db(self, user_id: int):
-        """Save user to GitHub database"""
-        try:
-            from .. import db_helpers
-            if db_helpers.db:
-                db_helpers.save_user_settings(
-                    user_id,
-                    {
-                        "telegram_id": user_id,
-                        "registered_at": int(__import__("time").time()),
-                        "developer_mode": False,
-                    },
-                )
-                logger.info(f"User {user_id} saved to GitHub database")
-        except Exception as e:
-            logger.error(f"Failed to save user to GitHub: {e}")

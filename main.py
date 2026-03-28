@@ -81,9 +81,22 @@ class SafeConsoleHandler(logging.StreamHandler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Remove ALL non-ASCII characters for Windows console
+            # Remove emojis and special Unicode characters for Windows console
             if sys.platform == 'win32':
-                msg = ''.join(char if ord(char) < 128 else '?' for char in msg)
+                # Remove emojis (U+1F000 to U+1FFFF) and other problematic Unicode
+                cleaned = []
+                for char in msg:
+                    code = ord(char)
+                    # Keep ASCII and basic Latin characters
+                    if code < 128 or (code >= 160 and code < 0x2000):
+                        cleaned.append(char)
+                    # Skip emojis and special symbols
+                    elif code >= 0x1F000:
+                        cleaned.append('')
+                    # Replace other Unicode with ?
+                    else:
+                        cleaned.append('?')
+                msg = ''.join(cleaned)
             
             stream = self.stream
             stream.write(msg + self.terminator)
@@ -92,8 +105,7 @@ class SafeConsoleHandler(logging.StreamHandler):
             self.handleError(record)
 
 console_handler = SafeConsoleHandler()
-
-console_handler.setLevel(logging.INFO)  # Changed from ERROR to INFO to see all messages
+console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(simple_formatter)
 
 # Remove all existing handlers from root logger
@@ -386,8 +398,8 @@ async def main() -> None:
             async with AccountManager() as bot:
                 startup_elapsed = time.time() - startup_time
                 koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
-                print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
-                logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
+                print(f"\nTeleGuard is ready! Smart IP monitoring active{koyeb_status}")
+                logger.info("TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
                 
                 logger.info("🏃 Starting bot main loop...")
                 await bot.run()
@@ -399,9 +411,9 @@ async def main() -> None:
                 wait_match = re.search(r'wait of (\d+) seconds', str(e))
                 if wait_match:
                     wait_time = int(wait_match.group(1))
-                    logger.info("⏳ Waiting %d seconds due to rate limit...", wait_time)
+                    logger.info("Waiting %d seconds due to rate limit...", wait_time)
                     print(f"\nTelegram rate limit - waiting {wait_time} seconds...")
-                    print("📝 This is normal, the bot will start automatically")
+                    print("This is normal, the bot will start automatically")
                     
                     # Keep health server running during wait
                     await asyncio.sleep(min(wait_time, 300))  # Cap at 5 minutes
@@ -447,11 +459,11 @@ async def main() -> None:
 
     except Exception as e:
         total_runtime = time.time() - startup_time
-        logger.error("💥 Fatal application error after %.2f seconds: %s", total_runtime, str(e))
-        logger.error("📋 Full traceback: %s", traceback.format_exc())
-        print(f"\n🚨 Fatal error occurred: {e}")
-        print("📝 Check logs/teleguard.log for detailed error information")
-        print("🆘 Need help? Contact: https://t.me/ContactXYZrobot")
+        logger.error("Fatal application error after %.2f seconds: %s", total_runtime, str(e))
+        logger.error("Full traceback: %s", traceback.format_exc())
+        print(f"\nFatal error occurred: {e}")
+        print("Check logs/teleguard.log for detailed error information")
+        print("Need help? Contact: https://t.me/ContactXYZrobot")
         
         try:
             await BotLogger.log_error("Fatal Error", str(e), context=f"main.py after {total_runtime:.2f}s")
@@ -464,7 +476,7 @@ async def main() -> None:
             logger.error("💥 Shutdown error: %s", str(shutdown_error))
         
         # Exit immediately on fatal startup errors
-        print("\n⚠️ Bot process will exit due to fatal error")
+        print("\nBot process will exit due to fatal error")
         sys.exit(1)
 
 
