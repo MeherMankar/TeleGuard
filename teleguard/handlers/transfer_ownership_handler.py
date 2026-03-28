@@ -338,11 +338,62 @@ class TransferOwnershipHandler:
                     twofa_password = decrypt_string(account["twofa_password"])
                 except Exception:
                     pass
-            await mongodb.db.accounts.update_one({"_id": ObjectId(account_id)}, {"$set": {"user_id": target_user_id}})
-            if user_id in self.bot_manager.user_clients:
-                account_name = account.get("name") or account.get("phone")
+            
+            account_name = account.get("name") or account.get("phone")
+            
+            # 1. Disconnect and remove client from original owner
+            if user_id in self.bot_manager.user_clients and account_name in self.bot_manager.user_clients[user_id]:
+                client = self.bot_manager.user_clients[user_id][account_name]
+                try:
+                    if client and hasattr(client, 'disconnect'):
+                        await client.disconnect()
+                        logger.info(f"Disconnected client for {account_name} from user {user_id}")
+                except Exception as e:
+                    logger.error(f"Error disconnecting client: {e}")
                 self.bot_manager.user_clients[user_id].pop(account_name, None)
+            
+            # 2. Remove OTP handler registration for original owner
+            handler_key = f"{user_id}:{account_name}"
+            if hasattr(self.bot_manager, 'otp_manager') and hasattr(self.bot_manager.otp_manager, 'registered_handlers'):
+                self.bot_manager.otp_manager.registered_handlers.discard(handler_key)
+                logger.info(f"Removed OTP handler for {handler_key}")
+            
+            # 3. Remove from session protection
+            try:
+                from ..utils.session_protection import session_protection
+                session_id = f"{user_id}_{account_name}"
+                session_protection.unregister_session(session_id)
+                logger.info(f"Unregistered session protection for {session_id}")
+            except Exception as e:
+                logger.error(f"Error unregistering session: {e}")
+            
+            # 4. Remove from session monitor
+            if hasattr(self.bot_manager, 'session_monitor') and self.bot_manager.session_monitor:
+                try:
+                    self.bot_manager.session_monitor.remove_client_from_monitor(user_id, account_name)
+                    logger.info(f"Removed from session monitor: {account_name}")
+                except Exception as e:
+                    logger.error(f"Error removing from session monitor: {e}")
+            
+            # 5. Update account ownership in database
+            await mongodb.db.accounts.update_one(
+                {"_id": ObjectId(account_id)}, 
+                {
+                    "$set": {"user_id": target_user_id, "is_active": False},
+                    "$unset": {"co_owners": ""}
+                }
+            )
+            
             transferred.append({"name": account.get("name", "Unknown"), "phone": account.get("phone", "Unknown"), "twofa": twofa_password})
+        
+        # 6. Re-register OTP handlers to update all references
+        if hasattr(self.bot_manager, 'otp_manager'):
+            try:
+                self.bot_manager.otp_manager.register_handlers()
+                logger.info("Re-registered OTP handlers after transfer")
+            except Exception as e:
+                logger.error(f"Error re-registering OTP handlers: {e}")
+        
         return transferred
 
     async def _notify_transfer_complete(self, event, user_id: int, target_input: str, target_user_id: int, transferred: list):
@@ -350,14 +401,14 @@ class TransferOwnershipHandler:
         sender_msg = f"✅ **Transfer Complete!**\n\nSuccessfully transferred {len(transferred)} account(s) to user {target_input}\n\n**Transferred Accounts:**\n"
         for acc in transferred:
             sender_msg += f"• {acc['name']} ({acc['phone']})\n"
-        sender_msg += "\n🔔 Recipient has been notified"
+        sender_msg += "\n🔔 Recipient has been notified\n⚠️ Your access to these accounts has been completely removed\n🔒 All sessions and handlers have been disconnected"
         await event.reply(sender_msg)
         recipient_msg = f"📱 **Account Transfer Received**\n\nYou received {len(transferred)} account(s):\n\n"
         for acc in transferred:
             recipient_msg += f"• {acc['name']} ({acc['phone']})\n"
             if acc["twofa"]:
                 recipient_msg += f"  🔐 2FA: `{acc['twofa']}`\n"
-        recipient_msg += "\n✅ Use /accs to view your accounts\n⚠️ Change 2FA passwords for security"
+        recipient_msg += "\n✅ Use /accs to view your accounts\n🔄 Use /reconnect to connect the accounts\n🛡️ OTP protection will work after reconnection\n⚠️ Change 2FA passwords for security"
         try:
             await self.bot.send_message(target_user_id, recipient_msg)
         except Exception as notify_error:
