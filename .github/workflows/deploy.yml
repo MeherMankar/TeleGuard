@@ -1,0 +1,39 @@
+name: Deploy to Koyeb
+
+on:
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger Koyeb deployment
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_TOKEN }}
+          KOYEB_APP: ${{ secrets.KOYEB_APP }}
+        run: |
+          set -e
+          if [ -z "$KOYEB_TOKEN" ] || [ -z "$KOYEB_APP" ]; then
+            echo "Required secrets KOYEB_TOKEN or KOYEB_APP not set" >&2
+            exit 1
+          fi
+          BRANCH=${GITHUB_REF#refs/heads/}
+          echo "Triggering Koyeb deployment for app=$KOYEB_APP branch=$BRANCH"
+          RESP=$(curl -s -w "\n%{http_code}" -X POST "https://api.koyeb.com/v1/apps/$KOYEB_APP/deployments" \
+            -H "Authorization: Bearer $KOYEB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"source\":{\"type\":\"git\",\"repository\":{\"url\":\"https://github.com/$GITHUB_REPOSITORY\",\"type\":\"github\"},\"reference\":\"$BRANCH\"}}")
+          # split body and status
+          BODY=$(echo "$RESP" | sed '$d')
+          CODE=$(echo "$RESP" | tail -n1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+            echo "Koyeb deployment triggered successfully"
+          else
+            echo "Koyeb API returned non-2xx status: $CODE" >&2
+            exit 1
+          fi
