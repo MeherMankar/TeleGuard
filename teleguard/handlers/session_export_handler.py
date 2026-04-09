@@ -29,21 +29,49 @@ class SessionExportHandler:
         """Show session type selection first"""
         try:
             from telethon import Button
-
             buttons = [
                 [Button.inline("📝 String Session", "session_type:string")],
                 [Button.inline("📁 File Session (.session)", "session_type:file")],
                 [Button.inline("🔙 Back", "menu:accounts")],
             ]
-            await event.edit(
-                "✨ **Session Creation**\n\n"
-                "📋 **Step 1: Choose Session Type**\n\n"
-                "Select the format you want:",
-                buttons=buttons,
-            )
+            try:
+                await event.edit(
+                    "✨ **Session Creation**\n\n"
+                    "📋 **Step 1: Choose Session Type**\n\n"
+                    "Select the format you want:",
+                    buttons=buttons,
+                )
+            except Exception as ee:
+                # Handle MessageNotModifiedError or other edit issues gracefully
+                try:
+                    from telethon.errors.rpcerrorlist import MessageNotModifiedError
+
+                    if isinstance(ee, MessageNotModifiedError) or "not modified" in str(ee).lower():
+                        try:
+                            await event.answer("✅ Menu already up-to-date")
+                        except BaseException:
+                            pass
+                        return
+                except Exception:
+                    pass
+                logger.error(f"Error editing export menu: {ee}")
+                try:
+                    await self.bot.send_message(
+                        user_id,
+                        "✨ **Session Creation**\n\n" "📋 **Step 1: Choose Session Type**\n\n" "Select the format you want:",
+                        buttons=buttons,
+                    )
+                except Exception as send_err:
+                    logger.error(f"Failed to send export menu as new message: {send_err}")
         except Exception as e:
             logger.error(f"Error loading export menu: {e}")
-            await event.edit("❌ Error loading export menu.")
+            try:
+                await event.edit("❌ Error loading export menu.")
+            except Exception:
+                try:
+                    await self.bot.send_message(user_id, "❌ Error loading export menu.")
+                except Exception:
+                    pass
 
     async def _show_account_selection(self, event, user_id, session_type):
         """Show account selection after type is chosen"""

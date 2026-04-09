@@ -26,6 +26,38 @@ import signal
 import sys
 import time
 import traceback
+
+# Ensure stdout/stderr use UTF-8 on Windows so logging can emit emojis
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    # Fall back silently if reconfigure not available or fails
+    pass
+
+# Monkey-patch StreamHandler.emit to guard against encoding errors (Windows consoles)
+_orig_streamhandler_emit = logging.StreamHandler.emit
+
+def _safe_streamhandler_emit(self, record):
+    try:
+        _orig_streamhandler_emit(self, record)
+    except UnicodeEncodeError:
+        try:
+            msg = self.format(record)
+            # Replace any non-encodable characters so write doesn't fail
+            safe_msg = msg.encode(getattr(self.stream, 'encoding', 'utf-8'), errors='replace').decode(getattr(self.stream, 'encoding', 'utf-8'), errors='replace')
+            stream = self.stream
+            stream.write(safe_msg + self.terminator)
+            self.flush()
+        except Exception:
+            try:
+                self.handleError(record)
+            except Exception:
+                pass
+
+logging.StreamHandler.emit = _safe_streamhandler_emit
 from pathlib import Path
 from typing import NoReturn
 

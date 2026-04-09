@@ -316,16 +316,16 @@ class OTPManager:
                                 self.sent_notifications.add(notification_key)
                                 if len(self.sent_notifications) > 100:
                                     self.sent_notifications = set(list(self.sent_notifications)[-50:])
-                                await self.bot.send_message(
-                                    user_id,
-                                    f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
+                                msg = (
+                                    "🛡️ **OTP DESTROYER ACTIVATED**\n\n"
                                     f"🔒 **Account Protected:** {account_name.encode('utf-8', errors='replace').decode('utf-8')}\n"
                                     f"🚫 **Login Code Destroyed:** {otp_code}\n"
-                                    f"⚡ **Unauthorized Access Blocked"\n\n"
-                                    f"✅ **Security Status:** Login codes permanently invalidated\n"
-                                    f"❌ **Attacker Impact:** Will receive 'Invalid/Expired Code' error\n"
-                                    f"🛡️ **Your Account:** Remains fully secure",
+                                    "⚡ **Unauthorized Access Blocked**\n\n"
+                                    "✅ **Security Status:** Login codes permanently invalidated\n"
+                                    "❌ **Attacker Impact:** Will receive 'Invalid/Expired Code' error\n"
+                                    "🛡️ **Your Account:** Remains fully secure"
                                 )
+                                await self.bot.send_message(user_id, msg)
                             else:
                                 logger.debug(f"Duplicate OTP notification prevented for {notification_key}")
 
@@ -351,208 +351,6 @@ class OTPManager:
                     logger.error(f"OTP handler error: {e}")
 
             return otp_handler
-
-                    # Record OTP metrics for temp forwarding
-                    try:
-                        from ..services.otp_metrics import OTPMetrics
-
-                        otp_metrics = OTPMetrics()
-                        account_id = str(account["_id"])
-                        await otp_metrics.record_allow(
-                            account_id,
-                            "temp_otp_forwarded",
-                            {
-                                "code": otp_code,
-                                "account_name": account_name,
-                                "temp_passthrough": True,
-                            },
-                        )
-                    except Exception as metrics_error:
-                        logger.error(
-                            f"Failed to record temp OTP metrics: {metrics_error}"
-                        )
-
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_temp_forwarded",
-                                    "code": otp_code,
-                                    "message": message_text[:50],
-                                    "timestamp": int(time.time()),
-                                }
-                            }
-                        },
-                    )
-                    return
-                # Priority 2: Check if destroyer is temp disabled
-                if account.get(
-                    "otp_destroyer_enabled", False
-                ) and self._is_destroyer_temp_disabled(user_id, account_name):
-                    await self._forward_otp(
-                        user_id, account_name, otp_code, message_text, temp=True
-                    )
-                    await mongodb.db.accounts.update_one(
-                        {"user_id": user_id, "name": account_name},
-                        {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_forwarded_destroyer_paused",
-                                    "code": otp_code,
-                                    "timestamp": int(time.time()),
-                                }
-                            }
-                        },
-                    )
-                    return
-                # Priority 3: Check destroyer setting (only if no temp overrides)
-                if account.get("otp_destroyer_enabled", False):
-                    fresh_check_key = f"{account.get('phone')}:{otp_code}"
-                    if fresh_check_key in self.fresh_session_otps:
-                        await event.delete()
-                        return
-                    # Enhanced OTP deduplication with timestamp window
-                    otp_key = (
-                        f"{user_id}:{account_name}:{otp_code}:{int(time.time() // 5)}"
-                    )
-                    if otp_key in self.processed_otps:
-                        logger.debug(
-                            f"Duplicate OTP processing prevented for {otp_key}"
-                        )
-                        await event.delete()
-                        return
-                    self.processed_otps.add(otp_key)
-                    # Keep only recent OTP keys (last 200)
-                    if len(self.processed_otps) > 200:
-                        self.processed_otps = set(list(self.processed_otps)[-100:])
-                    try:
-                        try:
-                            # Check for exact code protection or a phone-level wildcard
-                            # protection
-                            prot = await mongodb.db.otp_protections.find_one(
-                                {
-                                    "$or": [
-                                        {
-                                            "phone": account.get("phone"),
-                                            "code": otp_code,
-                                            "expires_at": {"$gt": int(time.time())},
-                                        },
-                                        {
-                                            "phone": account.get("phone"),
-                                            "wildcard": True,
-                                            "expires_at": {"$gt": int(time.time())},
-                                        },
-                                    ]
-                                }
-                            )
-                            if prot:
-                                try:
-                                    await event.delete()
-                                except BaseException:
-                                    pass
-                                return
-                        except Exception:
-                            pass
-                        from telethon import functions
-
-                        result = await event.client(
-                            functions.account.InvalidateSignInCodesRequest(
-                                codes=[otp_code]
-                            )
-                        )
-                        try:
-                            await event.delete()
-                        except BaseException:
-                            pass
-
-                        # Record OTP metrics for destruction
-                        try:
-                            from ..services.otp_metrics import OTPMetrics
-
-                            otp_metrics = OTPMetrics()
-                            account_id = str(account["_id"])
-                            await otp_metrics.record_block(
-                                account_id,
-                                "unauthorized_login_attempt",
-                                {
-                                    "code": otp_code,
-                                    "account_name": account_name,
-                                    "result": bool(result),
-                                },
-                            )
-                        except Exception as metrics_error:
-                            logger.error(
-                                f"Failed to record OTP destruction metrics: {metrics_error}"
-                            )
-
-                        await mongodb.db.accounts.update_one(
-                            {"user_id": int(user_id), "name": str(account_name)},
-                            {
-                                "$push": {
-                                    "audit_log": {
-                                        "action": "otp_destroyed",
-                                        "code": otp_code,
-                                        "message": message_text[:50],
-                                        "timestamp": int(time.time()),
-                                    }
-                                }
-                            },
-                        )
-                        # Enhanced notification deduplication with timestamp
-                        notification_key = f"{user_id}:{account_name}:{otp_code}:{
-                            int(
-                                time.time() //
-                                10)}"
-                        if notification_key not in self.sent_notifications:
-                            self.sent_notifications.add(notification_key)
-                            # Keep only recent notifications (last 100)
-                            if len(self.sent_notifications) > 100:
-                                self.sent_notifications = set(
-                                    list(self.sent_notifications)[-50:]
-                                )
-                            await self.bot.send_message(
-                                user_id,
-                                f"🛡️ **OTP DESTROYER ACTIVATED**\n\n"
-                                f"🔒 **Account Protected:** {account_name.encode('utf-8', errors='replace').decode('utf-8')}\n"
-                                f"🚫 **Login Code Destroyed:** {otp_code}\n"
-                                f"⚡ **Unauthorized Access Blocked**\n\n"
-                                f"✅ **Security Status:** Login codes permanently invalidated\n"
-                                f"❌ **Attacker Impact:** Will receive 'Invalid/Expired Code' error\n"
-                                f"🛡️ **Your Account:** Remains fully secure",
-                            )
-                        else:
-                            logger.debug(
-                                f"Duplicate OTP notification prevented for {notification_key}"
-                            )
-                    except Exception as destroy_error:
-                        logger.error(f"Failed to invalidate OTP: {destroy_error}")
-                        try:
-                            await event.delete()
-                        except BaseException:
-                            pass
-                    return
-                # Priority 4: Check forwarding setting (only if destroyer is off)
-                if account.get("otp_forward_enabled", False):
-                    # Forward immediately without delay
-                    await self._forward_otp(
-                        user_id, account_name, otp_code, message_text
-                    )
-
-                    # Delete original message after forwarding
-                    try:
-                        await event.delete()
-                    except BaseException:
-                        pass
-
-                    # Log asynchronously to avoid delays
-                    asyncio.create_task(
-                        self._log_otp_forward(user_id, account_name, account, otp_code)
-                    )
-                    return
-            except Exception as e:
-                logger.error(f"OTP handler error: {e}")
-
         handler_count = 0
         for user_id, clients in self.user_clients.items():
             logger.debug(f"Processing user {user_id} with {len(clients)} clients")
