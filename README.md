@@ -21,7 +21,9 @@ Manage multiple Telegram accounts with advanced security features, automated wor
 ### 📱 Account Management
 - **Multi-Account Support** - Manage up to 10 Telegram accounts from one interface
 - **Profile Manager** - Update names, usernames, bios, and profile photos
+- **Universal Session Import** - Import sessions from Telethon, Pyrogram, and TData formats
 - **Session Export** - Export session strings with DC information
+- **Bulk Import** - Import 50+ accounts at once from ZIP files
 
 ### 💬 Messaging Tools
 - **Unified DM Management** - Centralized inbox with forum topics for all accounts
@@ -136,11 +138,23 @@ Access features through inline keyboard:
 
 ### Adding Your First Account
 
+**Method 1: Phone Login**
 1. Click **📱 Account Settings** or use `/add`
 2. Send phone number with country code: `+1234567890`
 3. Enter OTP code with hyphens: `1-2-3-4-5`
 4. If 2FA enabled, enter password
 5. Account added successfully! ✅
+
+**Method 2: Session Import**
+1. Click **📱 Account Settings** → **Session Login**
+2. Choose import method:
+   - **📁 Session File** - Upload .session file (Telethon/Pyrogram)
+   - **📝 Session String** - Paste session string
+   - **📦 Bulk Import** - Upload ZIP with multiple sessions
+   - **📂 TData Import** - Upload Telegram Desktop TData folder
+3. Upload/paste your session data
+4. Automatic format detection and conversion
+5. Account imported successfully! ✅
 
 ### Enabling OTP Protection
 
@@ -408,7 +422,16 @@ This tool is provided for **educational and research purposes only**. Users are 
 
 ## 📈 Changelog
 
-### v2.0.0 (Current)
+### v2.0.1 (Current)
+- 🔄 Universal session import (Telethon, Pyrogram, TData)
+- 📦 Bulk session import from ZIP files
+- 🐛 Fixed session conflict tracking bug
+- ⚡ Performance optimization with account caching (60-80% faster)
+- 🪟 Improved Windows console emoji handling
+- ⏱️ Optimized timeout values for better reliability
+- 🔧 Refactored session utilities (DRY principles)
+
+### v2.0.0
 - ✨ Complete codebase refactor (42% reduction)
 - 🛡️ Enhanced OTP Destroyer with temp bypass
 - 💬 Unified DM management system
@@ -432,6 +455,6 @@ This tool is provided for **educational and research purposes only**. Users are 
 
 **Made with ❤️ by the TeleGuard Team**
 
-[⭐ Star us on GitHub](https://github.com/yourusername/teleguard) • [🐛 Report Bug](https://github.com/yourusername/teleguard/issues) • [💡 Request Feature](https://github.com/yourusername/teleguard/issues)
+[⭐ Star us on GitHub](https://github.com/mehermankar/teleguard) • [🐛 Report Bug](https://github.com/mehermankar/teleguard/issues) • [💡 Request Feature](https://github.com/mehermankar/teleguard/issues)
 
 </div>

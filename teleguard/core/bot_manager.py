@@ -267,17 +267,17 @@ class BotManager:
 
             # Auto-cleanup orphaned accounts first with timeout
             try:
-                await asyncio.wait_for(self._auto_cleanup_accounts(), timeout=2.0)
+                await asyncio.wait_for(self._auto_cleanup_accounts(), timeout=5.0)
             except asyncio.TimeoutError:
                 logger.warning("Auto-cleanup timed out, continuing...")
             except Exception as e:
                 logger.warning(f"Auto-cleanup failed: {e}")
 
-            # Get accounts with shorter timeout
+            # Get accounts with reasonable timeout
             try:
                 accounts = await asyncio.wait_for(
                     mongodb.db.accounts.find({"is_active": True}).to_list(length=None),
-                    timeout=2.0,
+                    timeout=5.0,
                 )
             except asyncio.TimeoutError:
                 logger.warning("Database query timed out, starting without accounts")
@@ -299,7 +299,7 @@ class BotManager:
                                 account.get("name", "Unknown"),
                                 account["session_string"],
                             ),
-                            timeout=2.0,  # Reduced timeout
+                            timeout=8.0,  # Reasonable timeout for connection
                         )
                         loaded_count += 1
                     except asyncio.TimeoutError:
@@ -569,9 +569,9 @@ class BotManager:
                 **client_params,
             )
 
-            # Connect with shorter timeout and comprehensive error handling
+            # Connect with reasonable timeout and comprehensive error handling
             try:
-                await asyncio.wait_for(client.connect(), timeout=5.0)
+                await asyncio.wait_for(client.connect(), timeout=10.0)
 
                 # Test authorization before proceeding
                 if not await client.is_user_authorized():
@@ -665,11 +665,8 @@ class BotManager:
                 )
 
             # Mark account as active if connection successful
-            account = await asyncio.wait_for(
-                mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "name": account_name}
-                ),
-                timeout=2.0,
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "name": account_name}
             )
             if account:
                 # Get Telegram user ID and store it
@@ -1569,16 +1566,8 @@ class BotManager:
                         "is_active": False,
                         "last_error": error_reason,
                         "error_time": int(__import__("time").time()),
-                        "conflict_count": (
-                            {"$inc": 1}
-                            if "conflict_count"
-                            in await mongodb.db.accounts.find_one(
-                                {"user_id": user_id, "name": account_name}
-                            )
-                            or {}
-                            else 1
-                        ),
-                    }
+                    },
+                    "$inc": {"conflict_count": 1}
                 },
             )
 

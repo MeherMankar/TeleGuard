@@ -118,10 +118,15 @@ class SessionLoginHandler:
             user_id = event.sender_id
             await self._start_session_file_login(event, user_id)
 
-        @self.bot.on(events.CallbackQuery(pattern=r"^login_session_string$"))
-        async def login_by_session_string(event):
+        @self.bot.on(events.CallbackQuery(pattern=r"^login_bulk_import$"))
+        async def login_bulk_import(event):
             user_id = event.sender_id
-            await self._start_session_string_login(event, user_id)
+            await self._start_bulk_import(event, user_id)
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^login_tdata_import$"))
+        async def login_tdata_import(event):
+            user_id = event.sender_id
+            await self._start_tdata_import(event, user_id)
 
         @self.bot.on(events.CallbackQuery(pattern=r"^session_info:(.+)$"))
         async def show_session_info(event):
@@ -165,15 +170,22 @@ class SessionLoginHandler:
                 "**📝 Session String**\n"
                 "• Paste session string\n"
                 "• Quick import method\n\n"
-                "**📦 TData (Coming Soon)**\n"
+                "**📦 Bulk Import**\n"
+                "• Upload ZIP with multiple sessions\n"
+                "• Import 50+ accounts at once\n"
+                "• Progress tracking\n\n"
+                "**📂 TData Import**\n"
                 "• Telegram Desktop format\n"
-                "• Currently not supported\n\n"
+                "• Upload TData folder as ZIP\n"
+                "• Automatic conversion\n\n"
                 "Choose your import method:"
             )
 
             buttons = [
                 [Button.inline("📁 Upload Session File", "login_session_file")],
                 [Button.inline("📝 Import Session String", "login_session_string")],
+                [Button.inline("📦 Bulk Import (ZIP)", "login_bulk_import")],
+                [Button.inline("📂 TData Import", "login_tdata_import")],
                 [Button.inline("🔙 Back to Account Settings", "menu:accounts")],
             ]
 
@@ -243,15 +255,90 @@ class SessionLoginHandler:
         except Exception as e:
             logger.error(f"Start session string login error: {e}")
             await event.edit("❌ Error starting session string login.")
+    
+    async def _start_bulk_import(self, event, user_id):
+        """Start bulk import process"""
+        try:
+            self.bot_manager.pending_actions[user_id] = {
+                "action": "session_bulk_import"
+            }
+
+            text = (
+                "📦 **Bulk Import Sessions**\n\n"
+                "Upload a ZIP file containing multiple session files:\n\n"
+                "**Supported Files:**\n"
+                "• .session files (Telethon/Pyrogram)\n"
+                "• Multiple accounts in one ZIP\n"
+                "• Automatic format detection\n"
+                "• Auto-conversion if needed\n\n"
+                "**Features:**\n"
+                "• Import 50+ accounts at once\n"
+                "• Real-time progress tracking\n"
+                "• Automatic name conflict resolution\n"
+                "• Detailed success/failure report\n\n"
+                "**How to Prepare:**\n"
+                "1. Collect all .session files\n"
+                "2. Create a ZIP archive\n"
+                "3. Upload the ZIP file here\n\n"
+                "**Security:**\n"
+                "• Files validated before import\n"
+                "• Temporary files deleted\n"
+                "• Session data encrypted\n\n"
+                "Send your ZIP file now:"
+            )
+
+            await event.edit(text)
+            await event.answer("📦 Send ZIP file")
+        except Exception as e:
+            logger.error(f"Start bulk import error: {e}")
+            await event.edit("❌ Error starting bulk import.")
+    
+    async def _start_tdata_import(self, event, user_id):
+        """Start TData import process"""
+        try:
+            self.bot_manager.pending_actions[user_id] = {
+                "action": "session_tdata_import"
+            }
+
+            text = (
+                "📂 **TData Import**\n\n"
+                "Upload Telegram Desktop TData folder as ZIP:\n\n"
+                "**Supported Format:**\n"
+                "• TData folder from Telegram Desktop\n"
+                "• Must include key_datas file\n"
+                "• Automatic conversion to Telethon\n"
+                "• Single account per TData\n\n"
+                "**How to Prepare:**\n"
+                "1. Locate TData folder (Telegram Desktop)\n"
+                "2. Compress entire TData folder to ZIP\n"
+                "3. Upload the ZIP file here\n\n"
+                "**Features:**\n"
+                "• Automatic format detection\n"
+                "• Converts to Telethon format\n"
+                "• Validates before import\n"
+                "• Secure processing\n\n"
+                "**Security:**\n"
+                "• Files validated before import\n"
+                "• Temporary files deleted\n"
+                "• Session data encrypted\n\n"
+                "Send your TData ZIP file now:"
+            )
+
+            await event.edit(text)
+            await event.answer("📂 Send TData ZIP")
+        except Exception as e:
+            logger.error(f"Start TData import error: {e}")
+            await event.edit("❌ Error starting TData import.")
 
     async def process_session_file(self, user_id, file_path):
-        """Process uploaded session file or ZIP archive"""
+        """Process uploaded session file with automatic format detection and conversion"""
         try:
             if not os.path.exists(file_path):
                 return False, "❌ Session file not found"
 
-            # Check if it's a ZIP file
+            # Check if it's a ZIP file for bulk import
             if file_path.endswith(".zip"):
+                logger.info(f"Detected ZIP file, processing bulk import for user {user_id}")
                 return await self._process_zip_sessions(user_id, file_path)
 
             # Check file size (should be reasonable for a session file)
@@ -262,18 +349,33 @@ class SessionLoginHandler:
             if file_size < 100:  # Too small to be a valid session
                 return False, "❌ Session file appears to be empty or corrupted"
 
-            # Extract session string from file
+            # Extract session string from file with format detection
             logger.info(
                 f"Processing session file: {file_path} (size: {file_size} bytes)"
             )
-            session_string = await self._extract_session_from_file(file_path)
+            
+            # Step 1: Detect file format
+            file_format = await self._detect_file_format(file_path)
+            logger.info(f"Detected file format: {file_format}")
+            
+            # Step 2: Extract session based on format
+            if file_format == "pyrogram":
+                logger.info("Extracting Pyrogram session...")
+                session_string = await self._extract_pyrogram_session(file_path)
+            elif file_format == "telethon":
+                logger.info("Extracting Telethon session...")
+                session_string = await self._extract_telethon_session(file_path)
+            else:
+                logger.info("Unknown format, trying all extraction methods...")
+                session_string = await self._extract_session_from_file(file_path)
 
             if not session_string:
                 return False, (
                     "❌ Could not extract session from file.\n\n"
                     "**File Analysis:**\n"
                     f"• File size: {file_size} bytes\n"
-                    f"• File path: {os.path.basename(file_path)}\n\n"
+                    f"• File path: {os.path.basename(file_path)}\n"
+                    f"• Detected format: {file_format}\n\n"
                     "**Supported formats:**\n"
                     "• Telethon .session files (SQLite)\n"
                     "• Pyrogram .session files (SQLite)\n"
@@ -326,12 +428,31 @@ class SessionLoginHandler:
             )
 
     async def process_session_string(self, user_id, session_string):
-        """Process session string import"""
+        """Process session string import with automatic format detection and conversion"""
         try:
             if not session_string or len(session_string) < 50:
                 return False, "❌ Invalid session string format"
 
-            # Try temp file approach first for better reliability
+            # Step 1: Detect session format
+            logger.info(f"Detecting session format (length: {len(session_string)})")
+            session_format = await self._detect_session_format(session_string)
+            logger.info(f"Detected format: {session_format}")
+
+            # Step 2: Convert to Telethon if needed
+            if session_format == "pyrogram":
+                logger.info("Converting Pyrogram session to Telethon...")
+                converted_session = await self._convert_pyrogram_session_string(session_string)
+                if converted_session:
+                    session_string = converted_session
+                    logger.info("✅ Pyrogram session converted successfully")
+                else:
+                    return False, "❌ Failed to convert Pyrogram session to Telethon format"
+            elif session_format == "tdata":
+                return False, "❌ TData format not supported for string import. Please upload TData folder instead."
+            elif session_format == "unknown":
+                logger.warning("Unknown session format, attempting direct import...")
+
+            # Step 3: Try temp file approach first for better reliability
             logger.info("Attempting session string import via temp file method...")
             temp_success, temp_result = await self._process_session_via_temp_file(
                 session_string
@@ -341,7 +462,7 @@ class SessionLoginHandler:
                     user_id, temp_result, session_string
                 )
 
-            # Fallback to fast validation mode
+            # Step 4: Fallback to fast validation mode
             logger.info("Temp file method failed, using fast validation mode...")
             success, info = await self._validate_session_string(session_string)
             if not success:
@@ -357,8 +478,7 @@ class SessionLoginHandler:
             logger.error(f"Session string processing error: {e}")
             return (
                 False,
-                f"❌ Import failed: {
-                    str(e)}\n\n💡 **Try using session file upload instead**",
+                f"❌ Import failed: {str(e)}\n\n💡 **Try using session file upload instead**",
             )
 
     async def _extract_session_from_file(self, file_path):
@@ -952,6 +1072,99 @@ class SessionLoginHandler:
         except Exception as e:
             logger.error(f"Pyrogram session conversion failed: {e}")
             return None
+
+    async def _detect_session_format(self, session_string: str) -> str:
+        """Detect session string format (telethon, pyrogram, tdata, unknown)"""
+        try:
+            import base64
+            
+            # Check length patterns
+            length = len(session_string)
+            
+            # Telethon sessions are typically 200-350 characters
+            # Pyrogram sessions are typically 300-500 characters (base64 encoded)
+            
+            # Try to detect Telethon format
+            try:
+                test_session = StringSession(session_string)
+                if test_session and test_session.auth_key:
+                    logger.info("Detected Telethon format (valid StringSession)")
+                    return "telethon"
+            except Exception:
+                pass
+            
+            # Try to detect Pyrogram format (base64 encoded)
+            try:
+                # Pyrogram uses URL-safe base64
+                fixed_session = session_string.replace("-", "+").replace("_", "/")
+                while len(fixed_session) % 4 != 0:
+                    fixed_session += "="
+                
+                decoded = base64.b64decode(fixed_session)
+                
+                # Pyrogram sessions have specific structure:
+                # 256 bytes auth_key + 4 bytes dc_id + optional data
+                if len(decoded) >= 260:
+                    logger.info(f"Detected Pyrogram format (decoded length: {len(decoded)})")
+                    return "pyrogram"
+            except Exception:
+                pass
+            
+            # Check for TData indicators (though TData is folder-based, not string)
+            if "tdata" in session_string.lower():
+                return "tdata"
+            
+            logger.warning(f"Unknown session format (length: {length})")
+            return "unknown"
+            
+        except Exception as e:
+            logger.error(f"Session format detection error: {e}")
+            return "unknown"
+    
+    async def _detect_file_format(self, file_path: str) -> str:
+        """Detect session file format (telethon, pyrogram, unknown)"""
+        try:
+            import sqlite3
+            
+            # Try to open as SQLite database
+            try:
+                conn = sqlite3.connect(file_path)
+                cursor = conn.cursor()
+                
+                # Get table names
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = [row[0] for row in cursor.fetchall()]
+                
+                logger.info(f"SQLite tables found: {tables}")
+                
+                # Check for Pyrogram indicators
+                if "sessions" in tables:
+                    cursor.execute("PRAGMA table_info(sessions)")
+                    columns = [row[1] for row in cursor.fetchall()]
+                    
+                    # Pyrogram has specific column structure
+                    if all(col in columns for col in ["dc_id", "auth_key"]):
+                        conn.close()
+                        logger.info("Detected Pyrogram file format")
+                        return "pyrogram"
+                
+                # Check for Telethon indicators
+                if "sessions" in tables or "entities" in tables or "sent_files" in tables:
+                    conn.close()
+                    logger.info("Detected Telethon file format")
+                    return "telethon"
+                
+                conn.close()
+                logger.warning("Unknown SQLite session format")
+                return "unknown"
+                
+            except sqlite3.DatabaseError:
+                logger.warning("File is not a valid SQLite database")
+                return "unknown"
+            
+        except Exception as e:
+            logger.error(f"File format detection error: {e}")
+            return "unknown"
 
     async def _show_session_info(self, event, user_id, account_id):
         """Show detailed session information"""

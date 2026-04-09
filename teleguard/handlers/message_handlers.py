@@ -1,6 +1,7 @@
 """Message handlers for user input processing"""
 
 import logging
+import os
 import re
 import time
 
@@ -123,6 +124,10 @@ class MessageHandlers:
         action = self.pending_actions[user_id].get("action")
         if action == "session_file_login":
             await self._process_session_file_login(event, user_id)
+        elif action == "session_bulk_import":
+            await self._process_bulk_import(event, user_id)
+        elif action == "session_tdata_import":
+            await self._process_tdata_import(event, user_id)
         elif action == "import_session_file":
             await self._process_import_session_file(event, user_id)
         elif action == "import_zip_sessions":
@@ -1691,6 +1696,130 @@ class MessageHandlers:
             logger.error(f"Session file import error: {e}")
             await event.reply(f"❌ Error processing session file: {str(e)}")
         self.pending_actions.pop(user_id, None)
+    
+    async def _process_bulk_import(self, event, user_id):
+        """Process bulk import from ZIP file"""
+        try:
+            filename = self._extract_filename(event)
+            if not filename or not filename.endswith(".zip"):
+                await event.reply("❌ Please send a .zip file containing session files")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            # Download ZIP file
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                zip_path = tmp.name
+
+            await event.reply("⏳ Downloading ZIP file...")
+            zip_path = await event.download_media(file=zip_path)
+
+            if not zip_path or not os.path.exists(zip_path):
+                await event.reply("❌ Failed to download ZIP file")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            # Process ZIP file
+            if hasattr(self.bot_manager, "session_login_handler"):
+                await event.reply("📦 Processing sessions from ZIP...")
+                success, msg = await self.bot_manager.session_login_handler.process_session_file(user_id, zip_path)
+                # Message is sent by the handler itself with progress updates
+            else:
+                await event.reply("❌ Session login not available")
+                try:
+                    os.remove(zip_path)
+                except:
+                    pass
+        except Exception as e:
+            logger.error(f"Bulk import error: {e}")
+            await event.reply(f"❌ Error processing ZIP file: {str(e)}")
+        finally:
+            self.pending_actions.pop(user_id, None)
+    
+    async def _process_tdata_import(self, event, user_id):
+        """Process TData import from ZIP file"""
+        try:
+            filename = self._extract_filename(event)
+            if not filename or not filename.endswith(".zip"):
+                await event.reply("❌ Please send a .zip file containing TData folder")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            # Download ZIP file
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                zip_path = tmp.name
+
+            await event.reply("⏳ Downloading TData ZIP file...")
+            zip_path = await event.download_media(file=zip_path)
+
+            if not zip_path or not os.path.exists(zip_path):
+                await event.reply("❌ Failed to download ZIP file")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            # Process TData ZIP
+            await event.reply("📂 Converting TData to Telethon format...")
+            
+            # Import session converter
+            try:
+                from ..utils.session_converter import SessionConverter
+                
+                # Extract and convert TData
+                import zipfile
+                import shutil
+                
+                temp_dir = tempfile.mkdtemp()
+                try:
+                    # Extract ZIP
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(temp_dir)
+                    
+                    # Find TData folder
+                    tdata_path = None
+                    for root, dirs, files in os.walk(temp_dir):
+                        if 'key_datas' in files or 'tdata' in root.lower():
+                            tdata_path = root
+                            break
+                    
+                    if not tdata_path:
+                        await event.reply("❌ TData folder not found in ZIP. Please ensure the ZIP contains a valid TData folder with key_datas file.")
+                        return
+                    
+                    # Convert TData to Telethon
+                    converter = SessionConverter()
+                    session_string = await converter.tdata_to_telethon(tdata_path)
+                    
+                    if not session_string:
+                        await event.reply("❌ Failed to convert TData. Please ensure the TData folder is valid and not corrupted.")
+                        return
+                    
+                    # Import the converted session
+                    if hasattr(self.bot_manager, "session_login_handler"):
+                        success, msg = await self.bot_manager.session_login_handler.process_session_string(user_id, session_string)
+                        await event.reply(msg)
+                    else:
+                        await event.reply("❌ Session login not available")
+                    
+                finally:
+                    # Cleanup
+                    try:
+                        shutil.rmtree(temp_dir)
+                        os.remove(zip_path)
+                    except:
+                        pass
+                    
+            except ImportError:
+                await event.reply("❌ Session converter not available. TData import is not supported.")
+            except Exception as convert_err:
+                logger.error(f"TData conversion error: {convert_err}")
+                await event.reply(f"❌ TData conversion failed: {str(convert_err)}")
+                
+        except Exception as e:
+            logger.error(f"TData import error: {e}")
+            await event.reply(f"❌ Error processing TData ZIP: {str(e)}")
+        finally:
+            self.pending_actions.pop(user_id, None)
 
     async def _process_import_session_file(self, event, user_id):
         """Process import session file or ZIP"""

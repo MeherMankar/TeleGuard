@@ -81,9 +81,14 @@ class SafeConsoleHandler(logging.StreamHandler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Remove ALL non-ASCII characters for Windows console
+            # Only remove problematic characters on Windows, keep basic emojis
             if sys.platform == 'win32':
-                msg = ''.join(char if ord(char) < 128 else '?' for char in msg)
+                # Keep common emojis and symbols, remove only problematic Unicode
+                safe_chars = set('✅❌⚠️🔴🟡🟢🔵⭐🚀🔧🐛💡📊🎯')
+                msg = ''.join(
+                    char if ord(char) < 128 or char in safe_chars else '?'
+                    for char in msg
+                )
             
             stream = self.stream
             stream.write(msg + self.terminator)
