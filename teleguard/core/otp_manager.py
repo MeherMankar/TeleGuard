@@ -66,98 +66,102 @@ class OTPManager:
 
         def make_otp_handler():
             async def otp_handler(event):
-            """Handle OTP messages from Telegram official account"""
-            try:
-                # Periodic cleanup
-                self._periodic_cleanup()
+                """Handle OTP messages from Telegram official account"""
+                try:
+                    # Periodic cleanup
+                    self._periodic_cleanup()
 
-                message_text = event.message.message
-                if not self._is_login_code(message_text):
-                    return
-
-                # Quick deduplication check
-                message_key = f"{event.message.id}"
-                if hasattr(self, "_processed_messages"):
-                    if message_key in self._processed_messages:
+                    message_text = event.message.message
+                    if not self._is_login_code(message_text):
                         return
-                    self._processed_messages.add(message_key)
-                    if len(self._processed_messages) > 100:
-                        self._processed_messages = set(
-                            list(self._processed_messages)[-50:]
-                        )
-                else:
-                    self._processed_messages = {message_key}
-                # Find which account received this OTP
-                account_info = await self._find_account_for_message(event)
-                if not account_info:
-                    return
-                user_id, account_name, account = account_info
-                # Extract the OTP code first
-                otp_code = self._extract_otp_code(message_text)
-                # PRIORITY 0: Check if this account is in session creation mode
-                if account.get("session_creation_in_progress") or account.get(
-                    "pending_fresh_session"
-                ):
-                    logger.info(
-                        f"Session creation in progress for {account_name}, allowing OTP: {otp_code}"
-                    )
-                    try:
-                        await event.delete()
-                    except BaseException:
-                        pass
-                    return
 
-                # PRIORITY 0.5: Check if this OTP is for fresh session creation
-                fresh_session_key = f"{account.get('phone')}:{otp_code}"
-                if fresh_session_key in self.fresh_session_otps:
-                    await event.delete()
-                    return
-                if (
-                    hasattr(self.bot_manager, "pending_fresh_sessions")
-                    and self.bot_manager.pending_fresh_sessions
-                ):
-                    account_phone = account.get("phone")
-                    pending_sessions = dict(self.bot_manager.pending_fresh_sessions)
-                    for fresh_user_id, session_data in pending_sessions.items():
-                        if session_data.get("phone") == account_phone:
-                            # Mark this OTP as being processed for fresh session
-                            self.fresh_session_otps.add(fresh_session_key)
-                            try:
-                                await mongodb.db.otp_protections.update_one(
-                                    {"phone": account_phone, "code": otp_code},
-                                    {
-                                        "$set": {
-                                            "phone": account_phone,
-                                            "code": otp_code,
-                                            "expires_at": int(time.time()) + 60,
-                                        }
-                                    },
-                                    upsert=True,
-                                )
-                            except Exception:
-                                pass
-                            try:
-                                success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                                    fresh_user_id, otp_code
-                                )
-                                await event.delete()
-                            except Exception as fresh_error:
-                                logger.error(
-                                    f"Fresh session processing error: {fresh_error}"
-                                )
-                                await event.delete()
-                            finally:
-                                self.fresh_session_otps.discard(fresh_session_key)
+                    # Quick deduplication check
+                    message_key = f"{event.message.id}"
+                    if hasattr(self, "_processed_messages"):
+                        if message_key in self._processed_messages:
                             return
-                # Priority 1: Check if temp OTP is active
-                if self._is_temp_passthrough_active(user_id, account_name):
-                    await self._forward_otp(
-                        user_id, account_name, otp_code, message_text, temp=True
-                    )
-                    try:
+                        self._processed_messages.add(message_key)
+                        if len(self._processed_messages) > 100:
+                            self._processed_messages = set(
+                                list(self._processed_messages)[-50:]
+                            )
+                    else:
+                        self._processed_messages = {message_key}
+                    # Find which account received this OTP
+                    account_info = await self._find_account_for_message(event)
+                    if not account_info:
+                        return
+                    user_id, account_name, account = account_info
+                    # Extract the OTP code first
+                    otp_code = self._extract_otp_code(message_text)
+                    # PRIORITY 0: Check if this account is in session creation mode
+                    if account.get("session_creation_in_progress") or account.get(
+                        "pending_fresh_session"
+                    ):
+                        logger.info(
+                            f"Session creation in progress for {account_name}, allowing OTP: {otp_code}"
+                        )
+                        try:
+                            await event.delete()
+                        except BaseException:
+                            pass
+                        return
+
+                    # PRIORITY 0.5: Check if this OTP is for fresh session creation
+                    fresh_session_key = f"{account.get('phone')}:{otp_code}"
+                    if fresh_session_key in self.fresh_session_otps:
                         await event.delete()
-                    except BaseException:
-                        pass
+                        return
+                    if (
+                        hasattr(self.bot_manager, "pending_fresh_sessions")
+                        and self.bot_manager.pending_fresh_sessions
+                    ):
+                        account_phone = account.get("phone")
+                        pending_sessions = dict(self.bot_manager.pending_fresh_sessions)
+                        for fresh_user_id, session_data in pending_sessions.items():
+                            if session_data.get("phone") == account_phone:
+                                # Mark this OTP as being processed for fresh session
+                                self.fresh_session_otps.add(fresh_session_key)
+                                try:
+                                    await mongodb.db.otp_protections.update_one(
+                                        {"phone": account_phone, "code": otp_code},
+                                        {
+                                            "$set": {
+                                                "phone": account_phone,
+                                                "code": otp_code,
+                                                "expires_at": int(time.time()) + 60,
+                                            }
+                                        },
+                                        upsert=True,
+                                    )
+                                except Exception:
+                                    pass
+                                try:
+                                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
+                                        fresh_user_id, otp_code
+                                    )
+                                    await event.delete()
+                                except Exception as fresh_error:
+                                    logger.error(
+                                        f"Fresh session processing error: {fresh_error}"
+                                    )
+                                    await event.delete()
+                                finally:
+                                    self.fresh_session_otps.discard(fresh_session_key)
+                                return
+                    # Priority 1: Check if temp OTP is active
+                    if self._is_temp_passthrough_active(user_id, account_name):
+                        await self._forward_otp(
+                            user_id, account_name, otp_code, message_text, temp=True
+                        )
+                        try:
+                            await event.delete()
+                        except BaseException:
+                            pass
+                except Exception as e:
+                    logger.error(f"OTP handler error: {e}")
+
+            return otp_handler
 
                     # Record OTP metrics for temp forwarding
                     try:
