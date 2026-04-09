@@ -86,12 +86,6 @@ class MongoDB:
 
             async def delete_one(self, query):
                 pass
-            
-            async def delete_many(self, query):
-                pass
-            
-            async def count_documents(self, query):
-                return 0
 
             def find(self, query):
                 class MockCursor:
@@ -110,16 +104,6 @@ class MongoDB:
                 self.sessions = MockCollection()
                 self.user_settings = MockCollection()
                 self.otp_protections = MockCollection()
-                self.temp_data = MockCollection()
-                self.automation_jobs = MockCollection()
-                self.audit_logs = MockCollection()
-                self.backups = MockCollection()
-                self.messages = MockCollection()
-                self.contacts = MockCollection()
-                self.channels = MockCollection()
-                self.groups = MockCollection()
-                self.spam_reports = MockCollection()
-                self.rate_limits = MockCollection()
 
         self.db = MockDB()
         logger.info("Mock database ready")
@@ -381,28 +365,6 @@ class MongoDB:
         if snapshot.get("settings"):
             await self.store_user_settings(user_id, snapshot["settings"])
         logger.info(f"Restored user {user_id} from backup snapshot")
-    
-    # Audit Logging
-    async def add_audit_log(self, user_id: int, action: str, details: dict = None):
-        """Add audit log entry"""
-        log_entry = {
-            "user_id": user_id,
-            "action": action,
-            "details": details or {},
-            "timestamp": time.time(),
-        }
-        await self.db.audit_logs.insert_one(log_entry)
-    
-    async def get_audit_logs(self, user_id: int, limit: int = 100) -> List[dict]:
-        """Get audit logs for user"""
-        cursor = self.db.audit_logs.find({"user_id": user_id}).sort("timestamp", -1).limit(limit)
-        logs = await cursor.to_list(length=None)
-        return logs
-    
-    async def cleanup_old_audit_logs(self, days: int = 90):
-        """Cleanup old audit logs"""
-        cutoff_time = time.time() - (days * 86400)
-        await self.db.audit_logs.delete_many({"timestamp": {"$lt": cutoff_time}})
 
 
 # Global MongoDB instance

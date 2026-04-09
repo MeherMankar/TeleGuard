@@ -152,11 +152,6 @@ class SessionLoginHandler:
             user_id = event.sender_id
             await self._restart_auth(event, user_id)
 
-        @self.bot.on(events.CallbackQuery(pattern=r"^login_tdata_import$"))
-        async def login_tdata_import(event):
-            user_id = event.sender_id
-            await self._start_tdata_import(event, user_id)
-
     async def _show_session_login_menu(self, event, user_id):
         """Show session login main menu"""
         try:
@@ -170,17 +165,15 @@ class SessionLoginHandler:
                 "**📝 Session String**\n"
                 "• Paste session string\n"
                 "• Quick import method\n\n"
-                "**📦 TData Import**\n"
+                "**📦 TData (Coming Soon)**\n"
                 "• Telegram Desktop format\n"
-                "• Upload tdata folder as ZIP\n"
-                "• Auto-converts to Telethon\n\n"
+                "• Currently not supported\n\n"
                 "Choose your import method:"
             )
 
             buttons = [
                 [Button.inline("📁 Upload Session File", "login_session_file")],
                 [Button.inline("📝 Import Session String", "login_session_string")],
-                [Button.inline("📦 Import TData (ZIP)", "login_tdata_import")],
                 [Button.inline("🔙 Back to Account Settings", "menu:accounts")],
             ]
 
@@ -218,45 +211,6 @@ class SessionLoginHandler:
         except Exception as e:
             logger.error(f"Start session file login error: {e}")
             await event.edit("❌ Error starting session file login.")
-
-    async def _start_tdata_import(self, event, user_id):
-        """Start TData import process"""
-        try:
-            from ..utils.session_converter import OPENTELE_AVAILABLE
-            
-            if not OPENTELE_AVAILABLE:
-                await event.edit(
-                    "❌ **TData Import Unavailable**\n\n"
-                    "The opentele library is not installed.\n\n"
-                    "**To enable TData import:**\n"
-                    "```\npip install opentele\n```\n\n"
-                    "After installation, restart the bot."
-                )
-                return
-            
-            self.bot_manager.pending_actions[user_id] = {"action": "tdata_import"}
-
-            text = (
-                "📦 **Import TData (Telegram Desktop)**\n\n"
-                "Send your tdata folder as a ZIP file:\n\n"
-                "**📁 How to prepare:**\n"
-                "1. Locate your Telegram Desktop tdata folder\n"
-                "2. Compress the entire tdata folder to ZIP\n"
-                "3. Send the ZIP file here\n\n"
-                "**🔍 What happens:**\n"
-                "• ZIP extracted automatically\n"
-                "• TData converted to Telethon format\n"
-                "• Account added to TeleGuard\n"
-                "• Original files deleted securely\n\n"
-                "**⚠️ Note:** Only authorized TData will work\n\n"
-                "Send your tdata ZIP file now:"
-            )
-
-            await event.edit(text)
-            await event.answer("📦 Send tdata ZIP file")
-        except Exception as e:
-            logger.error(f"Start TData import error: {e}")
-            await event.edit("❌ Error starting TData import.")
 
     async def _start_session_string_login(self, event, user_id):
         """Start session string import process"""
@@ -2680,130 +2634,3 @@ class SessionLoginHandler:
                 await event.edit(f"❌ **File generation failed**\\n\\nHere's the session string instead:\\n\\n`{session_string}`\\n\\n🛡️ OTP Destroyer re-enabled")
         else:
             await event.edit(f"✅ **Session String Created!**\\n\\n📱 Phone: {phone}\\n📝 Session String:\\n\\n`{session_string}`\\n\\n💾 Copy and save securely!\\n🛡️ OTP Destroyer re-enabled")
-
-    async def process_tdata_zip(self, user_id, zip_path):
-        """Process TData ZIP file import"""
-        import tempfile
-        import zipfile
-        from ..utils.session_converter import SessionConverter, OPENTELE_AVAILABLE
-        
-        if not OPENTELE_AVAILABLE:
-            return False, "❌ opentele library not installed"
-        
-        try:
-            if not os.path.exists(zip_path):
-                return False, "❌ TData ZIP file not found"
-            
-            zip_size = os.path.getsize(zip_path)
-            if zip_size > 100 * 1024 * 1024:
-                return False, "❌ ZIP file too large (max 100MB)"
-            
-            extract_dir = tempfile.mkdtemp(prefix="tdata_")
-            temp_sessions = tempfile.mkdtemp(prefix="sessions_")
-            
-            try:
-                with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                    zip_ref.extractall(extract_dir)
-                
-                # Find tdata folders
-                tdata_folders = []
-                for root, dirs, files in os.walk(extract_dir):
-                    if 'tdata' in dirs:
-                        tdata_folders.append(root)
-                
-                if not tdata_folders:
-                    return False, "❌ No tdata folder found in ZIP"
-                
-                await self.bot.send_message(
-                    user_id,
-                    f"📦 **Processing TData Import**\n\n"
-                    f"📁 Found {len(tdata_folders)} tdata folder(s)\n"
-                    f"⏳ Converting to Telethon format...\n\n"
-                    f"Progress will be shown below:"
-                )
-                
-                success_count = 0
-                failed_count = 0
-                results = []
-                
-                for i, tdata_folder in enumerate(tdata_folders, 1):
-                    folder_name = os.path.basename(tdata_folder)
-                    
-                    try:
-                        await self.bot.send_message(
-                            user_id,
-                            f"⏳ Processing {i}/{len(tdata_folders)}: {folder_name}..."
-                        )
-                        
-                        # Convert TData to Telethon
-                        success, message = await SessionConverter.tdata_to_telethon(
-                            tdata_folder, temp_sessions
-                        )
-                        
-                        if success:
-                            # Find the created session file
-                            session_files = [f for f in os.listdir(temp_sessions) if f.endswith('.session')]
-                            if session_files:
-                                session_file = os.path.join(temp_sessions, session_files[-1])
-                                
-                                # Import the session
-                                import_success, import_message = await self.process_session_file(
-                                    user_id, session_file
-                                )
-                                
-                                if import_success:
-                                    success_count += 1
-                                    results.append(f"✅ {folder_name}")
-                                else:
-                                    failed_count += 1
-                                    results.append(f"❌ {folder_name}: {import_message}")
-                            else:
-                                failed_count += 1
-                                results.append(f"❌ {folder_name}: No session file created")
-                        else:
-                            failed_count += 1
-                            results.append(f"❌ {folder_name}: {message}")
-                    
-                    except Exception as e:
-                        failed_count += 1
-                        results.append(f"❌ {folder_name}: {str(e)}")
-                    
-                    await asyncio.sleep(1)
-                
-                # Clean up
-                shutil.rmtree(extract_dir, ignore_errors=True)
-                shutil.rmtree(temp_sessions, ignore_errors=True)
-                os.remove(zip_path)
-                
-                # Send summary
-                summary = (
-                    f"📊 **TData Import Complete**\n\n"
-                    f"✅ Success: {success_count}\n"
-                    f"❌ Failed: {failed_count}\n"
-                    f"📁 Total: {len(tdata_folders)}\n\n"
-                    f"**Details:**\n" + "\n".join(results[:20])
-                )
-                
-                if len(results) > 20:
-                    summary += f"\n\n... and {len(results) - 20} more"
-                
-                await self.bot.send_message(user_id, summary)
-                
-                return True, f"✅ Imported {success_count}/{len(tdata_folders)} accounts"
-            
-            except zipfile.BadZipFile:
-                shutil.rmtree(extract_dir, ignore_errors=True)
-                shutil.rmtree(temp_sessions, ignore_errors=True)
-                return False, "❌ Invalid ZIP file format"
-            except Exception as extract_err:
-                shutil.rmtree(extract_dir, ignore_errors=True)
-                shutil.rmtree(temp_sessions, ignore_errors=True)
-                return False, f"❌ ZIP extraction failed: {str(extract_err)}"
-        
-        except Exception as e:
-            logger.error(f"TData ZIP processing error: {e}")
-            try:
-                os.remove(zip_path)
-            except:
-                pass
-            return False, f"❌ TData import failed: {str(e)}"
