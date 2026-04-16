@@ -36,7 +36,16 @@ class HelpHandler:
         """Handle help category selection"""
         category = event.data.decode().split("_", 1)[1]
         if category == "close":
-            await event.delete()
+            try:
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             return
         await event.answer()
         help_text = self._get_category_help(category)

@@ -2840,7 +2840,13 @@ class SessionLoginHandler:
                 await event.edit("✅ **Session file created! Sending...**")
                 await self.bot.send_message(user_id, f"📁 **Session File Created!**\\n\\n📱 Phone: {phone}\\n\\n💾 Download and save securely!\\n🛡️ OTP Destroyer re-enabled", file=session_file_data, attributes=[DocumentAttributeFilename(f"{phone.replace('+', '')}.session")])
                 try:
-                    await event.delete()
+                    try:
+                        await event.edit("")
+                    except Exception:
+                        try:
+                            await event.delete()
+                        except BaseException:
+                            pass
                 except BaseException:
                     pass
             else:

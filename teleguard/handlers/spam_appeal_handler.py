@@ -1402,7 +1402,16 @@ Generate 4 diverse examples:"""
         account_id = event.data.decode().split(":", 1)[1]
         try:
             await event.answer()
-            await event.delete()
+            try:
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             from bson import ObjectId
             from ..core.mongo_database import mongodb
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
@@ -1420,7 +1429,16 @@ Generate 4 diverse examples:"""
         """Handle appeal cancellation"""
         try:
             await event.answer()
-            await event.delete()
+            try:
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             await event.respond("❌ Appeal process cancelled.")
         except Exception as e:
             logger.error(f"Appeal cancel callback error: {e}")
@@ -1431,7 +1449,16 @@ Generate 4 diverse examples:"""
         action = event.data.decode().split("_")[1]
         try:
             await event.answer()
-            await event.delete()
+            try:
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             if user_id not in self.active_appeals:
                 await event.respond("⚠️ No active appeal process found.")
                 return

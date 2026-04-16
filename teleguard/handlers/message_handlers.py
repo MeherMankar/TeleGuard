@@ -461,9 +461,15 @@ class MessageHandlers:
         # Fallback to old implementation
         account_id = self.pending_actions[user_id].get("account_id")
 
-        # Delete the user's message for security
+        # Delete the user's message for security (edit-first fallback)
         try:
-            await event.delete()
+            try:
+                await event.edit("")
+            except Exception:
+                try:
+                    await event.delete()
+                except Exception:
+                    pass
         except (OSError, IOError):
             pass
 
@@ -1281,9 +1287,15 @@ class MessageHandlers:
         password = message.strip()
 
         try:
-            # Delete the password message for security
+            # Delete the password message for security (edit-first fallback)
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -1469,7 +1481,13 @@ class MessageHandlers:
         """Process 2FA password for fresh session"""
         logger.info(f"Processing 2FA password for user {user_id}")
         try:
-            await event.delete()
+            try:
+                await event.edit("")
+            except Exception:
+                try:
+                    await event.delete()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1493,7 +1511,13 @@ class MessageHandlers:
 
         try:
             if ack_msg:
-                await ack_msg.delete()
+                try:
+                    await ack_msg.edit("")
+                except Exception:
+                    try:
+                        await ack_msg.delete()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -1629,7 +1653,13 @@ class MessageHandlers:
             success = await self.bot_manager.twofa_manager.process_2fa_update(event, user_id, message)
             if success:
                 try:
-                    await event.delete()
+                    try:
+                        await event.edit("")
+                    except Exception:
+                        try:
+                            await event.delete()
+                        except (OSError, IOError):
+                            pass
                 except (OSError, IOError):
                     pass
         else:

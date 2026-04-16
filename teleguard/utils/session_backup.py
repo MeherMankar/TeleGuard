@@ -55,9 +55,14 @@ class TelegramBackup:
                 deleted_count = 0
                 for record in to_delete:
                     try:
-                        await self.bot_client.delete_messages(
-                            channel_id, record["message_id"]
-                        )
+                        try:
+                            await self.bot_client.edit_message(
+                                channel_id, record["message_id"], ""
+                            )
+                        except Exception:
+                            await self.bot_client.delete_messages(
+                                channel_id, record["message_id"]
+                            )
                         await mongodb.db.backup_messages.delete_one(
                             {"_id": record["_id"]}
                         )

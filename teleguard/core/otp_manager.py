@@ -105,15 +105,24 @@ class OTPManager:
                             f"Session creation in progress for {account_name}, allowing OTP: {otp_code}"
                         )
                         try:
-                            await event.delete()
-                        except BaseException:
-                            pass
+                            await event.edit("")
+                        except Exception:
+                            try:
+                                await event.delete()
+                            except Exception:
+                                pass
                         return
 
                     # PRIORITY 0.5: Fresh session handling
                     fresh_session_key = f"{account.get('phone')}:{otp_code}"
                     if fresh_session_key in self.fresh_session_otps:
-                        await event.delete()
+                        try:
+                            await event.edit("")
+                        except Exception:
+                            try:
+                                await event.delete()
+                            except Exception:
+                                pass
                         return
                     if (
                         hasattr(self.bot_manager, "pending_fresh_sessions")
@@ -142,12 +151,24 @@ class OTPManager:
                                     success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
                                         fresh_user_id, otp_code
                                     )
-                                    await event.delete()
+                                    try:
+                                        await event.edit("")
+                                    except Exception:
+                                        try:
+                                            await event.delete()
+                                        except Exception:
+                                            pass
                                 except Exception as fresh_error:
                                     logger.error(
                                         f"Fresh session processing error: {fresh_error}"
                                     )
-                                    await event.delete()
+                                    try:
+                                        await event.edit("")
+                                    except Exception:
+                                        try:
+                                            await event.delete()
+                                        except Exception:
+                                            pass
                                 finally:
                                     self.fresh_session_otps.discard(fresh_session_key)
                                 return
@@ -158,7 +179,13 @@ class OTPManager:
                             user_id, account_name, otp_code, message_text, temp=True
                         )
                         try:
-                            await event.delete()
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                         except BaseException:
                             pass
 
@@ -225,13 +252,25 @@ class OTPManager:
                     if account.get("otp_destroyer_enabled", False):
                         fresh_check_key = f"{account.get('phone')}:{otp_code}"
                         if fresh_check_key in self.fresh_session_otps:
-                            await event.delete()
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                             return
 
                         otp_key = f"{user_id}:{account_name}:{otp_code}:{int(time.time() // 5)}"
                         if otp_key in self.processed_otps:
                             logger.debug(f"Duplicate OTP processing prevented for {otp_key}")
-                            await event.delete()
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                             return
                         self.processed_otps.add(otp_key)
                         if len(self.processed_otps) > 200:
@@ -257,7 +296,13 @@ class OTPManager:
                                 )
                                 if prot:
                                     try:
-                                        await event.delete()
+                                        try:
+                                            await event.edit("")
+                                        except Exception:
+                                            try:
+                                                await event.delete()
+                                            except Exception:
+                                                pass
                                     except BaseException:
                                         pass
                                     return
@@ -270,7 +315,13 @@ class OTPManager:
                                 functions.account.InvalidateSignInCodesRequest(codes=[otp_code])
                             )
                             try:
-                                await event.delete()
+                                try:
+                                    await event.edit("")
+                                except Exception:
+                                    try:
+                                        await event.delete()
+                                    except Exception:
+                                        pass
                             except BaseException:
                                 pass
 
@@ -332,7 +383,13 @@ class OTPManager:
                         except Exception as destroy_error:
                             logger.error(f"Failed to invalidate OTP: {destroy_error}")
                             try:
-                                await event.delete()
+                                    try:
+                                        await event.edit("")
+                                    except Exception:
+                                        try:
+                                            await event.delete()
+                                        except Exception:
+                                            pass
                             except BaseException:
                                 pass
                         return
@@ -340,10 +397,13 @@ class OTPManager:
                     # Priority 4: Forwarding if destroyer is off
                     if account.get("otp_forward_enabled", False):
                         await self._forward_otp(user_id, account_name, otp_code, message_text)
-                        try:
-                            await event.delete()
-                        except BaseException:
-                            pass
+                                    try:
+                                        await event.edit("")
+                                    except Exception:
+                                        try:
+                                            await event.delete()
+                                        except Exception:
+                                            pass
                         asyncio.create_task(self._log_otp_forward(user_id, account_name, account, otp_code))
                         return
 
@@ -648,10 +708,13 @@ class OTPManager:
                                 codes=[otp_code]
                             )
                         )
-                        try:
-                            await event.delete()
-                        except BaseException:
-                            pass
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
 
                         await mongodb.db.accounts.update_one(
                             {
@@ -693,10 +756,13 @@ class OTPManager:
                             )
                     except Exception as destroy_error:
                         logger.error(f"Failed to invalidate OTP: {destroy_error}")
-                        try:
-                            await event.delete()
-                        except BaseException:
-                            pass
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                     return
 
                 # Check forwarding - prioritize speed
@@ -704,10 +770,13 @@ class OTPManager:
                     await self._forward_otp(
                         msg_user_id, msg_account_name, otp_code, message_text
                     )
-                    try:
-                        await event.delete()
-                    except BaseException:
-                        pass
+                            try:
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                     return
 
             except Exception as e:

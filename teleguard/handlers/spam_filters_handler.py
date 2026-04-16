@@ -33,7 +33,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -66,7 +72,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -119,7 +131,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -137,7 +155,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -156,7 +180,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -227,7 +257,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 
@@ -255,7 +291,13 @@ class SpamFiltersHandler:
             user_id = event.sender_id
 
             try:
-                await event.delete()
+                try:
+                    await event.edit("")
+                except Exception:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
             except BaseException:
                 pass
 

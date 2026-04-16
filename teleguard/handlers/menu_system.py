@@ -160,9 +160,10 @@ class MenuSystem:
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
             if user and user.get("main_menu_message_id"):
                 try:
-                    await self.bot.delete_messages(
-                        user_id, user["main_menu_message_id"]
-                    )
+                    try:
+                        await self.bot.edit_message(user_id, user["main_menu_message_id"], "")
+                    except Exception:
+                        await self.bot.delete_messages(user_id, user["main_menu_message_id"])
                 except Exception:
                     pass  # Message might be service message or already deleted
         except Exception as e:
