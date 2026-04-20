@@ -33,26 +33,20 @@ class RedisCache:
                 redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                socket_connect_timeout=int(os.getenv("REDIS_CONNECT_TIMEOUT", "10")),
-                socket_timeout=int(os.getenv("REDIS_SOCKET_TIMEOUT", "10")),
-                retry_on_timeout=os.getenv("REDIS_RETRY_ON_TIMEOUT", "true").lower()
-                == "true",
+add                 socket_connect_timeout=int(os.getenv("REDIS_CONNECT_TIMEOUT", "3")),
+                socket_timeout=int(os.getenv("REDIS_SOCKET_TIMEOUT", "3")),
+                retry_on_timeout=False,
                 health_check_interval=int(
                     os.getenv("REDIS_HEALTH_CHECK_INTERVAL", "30")
                 ),
                 max_connections=int(os.getenv("REDIS_MAX_CONNECTIONS", "10")),
-                retry_on_error=[redis.ConnectionError, redis.TimeoutError],
             )
-            # Test connection with timeout
-            await asyncio.wait_for(self.client.ping(), timeout=15.0)
+            # Test connection with short timeout
+            await asyncio.wait_for(self.client.ping(), timeout=3.0)
             self.connected = True
-            logger.info("✅ Connected to Redis cache successfully")
-        except asyncio.TimeoutError:
-            logger.warning("Redis connection timed out, continuing without cache")
-            self.connected = False
-            self.client = None
-        except Exception as e:
-            logger.warning(f"Redis unavailable, continuing without cache: {e}")
+            logger.info("Connected to Redis cache successfully")
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.debug(f"Redis unavailable, continuing without cache: {e}")
             self.connected = False
             self.client = None
 
