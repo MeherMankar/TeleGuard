@@ -383,27 +383,24 @@ class OTPManager:
                         except Exception as destroy_error:
                             logger.error(f"Failed to invalidate OTP: {destroy_error}")
                             try:
-                                    try:
-                                        await event.edit("")
-                                    except Exception:
-                                        try:
-                                            await event.delete()
-                                        except Exception:
-                                            pass
-                            except BaseException:
-                                pass
+                                await event.edit("")
+                            except Exception:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    pass
                         return
 
                     # Priority 4: Forwarding if destroyer is off
                     if account.get("otp_forward_enabled", False):
                         await self._forward_otp(user_id, account_name, otp_code, message_text)
-                                    try:
-                                        await event.edit("")
-                                    except Exception:
-                                        try:
-                                            await event.delete()
-                                        except Exception:
-                                            pass
+                        try:
+                            await event.edit("")
+                        except Exception:
+                            try:
+                                await event.delete()
+                            except Exception:
+                                pass
                         asyncio.create_task(self._log_otp_forward(user_id, account_name, account, otp_code))
                         return
 
@@ -708,13 +705,13 @@ class OTPManager:
                                 codes=[otp_code]
                             )
                         )
+                        try:
+                            await event.edit("")
+                        except Exception:
                             try:
-                                await event.edit("")
+                                await event.delete()
                             except Exception:
-                                try:
-                                    await event.delete()
-                                except Exception:
-                                    pass
+                                pass
 
                         await mongodb.db.accounts.update_one(
                             {
@@ -756,13 +753,13 @@ class OTPManager:
                             )
                     except Exception as destroy_error:
                         logger.error(f"Failed to invalidate OTP: {destroy_error}")
+                        try:
+                            await event.edit("")
+                        except Exception:
                             try:
-                                await event.edit("")
+                                await event.delete()
                             except Exception:
-                                try:
-                                    await event.delete()
-                                except Exception:
-                                    pass
+                                pass
                     return
 
                 # Check forwarding - prioritize speed
@@ -770,13 +767,13 @@ class OTPManager:
                     await self._forward_otp(
                         msg_user_id, msg_account_name, otp_code, message_text
                     )
-                            try:
-                                await event.edit("")
-                            except Exception:
-                                try:
-                                    await event.delete()
-                                except Exception:
-                                    pass
+                    try:
+                        await event.edit("")
+                    except Exception:
+                        try:
+                            await event.delete()
+                        except Exception:
+                            pass
                     return
 
             except Exception as e:
