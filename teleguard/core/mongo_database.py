@@ -104,6 +104,7 @@ class MongoDB:
                 self.sessions = MockCollection()
                 self.user_settings = MockCollection()
                 self.otp_protections = MockCollection()
+                self.topic_mappings = MockCollection()
 
         self.db = MockDB()
         logger.info("Mock database ready")
@@ -125,6 +126,13 @@ class MongoDB:
 
             # Settings indexes
             await self.db.user_settings.create_index("user_id", unique=True)
+            
+            # Topic mappings indexes
+            await self.db.topic_mappings.create_index(
+                [("user_id", 1), ("account_id", 1)], unique=True
+            )
+            await self.db.topic_mappings.create_index("topic_id")
+            
             # OTP protections: expire documents automatically using a datetime field
             # We store an `expires_at_dt` datetime when creating protections and
             # use a TTL index so entries are removed automatically when expired.

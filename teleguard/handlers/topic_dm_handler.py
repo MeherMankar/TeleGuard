@@ -1,7 +1,7 @@
 """Topic-based DM Reply Handler - Uses Telegram Group Topics for conversation management"""
 
 import logging
-import re
+from datetime import datetime, timezone
 
 from telethon import events, functions
 
@@ -18,6 +18,7 @@ class TopicDMHandler:
         self.bot = bot_manager.bot
         self.user_clients = bot_manager.user_clients
         self.handled_clients = set()
+        self.mapping_cache = {}  # Cache: (user_id, account_id) -> topic_id
 
     def setup_topic_handlers(self):
         """Set up topic-based DM handlers"""
@@ -101,15 +102,24 @@ class TopicDMHandler:
     async def _find_or_create_topic(
         self, admin_group_id: int, sender_id: int, account_id: int, sender
     ) -> int:
-        """Find existing topic or create new one for sender"""
+        """Find existing topic or create new one for sender + account combination"""
         try:
-            # First, try to find existing topic by checking pinned messages
-            existing_topic = await self._find_existing_topic(
-                admin_group_id, sender_id, account_id
+            # Check cache first
+            cache_key = (sender_id, account_id)
+            if cache_key in self.mapping_cache:
+                return self.mapping_cache[cache_key]
+
+            # Check database
+            mapping = await mongodb.db.topic_mappings.find_one(
+                {"user_id": sender_id, "account_id": account_id}
             )
-            if existing_topic:
-                return existing_topic
-            topic_title = self._get_topic_title(sender)
+            if mapping:
+                topic_id = mapping["topic_id"]
+                self.mapping_cache[cache_key] = topic_id
+                return topic_id
+
+            # Create new topic
+            topic_title = self._get_topic_title(sender, account_id)
             result = await self.bot(
                 functions.channels.CreateForumTopicRequest(
                     channel=admin_group_id,
@@ -118,68 +128,48 @@ class TopicDMHandler:
                 )
             )
             topic_id = result.updates[0].message.id
-            await self._create_system_message(
-                admin_group_id, topic_id, sender_id, account_id
+
+            # Store mapping atomically (prevents duplicates during race conditions)
+            await mongodb.db.topic_mappings.update_one(
+                {"user_id": sender_id, "account_id": account_id},
+                {
+                    "$setOnInsert": {
+                        "user_id": sender_id,
+                        "account_id": account_id,
+                        "topic_id": topic_id,
+                        "admin_group_id": admin_group_id,
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                },
+                upsert=True,
             )
+
+            # Update cache
+            self.mapping_cache[cache_key] = topic_id
             return topic_id
         except Exception as e:
             logger.error(f"Failed to create topic: {e}")
             return None
 
-    async def _find_existing_topic(
-        self, admin_group_id: int, sender_id: int, account_id: int
-    ) -> int:
-        """Find existing topic for sender and account combination"""
-        try:
-            messages = await self.bot.get_messages(admin_group_id, limit=100)
-            for message in messages:
-                if (
-                    hasattr(message, "reply_to")
-                    and hasattr(message.reply_to, "forum_topic_id")
-                    and message.pinned
-                ):
-                    if message.text and "System Info:" in message.text:
-                        if (
-                            f"UserID: {sender_id}" in message.text
-                            and f"AccountID: {account_id}" in message.text
-                        ):
-                            return message.reply_to.forum_topic_id
-            return None
-        except Exception as e:
-            logger.error(f"Failed to find existing topic: {e}")
-            return None
 
-    def _get_topic_title(self, sender) -> str:
-        """Generate topic title from sender info"""
+
+    def _get_topic_title(self, sender, account_id: int) -> str:
+        """Generate topic title from sender info + account"""
         if hasattr(sender, "first_name") and sender.first_name:
-            title = sender.first_name
+            user_name = sender.first_name
             if hasattr(sender, "last_name") and sender.last_name:
-                title += f" {sender.last_name}"
+                user_name += f" {sender.last_name}"
         elif hasattr(sender, "username") and sender.username:
-            title = f"@{sender.username}"
+            user_name = f"@{sender.username}"
         else:
-            title = f"User {sender.id}"
+            user_name = f"User {sender.id}"
+        
+        # Add account identifier
+        account_short = str(account_id)[-4:]  # Last 4 digits
+        title = f"{user_name} | {account_short}"
         return title[:100]  # Telegram topic title limit
 
-    async def _create_system_message(
-        self, admin_group_id: int, topic_id: int, sender_id: int, account_id: int
-    ):
-        """Create and pin system message with mapping info"""
-        try:
-            system_text = (
-                f"System Info:\n" f"UserID: {sender_id}\n" f"AccountID: {account_id}"
-            )
-            message = await self.bot.send_message(
-                admin_group_id, system_text, reply_to=topic_id
-            )
-            # Pin the system message
-            await self.bot(
-                functions.messages.UpdatePinnedMessageRequest(
-                    peer=admin_group_id, id=message.id, pinned=True
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to create system message: {e}")
+
 
     async def _forward_to_topic(
         self, admin_group_id: int, topic_id: int, event, sender, managed_account
@@ -200,21 +190,14 @@ class TopicDMHandler:
             logger.error(f"Failed to forward to topic: {e}")
 
     async def _get_topic_mapping(self, admin_group_id: int, topic_id: int) -> dict:
-        """Get user and account mapping from topic's pinned message"""
+        """Get user and account mapping from database using topic_id"""
         try:
-            messages = await self.bot.get_messages(
-                admin_group_id, limit=50, reply_to=topic_id
-            )
-            for message in messages:
-                if message.pinned and message.text and "System Info:" in message.text:
-                    # Parse the system message
-                    user_match = re.search(r"UserID: (\d+)", message.text)
-                    account_match = re.search(r"AccountID: (\d+)", message.text)
-                    if user_match and account_match:
-                        return {
-                            "user_id": int(user_match.group(1)),
-                            "account_id": int(account_match.group(1)),
-                        }
+            mapping = await mongodb.db.topic_mappings.find_one({"topic_id": topic_id})
+            if mapping:
+                return {
+                    "user_id": mapping["user_id"],
+                    "account_id": mapping["account_id"],
+                }
             return None
         except Exception as e:
             logger.error(f"Failed to get topic mapping: {e}")
