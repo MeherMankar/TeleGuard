@@ -512,7 +512,14 @@ class CallbackHandlers:
         account_id = parts[2] if len(parts) > 2 else "0"
 
         try:
-            if action == "name":
+            if action == "manage":
+                if hasattr(self.menu, "profile_operations"):
+                    await self.menu.profile_operations.send_profile_management(
+                        user_id, account_id, event.message_id
+                    )
+                else:
+                    await event.answer("❌ Profile operations unavailable")
+            elif action == "name":
                 await self._handle_profile_name_change(event, user_id, account_id)
             elif action == "username":
                 await self._handle_profile_username_change(event, user_id, account_id)
@@ -656,38 +663,51 @@ class CallbackHandlers:
             await event.answer("❌ Error terminating sessions")
 
     async def _handle_session_list(self, event, user_id, account_id):
-        """Handle session list request"""
+        """Handle session list request via Telethon"""
+        from bson import ObjectId
+        from telethon import Button
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+
+        account = await mongodb.db.accounts.find_one(
+            {"_id": ObjectId(account_id), "user_id": user_id}
+        )
+        if not account:
+            await event.answer("❌ Account not found")
+            return
+
+        client = None
+        if self.account_manager:
+            client = self.account_manager.user_clients.get(user_id, {}).get(
+                account.get("name") or account.get("phone")
+            )
+
+        text = f"🔐 **Active Sessions — {account.get('name', account.get('phone'))}**\n\n"
         try:
-            if hasattr(self.account_manager, "session_manager"):
-                sessions = (
-                    await self.account_manager.session_manager.get_active_sessions(
-                        user_id, account_id
+            if client and client.is_connected():
+                result = await client(GetAuthorizationsRequest())
+                auths = result.authorizations
+                text += f"Total sessions: {len(auths)}\n\n"
+                for auth in auths[:10]:
+                    current = " ✅ (current)" if auth.current else ""
+                    text += (
+                        f"• {auth.app_name} — {auth.device_model}\n"
+                        f"  {auth.country}, {auth.ip}\n"
+                        f"  {auth.platform}{current}\n\n"
                     )
-                )
-                if sessions:
-                    text = f"📱 **Active Sessions**\n\n{sessions}"
-                else:
-                    text = "📱 **Active Sessions**\n\nNo active sessions found or unable to retrieve session information."
-
-                from telethon import Button
-
-                buttons = [
-                    [Button.inline("🔄 Refresh", f"session:list:{account_id}")],
-                    [
-                        Button.inline(
-                            "🚫 Terminate All", f"session:terminate:{account_id}"
-                        )
-                    ],
-                    [Button.inline("🔙 Back", f"account:manage:{account_id}")],
-                ]
-                await self.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
+                if len(auths) > 10:
+                    text += f"... and {len(auths) - 10} more"
             else:
-                await event.answer("❌ Session manager unavailable")
+                text += "⚠️ Account not connected. Start the account first."
         except Exception as e:
-            logger.error(f"Error listing sessions: {e}")
-            await event.answer("❌ Error listing sessions")
+            logger.error(f"Error fetching sessions: {e}")
+            text += f"❌ Could not fetch sessions: {e}"
+
+        buttons = [
+            [Button.inline("🔄 Refresh", f"sessions:list:{account_id}")],
+            [Button.inline("🚫 Terminate All Other", f"session:terminate:{account_id}")],
+            [Button.inline("🔙 Back", f"account:manage:{account_id}")],
+        ]
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
 
     async def handle_2fa_callback(self, event, user_id, data):
         """Handle 2FA management callbacks"""
@@ -696,7 +716,9 @@ class CallbackHandlers:
         account_id = parts[2] if len(parts) > 2 else "0"
 
         try:
-            if action == "set":
+            if action == "status":
+                await self._handle_2fa_status(event, user_id, account_id)
+            elif action == "set":
                 await self._handle_2fa_set(event, user_id, account_id)
             elif action == "remove":
                 await self._handle_2fa_remove(event, user_id, account_id)
@@ -705,6 +727,34 @@ class CallbackHandlers:
         except Exception as e:
             logger.error(f"2FA callback error: {e}")
             await event.answer("❌ Error processing 2FA request")
+
+    async def _handle_2fa_status(self, event, user_id, account_id):
+        """Show 2FA status and management menu"""
+        from bson import ObjectId
+        from telethon import Button
+
+        account = await mongodb.db.accounts.find_one(
+            {"_id": ObjectId(account_id), "user_id": user_id}
+        )
+        if not account:
+            await event.answer("❌ Account not found")
+            return
+
+        has_2fa = bool(account.get("twofa_password"))
+        status_text = "✅ Stored" if has_2fa else "❌ Not stored"
+        text = (
+            f"🔐 **2FA Settings — {account.get('name', account.get('phone'))}**\n\n"
+            f"Saved 2FA password: {status_text}\n\n"
+            f"The stored password is used automatically during login."
+        )
+        buttons = [
+            [Button.inline("✏️ Set / Update Password", f"2fa:set:{account_id}")],
+        ]
+        if has_2fa:
+            buttons.append([Button.inline("👁 View Password", f"2fa:view:{account_id}")])
+            buttons.append([Button.inline("🗑️ Remove Password", f"2fa:remove:{account_id}")])
+        buttons.append([Button.inline("🔙 Back", f"account:manage:{account_id}")])
+        await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
 
     async def _handle_2fa_set(self, event, user_id, account_id):
         """Handle 2FA password set request"""
