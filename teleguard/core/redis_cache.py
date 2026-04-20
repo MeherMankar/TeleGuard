@@ -33,7 +33,7 @@ class RedisCache:
                 redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-add                 socket_connect_timeout=int(os.getenv("REDIS_CONNECT_TIMEOUT", "3")),
+                socket_connect_timeout=int(os.getenv("REDIS_CONNECT_TIMEOUT", "3")),
                 socket_timeout=int(os.getenv("REDIS_SOCKET_TIMEOUT", "3")),
                 retry_on_timeout=False,
                 health_check_interval=int(
