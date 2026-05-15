@@ -43,7 +43,6 @@ class CommandHandlers:
         self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
         self.bot.on(events.NewMessage(pattern=r"/appeal"))(self._handle_appeal)
         self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
-        self.bot.on(events.NewMessage(pattern=r"/otp"))(self._handle_otp)
         self.bot.on(events.NewMessage(pattern=r"/sessions"))(self._handle_sessions)
         self.bot.on(events.NewMessage(pattern=r"/export_session"))(self._handle_export_session)
         self.bot.on(events.NewMessage(pattern=r"/import_session"))(self._handle_import_session)
@@ -438,9 +437,6 @@ class CommandHandlers:
 
     async def _handle_remove(self, event):
         await event.reply("Use menu: Account Settings → Manage Account → Remove")
-
-    async def _handle_otp(self, event):
-        await event.reply("Use menu: OTP Manager")
 
     async def _handle_sessions(self, event):
         await event.reply("Use menu: Account Settings → Session Management")

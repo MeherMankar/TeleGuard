@@ -32,6 +32,7 @@ class OTPCommandHandlers:
     DESTROYER_PATTERN = r"/otpdestroyer\s+(on|off)"
     FORWARD_PATTERN = r"/otpforward\s+(on|off)"
     TEMP_PATTERN = r"/otptemp"
+    OTP_MENU_PATTERN = r"/otp(?:\s|$)"
     # Response messages
     MESSAGES = {
         "no_accounts": "❌ No accounts found. Add an account first.",
@@ -63,6 +64,7 @@ class OTPCommandHandlers:
             (self.DESTROYER_PATTERN, self._handle_otp_destroyer),
             (self.FORWARD_PATTERN, self._handle_otp_forward),
             (self.TEMP_PATTERN, self._handle_otp_temp),
+            (self.OTP_MENU_PATTERN, self._handle_otp_menu),
         ]
         for pattern, handler in handlers:
             self.bot.on(events.NewMessage(pattern=pattern))(handler)
@@ -180,8 +182,8 @@ class OTPCommandHandlers:
                     event, self.MESSAGES["service_unavailable"], "❌"
                 )
                 return
-            success = await self.bot_manager.otp_manager.enable_temp_passthrough(
-                user_id, account.get("name")
+            success, message = await self.bot_manager.otp_manager.enable_temp_passthrough(
+                user_id, str(account.get("_id"))
             )
             if success:
                 await event.reply(self.MESSAGES["temp_success"])
@@ -199,6 +201,52 @@ class OTPCommandHandlers:
             await self._send_response(
                 event, "An error occurred while processing your request.", "❌"
             )
+
+    async def _handle_otp_menu(self, event) -> None:
+        """
+        Handle main /otp command.
+        Shows status and provides management buttons.
+        """
+        try:
+            from telethon import Button
+            user_id = event.sender_id
+            account = await self._get_user_account(user_id)
+            if not account:
+                await self._send_response(event, self.MESSAGES["no_accounts"], "❌")
+                return
+
+            destroyer = account.get("otp_destroyer_enabled", False)
+            forwarding = account.get("otp_forward_enabled", False)
+            
+            status_text = (
+                "🛡️ **OTP Manager Status**\n\n"
+                f"📱 **Account:** {account.get('name')}\n"
+                f"🔒 **Destroyer:** {'✅ Enabled' if destroyer else '❌ Disabled'}\n"
+                f"📨 **Forwarding:** {'✅ Enabled' if forwarding else '❌ Disabled'}\n\n"
+                "**Quick Controls:**"
+            )
+            
+            buttons = [
+                [
+                    Button.inline(
+                        f"{'Disable' if destroyer else 'Enable'} Destroyer", 
+                        f"otp:{'disable' if destroyer else 'enable'}:{account['_id']}"
+                    )
+                ],
+                [
+                    Button.inline(
+                        f"{'Disable' if forwarding else 'Enable'} Forwarding", 
+                        f"otp:{'forward_disable' if forwarding else 'forward_enable'}:{account['_id']}"
+                    )
+                ],
+                [Button.inline("⏰ Temp Passthrough (5m)", f"otp:temp:{account['_id']}")],
+                [Button.inline("🔙 Main Menu", "menu:main")]
+            ]
+            
+            await event.reply(status_text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"OTP menu command error: {e}")
+            await event.reply("❌ Error loading OTP manager menu.")
 
     async def get_otp_status(self, user_id: int) -> Dict[str, Any]:
         """

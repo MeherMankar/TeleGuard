@@ -720,6 +720,11 @@ class DeviceSnooper:
                 else:
                     device_info["is_suspicious"] = False
                 devices.append(device_info)
+            # Run advanced security checks
+            from ..utils.security_monitor import security_monitor
+            await security_monitor.check_impossible_travel(user_id, devices)
+            await security_monitor.check_device_fingerprint(user_id, devices)
+
             # Store in database
             await self._store_device_data(user_id, devices)
             return {
