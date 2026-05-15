@@ -230,6 +230,9 @@ class DMReplyCommands:
         async def handle_dm_callbacks(event):
             data = event.data.decode("utf-8")
             user_id = event.sender_id
+            if data.startswith("dm_reply:"):
+                return
+                
             safe_data = ''.join(char if ord(char) < 128 else '?' for char in data)
             logger.info(f"DM callback handler triggered: {safe_data} from user {user_id}")
             

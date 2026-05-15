@@ -68,7 +68,7 @@ async def convert_pyrogram_to_telethon(session_string: str, api_id: int, api_has
             return None, f"Session data too short ({len(raw)} bytes), not a valid Pyrogram session"
 
         # Parse Pyrogram v1 format
-        version = raw[0]
+        _ = raw[0] # version
         dc_id = raw[1]
         auth_key = raw[2:258]
         # user_id is next 8 bytes (big-endian int64)

@@ -2,7 +2,9 @@
 """Callback router for handling different callback types"""
 import logging
 from typing import Callable, Dict
+from bson import ObjectId
 
+from ...core.mongo_database import mongodb
 from .callback_handlers import CallbackHandlers
 
 logger = logging.getLogger(__name__)
@@ -61,8 +63,6 @@ class CallbackRouter:
             "dev": self.handle_dev_callback,
             "appeal_account_id": self.handle_appeal_callback,
             "advanced_spam": self.handle_spam_master_callback,
-            "accept_spam_warning": self.handle_spam_master_callback,
-            "decline_spam_warning": self.handle_spam_master_callback,
             "contact": self.handle_contacts_callback,
             "sync": self.handle_contacts_callback,
             "group": self.handle_contacts_callback,
@@ -163,6 +163,8 @@ class CallbackRouter:
                 await self.menu._handle_contacts(event)
             elif menu_type == "cleanup":
                 await self.menu.handlers.handle_cleanup(event)
+            elif menu_type == "import":
+                await self.handle_session_import_callback(event, user_id, "import_sessions")
             elif menu_type == "main":
                 # Send main menu instead of calling non-existent handle_start
                 await self.menu.send_main_menu(user_id)
@@ -284,6 +286,13 @@ class CallbackRouter:
                     )
                 else:
                     await event.answer("❌ Cleanup not available")
+            elif action == "bulk_all":
+                if hasattr(self.menu, "cleanup_operations"):
+                    await self.menu.cleanup_operations.send_bulk_cleanup_selection(
+                        user_id, event.message_id
+                    )
+                else:
+                    await event.answer("❌ Cleanup not available")
             else:
                 await event.answer("❌ Unknown cleanup action")
 
@@ -315,9 +324,13 @@ class CallbackRouter:
     async def handle_spam_master_callback(self, event, user_id: int, data: str):
         """Handle spam master callbacks"""
         try:
-            # Spam master callbacks are handled by advanced_spam_handler
-            # Just acknowledge them here
-            await event.answer("✅ Processing...")
+            # Redirect to advanced spam handler menu
+            if hasattr(self.menu.account_manager, "advanced_spam_handler"):
+                await self.menu.account_manager.advanced_spam_handler._handle_spam_master_menu(
+                    event
+                )
+            else:
+                await event.answer("❌ SpamMaster not available", alert=True)
         except Exception as e:
             logger.error(f"Spam master callback error: {e}")
             await event.answer("❌ Error processing request")
@@ -478,9 +491,7 @@ class CallbackRouter:
                         "🔒 **Change Disable Password**\n\nReply with the new password.",
                     )
             elif action == "remove":
-                from bson import ObjectId
-
-                await self.menu.account_manager.db_manager.accounts.update_one(
+                await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
                     {"$unset": {"otp_destroyer_disable_auth": ""}},
                 )
@@ -489,9 +500,7 @@ class CallbackRouter:
                     user_id, account_id, event.message_id
                 )
             elif action == "status":
-                from bson import ObjectId
-
-                account = await self.menu.account_manager.db_manager.accounts.find_one(
+                account = await mongodb.db.accounts.find_one(
                     {"_id": ObjectId(account_id)}
                 )
                 has_pwd = (

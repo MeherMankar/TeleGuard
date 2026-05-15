@@ -14,8 +14,8 @@ class MenuBuilders:
             [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
             [Button.text("👥 Contacts"), Button.text("🎯 SpamMaster")],
-            [Button.text("🧹 Cleanup"), Button.text("❓ Help")],
-            [Button.text("🆘 Support")],
+            [Button.text("🧹 Cleanup"), Button.text("🌐 Proxy Manager")],
+            [Button.text("❓ Help"), Button.text("🆘 Support")],
         ]
         if user_id in ADMIN_IDS:
             keyboard.append([Button.text("⚙️ Developer Panel")])

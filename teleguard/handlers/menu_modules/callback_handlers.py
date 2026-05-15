@@ -162,9 +162,47 @@ class CallbackHandlers:
                 await self._handle_otp_temp(event, user_id, account_id)
             elif action == "audit":
                 await self._show_audit_log(user_id, account_id, event.message_id)
+            elif action == "stats":
+                if hasattr(self.menu, "_show_otp_statistics"):
+                    await self.menu._show_otp_statistics(user_id, event.message_id)
+                else:
+                    await event.answer("📊 Statistics coming soon!", alert=True)
+            elif action == "enable_all":
+                await self._handle_otp_bulk_toggle(event, user_id, True)
+            elif action == "disable_all":
+                await self._handle_otp_bulk_toggle(event, user_id, False)
+            elif action == "audit_all":
+                await event.answer("📋 Global audit logs coming soon!", alert=True)
         except Exception as e:
             logger.error(f"OTP callback error: {e}")
             await event.answer("❌ Error processing OTP request")
+
+    async def _handle_otp_bulk_toggle(self, event, user_id, enabled):
+        """Handle bulk OTP toggle for all accounts"""
+        try:
+            from ...core.mongo_database import mongodb
+            
+            # Update all accounts for this user
+            if enabled:
+                # Enable Destroyer, Disable Forward (they are mutually exclusive in this bot's logic)
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False}}
+                )
+                await event.answer("🛡️ All accounts secured with OTP Destroyer!", alert=True)
+            else:
+                # Disable both
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$set": {"otp_destroyer_enabled": False, "otp_forward_enabled": False}}
+                )
+                await event.answer("❌ All OTP protections disabled.", alert=True)
+            
+            # Refresh the OTP manager menu
+            await self.menu.handlers.handle_otp_manager(event)
+        except Exception as e:
+            logger.error(f"Bulk OTP toggle error: {e}")
+            await event.answer("❌ Error performing bulk update")
 
     async def _handle_otp_toggle(self, event, user_id, account_id, action):
         """Handle OTP destroyer enable/disable"""

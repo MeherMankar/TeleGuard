@@ -926,6 +926,9 @@ class BotManager:
         from ..handlers.analytics_dashboard import AnalyticsDashboard
         self.analytics_dashboard = await self.component_manager.initialize_component("analytics_dashboard", AnalyticsDashboard, self)
 
+        from ..handlers.audit_handler import AuditHandler
+        self.audit_handler = await self.component_manager.initialize_component("audit_handler", AuditHandler, self)
+
         from ..handlers.backup_restore import BackupRestore
         self.backup_restore = await self.component_manager.initialize_component("backup_restore", BackupRestore, self)
 
@@ -1015,7 +1018,7 @@ class BotManager:
         from ..core.automation import AutomationEngine
 
         self.automation_engine = await self.component_manager.initialize_component(
-            "automation_engine", AutomationEngine, self.user_clients, None
+            "automation_engine", AutomationEngine, self.user_clients, self
         )
         # activity_simulator already initialized in _initialize_handlers; reuse it
         if self.spam_detector:
@@ -1044,6 +1047,22 @@ class BotManager:
 
         # Start periodic cleanup task
         asyncio.create_task(self._periodic_cleanup_task())
+
+        # Start online maker for accounts that have it enabled
+        if self.online_maker:
+            try:
+                await self.online_maker.setup_existing_online_makers()
+                logger.info("Existing online makers set up")
+            except Exception as e:
+                logger.warning(f"Failed to setup existing online makers: {e}")
+
+        # Start activity simulator for enabled accounts
+        if self.activity_simulator:
+            try:
+                await self.activity_simulator.start()
+                logger.info("Activity simulator started")
+            except Exception as e:
+                logger.warning(f"Activity simulator start failed: {e}")
 
     async def start_user_client(
         self, user_id: int, account_name: str, session_string: str

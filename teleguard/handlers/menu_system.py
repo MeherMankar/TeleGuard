@@ -243,7 +243,7 @@ class MenuSystem:
                     await self.handlers.handle_channels(event)
                 elif text in ["👥 Contacts", "Contacts"]:
                     await self._handle_contacts(event)
-                elif text in ["🎭 SpamMaster", "SpamMaster"]:
+                elif text in ["🎭 SpamMaster", "SpamMaster", "🎯 SpamMaster"]:
                     await self._handle_spam_master(event)
                 elif text in ["🧹 Cleanup", "Cleanup"]:
                     await self.handlers.handle_cleanup(event)
@@ -252,6 +252,7 @@ class MenuSystem:
                 elif text in ["🆘 Support", "Support"]:
                     await self.handlers.handle_support(event)
                 elif text in [
+                    "⚙️ Developer Panel",
                     "🔧 Developer Panel",
                     "🔧 Developer",
                     "Developer Panel",
@@ -280,7 +281,8 @@ class MenuSystem:
                 data = event.data.decode("utf-8")
                 
                 # Handle DM reply callbacks (handled by dm_reply_commands) - DON'T log or consume
-                if data.startswith("dm_"):
+                # But allow dm_reply: which is handled by our router
+                if data.startswith("dm_") and not data.startswith("dm_reply:"):
                     return  # Let dm_reply_commands handler process it
                 
                 logger.info(f"Callback: {data} from user {user_id}")
@@ -292,16 +294,16 @@ class MenuSystem:
 
                 # Handle session export callbacks
                 if data.startswith("session_type:"):
-                    await self._handle_session_type_callback(event, user_id, data)
+                    await self.router.handle_session_type_callback(event, user_id, data)
                     return
                 elif data.startswith("toggle_session:"):
-                    await self._handle_toggle_session_callback(event, user_id, data)
+                    await self.router.handle_toggle_session_callback(event, user_id, data)
                     return
                 elif data == "toggle_all_sessions":
-                    await self._handle_toggle_all_sessions_callback(event, user_id)
+                    await self.router.handle_toggle_all_sessions_callback(event, user_id)
                     return
                 elif data == "create_selected_sessions":
-                    await self._handle_create_selected_sessions_callback(event, user_id)
+                    await self.router.handle_create_selected_sessions_callback(event, user_id)
                     return
                 elif data == "export_sessions":
                     await self._handle_export_sessions_menu(event, user_id)
@@ -334,15 +336,19 @@ class MenuSystem:
 
     async def _handle_channels(self, event):
         """Handle Channels menu"""
-        await event.answer("Channel management - use main menu")
+        await self.handlers.handle_channels(event)
 
     async def _handle_contacts(self, event):
         """Handle Contacts menu"""
-        await event.reply("Contact management - use contact export from main menu")
+        if hasattr(self.account_manager, "contact_handler"):
+            await self.account_manager.contact_handler._show_main_menu(
+                event, event.sender_id
+            )
+        else:
+            await event.reply("Contact management - use /contacts command")
 
     async def _handle_spam_master(self, event):
         """Handle SpamMaster menu - redirect to advanced spam handler"""
-        event.sender_id
         try:
             # Redirect to advanced spam handler
             if hasattr(self.account_manager, "advanced_spam_handler"):
@@ -354,6 +360,28 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"Failed to handle SpamMaster menu: {e}")
             await event.reply("❌ Error loading SpamMaster menu")
+
+    async def _handle_proxy_menu(self, event):
+        """Handle Proxy Manager menu"""
+        try:
+            if hasattr(self, "proxy_handler"):
+                await self.proxy_handler._show_proxy_menu(event, event.sender_id)
+            else:
+                await event.reply("❌ Proxy Manager not available")
+        except Exception as e:
+            logger.error(f"Failed to handle Proxy menu: {e}")
+            await event.reply("❌ Error loading Proxy menu")
+
+    async def _handle_export_sessions_menu(self, event, user_id):
+        """Handle export sessions menu"""
+        try:
+            if hasattr(self.account_manager, "session_export_handler"):
+                await self.account_manager.session_export_handler._show_export_menu(event)
+            else:
+                await event.answer("❌ Session export unavailable", alert=True)
+        except Exception as e:
+            logger.error(f"Export sessions menu error: {e}")
+            await event.answer("❌ Error loading export menu", alert=True)
 
     async def _handle_cleanup(self, event):
         """Handle Cleanup menu"""
