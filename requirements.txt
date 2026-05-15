@@ -10,6 +10,7 @@ APScheduler==3.11.0
 requests>=2.32.3
 redis>=5.2.0
 psutil>=6.1.0
+bcrypt==4.2.0
 
 # Proxy support
 pysocks>=1.7.1
