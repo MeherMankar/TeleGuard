@@ -145,7 +145,7 @@ class ScheduledMessaging:
 
             client = self.user_clients.get(user_id, {}).get(account_name)
             if not client:
-                logger.error(f"Client not found for scheduled message")
+                logger.error("Client not found for scheduled message")
                 return
 
             await client.send_message(recipient, message)

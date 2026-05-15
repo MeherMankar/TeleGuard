@@ -120,7 +120,7 @@ class CleanupOperations:
                         len(active_accounts)}\n🧹 Cleaning: {display_name}\n⏳ Please wait..."
                 )
 
-                result = await cleaner.cleanup_account(client, cleanup_settings, None)
+                await cleaner.cleanup_account(client, cleanup_settings, None)
                 results.append(f"✅ {display_name}: Completed")
 
                 # Log cleanup

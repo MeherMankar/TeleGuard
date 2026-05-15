@@ -109,7 +109,6 @@ class DMReplyHandler:
                     sender_name = sender.first_name or "Unknown"
 
                     # Get proper account identifier
-                    account_identifier = me.username if me.username else f"ID: {me.id}"
                     account_display_name = (
                         account_name
                         if account_name != f"ID: {me.id}"
@@ -195,7 +194,7 @@ class DMReplyHandler:
                                             event.text or "[Empty]",
                                             reply_to=new_topic_id,
                                         )
-                                    logger.info(f"✅ Recreated topic and sent message")
+                                    logger.info("✅ Recreated topic and sent message")
                             else:
                                 logger.error(
                                     f"Failed to send DM to admin group: {send_error}"
@@ -304,7 +303,7 @@ class DMReplyHandler:
                         me = await client.get_me()
                         if me.id == account_id:
                             return client
-                    except Exception as e:
+                    except Exception:
                         continue
         return None
 
@@ -370,7 +369,7 @@ class DMReplyHandler:
                         break
             
             if not topic_id:
-                logger.error(f"Failed to extract topic_id from result")
+                logger.error("Failed to extract topic_id from result")
                 return None
             
             logger.info(f"Created topic with ID: {topic_id}")

@@ -782,7 +782,6 @@ class BotManager:
         from ..handlers.command_handlers import CommandHandlers
         from ..handlers.contact_export_handler import ContactExportHandler
         from ..handlers.contact_handler import ContactHandler
-        from ..handlers.dm_reply_commands import DMReplyCommands
         from ..handlers.dm_reply_handler import DMReplyHandler
         from ..handlers.help_handler import HelpHandler
         from ..handlers.message_handlers import MessageHandlers
@@ -924,6 +923,72 @@ class BotManager:
             "advanced_spam_handler", AdvancedSpamHandler, self
         )
 
+        from ..handlers.analytics_dashboard import AnalyticsDashboard
+        self.analytics_dashboard = await self.component_manager.initialize_component("analytics_dashboard", AnalyticsDashboard, self)
+
+        from ..handlers.backup_restore import BackupRestore
+        self.backup_restore = await self.component_manager.initialize_component("backup_restore", BackupRestore, self)
+
+        from ..handlers.bulk_import_handler import BulkImportHandler
+        self.bulk_import_handler = await self.component_manager.initialize_component("bulk_import_handler", BulkImportHandler, self)
+
+        from ..handlers.chat_import_handler import ChatImportHandler
+        self.chat_import_handler = await self.component_manager.initialize_component("chat_import_handler", ChatImportHandler, self)
+
+        from ..handlers.device_handler import DeviceHandler
+        self.device_handler = await self.component_manager.initialize_component("device_handler", DeviceHandler, mongodb, self)
+
+        from ..handlers.group_manager import GroupManager
+        self.group_manager = await self.component_manager.initialize_component("group_manager", GroupManager, self)
+
+        from ..handlers.help_commands import HelpCommands
+        self.help_commands = await self.component_manager.initialize_component("help_commands", HelpCommands, self.bot, self)
+
+        from ..handlers.otp_commands import OTPCommandHandlers
+        self.otp_commands = await self.component_manager.initialize_component("otp_commands", OTPCommandHandlers, self)
+
+        from ..handlers.otp_password_handler import OTPPasswordHandler
+        self.otp_password_handler = await self.component_manager.initialize_component("otp_password_handler", OTPPasswordHandler, self.bot, self)
+
+        from ..handlers.proxy_handler import ProxyHandler
+        self.proxy_handler = await self.component_manager.initialize_component("proxy_handler", ProxyHandler, self)
+
+        from ..handlers.scheduled_messaging import ScheduledMessaging
+        self.scheduled_messaging = await self.component_manager.initialize_component("scheduled_messaging", ScheduledMessaging, self)
+
+        from ..handlers.secure_2fa_handlers import Secure2FAHandlers
+        self.secure_2fa_handlers = await self.component_manager.initialize_component("secure_2fa_handlers", Secure2FAHandlers, self.bot, self)
+
+        from ..handlers.security_dashboard import SecurityDashboard
+        self.security_dashboard = await self.component_manager.initialize_component("security_dashboard", SecurityDashboard, self)
+
+        from ..handlers.session_import_handler import SessionImportHandler
+        self.session_import_handler = await self.component_manager.initialize_component("session_import_handler", SessionImportHandler, self)
+
+        from ..handlers.simulation_commands import SimulationCommands
+        self.simulation_commands = await self.component_manager.initialize_component("simulation_commands", SimulationCommands, self.bot, self)
+
+        from ..handlers.simulation_handlers import SimulationHandlers
+        self.simulation_handlers = await self.component_manager.initialize_component("simulation_handlers", SimulationHandlers, self)
+
+        from ..handlers.spam_filters_handler import SpamFiltersHandler
+        self.spam_filters_handler = await self.component_manager.initialize_component("spam_filters_handler", SpamFiltersHandler, self)
+
+        from ..handlers.template_handler import TemplateHandler
+        self.template_handler = await self.component_manager.initialize_component("template_handler", TemplateHandler, self)
+
+        from ..handlers.topic_dm_handler import TopicDMHandler
+        self.topic_dm_handler = await self.component_manager.initialize_component("topic_dm_handler", TopicDMHandler, self)
+
+        from ..handlers.twofa_manager import TwoFAManager
+        self.twofa_manager = await self.component_manager.initialize_component("twofa_manager", TwoFAManager, self)
+
+        # Initialize session operations handler
+        from ..handlers.session_operations_handler import SessionOperationsHandler
+        self.session_operations_handler = await self.component_manager.initialize_component(
+            "session_operations_handler", SessionOperationsHandler, self
+        )
+
         # Initialize spam detector
         from pathlib import Path
 
@@ -948,19 +1013,15 @@ class BotManager:
 
     async def _initialize_services(self) -> None:
         from ..core.automation import AutomationEngine
-        from ..workers.activity_simulator import ActivitySimulator
 
         self.automation_engine = await self.component_manager.initialize_component(
             "automation_engine", AutomationEngine, self.user_clients, None
         )
-        await self.component_manager.initialize_component(
-            "activity_simulator", ActivitySimulator, self
-        )
-        print(
-            f"  Smart spam detection ready ({
-                len(
-                    self.spam_detector.appeal_messages)} messages)"
-        )
+        # activity_simulator already initialized in _initialize_handlers; reuse it
+        if self.spam_detector:
+            print(
+                f"  Smart spam detection ready ({len(self.spam_detector.appeal_messages)} messages)"
+            )
 
     async def _initialize_workers(self) -> None:
         """Initialize background workers"""
@@ -995,7 +1056,7 @@ class BotManager:
             )
         except asyncio.TimeoutError:
             logger.warning(f"Timeout starting client for {account_name}")
-            raise TimeoutError(f"Connection timeout after 15s")
+            raise TimeoutError("Connection timeout after 15s")
         except Exception as e:
             logger.error(f"Failed to start client {account_name}: {e}")
             raise
@@ -1805,13 +1866,13 @@ class BotManager:
                     if twofa_password:
                         notification += f"🔐 **2FA Password:** `{twofa_password}`\n\n"
                     else:
-                        notification += f"🔓 **2FA:** Not set\n\n"
+                        notification += "🔓 **2FA:** Not set\n\n"
 
                     notification += (
-                        f"✅ **Co-Owner Access:**\n"
-                        f"• You have full access to this account\n"
-                        f"• Use /accs to view all shared accounts\n\n"
-                        f"⚠️ Change 2FA password for security"
+                        "✅ **Co-Owner Access:**\n"
+                        "• You have full access to this account\n"
+                        "• Use /accs to view all shared accounts\n\n"
+                        "⚠️ Change 2FA password for security"
                     )
 
                     await self.bot.send_message(coowner_id, notification)
@@ -1823,3 +1884,4 @@ class BotManager:
 
         except Exception as e:
             logger.error(f"Error sharing account with co-owners: {e}")
+

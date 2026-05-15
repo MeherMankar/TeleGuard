@@ -234,7 +234,7 @@ class MessageHandlers:
                     "❌ Invalid phone number. Please check the number and try again.\n\nMake sure to include the correct country code."
                 )
             elif "wait of" in error_msg and "seconds is required" in error_msg:
-                wait_match = re.search(r"wait of (\\d+) seconds", error_msg)
+                wait_match = re.search(r"wait of (\d+) seconds", error_msg)
                 if wait_match:
                     wait_seconds = int(wait_match.group(1))
                     wait_minutes = wait_seconds // 60
@@ -606,7 +606,7 @@ class MessageHandlers:
                     except (ValueError, ConnectionError) as e:
                         await event.reply(f"❌ Failed to update name: {e}")
                 else:
-                    await event.reply(f"❌ Could not connect to account")
+                    await event.reply("❌ Could not connect to account")
             else:
                 await event.reply("❌ Account not found")
         elif action == "change_username":
@@ -630,7 +630,7 @@ class MessageHandlers:
                     except (ValueError, ConnectionError) as e:
                         await event.reply(f"❌ Failed to update username: {e}")
                 else:
-                    await event.reply(f"❌ Could not connect to account")
+                    await event.reply("❌ Could not connect to account")
             else:
                 await event.reply("❌ Account not found")
         elif action == "change_bio":
@@ -649,11 +649,11 @@ class MessageHandlers:
                         await client(
                             functions.account.UpdateProfileRequest(about=message)
                         )
-                        await event.reply(f"✅ Bio updated successfully")
+                        await event.reply("✅ Bio updated successfully")
                     except (ValueError, ConnectionError) as e:
                         await event.reply(f"❌ Failed to update bio: {e}")
                 else:
-                    await event.reply(f"❌ Could not connect to account")
+                    await event.reply("❌ Could not connect to account")
             else:
                 await event.reply("❌ Account not found")
         self.pending_actions.pop(user_id, None)
@@ -1174,7 +1174,7 @@ class MessageHandlers:
             if hasattr(self.bot_manager, "menu_system") and hasattr(
                 self.bot_manager.menu_system, "cleanup_operations"
             ):
-                logger.info(f"Executing cleanup via menu_system.cleanup_operations")
+                logger.info("Executing cleanup via menu_system.cleanup_operations")
 
                 # Create a mock event object for execute_cleanup
                 class MockEvent:
@@ -1188,7 +1188,7 @@ class MessageHandlers:
                 await self.bot_manager.menu_system.cleanup_operations.execute_cleanup(
                     mock_event, user_id, account_id, selected_types
                 )
-                logger.info(f"Cleanup execution completed")
+                logger.info("Cleanup execution completed")
             else:
                 logger.error(
                     "Cleanup service not available - menu_system or cleanup_operations not found"
@@ -1331,7 +1331,7 @@ class MessageHandlers:
 
             # Try to sign in with 2FA password
             status_msg = await self.bot.send_message(
-                user_id, f"🔐 Authenticating with 2FA password..."
+                user_id, "🔐 Authenticating with 2FA password..."
             )
 
             try:
@@ -1383,9 +1383,9 @@ class MessageHandlers:
                     or "password" in error_msg.lower()
                 ):
                     await status_msg.edit(
-                        f"❌ **Incorrect 2FA Password**\n\n"
-                        f"The password you entered is incorrect.\n\n"
-                        f"Please try again by sending your correct 2FA password:"
+                        "❌ **Incorrect 2FA Password**\n\n"
+                        "The password you entered is incorrect.\n\n"
+                        "Please try again by sending your correct 2FA password:"
                     )
                     # Keep the pending action so user can try again
                     return
@@ -1758,7 +1758,7 @@ class MessageHandlers:
                 await event.reply("❌ Session login not available")
                 try:
                     os.remove(zip_path)
-                except:
+                except Exception:
                     pass
         except Exception as e:
             logger.error(f"Bulk import error: {e}")
@@ -1836,7 +1836,7 @@ class MessageHandlers:
                     try:
                         shutil.rmtree(temp_dir)
                         os.remove(zip_path)
-                    except:
+                    except Exception:
                         pass
                     
             except ImportError:

@@ -165,6 +165,16 @@ class MongoDB:
         user = await self.db.users.find_one({"telegram_id": telegram_id})
         return user
 
+    async def update_user(self, telegram_id: int, **kwargs):
+        """Update specific user fields without overwriting unspecified ones"""
+        if not kwargs:
+            return
+        await self.db.users.update_one(
+            {"telegram_id": telegram_id},
+            {"$set": kwargs},
+            upsert=False,
+        )
+
     # Account operations
     async def create_account(self, user_id: int, phone: str, **kwargs):
         """Create account"""

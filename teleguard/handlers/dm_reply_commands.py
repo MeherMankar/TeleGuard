@@ -44,7 +44,6 @@ class DMReplyCommands:
                 )
                 return
             
-            from telethon import Button
             buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_set:{acc.get('name')}")]
                       for acc in accounts]
             buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
@@ -76,7 +75,6 @@ class DMReplyCommands:
                 )
                 return
             
-            from telethon import Button
             buttons = [[Button.inline(f"📱 {acc.get('name', 'Unknown')}", f"dm_dis:{acc.get('name')}")]
                       for acc in accounts]
             buttons.append([Button.inline("❌ Cancel", "dm_cancel")])
@@ -102,7 +100,7 @@ class DMReplyCommands:
                     {"user_id": user_id, "is_active": True}
                 ).to_list(None)
 
-                msg = f"📊 **DM Reply Debug Info**\n\n"
+                msg = "📊 **DM Reply Debug Info**\n\n"
                 msg += f"**Active Accounts:** {len(accounts)}\n\n"
 
                 if accounts:
@@ -120,7 +118,7 @@ class DMReplyCommands:
                             msg += f"  Client: {'✅ Loaded' if client else '❌ Not loaded'}\n"
                             msg += f"  Connected: {'✅ Yes' if is_connected else '❌ No'}\n"
                         else:
-                            msg += f"  Client: ❌ Not loaded\n"
+                            msg += "  Client: ❌ Not loaded\n"
                         
                         # Check if handlers are set up
                         if hasattr(self.bot_manager, 'unified_messaging'):
@@ -145,7 +143,7 @@ class DMReplyCommands:
                             except Exception as e:
                                 msg += f"  Status: ❌ Cannot access group ({str(e)[:50]})\n"
                         else:
-                            msg += f"  Status: ❌ No DM group configured\n"
+                            msg += "  Status: ❌ No DM group configured\n"
                     msg += "\n"
                 else:
                     msg += "**No active accounts found.**\n\n"

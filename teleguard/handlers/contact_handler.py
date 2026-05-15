@@ -606,7 +606,7 @@ class ContactHandler:
         return self._format_one_way_sync(result)
 
     def _format_two_way_sync(self, result):
-        text = f"✅ **Two-way Sync Complete**\n\n"
+        text = "✅ **Two-way Sync Complete**\n\n"
         text += f"📥 From Telegram: {result['from_telegram']['added']} added, {result['from_telegram']['updated']} updated\n"
         text += f"📤 To Telegram: {result['to_telegram']['added']} added\n"
         if result["from_telegram"]["errors"] or result["to_telegram"]["errors"]:
@@ -614,7 +614,7 @@ class ContactHandler:
         return text
 
     def _format_one_way_sync(self, result):
-        text = f"✅ **Sync Complete**\n\n"
+        text = "✅ **Sync Complete**\n\n"
         if "added" in result:
             text += f"➕ Added: {result['added']}\n"
         if "updated" in result:
@@ -1029,7 +1029,6 @@ class ContactHandler:
 
     async def _process_export(self, event, user_id: int, account_idx: int):
         """Process contact export for selected account"""
-        from datetime import datetime
         from telethon.tl.functions.contacts import GetContactsRequest
         from telethon.tl.types import User
 

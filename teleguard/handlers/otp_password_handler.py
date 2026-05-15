@@ -233,9 +233,9 @@ class OTPPasswordHandler:
         self.password_states[user_id]["action"] = "change_new"
         self.password_states[user_id]["old_password"] = old_password
         await event.reply(
-            f"✅ Current password verified\n\n"
-            f"🔑 **Enter new password:**\n"
-            f"(Type /cancel to abort)"
+            "✅ Current password verified\n\n"
+            "🔑 **Enter new password:**\n"
+            "(Type /cancel to abort)"
         )
 
     async def _process_change_new_password(

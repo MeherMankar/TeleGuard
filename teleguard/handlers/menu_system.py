@@ -183,7 +183,7 @@ class MenuSystem:
                 text = f"📱 **Account Management**\n\n👤 You have {
                     len(accounts)} account(s):\n\n"
                 for i, account in enumerate(accounts, 1):
-                    status = "\u2705" if account.get("is_active", False) else "\u2705"
+                    status = "\u2705" if account.get("is_active", False) else "\u274c"
                     destroyer_status = (
                         "🛡️" if account.get("otp_destroyer_enabled", False) else "❌"
                     )
@@ -267,7 +267,7 @@ class MenuSystem:
                 logger.error(
                     f"Handler method not found for '{text}': {e}", exc_info=True
                 )
-                await event.reply(f"⚠️ Feature temporarily unavailable")
+                await event.reply("⚠️ Feature temporarily unavailable")
             except Exception as e:
                 logger.error(f"Menu handler error for '{text}': {e}", exc_info=True)
                 await event.reply("⚠️ Error processing menu action")
@@ -566,9 +566,9 @@ class MenuSystem:
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options)
                 + "\n\n"
-                f"\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
-                f"All selected chats and data will be permanently deleted.\n\n"
-                f"Are you absolutely sure you want to proceed?"
+                "\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
+                "All selected chats and data will be permanently deleted.\n\n"
+                "Are you absolutely sure you want to proceed?"
             )
 
             buttons = [
@@ -709,9 +709,9 @@ class MenuSystem:
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options)
                 + "\n\n"
-                f"\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
-                f"All selected chats and data will be permanently deleted.\n\n"
-                f"Are you absolutely sure you want to proceed?"
+                "\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
+                "All selected chats and data will be permanently deleted.\n\n"
+                "Are you absolutely sure you want to proceed?"
             )
 
             buttons = [
@@ -808,9 +808,9 @@ class MenuSystem:
                 f"**Selected cleanup actions:**\n"
                 + "\n".join(selected_options)
                 + "\n\n"
-                f"\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
-                f"All selected chats and data will be permanently deleted.\n\n"
-                f"Are you absolutely sure you want to proceed?"
+                "\ud83d\udd19 **FINAL WARNING**: This action cannot be undone!\n"
+                "All selected chats and data will be permanently deleted.\n\n"
+                "Are you absolutely sure you want to proceed?"
             )
 
             buttons = [
@@ -1018,7 +1018,7 @@ class MenuSystem:
                 await self._handle_otp_setting_callback(
                     event, user_id, "otp_setting:destroyer"
                 )
-            except Exception as e:
+            except Exception:
                 await event.answer("⚠️ Error enabling OTP Destroyer")
         elif action == "disable":
             try:
@@ -1034,7 +1034,7 @@ class MenuSystem:
                 await self._handle_otp_setting_callback(
                     event, user_id, "otp_setting:destroyer"
                 )
-            except Exception as e:
+            except Exception:
                 await event.answer("⚠️ Error disabling OTP Destroyer")
         elif action == "forward_enable":
             try:
@@ -1058,7 +1058,7 @@ class MenuSystem:
                 await self._handle_otp_setting_callback(
                     event, user_id, "otp_setting:forward"
                 )
-            except Exception as e:
+            except Exception:
                 await event.answer("⚠️ Error enabling OTP Forward")
         elif action == "forward_disable":
             try:
@@ -1074,7 +1074,7 @@ class MenuSystem:
                 await self._handle_otp_setting_callback(
                     event, user_id, "otp_setting:forward"
                 )
-            except Exception as e:
+            except Exception:
                 await event.answer("⚠️ Error disabling OTP Forward")
         elif action == "temp":
             try:
@@ -1454,7 +1454,7 @@ class MenuSystem:
                 text = "\ud83d\udd19 **Profile Manager**\n\nSelect an account to manage profile:"
                 buttons = []
                 for account in accounts:
-                    status = "\u2705" if account.get("is_active", False) else "\u2705"
+                    status = "\u2705" if account.get("is_active", False) else "\u274c"
                     username_display = (
                         f"@{account.get('username', '')}"
                         if account.get("username")
@@ -1665,7 +1665,7 @@ class MenuSystem:
                     await self.send_account_management(
                         user_id, account_id, event.message_id
                     )
-            except Exception as e:
+            except Exception:
                 await event.answer("❌ Error toggling online maker")
 
     async def _handle_automation_callback(self, event, user_id: int, data: str):
@@ -1697,9 +1697,9 @@ class MenuSystem:
     async def _send_sessions_list(self, user_id: int, account_id: str, message_id: int):
         """Send active sessions list"""
         text = (
-            f"🔐 **Active Sessions**\n\n"
-            f"Loading session information...\n\n"
-            f"This will show all active login sessions for the account."
+            "🔐 **Active Sessions**\n\n"
+            "Loading session information...\n\n"
+            "This will show all active login sessions for the account."
         )
         buttons = [[Button.inline("\ud83d\udd19 Back", f"account:manage:{account_id}")]]
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
@@ -1738,12 +1738,12 @@ class MenuSystem:
     ):
         """Send automation management for account"""
         text = (
-            f"\u274c **Automation Management**\n\n"
-            f"Configure automation rules and jobs.\n\n"
-            f"Available options:"
-            f"• Online maker\n"
-            f"• Auto-reply rules\n"
-            f"• Scheduled actions"
+            "\u274c **Automation Management**\n\n"
+            "Configure automation rules and jobs.\n\n"
+            "Available options:"
+            "• Online maker\n"
+            "• Auto-reply rules\n"
+            "• Scheduled actions"
         )
         buttons = [
             [Button.inline("\ud83d\udd19 Online Maker", f"online:toggle:{account_id}")],
@@ -2269,7 +2269,7 @@ class MenuSystem:
             )
             buttons = []
             for account in accounts:
-                status = "\u2705" if account.get("is_active", False) else "\u2705"
+                status = "\u2705" if account.get("is_active", False) else "\u274c"
                 button_text = f"{status} {account['name']}"
                 buttons.append(
                     [Button.inline(button_text, f"bulk_list_account:{account['_id']}")]
@@ -2307,7 +2307,7 @@ class MenuSystem:
             )
             buttons = []
             for account in accounts:
-                status = "\u2705" if account.get("is_active", False) else "\u2705"
+                status = "\u2705" if account.get("is_active", False) else "\u274c"
                 button_text = f"{status} {account['name']}"
                 buttons.append(
                     [
@@ -2682,7 +2682,7 @@ class MenuSystem:
     async def _handle_channels_pagination(self, event, user_id: int, data: str):
         """Handle channels pagination callbacks"""
         parts = data.split(":")
-        action = parts[1]  # prev or next
+        parts[1]  # prev or next
         account_phone = parts[2]
         page = int(parts[3])
         (
@@ -2761,7 +2761,7 @@ class MenuSystem:
                 text = "✨ **Fresh Sessions**\n\nSelect account to create fresh session for:"
                 buttons = []
                 for account in accounts:
-                    status = "\u2705" if account.get("is_active", False) else "\u2705"
+                    status = "\u2705" if account.get("is_active", False) else "\u274c"
                     display_name = self.format_display_name(account)
                     buttons.append(
                         [
@@ -3070,7 +3070,7 @@ class MenuSystem:
 
             # Test the provided session string
             test_session = StringSession(session_string)
-            temp_client = TelegramClient(
+            TelegramClient(
                 test_session, config.telegram.api_id, config.telegram.api_hash
             )
 
@@ -3917,7 +3917,7 @@ class MenuSystem:
             )
             buttons = []
             for account in accounts:
-                status = "\u2705" if account.get("is_active", False) else "\u2705"
+                status = "\u2705" if account.get("is_active", False) else "\u274c"
                 display_name = format_display_name(account)
                 buttons.append(
                     [

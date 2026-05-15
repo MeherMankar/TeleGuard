@@ -134,7 +134,7 @@ class TemplateHandler:
         text = f"📁 **{category} Templates** ({len(templates)} templates)\n\n"
         buttons = []
         for template in templates[:10]:  # Limit to 10 for UI
-            preview = (
+            (
                 template["content"][:30] + "..."
                 if len(template["content"]) > 30
                 else template["content"]
@@ -161,10 +161,10 @@ class TemplateHandler:
         text += f"**Category:** {template.get('category', 'General')}\n"
         text += f"**Content:** {template['content'][:100]}{'...' if len(template['content']) > 100 else ''}\n"
         if template.get("media_url"):
-            text += f"**Media:** Yes\n"
+            text += "**Media:** Yes\n"
         if template.get("buttons"):
             text += f"**Buttons:** {len(template['buttons'])} buttons\n"
-        text += f"\n**Variables:** {{name}}, {{username}}, {{time}}, {{date}}"
+        text += "\n**Variables:** {name}, {username}, {time}, {date}"
         buttons = [
             [Button.inline("🚀 Use Template", f"template:use:{template_id}")],
             [Button.inline("🗑️ Delete", f"template:delete:{template_id}")],
@@ -307,7 +307,7 @@ class TemplateHandler:
                     )
                     return
             try:
-                template_id = await self.messaging_manager.create_template(
+                await self.messaging_manager.create_template(
                     user_id=user_id,
                     name=action["name"],
                     content=action["content"],
@@ -379,7 +379,7 @@ class TemplateHandler:
                     )
                     return
             try:
-                template_id = await self.messaging_manager.create_template(
+                await self.messaging_manager.create_template(
                     user_id=user_id,
                     name=action["name"],
                     content=action["content"],
@@ -441,7 +441,7 @@ class TemplateHandler:
         text = f"📝 **Select Template** ({len(templates)} available)\n\n"
         buttons = []
         for template in templates[:10]:  # Limit to 10
-            preview = (
+            (
                 template["content"][:30] + "..."
                 if len(template["content"]) > 30
                 else template["content"]

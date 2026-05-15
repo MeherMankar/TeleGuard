@@ -110,7 +110,7 @@ class SessionLoginHandler:
             # Force format type to ensure it's correct
             if format_type not in ["string", "file"]:
                 format_type = "string"
-                logger.warning(f"Invalid format type detected, defaulting to 'string'")
+                logger.warning("Invalid format type detected, defaulting to 'string'")
             await self._execute_session_creation(event, user_id, phone, format_type)
 
         @self.bot.on(events.CallbackQuery(pattern=r"^login_session_file$"))
@@ -891,7 +891,7 @@ class SessionLoginHandler:
                             # Map unusual DC IDs to valid ones
                             if dc_id not in [1, 2, 3, 4, 5]:
                                 dc_id = 5  # Default to DC5
-                                logger.info(f"Mapped unusual DC ID to DC5")
+                                logger.info("Mapped unusual DC ID to DC5")
 
                             logger.info(f"Detected Pyrogram session with DC {dc_id}")
 
@@ -1549,7 +1549,7 @@ class SessionLoginHandler:
         """Show dialog deletion options"""
         try:
             text = (
-                f"🗑️ **Delete Dialogs**\n\n"
+                "🗑️ **Delete Dialogs**\n\n"
                 "Choose what to delete:\n\n"
                 "**⚠️ Warning:** This action cannot be undone!\n\n"
                 "Select dialog type to delete:"
@@ -2776,9 +2776,9 @@ class SessionLoginHandler:
             return session_str
         if error in ["stored_password_invalid", "no_stored_password"]:
             self.pending_auth[user_id] = {"client": client, "phone": phone, "phone_code_hash": phone_code_hash, "destroyer_was_enabled": destroyer_was_enabled, "account": account, "action": "session_creation_2fa", "format_type": format_type}
-            msg = f"🔐 **2FA Password Required**\\n\\n"
-            msg += f"Your stored 2FA password is incorrect (changed externally).\\n\\n" if error == "stored_password_invalid" else f"This account has 2FA enabled.\\n\\n"
-            msg += f"Please send your 2FA password to continue:"
+            msg = "🔐 **2FA Password Required**\\n\\n"
+            msg += "Your stored 2FA password is incorrect (changed externally).\\n\\n" if error == "stored_password_invalid" else "This account has 2FA enabled.\\n\\n"
+            msg += "Please send your 2FA password to continue:"
             await event.edit(msg)
             self.bot_manager.pending_actions[user_id] = {"action": "session_creation_2fa_password", "phone": phone, "format_type": format_type}
             return None
@@ -2792,7 +2792,8 @@ class SessionLoginHandler:
         if format_type != "file":
             return None
         try:
-            import tempfile, time
+            import tempfile
+            import time
             temp_name = f"session_{phone.replace('+', '')}_{int(time.time())}"
             temp_path = os.path.join(tempfile.gettempdir(), temp_name)
             logger.info(f"Creating session file at: {temp_path}.session")
@@ -2830,7 +2831,7 @@ class SessionLoginHandler:
             await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$unset": {"session_creation_in_progress": ""}, "$set": {"otp_destroyer_enabled": destroyer_was_enabled}})
             await mongodb.db.otp_protections.delete_many({"phone": account.get("phone"), "wildcard": True})
             self.bot_manager.pending_actions.pop(user_id, None)
-            logger.info(f"OTP Destroyer re-enabled after session creation")
+            logger.info("OTP Destroyer re-enabled after session creation")
 
     async def _send_session_result(self, event, user_id, phone, format_type, session_string, session_file_data):
         logger.info(f"Session creation completed. Format: {format_type}, File data exists: {session_file_data is not None}")

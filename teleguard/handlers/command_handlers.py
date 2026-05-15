@@ -160,7 +160,7 @@ class CommandHandlers:
                     logger.error(f"Failed to reconnect {account_name}: {e}")
             msg = f"✅ Reconnected {success}/{len(accounts)} accounts."
             if failed:
-                msg += f"\n\n❌ Failed:\n" + "\n".join(f"• {f}" for f in failed[:5])
+                msg += "\n\n❌ Failed:\n" + "\n".join(f"• {f}" for f in failed[:5])
             await event.reply(msg)
         except Exception as e:
             await event.reply(f"❌ Reconnection failed: {str(e)}")
@@ -289,7 +289,7 @@ class CommandHandlers:
                 stats["dm_topics_created"] = topic_count
             except Exception:
                 pass
-            text = f"📊 **Messaging Statistics**\n\n"
+            text = "📊 **Messaging Statistics**\n\n"
             text += f"📱 Active Accounts: {stats['active_accounts']}\n"
             text += f"📨 Messages Sent: {stats['total_messages_sent']}\n"
             text += f"🤖 Auto-Replies: {stats['auto_replies_sent']}\n"
@@ -324,7 +324,7 @@ class CommandHandlers:
     def _build_sim_stats_text(self, account_name, me, account, client):
         """Build SIM statistics text"""
         text = f"📊 **SIM Statistics - {account_name}**\n\n"
-        text += f"📱 **Account Info:**\n"
+        text += "📱 **Account Info:**\n"
         text += f"• Name: {me.first_name} {me.last_name or ''}\n"
         text += f"• Username: @{me.username or 'None'}\n"
         text += f"• Phone: {me.phone or 'Hidden'}\n"
@@ -337,16 +337,13 @@ class CommandHandlers:
     def _build_usage_stats(self, account, client):
         """Build usage statistics section"""
         try:
-            import asyncio
-            dialogs = asyncio.run(client.get_dialogs(limit=None))
-            stats = f"📈 **Usage Stats:**\n"
-            stats += f"• Total Chats: {len(dialogs)}\n"
+            stats = "📈 **Usage Stats:**\n"
             stats += f"• Online Status: {'Online' if account.get('online_maker_enabled') else 'Offline'}\n"
             stats += f"• Auto-Reply: {'Enabled' if account.get('auto_reply_enabled') else 'Disabled'}\n"
             stats += f"• OTP Destroyer: {'Enabled' if account.get('otp_destroyer_enabled') else 'Disabled'}\n"
             return stats
         except Exception:
-            return f"📈 **Usage Stats:** Unable to load\n"
+            return "📈 **Usage Stats:** Unable to load\n"
 
     async def _handle_export_contacts(self, event):
         user_id = event.sender_id
@@ -399,7 +396,8 @@ class CommandHandlers:
 
     def _generate_csv(self, contacts):
         """Generate CSV data from contacts"""
-        import csv, io
+        import csv
+        import io
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=["ID", "First Name", "Last Name", "Username", "Phone", "Account"])
         writer.writeheader()
@@ -454,7 +452,13 @@ class CommandHandlers:
         await event.reply("Use menu: Account Settings → Import Session")
 
     async def _handle_dm(self, event):
-        return
+        await event.reply(
+            "💬 **Direct Message**\n\n"
+            "Use the menu to manage DM forwarding:\n"
+            "• **Messaging → DM Reply** — configure auto-reply for DMs\n"
+            "• **Messaging → DM Topics** — view DM topic mappings\n\n"
+            "Or use /reply to configure auto-reply settings."
+        )
 
     async def _handle_reply(self, event):
         await event.reply("Use menu: Messaging → Auto-Reply")

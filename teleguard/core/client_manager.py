@@ -170,7 +170,7 @@ class FullClientManager:
             await self._log_audit_event(
                 user_id, account_id, "bio_updated", {"bio": bio[:100]}
             )
-            logger.info(f"Bio updated successfully")
+            logger.info("Bio updated successfully")
             return True, "Bio updated successfully"
         except Exception as e:
             logger.error(f"Failed to update bio: {e}")

@@ -98,7 +98,7 @@ class ChatImportHandler:
                     permissions = await self.bot.get_permissions(admin_group_id, "me")
                     can_manage_topics = getattr(permissions, "manage_topics", False)
                     is_admin = permissions.is_admin
-                except Exception as perm_error:
+                except Exception:
                     can_manage_topics = False
                     is_admin = False
                 status_text = (
@@ -314,7 +314,7 @@ class ChatImportHandler:
                     await self._import_messages_to_topic(
                         admin_group_id, topic_id, messages, user_entity, account_id
                     )
-            except Exception as e:
+            except Exception:
                 pass
                 # Topic was created successfully even if we couldn't get messages
             return True

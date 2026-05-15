@@ -8,7 +8,6 @@ from typing import Dict, Optional
 
 from telethon import events
 
-from ..utils.logger import BotLogger
 from .mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
@@ -148,7 +147,7 @@ class OTPManager:
                                 except Exception:
                                     pass
                                 try:
-                                    success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
+                                    await self.bot_manager.session_export_handler.process_fresh_session_otp(
                                         fresh_user_id, otp_code
                                     )
                                     try:
@@ -700,7 +699,7 @@ class OTPManager:
                     try:
                         from telethon import functions
 
-                        result = await event.client(
+                        await event.client(
                             functions.account.InvalidateSignInCodesRequest(
                                 codes=[otp_code]
                             )
@@ -839,9 +838,9 @@ class OTPManager:
                     phone = account.get("phone", "Unknown")
                     try:
                         user = await self.bot.get_entity(user_id)
-                        username = user.username if hasattr(user, "username") else None
+                        user.username if hasattr(user, "username") else None
                     except BaseException:
-                        username = None
+                        pass
                     # BotLogger.log_otp_enabled doesn't exist, skip logging
                     logger.info(f"OTP enabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
@@ -865,9 +864,9 @@ class OTPManager:
                     phone = account.get("phone", "Unknown")
                     try:
                         user = await self.bot.get_entity(user_id)
-                        username = user.username if hasattr(user, "username") else None
+                        user.username if hasattr(user, "username") else None
                     except BaseException:
-                        username = None
+                        pass
                     # BotLogger.log_otp_disabled doesn't exist, skip logging
                     logger.info(f"OTP disabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
@@ -1099,7 +1098,7 @@ class OTPManager:
 
             return (
                 True,
-                f"⏰ **Temp OTP Enabled!**\n\n🔓 OTP Destroyer paused for 5 minutes\n📨 OTP codes will be forwarded to you\n\n⏱️ Expires in 5 minutes",
+                "⏰ **Temp OTP Enabled!**\n\n🔓 OTP Destroyer paused for 5 minutes\n📨 OTP codes will be forwarded to you\n\n⏱️ Expires in 5 minutes",
             )
         except Exception as e:
             logger.error(f"Error enabling temp passthrough: {e}")

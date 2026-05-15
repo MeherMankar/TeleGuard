@@ -370,7 +370,7 @@ class SessionImportHandler:
                         else:
                             failed.append((filename, message))
 
-                result_text = f"✅ **Bulk Import Complete**\n\n"
+                result_text = "✅ **Bulk Import Complete**\n\n"
                 result_text += f"✅ **Imported:** {len(imported)} sessions\n"
 
                 if imported:

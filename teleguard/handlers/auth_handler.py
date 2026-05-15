@@ -490,15 +490,15 @@ class AuthManager:
                             if error == "stored_password_invalid":
                                 await self.bot_manager.bot.send_message(
                                     user_id,
-                                    f"🔐 **Two-factor authentication required.**\n\n"
-                                    f"⚠️ Your stored 2FA password is incorrect (changed externally).\n\n"
-                                    f"Reply with your current 2FA password.",
+                                    "🔐 **Two-factor authentication required.**\n\n"
+                                    "⚠️ Your stored 2FA password is incorrect (changed externally).\n\n"
+                                    "Reply with your current 2FA password.",
                                 )
                             else:
                                 await self.bot_manager.bot.send_message(
                                     user_id,
-                                    f"🔐 **Two-factor authentication required.**\n\n"
-                                    f"Reply with your 2FA password.",
+                                    "🔐 **Two-factor authentication required.**\n\n"
+                                    "Reply with your 2FA password.",
                                 )
 
                     # 2FA required - keep client alive and pending auth

@@ -135,7 +135,7 @@ class DatabaseManager:
 
     async def update_user(self, telegram_id: int, **kwargs):
         """Update user in MongoDB and invalidate cache"""
-        await self.mongo.create_user(telegram_id, **kwargs)
+        await self.mongo.update_user(telegram_id, **kwargs)
         await self.redis.invalidate_user_cache(telegram_id)
 
         # Trigger auto backup

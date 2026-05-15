@@ -26,6 +26,10 @@ import signal
 import sys
 import time
 import traceback
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import NoReturn
+from aiohttp import web
 
 # Ensure stdout/stderr use UTF-8 on Windows so logging can emit emojis
 try:
@@ -58,10 +62,6 @@ def _safe_streamhandler_emit(self, record):
                 pass
 
 logging.StreamHandler.emit = _safe_streamhandler_emit
-from pathlib import Path
-from typing import NoReturn
-
-from aiohttp import web
 
 try:
     from teleguard import AccountManager
@@ -82,7 +82,6 @@ log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
 
 # Enhanced logging setup with rotation and structured format
-from logging.handlers import RotatingFileHandler
 
 # Create formatters
 detailed_formatter = logging.Formatter(
@@ -107,23 +106,17 @@ file_handler = RotatingFileHandler(
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(detailed_formatter)
 
-# Safe console handler that removes problematic Unicode characters
+# Safe console handler that handles Unicode on Windows cp1252 consoles
 class SafeConsoleHandler(logging.StreamHandler):
-    """Console handler that safely handles Unicode characters"""
+    """Console handler that safely handles Unicode characters on Windows"""
     def emit(self, record):
         try:
             msg = self.format(record)
-            # Only remove problematic characters on Windows, keep basic emojis
-            if sys.platform == 'win32':
-                # Keep common emojis and symbols, remove only problematic Unicode
-                safe_chars = set('✅❌⚠️🔴🟡🟢🔵⭐🚀🔧🐛💡📊🎯')
-                msg = ''.join(
-                    char if ord(char) < 128 or char in safe_chars else '?'
-                    for char in msg
-                )
-            
             stream = self.stream
-            stream.write(msg + self.terminator)
+            encoding = getattr(stream, 'encoding', 'utf-8') or 'utf-8'
+            # Encode with 'replace' so unmappable chars become '?' instead of crashing
+            safe_msg = msg.encode(encoding, errors='replace').decode(encoding, errors='replace')
+            stream.write(safe_msg + self.terminator)
             self.flush()
         except Exception:
             self.handleError(record)
@@ -398,7 +391,7 @@ async def main() -> None:
         
         # Start web server
         logger.info("🌐 Starting health check web server...")
-        web_runner = await start_web_server()
+        await start_web_server()
         logger.info("✅ Web server started successfully")
         
         # Initialize Koyeb optimization
@@ -412,7 +405,9 @@ async def main() -> None:
         from teleguard.core.session_guardian import init_guardian
         from teleguard.utils.guardian_config import load_guardian_config
         guardian_config = load_guardian_config()
-        init_guardian(guardian_config)
+        g = init_guardian(guardian_config)
+        # Start IP monitoring background task (requires running event loop)
+        await g.start_monitoring()
         logger.info("✅ Session guardian with IP monitoring active")
 
         print("\n" + "="*50)
@@ -492,7 +487,7 @@ async def main() -> None:
         
         try:
             await BotLogger.log_error("Fatal Error", str(e), context=f"main.py after {total_runtime:.2f}s")
-        except:
+        except Exception:
             pass
 
         try:

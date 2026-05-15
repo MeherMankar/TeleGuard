@@ -4,7 +4,7 @@ Eliminates code duplication across handlers
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 from ..core.mongo_database import mongodb
 from ..utils.account_cache import account_cache

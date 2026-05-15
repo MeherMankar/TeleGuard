@@ -182,7 +182,23 @@ class SessionGuardian:
         # Setup logging
         self._setup_logging()
 
-        # IP monitoring will be started separately
+        # IP monitoring will be started via start_monitoring() from an async context
+
+    async def start_monitoring(self):
+        """Start background monitoring tasks (call from async context)"""
+        asyncio.create_task(self._start_ip_monitoring())
+
+    async def _start_ip_monitoring(self):
+        """Start continuous IP monitoring"""
+        logger.info("Starting IP monitoring service")
+
+        while not self.is_shutdown:
+            try:
+                await self.check_ip_change()
+                await asyncio.sleep(60)  # Check every minute
+            except Exception as e:
+                logger.error(f"IP monitoring error: {e}")
+                await asyncio.sleep(300)  # Wait 5 minutes on error
 
     def _init_rate_limiters(self):
         """Initialize rate limiters for different operations"""
@@ -223,6 +239,7 @@ class SessionGuardian:
             log_dir / "session_guardian.log",
             maxBytes=10 * 1024 * 1024,  # 10MB
             backupCount=7,
+            encoding="utf-8",
         )
 
         formatter = logging.Formatter(
@@ -381,8 +398,8 @@ class SessionGuardian:
                 message += f"{status} {action['action']} -> {action['target']}\n"
 
             message += (
-                f"\n**⚠️ DO NOT auto-restart until manual recovery is complete.**\n"
-                f"Check logs for more details: `tail -f logs/session_guardian.log`"
+                "\n**⚠️ DO NOT auto-restart until manual recovery is complete.**\n"
+                "Check logs for more details: `tail -f logs/session_guardian.log`"
             )
 
             await self._send_alert(message)
@@ -618,10 +635,16 @@ class SessionGuardian:
         try:
             from ..core.bot_manager import bot_manager
 
-            if not bot_manager or not bot_manager.clients:
+            if not bot_manager or not bot_manager.user_clients:
                 return
 
-            client = next(iter(bot_manager.clients.values()))
+            # Flatten the nested {user_id: {name: client}} dict to get first client
+            client = next(
+                (c for clients in bot_manager.user_clients.values() for c in clients.values()),
+                None,
+            )
+            if not client:
+                return
 
             # Progressive operations with realistic delays
             activities = [
@@ -684,7 +707,7 @@ class SessionGuardian:
                 summary += f"• {action}: {count}\n"
 
             # Rate limiter status
-            summary += f"\n**🚦 Rate Limiter Status:**\n"
+            summary += "\n**🚦 Rate Limiter Status:**\n"
             for name, limiter in self.rate_limiters.items():
                 summary += (
                     f"• {name}: {limiter.tokens:.1f}/{limiter.max_tokens} tokens\n"
@@ -692,7 +715,7 @@ class SessionGuardian:
 
             # Enhanced IP monitoring status
             if self.config.get("ip_monitoring", {}).get("enabled", True):
-                summary += f"\n**🌐 Network Status:**\n"
+                summary += "\n**🌐 Network Status:**\n"
                 summary += f"• Current IP: {self.current_ip or 'Detecting...'}\n"
                 summary += f"• IP Changes: {self.ip_change_count}\n"
                 summary += f"• Stability: {
@@ -717,18 +740,6 @@ def init_guardian(config: Dict[str, Any]) -> SessionGuardian:
     global guardian
     guardian = SessionGuardian(config)
     return guardian
-
-    async def _start_ip_monitoring(self):
-        """Start continuous IP monitoring"""
-        logger.info("Starting IP monitoring service")
-
-        while not self.is_shutdown:
-            try:
-                await self.check_ip_change()
-                await asyncio.sleep(60)  # Check every minute
-            except Exception as e:
-                logger.error(f"IP monitoring error: {e}")
-                await asyncio.sleep(300)  # Wait 5 minutes on error
 
 
 def get_guardian() -> Optional[SessionGuardian]:

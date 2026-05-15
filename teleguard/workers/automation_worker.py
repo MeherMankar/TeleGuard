@@ -84,7 +84,6 @@ class AutomationWorker:
     async def _execute_job(self, job: dict):
         """Execute a single automation job"""
         try:
-            import json
             config = self._parse_job_config(job)
             if not config:
                 return

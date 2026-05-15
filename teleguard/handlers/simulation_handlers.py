@@ -204,7 +204,7 @@ class SimulationHandlers:
                     ],
                     [Button.inline("📈 Statistics", f"audit:stats:{account['_id']}")],
                 ]
-                sent_message = await event.reply(status_text, buttons=buttons)
+                await event.reply(status_text, buttons=buttons)
             else:
                 # Status for all accounts
                 accounts = await self._get_user_accounts(user_id)

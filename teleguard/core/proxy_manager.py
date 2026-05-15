@@ -460,7 +460,7 @@ class ProxyManager:
 
             # MTProto proxies: Create SOCKS5 bridge
             if proxy["type"] == "mtproto":
-                logger.info(f"Creating SOCKS5 bridge for MTProto proxy")
+                logger.info("Creating SOCKS5 bridge for MTProto proxy")
 
                 secret = proxy.get("secret", "")
                 if isinstance(secret, str):

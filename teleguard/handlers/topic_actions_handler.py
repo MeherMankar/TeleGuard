@@ -123,7 +123,7 @@ class TopicActionsHandler:
             target_sender_id = topic_mapping.get("sender_id")
 
             if not user_id or not account_id or not target_sender_id:
-                logger.error(f"Missing data in topic mapping")
+                logger.error("Missing data in topic mapping")
                 return
 
             # Get client by account_id

@@ -373,8 +373,8 @@ class SessionExportHandler:
                         else ""
                     )
                     + "\n\n"
-                    f"🔐 **Security Notice:** Keep this ZIP file secure!\n"
-                    f"⚠️ Anyone with these sessions can access your accounts."
+                    "🔐 **Security Notice:** Keep this ZIP file secure!\n"
+                    "⚠️ Anyone with these sessions can access your accounts."
                 ),
                 attributes=[DocumentAttributeFilename(zip_filename)],
             )
@@ -1150,6 +1150,8 @@ class SessionExportHandler:
                 ):
                     try:
                         logger.info("Attempting StringSession fallback for 2FA flow")
+                        from telethon import TelegramClient
+                        from telethon.sessions import StringSession
                         from ..core.config import config
 
                         API_ID = config.telegram.api_id
@@ -1182,10 +1184,6 @@ class SessionExportHandler:
                 ):
                     logger.error(f"Invalid session string generated for {account_name}")
                     raise Exception("Failed to generate valid session string")
-                from telethon import TelegramClient
-                from telethon.sessions import StringSession
-
-                from ..core.config import config
 
                 API_ID = config.telegram.api_id
                 API_HASH = config.telegram.api_hash

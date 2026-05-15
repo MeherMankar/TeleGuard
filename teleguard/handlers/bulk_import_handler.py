@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 from telethon import Button, events
 
@@ -216,7 +216,7 @@ class BulkImportHandler:
             )
             
             if errors:
-                summary_text += f"**Errors (first 5):**\n"
+                summary_text += "**Errors (first 5):**\n"
                 for error in errors[:5]:
                     summary_text += f"• {error}\n"
             

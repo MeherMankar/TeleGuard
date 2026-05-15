@@ -412,7 +412,7 @@ class AdvancedSpamHandler:
         async def contact_scrape_all_menu(event):
             await event.answer()
             user_id = event.sender_id
-            accounts = await handler_self._get_accounts(user_id)
+            accounts = await self._get_accounts(user_id)
 
             if not accounts:
                 await event.answer("❌ No accounts", alert=True)
@@ -1019,7 +1019,7 @@ class AdvancedSpamHandler:
         msg_id = int(event.text.strip())
         user_id = event.sender_id
 
-        msg = await event.reply(f"💣 Starting forward bombing...")
+        msg = await event.reply("💣 Starting forward bombing...")
 
         try:
             client = self._get_client(phone)
@@ -1289,7 +1289,7 @@ class AdvancedSpamHandler:
         message = event.text.strip()
         user_id = event.sender_id
 
-        msg = await event.reply(f"📢 Sending message to all groups...")
+        msg = await event.reply("📢 Sending message to all groups...")
 
         try:
             client = self._get_client(phone)

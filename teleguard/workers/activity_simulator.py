@@ -211,7 +211,7 @@ class ActivitySimulator:
                 return
             entity = random.choice(entities)
             message_count = random.randint(5, 10)
-            messages = await client.get_messages(entity, limit=message_count)
+            await client.get_messages(entity, limit=message_count)
             read_time = random.uniform(5, 25)
             await asyncio.sleep(read_time)
             # Log the activity

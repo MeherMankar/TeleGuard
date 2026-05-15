@@ -125,8 +125,8 @@ class ProxyHandler:
             proxy_id = str(proxy["_id"])
             buttons.append(
                 [
-                    Button.inline(f"🧪 Test", f"proxy:test:{proxy_id}"),
-                    Button.inline(f"🗑️ Delete", f"proxy:delete:{proxy_id}"),
+                    Button.inline("🧪 Test", f"proxy:test:{proxy_id}"),
+                    Button.inline("🗑️ Delete", f"proxy:delete:{proxy_id}"),
                 ]
             )
 
@@ -518,7 +518,7 @@ class ProxyHandler:
         account = await mongodb.db.accounts.find_one(
             {"_id": ObjectId(account_id), "user_id": user_id}
         )
-        proxy = (
+        (
             await proxy_manager.get_account_proxy(account_id)
             if account and account.get("proxy_id")
             else None

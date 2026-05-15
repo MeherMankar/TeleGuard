@@ -403,7 +403,7 @@ class AutoReplyHandler:
                 if settings.get("time_based_replies_enabled", False)
                 else "🔴 Off"
             )
-            text = f"🤖 **Auto-Reply Settings**\n\n"
+            text = "🤖 **Auto-Reply Settings**\n\n"
             text += f"📱 Accounts: {enabled_count}/{total_count} enabled\n"
             text += f"🔑 Keyword Replies: {keyword_status}\n"
             text += f"⏰ Time-based Replies: {time_status}\n\n"
@@ -628,11 +628,11 @@ class AutoReplyHandler:
             await event.edit("❌ Keyword not found.", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
 
     async def _handle_analytics(self, event):
-        stats = f"📊 **Auto-Reply Analytics**\n\n"
+        stats = "📊 **Auto-Reply Analytics**\n\n"
         stats += f"📨 Total Messages: {self.analytics['total_messages']}\n"
         stats += f"🤖 Auto-Replies Sent: {self.analytics['auto_replies_sent']}\n"
         stats += f"❓ Unmatched Queries: {self.analytics['unmatched_queries']}\n\n"
-        stats += f"🔑 **Keyword Hits:**\n"
+        stats += "🔑 **Keyword Hits:**\n"
         for keyword, count in self.analytics["keyword_hits"].items():
             stats += f"• {keyword}: {count}\n"
         buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
@@ -642,10 +642,10 @@ class AutoReplyHandler:
         current_hours = f"{self.business_hours['start'].strftime('%H:%M')} - {self.business_hours['end'].strftime('%H:%M')}"
         days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         active_days = ", ".join([days[i] for i in self.business_hours["days"]])
-        text = f"🕒 **Availability Hours**\n\n"
+        text = "🕒 **Availability Hours**\n\n"
         text += f"⏰ Hours: {current_hours}\n"
         text += f"📅 Days: {active_days}\n\n"
-        text += f"During these hours, responses will indicate availability."
+        text += "During these hours, responses will indicate availability."
         buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
         await event.edit(text, buttons=buttons)
 

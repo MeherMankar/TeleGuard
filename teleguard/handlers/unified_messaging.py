@@ -3,10 +3,9 @@
 import logging
 from typing import Optional
 
-from telethon import events, functions
+from telethon import events
 
 from ..core.mongo_database import mongodb
-from ..core.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +188,7 @@ class UnifiedMessagingSystem:
                     admin_group_id, topic_id, event, sender, me
                 )
             else:
-                logger.error(f"❌ No topic_id returned, cannot forward message")
+                logger.error("❌ No topic_id returned, cannot forward message")
         except Exception as e:
             logger.error(f"Failed to handle incoming DM: {e}", exc_info=True)
 
@@ -258,7 +257,7 @@ class UnifiedMessagingSystem:
                 logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
                 return existing_topic
             
-            logger.info(f"🆕 No existing topic found, creating new one...")
+            logger.info("🆕 No existing topic found, creating new one...")
             
             forum_enabled = await self._verify_forum_enabled(admin_group_id)
             logger.info(f"📋 Forum enabled check result: {forum_enabled}")
@@ -273,7 +272,7 @@ class UnifiedMessagingSystem:
             topic_title = self._get_topic_title(sender, account_info)
             logger.info(f"📝 Topic title generated: '{topic_title}'")
             
-            logger.info(f"🔨 Calling _create_new_topic...")
+            logger.info("🔨 Calling _create_new_topic...")
             topic_id = await self._create_new_topic(admin_group_id, topic_title, sender_id, account_id, user_id)
             logger.info(f"🔨 _create_new_topic returned: {topic_id}")
             
@@ -554,7 +553,6 @@ class UnifiedMessagingSystem:
             try:
                 # For forum topics in Telethon, reply_to must be the message ID of the first message in the topic
                 # We send to the supergroup/channel entity with reply_to set to topic_id
-                from telethon.tl.types import InputPeerChannel
                 
                 # Get the channel entity
                 channel_entity = await self.bot.get_entity(admin_group_id)
@@ -881,7 +879,7 @@ class UnifiedMessagingSystem:
             if temp_file and os.path.exists(temp_file.name):
                 try:
                     os.unlink(temp_file.name)
-                except:
+                except Exception:
                     pass
 
     async def _get_user_admin_group(self, user_id: int, account_name: str = None) -> Optional[int]:
@@ -940,13 +938,13 @@ class UnifiedMessagingSystem:
                 try:
                     entity = await client.get_entity(user_id)
                     return entity
-                except Exception as e1:
+                except Exception:
                     try:
                         from telethon.tl.types import InputPeerUser
 
                         input_peer = InputPeerUser(user_id=user_id, access_hash=0)
                         return input_peer
-                    except Exception as e2:
+                    except Exception:
                         return None
             if target.startswith("@"):
                 username = target[1:]

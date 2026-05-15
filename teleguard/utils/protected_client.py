@@ -179,10 +179,12 @@ def create_protected_client(
 ) -> ProtectedTelegramClient:
     """Create a protected Telethon client"""
 
-    # Check session lock first
+    # Check session lock first (synchronous lock acquisition)
     guardian = get_guardian()
     if guardian:
-        if not asyncio.run(guardian.acquire_session_lock(session_path)):
+        from ..core.session_guardian import SessionLock
+        lock = SessionLock(session_path)
+        if not lock.acquire():
             raise RuntimeError(f"Cannot acquire session lock for {session_path}")
 
     # Create original client

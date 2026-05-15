@@ -872,12 +872,12 @@ Generate 4 diverse examples:"""
         else:
             await self._notify_user(
                 user_id,
-                f"❌ **Appeal Process Failed**\n\n"
-                f"The appeal could not be completed.\n\n"
-                f"**Options:**\n"
-                f"1. Try /appeal again (choose different mode)\n"
-                f"2. Use /appeal_help for manual steps\n"
-                f"3. Contact support if problems persist",
+                "❌ **Appeal Process Failed**\n\n"
+                "The appeal could not be completed.\n\n"
+                "**Options:**\n"
+                "1. Try /appeal again (choose different mode)\n"
+                "2. Use /appeal_help for manual steps\n"
+                "3. Contact support if problems persist",
             )
 
         self.active_appeals.pop(user_id, None)
@@ -1050,7 +1050,7 @@ Generate 4 diverse examples:"""
                     )
                     logger.error(f"Available clients: {safe_keys}")
                 except BaseException:
-                    logger.error(f"Could not find client for account (Unicode name)")
+                    logger.error("Could not find client for account (Unicode name)")
                 # Try case-insensitive match with original Unicode names
                 for key, client in user_clients.items():
                     if (
@@ -1132,9 +1132,9 @@ Generate 4 diverse examples:"""
                     else:
                         logger.error(f"Failed to load account {account_name}: {e}")
                         await event.respond(
-                            f"❌ Failed to load account\n\n"
-                            f"The account may need re-authentication.\n"
-                            f"Please remove and re-add it in Account Settings."
+                            "❌ Failed to load account\n\n"
+                            "The account may need re-authentication.\n"
+                            "Please remove and re-add it in Account Settings."
                         )
                         return
 
