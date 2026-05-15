@@ -1587,8 +1587,9 @@ class MessageHandlers:
     async def _validate_pending_action(self, event, user_id):
         """Validate that user has pending action"""
         if user_id not in self.pending_actions:
-            logger.warning(f"!!! User {user_id} sent message but NO pending action found !!!")
-            logger.debug(f"Current pending_actions: {dict(self.pending_actions)}")
+            # Only warn for non-menu messages — menu button texts are handled
+            # by the menu system and don't need a pending action
+            logger.debug(f"User {user_id} sent message with no pending action (likely a menu button)")
             return False
         return True
 

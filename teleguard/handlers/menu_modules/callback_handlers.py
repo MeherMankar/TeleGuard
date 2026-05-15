@@ -604,8 +604,12 @@ class CallbackHandlers:
             elif action == "list":
                 await self._handle_session_list(event, user_id, account_id)
         except Exception as e:
-            logger.error(f"Session callback error: {e}")
-            await event.answer("❌ Error processing session request")
+            if "not modified" in str(e).lower():
+                # Message content unchanged — safe to ignore
+                await event.answer()
+            else:
+                logger.error(f"Session callback error: {e}")
+                await event.answer("❌ Error processing session request")
 
     async def _handle_session_export(self, event, user_id, account_id):
         """Handle session export request"""
