@@ -28,6 +28,7 @@ class AutoReplyHandler:
         self.user_clients = bot_manager.user_clients
         self.handled_clients = set()
         self.user_keywords = {}  # Store keywords per user
+        self._client_handlers = {}  # Maps client_key -> handler function for precise removal
         self.business_hours = {
             "start": time(9, 0),
             "end": time(17, 0),
@@ -45,49 +46,59 @@ class AutoReplyHandler:
         self.setup_auto_reply_menu()
 
     def setup_auto_reply_handlers(self):
-        """Set up auto-reply handlers for all user clients"""
+        """Set up auto-reply handlers for all user clients — safe to call multiple times."""
         for user_id, clients in self.user_clients.items():
             import asyncio
-
             asyncio.create_task(self.load_user_keywords(user_id))
             for account_name, client in clients.items():
                 if client and client.is_connected():
+                    # _setup_client_handler is now idempotent: it removes the old
+                    # handler by reference before registering a new one, so calling
+                    # this method again never stacks duplicate handlers.
                     self._setup_client_handler(user_id, account_name, client)
 
     async def force_cleanup_user_handlers(self, user_id: int):
         """Force cleanup all handlers for a specific user"""
         try:
-            # Clear memory
             self.user_keywords.pop(user_id, None)
             clients_to_remove = [
                 key for key in self.handled_clients if key.startswith(f"{user_id}:")
             ]
             for client_key in clients_to_remove:
                 self.handled_clients.discard(client_key)
-            if user_id in self.user_clients:
-                for account_name, client in self.user_clients[user_id].items():
-                    if client and client.is_connected():
-                        try:
-                            client.remove_event_handler(None)
-                            logger.info(f"Removed all handlers for {account_name}")
-                        except Exception as e:
-                            logger.error(
-                                f"Error removing handlers for {account_name}: {e}"
-                            )
+                # Remove the specific handler function if we have a reference
+                old_handler = self._client_handlers.pop(client_key, None)
+                if old_handler and user_id in self.user_clients:
+                    for account_name, client in self.user_clients[user_id].items():
+                        if f"{user_id}:{account_name}" == client_key:
+                            try:
+                                client.remove_event_handler(old_handler)
+                                logger.info(f"Removed auto-reply handler for {client_key}")
+                            except Exception as e:
+                                logger.debug(f"Could not remove handler for {client_key}: {e}")
             logger.info(f"Force cleanup completed for user {user_id}")
         except Exception as e:
             logger.error(f"Error during force cleanup for user {user_id}: {e}")
 
     def _setup_client_handler(self, user_id: int, account_name: str, client):
-        """Set up auto-reply handler for a specific client"""
+        """Set up auto-reply handler for a specific client — idempotent."""
         client_key = f"{user_id}:{account_name}"
-        if client_key in self.handled_clients:
-            logger.info(f"Handler already exists for {client_key}, skipping")
+
+        # Remove any previously registered handler for this client to prevent
+        # duplicate replies when this method is called more than once.
+        if client_key in self._client_handlers:
+            old_handler = self._client_handlers.pop(client_key)
+            try:
+                client.remove_event_handler(old_handler)
+                logger.debug(f"Removed old auto-reply handler for {client_key}")
+            except Exception as e:
+                logger.debug(f"Could not remove old handler for {client_key}: {e}")
+        elif client_key in self.handled_clients:
+            # Handler was registered but we lost the reference — skip to avoid
+            # adding a second handler on top of an unknown existing one.
+            logger.info(f"Handler already exists for {client_key} (no ref), skipping")
             return
-        try:
-            client.remove_event_handler(None)
-        except Exception as e:
-            logger.debug(f"Error removing existing handlers: {e}")
+
         self.handled_clients.add(client_key)
         logger.info(f"Setting up auto-reply handler for {client_key}")
 
@@ -149,24 +160,25 @@ class AutoReplyHandler:
                 user_keywords = await self._get_user_keywords(user_id)
                 matched_keyword = None
                 response = None
+
+                # Keyword replies take priority — check first
                 if settings.get("keyword_replies_enabled", False) and user_keywords:
                     for keyword, reply_msg in user_keywords.items():
-                        # Escape special regex characters to prevent injection
                         escaped_keyword = re.escape(keyword.lower())
                         try:
                             if re.search(r"\b" + escaped_keyword + r"\b", message_text):
                                 matched_keyword = keyword
-                                # Sanitize response to prevent XSS
                                 response = html.escape(reply_msg)
                                 break
                         except re.error:
-                            # Skip invalid regex patterns
                             continue
+
                 if matched_keyword:
                     self.analytics["keyword_hits"][matched_keyword] = (
                         self.analytics["keyword_hits"].get(matched_keyword, 0) + 1
                     )
                 elif settings.get("time_based_replies_enabled", False):
+                    # Only fire time-based reply if NO keyword matched
                     self.analytics["unmatched_queries"] += 1
                     now = datetime.now()
                     is_business_hours = self._is_business_hours(now)
@@ -177,7 +189,8 @@ class AutoReplyHandler:
                             "I'm not available right now. I'll get back to you later."
                         )
                 else:
-                    return  # No reply if both disabled
+                    return  # Nothing to reply
+
                 contact_type = await self._get_contact_type(sender_id)
                 if contact_type == "family":
                     response = "Hey! " + response
@@ -188,6 +201,9 @@ class AutoReplyHandler:
                 logger.info(f"Auto-reply sent from {account_name} to {sender_id}")
             except Exception as e:
                 logger.error(f"Auto-reply error for {account_name}: {e}")
+
+        # Store the handler reference so we can remove it precisely later
+        self._client_handlers[client_key] = auto_reply_handler
 
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up auto-reply handler for a newly added client"""
