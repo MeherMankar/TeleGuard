@@ -20,7 +20,7 @@ class KoyebOptimizer:
 
     async def start_optimization(self):
         """Start Koyeb-specific optimizations"""
-        logger.info("🚀 Starting Koyeb optimization...")
+        logger.debug("🚀 Starting Koyeb optimization...")
 
         # Start keep-alive to prevent idle shutdown
         self.keep_alive_task = asyncio.create_task(self._keep_alive_loop())
@@ -31,7 +31,7 @@ class KoyebOptimizer:
         # Configure memory usage
         self._optimize_memory()
 
-        logger.info("✅ Koyeb optimization active")
+        logger.debug("✅ Koyeb optimization active")
 
     async def _keep_alive_loop(self):
         """Keep service active to prevent IP reassignment"""

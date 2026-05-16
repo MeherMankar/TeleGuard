@@ -152,8 +152,6 @@ class BotManager:
             TeleGuardError: If startup fails
         """
         try:
-            print("Starting TeleGuard Bot...")
-            logger.info("Starting TeleGuard Bot...")
             self._validate_configuration()
             await self._initialize_database()
             await self._initialize_bot_client()
@@ -162,11 +160,7 @@ class BotManager:
             # Register bot commands with BotFather automatically
             try:
                 from ..utils.command_registry import command_registry
-
-                success = await command_registry.register_with_botfather(self.bot)
-                if success:
-                    print("Bot commands registered automatically")
-                    logger.info(f"Registered {len(command_registry.COMMANDS)} commands")
+                await command_registry.register_with_botfather(self.bot)
             except Exception as e:
                 logger.warning(f"Failed to register commands: {e}")
             await self._load_existing_sessions()
@@ -176,8 +170,7 @@ class BotManager:
             # Mark as running
             self._is_running = True
             self._startup_complete = True
-            print("TeleGuard Bot started successfully!")
-            logger.info("TeleGuard Bot started successfully")
+            logger.debug("TeleGuard Bot started successfully")
         except Exception as e:
             logger.error(f"Bot startup failed: {e}")
             try:
@@ -204,8 +197,7 @@ class BotManager:
     async def _initialize_database(self) -> None:
         try:
             await init_db()
-            print("Database connected")
-            logger.info("Database initialized")
+            logger.debug("Database initialized")
         except Exception as e:
             raise TeleGuardError(
                 "Database initialization failed", details={"error": str(e)}
@@ -225,8 +217,7 @@ class BotManager:
                 **device_params,
             )
             await self._start_bot_with_retry()
-            print("Bot authenticated")
-            logger.info("Bot client initialized")
+            logger.debug("Bot client initialized")
         except Exception as e:
             raise TeleGuardError(
                 "Bot client initialization failed", details={"error": str(e)}
@@ -263,12 +254,10 @@ class BotManager:
                 or os.getenv("RAILWAY_ENVIRONMENT")
             )
             if is_cloud and os.getenv("SKIP_SESSION_LOAD", "false").lower() == "true":
-                print("Skipping session pre-load for faster startup (cloud mode)")
-                logger.info("Session loading skipped - accounts will load on demand")
+                logger.debug("Session loading skipped - accounts will load on demand")
                 return
 
-            print("Loading user accounts...")
-            logger.info("Loading existing user sessions...")
+            logger.debug("Loading existing user sessions...")
 
             # Auto-cleanup orphaned accounts first with timeout
             try:
@@ -286,11 +275,9 @@ class BotManager:
                 )
             except asyncio.TimeoutError:
                 logger.warning("Database query timed out, starting without accounts")
-                print("No user accounts found (database timeout)")
                 return
             except Exception as e:
                 logger.error(f"Database error: {e}")
-                print("No user accounts found (database error)")
                 return
 
             loaded_count = 0
@@ -329,9 +316,6 @@ class BotManager:
                                 "session expired",
                             ]
                         ):
-                            print(
-                                f"Account '{account_name}' has session conflict (likely other bot/client)"
-                            )
                             # Handle session conflict
                             await self._handle_session_conflict_db(
                                 account["_id"],
@@ -351,33 +335,19 @@ class BotManager:
                                 "invalid session",
                             ]
                         ):
-                            print(
-                                f"Account '{account_name}' invalidated - will be removed"
-                            )
                             # Handle account invalidation asynchronously
                             asyncio.create_task(
                                 self._handle_session_invalidation(
                                     account["user_id"], account_name, phone, str(e)
                                 )
                             )
-                        else:
-                            print(f"Could not load account '{account_name}'")
                         logger.warning(f"Failed to load client for {account_name}: {e}")
             if loaded_count > 0:
-                print(f"Loaded {loaded_count} user account(s)")
-            else:
-                print("No user accounts found (add accounts via /start)")
-            logger.info(f"Loaded {loaded_count} user sessions")
+                logger.debug(f"Loaded {loaded_count} user sessions")
         except asyncio.TimeoutError:
             logger.warning("Timeout loading sessions, continuing without them")
-            print(
-                "Session loading timed out - bot will start without pre-loaded accounts"
-            )
         except Exception as e:
             logger.error(f"Failed to load existing sessions: {e}")
-            print(
-                "Failed to load accounts - bot will start without pre-loaded accounts"
-            )
             try:
                 await BotLogger.log_error(
                     "Session Load Failed",
@@ -436,7 +406,7 @@ class BotManager:
                         await proxy_manager.assign_proxy_to_account(
                             user_id, str(account["_id"]), proxy_id
                         )
-                        logger.info(
+                        logger.debug(
                             f"Auto-assigned default proxy {
                                 default_proxy['server']}:{
                                 default_proxy['port']} to {account_name}"
@@ -451,7 +421,7 @@ class BotManager:
                             proxy, str(account["_id"])
                         )
                         if proxy_dict:
-                            logger.info(
+                            logger.debug(
                                 f"Using proxy {
                                     proxy['server']}:{
                                     proxy['port']} for {account_name}"
@@ -479,7 +449,7 @@ class BotManager:
 
                     session_type = detect_session_type(session_string)
                     if session_type == "pyrogram":
-                        logger.info(f"Converting Pyrogram session for {account_name}")
+                        logger.debug(f"Converting Pyrogram session for {account_name}")
                         try:
                             converted_session, result = (
                                 await convert_pyrogram_to_telethon(
@@ -520,31 +490,10 @@ class BotManager:
                                 f"Failed to convert Pyrogram session: {conv_error}"
                             )
                     else:
-                        logger.error(
-                            f"Session string details - Length: {
-                                len(session_string)}, Type: {
-                                type(session_string)}, Valid: {
-                                session_string.isprintable() if isinstance(
-                                    session_string, str) else False}"
-                        )
                         raise ValueError(f"Invalid session string format: {e}")
                 else:
-                    logger.error(
-                        f"Session string details - Length: {
-                            len(session_string)}, Type: {
-                            type(session_string)}, Valid: {
-                            session_string.isprintable() if isinstance(
-                                session_string, str) else False}"
-                    )
                     raise ValueError(f"Invalid session string format: {e}")
             except Exception as e:
-                logger.error(
-                    f"Session string details - Length: {
-                        len(session_string)}, Type: {
-                        type(session_string)}, Valid: {
-                        session_string.isprintable() if isinstance(
-                            session_string, str) else False}"
-                )
                 raise ValueError(f"Invalid session string format: {e}")
 
             # Use Pyrogram for MTProto proxy connection, then convert to Telethon
@@ -711,7 +660,7 @@ class BotManager:
                 except Exception as e:
                     logger.warning(f"Failed to set up DM handlers: {e}")
 
-            logger.info("All components initialized")
+            logger.debug("All components initialized")
         except asyncio.TimeoutError:
             logger.error("Component initialization timed out")
             raise TeleGuardError("Component initialization timeout")
@@ -720,14 +669,13 @@ class BotManager:
             raise
 
     async def _initialize_core_components(self) -> None:
-        print("  Setting up security features...")
-        logger.info("Initializing core components...")
+        logger.debug("Initializing core components...")
         from ..core.messaging import MessagingManager
         from ..core.otp_manager import OTPManager
         from ..handlers.auth_handler import AuthManager
         from ..handlers.menu_system import MenuSystem
 
-        logger.info("Initializing auth manager...")
+        logger.debug("Initializing auth manager...")
         self.auth_manager = await self.component_manager.initialize_component(
             "auth_manager", AuthManager, self
         )
@@ -739,12 +687,12 @@ class BotManager:
             "dm_reply_commands", DMReplyCommands, self.bot, self
         )
 
-        logger.info("Initializing menu system...")
+        logger.debug("Initializing menu system...")
         self.menu_system = await self.component_manager.initialize_component(
             "menu_system", MenuSystem, self.bot, self
         )
 
-        logger.info("Initializing OTP manager...")
+        logger.debug("Initializing OTP manager...")
         self.otp_manager = await self.component_manager.initialize_component(
             "otp_manager", OTPManager, self
         )
@@ -764,14 +712,14 @@ class BotManager:
         
         # Initialize UnifiedMessagingSystem for DM forwarding with topics
         from ..handlers.unified_messaging import UnifiedMessagingSystem
-        logger.info("Initializing unified messaging system...")
+        logger.debug("Initializing unified messaging system...")
         self.unified_messaging = UnifiedMessagingSystem(self)
         self.unified_messaging.setup_handlers()
-        logger.info("Unified messaging system initialized with DM forwarding")
+        logger.debug("Unified messaging system initialized with DM forwarding")
         
-        print("  OTP Destroyer ready")
-        print("  Messaging system ready")
-        print("  Menu system ready")
+        logger.debug("OTP Destroyer ready")
+        logger.debug("Messaging system ready")
+        logger.debug("Menu system ready")
         # SessionMaster analytics and automation are integrated into handlers
 
     async def _initialize_handlers(self) -> None:

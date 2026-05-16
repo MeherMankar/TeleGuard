@@ -49,7 +49,7 @@ class StartHandler:
         user = await mongodb.get_user(user_id)
         if not user:
             await mongodb.create_user(user_id)
-            logger.info(f"New user registered: {user_id}")
+            logger.debug(f"New user registered: {user_id}")
             await self._save_to_github_db(user_id)
 
     async def _save_to_github_db(self, user_id: int):

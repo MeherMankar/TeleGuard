@@ -54,13 +54,13 @@ class OTPManager:
 
     def register_handlers(self):
         """Register OTP message handler for all user clients"""
-        logger.info("🛡️ Starting OTP handler registration...")
+        logger.debug("🛡️ Starting OTP handler registration...")
 
         if hasattr(self.bot_manager, "registered_handlers"):
             self.bot_manager.registered_handlers["otp"].clear()
 
         self.registered_handlers.clear()
-        logger.info(f"Current user_clients: {len(self.user_clients)} users")
+        logger.debug(f"Current user_clients: {len(self.user_clients)} users")
 
         handler_count = 0
         for user_id, clients in self.user_clients.items():
@@ -79,12 +79,12 @@ class OTPManager:
                     self._client_handlers[(int(user_id), str(account_name))] = self._handle_otp_message
                     self.registered_handlers.add(handler_key)
                     handler_count += 1
-                    logger.info(f"✅ Registered OTP handler for {handler_key}")
+                    logger.debug(f"✅ Registered OTP handler for {handler_key}")
                 except Exception as e:
                     logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
         
         if handler_count > 0:
-            logger.info(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
+            logger.debug(f"🛡️ OTP Manager registered handlers for {handler_count} clients")
         else:
             logger.warning("⚠️ No OTP handlers registered - no active clients found")
 
@@ -104,7 +104,7 @@ class OTPManager:
             if handler and client:
                 try:
                     client.remove_event_handler(handler)
-                    logger.info(f"Removed OTP event handler for {user_id}:{account_name}")
+                    logger.debug(f"Removed OTP event handler for {user_id}:{account_name}")
                 except Exception as e:
                     logger.error(f"Failed to remove event handler for {key}: {e}")
 
@@ -127,7 +127,7 @@ class OTPManager:
 
         # Use the same handler logic as register_handlers to prevent duplicates
         # The main otp_handler function already handles all the logic properly
-        logger.info(f"Registering OTP handler for new client: {account_name}")
+        logger.debug(f"Registering OTP handler for new client: {account_name}")
         self.registered_handlers.add(handler_key)
 
         # Add to bot manager registry if available
@@ -209,7 +209,7 @@ class OTPManager:
 
             # Send immediately without await to reduce delay
             await self.bot.send_message(user_id, message)
-            logger.info(f"OTP forwarded: {otp_code} -> {user_id}")
+            logger.debug(f"OTP forwarded: {otp_code} -> {user_id}")
         except Exception as e:
             logger.error(f"Error forwarding OTP: {e}")
 
@@ -272,7 +272,7 @@ class OTPManager:
             if hasattr(self.bot_manager, "registered_handlers"):
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
 
-            logger.info(f"✅ OTP handler registered for new client: {handler_key}")
+            logger.debug(f"✅ OTP handler registered for new client: {handler_key}")
         except Exception as e:
             logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
 
@@ -326,7 +326,7 @@ class OTPManager:
                     except BaseException:
                         pass
                     # BotLogger.log_otp_enabled doesn't exist, skip logging
-                    logger.info(f"OTP enabled for user {user_id}, phone {phone}")
+                    logger.debug(f"OTP enabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
                     logger.error(f"Failed to log OTP enable: {log_error}")
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
@@ -352,7 +352,7 @@ class OTPManager:
                     except BaseException:
                         pass
                     # BotLogger.log_otp_disabled doesn't exist, skip logging
-                    logger.info(f"OTP disabled for user {user_id}, phone {phone}")
+                    logger.debug(f"OTP disabled for user {user_id}, phone {phone}")
                 except Exception as log_error:
                     logger.error(f"Failed to log OTP disable: {log_error}")
                 message = "❌ OTP Destroyer disabled"
@@ -473,7 +473,7 @@ class OTPManager:
                         del self.temp_passthrough[user_id][temp_key]
                         if not self.temp_passthrough[user_id]:
                             del self.temp_passthrough[user_id]
-                        logger.info(
+                        logger.debug(
                             f"Cleaned up temp destroyer disable for user {user_id}, account {account_name}"
                         )
                 except Exception as cleanup_error:
@@ -572,7 +572,7 @@ class OTPManager:
                         del self.temp_passthrough[user_id][temp_key]
                         if not self.temp_passthrough[user_id]:
                             del self.temp_passthrough[user_id]
-                        logger.info(
+                        logger.debug(
                             f"Cleaned up temp OTP for user {user_id}, account {account_name}"
                         )
                 except Exception as cleanup_error:
@@ -624,7 +624,7 @@ class OTPManager:
             if account.get("session_creation_in_progress") or account.get(
                 "pending_fresh_session"
             ):
-                logger.info(
+                logger.debug(
                     f"Session creation in progress for {account_name}, allowing OTP: {otp_code}"
                 )
                 try:

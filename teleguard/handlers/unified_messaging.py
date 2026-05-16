@@ -31,7 +31,7 @@ class UnifiedMessagingSystem:
                     self._setup_client_handlers(user_id, account_name, client)
                     client_count += 1
         self._setup_admin_reply_handler()
-        logger.info(f"✅ Refreshed DM handlers: {client_count} accounts registered")
+        logger.debug(f"✅ Refreshed DM handlers: {client_count} accounts registered")
 
     def _setup_client_handlers(self, user_id: int, account_name: str, client):
         """Set up handlers for managed account"""
@@ -50,7 +50,7 @@ class UnifiedMessagingSystem:
         if hasattr(self.bot_manager, "registered_handlers"):
             self.bot_manager.registered_handlers["messaging"].add(client_key)
         
-        logger.info(f"📝 Registering DM handler for {account_name} (ID: {user_id})")
+        logger.debug(f"📝 Registering DM handler for {account_name} (ID: {user_id})")
 
         @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
         async def private_message_handler(event):
@@ -75,23 +75,23 @@ class UnifiedMessagingSystem:
                 is_bot = getattr(sender, "bot", False)
                 is_telegram_official = sender.id in [777000, 42777]
 
-                logger.info(f"📨 Private message received on {account_name}: from={sender.id}, is_bot={is_bot}, is_official={is_telegram_official}")
+                logger.debug(f"📨 Private message received on {account_name}: from={sender.id}, is_bot={is_bot}, is_official={is_telegram_official}")
 
                 if is_telegram_official:
                     await self._send_bot_message_directly(user_id, sender, me, event)
                     return
                 elif is_bot:
-                    logger.info(f"Skipping bot message from {sender.id}")
+                    logger.debug(f"Skipping bot message from {sender.id}")
                     return
 
                 admin_group_id = await self._get_user_admin_group(user_id, account_name)
-                logger.info(f"Admin group for {account_name}: {admin_group_id}")
+                logger.debug(f"Admin group for {account_name}: {admin_group_id}")
                 if admin_group_id:
                     await self._handle_incoming_dm(
                         admin_group_id, event, sender, me, user_id
                     )
                 else:
-                    logger.info(f"No admin group configured for {account_name}, skipping topic creation")
+                    logger.debug(f"No admin group configured for {account_name}, skipping topic creation")
                 if not is_bot and not is_telegram_official:
                     await self._handle_auto_reply(client, event, user_id, account_name)
             except Exception as e:
@@ -117,7 +117,7 @@ class UnifiedMessagingSystem:
                 if not topic_id:
                     return
                 
-                logger.info(f"📩 Reply in topic {topic_id}, chat {event.chat_id}, sender {event.sender_id}")
+                logger.debug(f"📩 Reply in topic {topic_id}, chat {event.chat_id}, sender {event.sender_id}")
                 
                 # Find which account this group belongs to
                 account = await mongodb.db.accounts.find_one(
@@ -138,7 +138,7 @@ class UnifiedMessagingSystem:
                 )
                 
                 if mapping:
-                    logger.info(f"✅ Found mapping, sending reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
+                    logger.debug(f"✅ Found mapping, sending reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
                     await self._send_topic_reply(
                         {
                             "user_id": mapping["sender_id"],
@@ -164,12 +164,12 @@ class UnifiedMessagingSystem:
                 return
             self.processed_messages.add(message_id)
             
-            logger.info(f"📨 Handling incoming DM: sender={sender.id}, account={me.id}, group={admin_group_id}")
+            logger.debug(f"📨 Handling incoming DM: sender={sender.id}, account={me.id}, group={admin_group_id}")
             topic_id = await self._find_or_create_topic(
                 admin_group_id, sender.id, me.id, sender, user_id
             )
             if topic_id:
-                logger.info(f"✅ Forwarding to topic {topic_id}")
+                logger.debug(f"✅ Forwarding to topic {topic_id}")
                 # Store sender info in database with access_hash for entity resolution
                 sender_data = {
                     "account_id": me.id,
@@ -250,34 +250,34 @@ class UnifiedMessagingSystem:
     async def _find_or_create_topic(self, admin_group_id: int, sender_id: int, account_id: int, sender, user_id: int) -> Optional[int]:
         """Find existing topic or create new one"""
         try:
-            logger.info(f"🔍 Looking for topic: sender={sender_id}, account={account_id}, group={admin_group_id}")
+            logger.debug(f"🔍 Looking for topic: sender={sender_id}, account={account_id}, group={admin_group_id}")
             
             existing_topic = await self._find_existing_topic(admin_group_id, sender_id, account_id)
             if existing_topic:
-                logger.info(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
+                logger.debug(f"✅ Found existing topic {existing_topic} for sender {sender_id}")
                 return existing_topic
             
-            logger.info("🆕 No existing topic found, creating new one...")
+            logger.debug("🆕 No existing topic found, creating new one...")
             
             forum_enabled = await self._verify_forum_enabled(admin_group_id)
-            logger.info(f"📋 Forum enabled check result: {forum_enabled}")
+            logger.debug(f"📋 Forum enabled check result: {forum_enabled}")
             if not forum_enabled:
                 logger.error(f"❌ Forum not enabled for group {admin_group_id}")
                 return None
             
-            logger.info(f"👤 Getting account info for {account_id}...")
+            logger.debug(f"👤 Getting account info for {account_id}...")
             account_info = await self._get_account_info(account_id)
-            logger.info(f"👤 Account info retrieved: {account_info is not None}")
+            logger.debug(f"👤 Account info retrieved: {account_info is not None}")
             
             topic_title = self._get_topic_title(sender, account_info)
-            logger.info(f"📝 Topic title generated: '{topic_title}'")
+            logger.debug(f"📝 Topic title generated: '{topic_title}'")
             
-            logger.info("🔨 Calling _create_new_topic...")
+            logger.debug("🔨 Calling _create_new_topic...")
             topic_id = await self._create_new_topic(admin_group_id, topic_title, sender_id, account_id, user_id)
-            logger.info(f"🔨 _create_new_topic returned: {topic_id}")
+            logger.debug(f"🔨 _create_new_topic returned: {topic_id}")
             
             if topic_id:
-                logger.info(f"✅ Topic created successfully with ID {topic_id}")
+                logger.debug(f"✅ Topic created successfully with ID {topic_id}")
                 await self._store_topic_mapping(admin_group_id, topic_id, sender_id, account_id)
                 await self._create_system_message(admin_group_id, topic_id, sender_id, account_id)
             else:
@@ -403,7 +403,7 @@ class UnifiedMessagingSystem:
             
             caption = f"📨 **From:** {sender_name}\n📱 **To:** {account_name}"
             
-            logger.info(f"🔄 Forwarding message to group={admin_group_id}, topic={topic_id}, has_media={event.message.media is not None}")
+            logger.debug(f"🔄 Forwarding message to group={admin_group_id}, topic={topic_id}, has_media={event.message.media is not None}")
             
             # Handle media
             if event.message.media:
@@ -428,7 +428,7 @@ class UnifiedMessagingSystem:
                             reply_to=topic_id,
                             parse_mode="md"
                         )
-                        logger.info(f"✅ Sticker caption sent to topic {topic_id}")
+                        logger.debug(f"✅ Sticker caption sent to topic {topic_id}")
                     except Exception as e:
                         logger.error(f"❌ Failed to send sticker caption: {e}")
                         if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
@@ -457,7 +457,7 @@ class UnifiedMessagingSystem:
                             event.message.media,
                             reply_to=topic_id
                         )
-                        logger.info(f"✅ Sticker sent to topic {topic_id}")
+                        logger.debug(f"✅ Sticker sent to topic {topic_id}")
                     except Exception as e:
                         logger.error(f"❌ Failed to send sticker: {e}")
                     return
@@ -473,7 +473,7 @@ class UnifiedMessagingSystem:
                         reply_to=topic_id,
                         parse_mode="md"
                     )
-                    logger.info(f"✅ Caption sent to topic {topic_id}")
+                    logger.debug(f"✅ Caption sent to topic {topic_id}")
                 except Exception as e:
                     logger.error(f"❌ Failed to send caption: {e}")
                     if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
@@ -536,7 +536,7 @@ class UnifiedMessagingSystem:
                         force_document=force_doc,
                         voice_note=False
                     )
-                    logger.info(f"✅ Media file sent to topic {topic_id}")
+                    logger.debug(f"✅ Media file sent to topic {topic_id}")
                 except Exception as e:
                     logger.error(f"❌ Failed to send media file: {e}")
                 finally:
@@ -564,7 +564,7 @@ class UnifiedMessagingSystem:
                     reply_to=topic_id,
                     parse_mode="md"
                 )
-                logger.info(f"✅ Message sent to topic {topic_id}, result: {result.id if result else 'None'}")
+                logger.debug(f"✅ Message sent to topic {topic_id}, result: {result.id if result else 'None'}")
             except Exception as e:
                 logger.error(f"❌ Failed to send to topic {topic_id}: {e}")
                 if "topic was deleted" in str(e).lower() or "TOPIC_DELETED" in str(e) or "TOPIC_CLOSED" in str(e):
@@ -587,7 +587,7 @@ class UnifiedMessagingSystem:
                         await self.bot.send_message(
                             admin_group_id, forward_text, reply_to=new_topic_id, parse_mode="md"
                         )
-                        logger.info(f"✅ Message sent to recreated topic {new_topic_id}")
+                        logger.debug(f"✅ Message sent to recreated topic {new_topic_id}")
         except Exception as e:
             logger.error(f"Failed to forward to topic: {e}", exc_info=True)
 
@@ -650,7 +650,7 @@ class UnifiedMessagingSystem:
                                     )
                                 managed_client = client
                                 managed_account_id = me.id
-                                logger.info(f"✅ Updated mapping and sender record to use account {me.id}")
+                                logger.debug(f"✅ Updated mapping and sender record to use account {me.id}")
                                 break
                             except Exception:
                                 continue
@@ -671,7 +671,7 @@ class UnifiedMessagingSystem:
                 logger.error(f"No sender record found for {target_user_id}")
                 return
             
-            logger.info(f"Sending reply to user {target_user_id} from account {managed_account_id}")
+            logger.debug(f"Sending reply to user {target_user_id} from account {managed_account_id}")
             
             # Build InputPeerUser with stored access_hash
             from telethon.tl.types import InputPeerUser
@@ -700,7 +700,7 @@ class UnifiedMessagingSystem:
                         message_obj.media,
                         caption=message_obj.text if message_obj.text else None
                     )
-                    logger.info("Sticker forwarded successfully")
+                    logger.debug("Sticker forwarded successfully")
                     return
                 
                 # For other media, download and upload
@@ -744,20 +744,20 @@ class UnifiedMessagingSystem:
                         force_document=force_doc,
                         voice_note=False
                     )
-                    logger.info("Media sent successfully")
+                    logger.debug("Media sent successfully")
                 finally:
                     if os.path.exists(temp_file.name):
                         os.unlink(temp_file.name)
             # Text message
             elif message_text:
                 await managed_client.send_message(target_entity, message_text)
-                logger.info("Text sent successfully")
+                logger.debug("Text sent successfully")
         except Exception as e:
             logger.error(f"Failed to send topic reply: {e}", exc_info=True)
 
     async def _get_client_by_id(self, account_id):
         """Get managed client by Telegram user ID"""
-        logger.info(f"Looking for client with account_id={account_id}")
+        logger.debug(f"Looking for client with account_id={account_id}")
         
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
@@ -768,7 +768,7 @@ class UnifiedMessagingSystem:
                         continue
                     me = await client.get_me()
                     if me.id == account_id:
-                        logger.info(f"✅ Found client for account {account_id}: {account_name}")
+                        logger.debug(f"✅ Found client for account {account_id}: {account_name}")
                         return client
                 except Exception as e:
                     logger.debug(f"Error checking client {account_name}: {e}")

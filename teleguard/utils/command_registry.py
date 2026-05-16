@@ -97,7 +97,7 @@ class CommandRegistry:
                 )
             )
 
-            logger.info(f"Registered {len(commands)} commands with BotFather")
+            logger.debug(f"Registered {len(commands)} commands with BotFather")
             return True
 
         except Exception as e:
