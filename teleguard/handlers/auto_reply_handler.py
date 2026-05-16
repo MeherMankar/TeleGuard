@@ -10,7 +10,7 @@ from telethon import events
 from telethon.tl.custom import Button
 
 from ..core.mongo_database import mongodb
-from ..utils.data_encryption import DataEncryption
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 # Constants for validation
@@ -298,7 +298,7 @@ class AutoReplyHandler:
             debug_text += f"**Accounts ({len(accounts)}):**\n"
             for acc in accounts:
                 status = acc.get("auto_reply_enabled", "NOT_SET")
-                debug_text += f"• {acc['name']}: {status}\n"
+                debug_text += f"• {acc.get('name', 'Unknown')}: {status}\n"
             debug_text += f"\n**Settings:** {settings}\n"
             debug_text += (
                 f"**Keywords Cache:** {self.user_keywords.get(user_id, 'None')}\n"
@@ -573,8 +573,11 @@ class AutoReplyHandler:
             accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
             buttons = []
             for account in accounts:
+                acc_name = account.get('name')
+                if not acc_name:
+                    continue
                 status = "🟢" if account.get("auto_reply_enabled", False) else "🔴"
-                buttons.append([Button.inline(f"{status} {account['name']}", f"auto_reply:toggle_account:{account['name']}")])
+                buttons.append([Button.inline(f"{status} {acc_name}", f"auto_reply:toggle_account:{acc_name}")])
             buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
             await event.edit("📱 **Select Account to Toggle Auto-Reply:**", buttons=buttons)
         else:
@@ -686,9 +689,12 @@ class AutoReplyHandler:
                     accounts = [DataEncryption.decrypt_account_data(acc) for acc in encrypted_accounts]
                     buttons = []
                     for acc in accounts:
+                        acc_name = acc.get('name')
+                        if not acc_name:
+                            continue
                         acc_status = acc.get("auto_reply_enabled", False)
                         status_icon = "🟢" if acc_status else "🔴"
-                        buttons.append([Button.inline(f"{status_icon} {acc['name']}", f"auto_reply:toggle_account:{acc['name']}")])  
+                        buttons.append([Button.inline(f"{status_icon} {acc_name}", f"auto_reply:toggle_account:{acc_name}")])  
                     buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
                     try:
                         await event.edit("📱 **Select Account to Toggle Auto-Reply:**", buttons=buttons)
