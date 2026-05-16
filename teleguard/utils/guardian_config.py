@@ -29,7 +29,7 @@ def load_guardian_config() -> Dict[str, Any]:
         },
         # Telegram logging
         "telegram_logging": {
-            "bot_token": os.getenv("LOG_BOT_TOKEN"),
+            "bot_token": os.getenv("LOGS_BOT_TOKEN") or os.getenv("LOG_BOT_TOKEN"),
             "chat_id": os.getenv("LOG_CHAT_ID"),
             "enabled": os.getenv("TELEGRAM_LOGGING_ENABLED", "true").lower() == "true",
         },

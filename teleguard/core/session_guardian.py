@@ -524,11 +524,13 @@ class SessionGuardian:
 
     async def check_ip_change(self):
         """Advanced IP monitoring with multiple providers and geolocation"""
-        if not self.config.get("ip_monitoring", {}).get("enabled", True):
+        ip_config = self.config.get("ip_monitoring", {})
+        if not ip_config.get("enabled", True):
             return
 
         current_time = time.time()
-        if current_time - self.last_ip_check < 60:  # Check every minute
+        check_interval = ip_config.get("check_interval", 300)
+        if current_time - self.last_ip_check < check_interval:
             return
 
         self.last_ip_check = current_time
@@ -560,7 +562,11 @@ class SessionGuardian:
                     async with session.get(url) as response:
                         if response.status == 200:
                             data = await response.json()
-                            return data.get(key)
+                            ip = data.get(key)
+                            if ip and "," in ip:
+                                # httpbin can return multiple IPs (e.g., if behind proxy)
+                                ip = ip.split(",")[0].strip()
+                            return ip
             except BaseException:
                 continue
         return None
