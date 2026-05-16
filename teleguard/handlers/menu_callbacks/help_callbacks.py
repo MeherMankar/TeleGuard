@@ -82,6 +82,7 @@ class HelpCallbacks(BaseCallback):
                         (),
                         {
                             "sender_id": user_id,
+                            "message_id": event.message_id,
                             "reply": lambda x, buttons=None: self.bot.edit_message(
                                 user_id, event.message_id, x, buttons=buttons
                             ),
@@ -94,7 +95,9 @@ class HelpCallbacks(BaseCallback):
         parts = data.split(":")
         action = parts[1] if len(parts) > 1 else "main"
 
-        if action == "contact":
+        if action == "main":
+            await self.menu_system.handlers.handle_support(event)
+        elif action == "contact":
             text = "💬 **Contact Support**\n\nReach out to @ContactXYZrobot for assistance!"
             buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
@@ -136,7 +139,9 @@ class HelpCallbacks(BaseCallback):
         parts = data.split(":")
         action = parts[1] if len(parts) > 1 else "main"
 
-        if action == "toggle":
+        if action == "main":
+            await self.menu_system.handlers.handle_developer(event)
+        elif action == "toggle":
             from teleguard.core.mongo_database import mongodb
 
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
@@ -155,6 +160,7 @@ class HelpCallbacks(BaseCallback):
                         (),
                         {
                             "sender_id": user_id,
+                            "message_id": event.message_id,
                             "reply": lambda x, buttons=None: self.bot.edit_message(
                                 user_id, event.message_id, x, buttons=buttons
                             ),

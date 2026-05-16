@@ -172,6 +172,11 @@ class CallbackRouter:
             elif menu_type == "import":
                 await self.handle_session_import_callback(event, user_id, "import_sessions")
             elif menu_type == "main":
+                # Delete current inline message to prevent orphans
+                try:
+                    await event.delete()
+                except Exception:
+                    pass
                 # Send main menu instead of calling non-existent handle_start
                 await self.menu.send_main_menu(user_id)
                 await event.answer("🏠 Main menu")
