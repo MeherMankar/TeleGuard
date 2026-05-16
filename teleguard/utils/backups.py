@@ -337,12 +337,12 @@ def encrypt_snapshot(snapshot_bytes: bytes) -> bytes:
         return snapshot_bytes
 
 
-def push_to_github(snapshot_path: str, branch: str = "backups"):
+def push_to_github(snapshot_path: str, _branch: str = "backups"):
     """Push snapshot to GitHub repository (feature removed)"""
     logger.warning("GitHub sync feature has been removed")
 
 
-def force_orphan_push(snapshot_path: str, branch: str = "backups"):
+def force_orphan_push(snapshot_path: str, _branch: str = "backups"):
     """Create orphan branch with only latest snapshot (feature removed)"""
     logger.warning("GitHub sync feature has been removed")
 

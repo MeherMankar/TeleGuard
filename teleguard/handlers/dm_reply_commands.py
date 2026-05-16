@@ -331,7 +331,7 @@ class DMReplyCommands:
                     f"Use /dm_reply in a forum group to enable again."
                 )
 
-    async def handle_dm_group_input(self, event, user_id, group_id_text):
+    async def handle_dm_group_input(self, event, _user_id, _group_id_text):
         """Handle DM group ID input - DEPRECATED, use /enable_topics in forum group instead"""
         await event.reply(
             "❌ **This method is deprecated**\n\n"

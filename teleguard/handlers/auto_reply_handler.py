@@ -1,5 +1,6 @@
 """Advanced auto-reply handler with keyword detection and analytics - FIXED VERSION"""
 
+import asyncio
 import html
 import logging
 import re
@@ -48,7 +49,6 @@ class AutoReplyHandler:
     def setup_auto_reply_handlers(self):
         """Set up auto-reply handlers for all user clients — safe to call multiple times."""
         for user_id, clients in self.user_clients.items():
-            import asyncio
             asyncio.create_task(self.load_user_keywords(user_id))
             for account_name, client in clients.items():
                 if client and client.is_connected():
@@ -366,8 +366,6 @@ class AutoReplyHandler:
                 if action_data["step"] == "keyword":
                     raw = text.strip()
 
-                    # Parse comma-separated keywords — strip quotes and whitespace
-                    import re as _re
                     # Split on commas, then strip surrounding quotes/spaces from each token
                     raw_parts = [p.strip().strip("'\"").strip().lower() for p in raw.split(",")]
                     # Filter out empty or too-short tokens

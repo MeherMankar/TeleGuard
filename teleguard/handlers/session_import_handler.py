@@ -1,7 +1,11 @@
 """Session Import Handler - Login via session files or strings"""
 
+import asyncio
 import logging
 import os
+import shutil
+import tempfile
+import zipfile
 
 from telethon import events
 
@@ -299,10 +303,6 @@ class SessionImportHandler:
 
     async def process_zip_sessions(self, user_id, zip_path, status_callback=None):
         """Process bulk ZIP session import with optional progress updates"""
-        import shutil
-        import tempfile
-        import zipfile
-        import time
 
         try:
             if not os.path.exists(zip_path):

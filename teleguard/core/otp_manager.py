@@ -277,7 +277,7 @@ class OTPManager:
             logger.error(f"❌ Failed to register OTP handler for {handler_key}: {e}")
 
     async def toggle_destroyer(
-        self, user_id: int, account_id: str, enabled: bool, disable_password: str = None
+        self, user_id: int, account_id: str, enabled: bool
     ) -> tuple[bool, str]:
         """Toggle OTP destroyer state"""
         try:
@@ -426,7 +426,7 @@ class OTPManager:
             return False, f"Error: {str(e)}"
 
     async def disable_destroyer_temp(
-        self, user_id: int, account_id: str, disable_password: str = None
+        self, user_id: int, account_id: str
     ) -> tuple[bool, str]:
         """Temporarily disable OTP destroyer for 5 minutes"""
         try:

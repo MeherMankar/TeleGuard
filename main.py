@@ -234,7 +234,7 @@ async def graceful_shutdown() -> None:
 def setup_signal_handlers() -> None:
     """Setup signal handlers for graceful shutdown."""
 
-    def signal_handler(signum: int, frame) -> NoReturn:
+    def signal_handler(signum: int, _) -> NoReturn:
         signal_name = signal.Signals(signum).name
         logger.info("📶 Received %s signal, initiating shutdown", signal_name)
         print(f"\n📶 Received {signal_name} signal, shutting down gracefully...")

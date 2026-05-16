@@ -81,7 +81,7 @@ class MongoDB:
 
                 return MockResult()
 
-            async def update_one(self, query, update, upsert=False):
+            async def update_one(self, query, update, _upsert=False):
                 pass
 
             async def delete_one(self, query):
