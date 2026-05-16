@@ -6,7 +6,7 @@ import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..utils.backups import (
+from .backups import (
     cleanup_telegram_messages,
     create_snapshot,
     encrypt_snapshot,

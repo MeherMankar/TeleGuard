@@ -33,7 +33,7 @@ class TelegramBackup:
 
     def __init__(self, bot_client):
         self.bot_client = bot_client
-        self.backup_channel = os.environ.get("TELEGRAM_BACKUP_CHANNEL") or os.environ.get("LOG_CHAT_ID")
+        self.backup_channel = os.environ.get("TELEGRAM_BACKUP_CHANNEL")
 
     async def delete_old_backups(self, backup_type: str) -> bool:
         """Delete old backup files using stored message IDs"""
@@ -135,14 +135,12 @@ class SessionBackupManager:
         )
         if self.enabled:
             self.github_repo = os.environ.get("GITHUB_REPO")
-            self.github_token = os.environ.get("GITHUB_TOKEN")
             if not self.github_repo:
                 raise ValueError(
                     "GITHUB_REPO environment variable required when SESSION_BACKUP_ENABLED=true"
                 )
         else:
             self.github_repo = None
-            self.github_token = None
         self.workdir = Path(GIT_WORKDIR)
 
     def store_session(self, account_id: str, session_string: str) -> dict:
@@ -164,26 +162,21 @@ class SessionBackupManager:
                 ("https://", "git@")
             ):
                 raise ValueError("Invalid GitHub repository URL")
-            # Inject token into URL if available for authentication
-            repo_url = self.github_repo
-            if self.github_token and repo_url.startswith("https://"):
-                repo_url = repo_url.replace("https://", f"https://{self.github_token}@")
-            
             subprocess.run(
-                ["git", "clone", repo_url, str(self.workdir)],
+                ["/usr/bin/git", "clone", self.github_repo, str(self.workdir)],
                 check=True,
                 shell=False,
             )
             logger.info(f"Cloned sessions repo to {self.workdir}")
         else:
             subprocess.run(
-                ["git", "-C", str(self.workdir), "fetch", "origin"],
+                ["/usr/bin/git", "-C", str(self.workdir), "fetch", "origin"],
                 check=True,
                 shell=False,
             )
             subprocess.run(
                 [
-                    "git",
+                    "/usr/bin/git",
                     "-C",
                     str(self.workdir),
                     "reset",
@@ -232,7 +225,7 @@ class SessionBackupManager:
         try:
             subprocess.run(
                 [
-                    "gpg",
+                    "/usr/bin/gpg",
                     "--batch",
                     "--yes",
                     "--detach-sign",

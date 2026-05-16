@@ -280,8 +280,7 @@ class ConfigManager:
     def _load_backup_config(self) -> BackupConfig:
         """Load backup system configuration"""
         return BackupConfig(
-            telegram_backup_channel=os.getenv("TELEGRAM_BACKUP_CHANNEL")
-            or os.getenv("LOG_CHAT_ID"),
+            telegram_backup_channel=os.getenv("TELEGRAM_BACKUP_CHANNEL"),
             github_repo=os.getenv("GITHUB_REPO"),
             github_token=os.getenv("GITHUB_TOKEN"),
             github_backup_branch=os.getenv("GITHUB_BACKUP_BRANCH", "backups"),
