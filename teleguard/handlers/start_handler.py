@@ -21,8 +21,8 @@ class StartHandler:
 
     def register_handlers(self):
         """Register start command handler"""
-        self.bot.on(events.NewMessage(pattern=r"^/start$"))(self._start_command)
-        self.bot.on(events.NewMessage(pattern=r"^/menu$"))(self._menu_command)
+        self.bot.on(events.NewMessage(pattern=r"^/start(?:\s|$)"))(self._start_command)
+        self.bot.on(events.NewMessage(pattern=r"^/menu(?:\s|$)"))(self._menu_command)
 
     async def _start_command(self, event):
         """Handle /start command"""

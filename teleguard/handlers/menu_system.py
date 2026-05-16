@@ -239,17 +239,42 @@ class MenuSystem:
     def setup_menu_handlers(self):
         """Set up menu text handlers - DIRECT FIX for non-working buttons"""
 
+        # All known menu button texts — receiving any of these cancels pending actions
+        _MENU_BUTTON_TEXTS = frozenset([
+            "📱 Account Settings", "Account Settings",
+            "🛡️ OTP Manager", "OTP Manager",
+            "💬 Messaging", "Messaging",
+            "📢 Channels", "Channels",
+            "👥 Contacts", "Contacts",
+            "🎭 SpamMaster", "SpamMaster", "🎯 SpamMaster",
+            "🧹 Cleanup", "Cleanup",
+            "❓ Help", "Help",
+            "🆘 Support", "Support",
+            "⚙️ Developer Panel", "🔧 Developer Panel", "🔧 Developer",
+            "Developer Panel", "Developer",
+            "🌐 Proxy Manager", "Proxy Manager", "Proxy",
+        ])
+
         # DIRECT TEXT HANDLER - Simple and reliable
         @self.bot.on(
-            events.NewMessage(incoming=True, func=lambda e: e.is_private and e.text)
+            events.NewMessage(incoming=True, func=lambda e: e.is_private and e.text and not e.text.startswith("/"))
         )
         async def direct_menu_handler(event):
             text = event.text.strip()
             user_id = event.sender_id
 
-            # Safe logging without Unicode emojis
-            safe_text = text.encode("ascii", errors="replace").decode("ascii")
-            logger.info(f"Menu button clicked: '{safe_text}' from user {user_id}")
+            # If user taps a menu button while a pending action is active, cancel it
+            # so the menu button text doesn't get routed to the pending action handler
+            if text in _MENU_BUTTON_TEXTS:
+                if self.account_manager:
+                    self.account_manager.pending_actions.pop(user_id, None)
+                
+                # Safe logging without Unicode emojis - ONLY for actual menu buttons
+                safe_text = text.encode("ascii", errors="replace").decode("ascii")
+                logger.info(f"Menu button clicked: '{safe_text}' from user {user_id}")
+            else:
+                # Not a menu button, ignore
+                return
 
             try:
                 if text in ["📱 Account Settings", "Account Settings"]:
@@ -494,8 +519,41 @@ class MenuSystem:
     async def _handle_proxy_menu(self, event):
         """Handle Proxy Manager menu"""
         try:
-            if hasattr(self, "proxy_handler"):
-                await self.proxy_handler._show_proxy_menu(event, event.sender_id)
+            user_id = event.sender_id
+            if hasattr(self, "proxy_handler") and self.proxy_handler:
+                # Build the proxy menu and send as a new message
+                # (can't edit a reply-keyboard text event)
+                from telethon import Button
+                from ..core.mongo_database import mongodb
+                from ..core.proxy_manager import proxy_manager
+
+                proxies = await proxy_manager.get_user_proxies(user_id)
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+                accounts_with_proxy = sum(1 for acc in accounts if acc.get("proxy_id"))
+                default_proxy = await proxy_manager.get_default_proxy(user_id)
+                default_info = (
+                    f"✅ {default_proxy['server']}:{default_proxy['port']}"
+                    if default_proxy else "❌ None"
+                )
+                text = (
+                    f"🌐 **Proxy Management**\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📊 **Statistics:**\n"
+                    f"• Total Proxies: {len(proxies)}\n"
+                    f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n"
+                    f"• Default: {default_info}\n\n"
+                    f"✅ SOCKS5 / HTTP proxies recommended\n"
+                    f"⚠️ MTProto may not work on cloud\n\n"
+                    f"Select an option:"
+                )
+                buttons = [
+                    [Button.inline("➕ Add Proxy", "proxy:add")],
+                    [Button.inline("📋 View Proxies", "proxy:list")],
+                    [Button.inline("🔗 Assign to Account", "proxy:assign")],
+                    [Button.inline("👥 View Accounts", "proxy:view_accounts")],
+                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
+                ]
+                await self.bot.send_message(user_id, text, buttons=buttons)
             else:
                 await event.reply("❌ Proxy Manager not available")
         except Exception as e:

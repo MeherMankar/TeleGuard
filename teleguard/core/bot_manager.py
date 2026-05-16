@@ -25,6 +25,9 @@ from .mongo_database import init_db, mongodb
 
 logger = logging.getLogger(__name__)
 
+bot_manager = None  # Global reference for session guardian and other modules
+
+
 
 class ComponentManager:
     """Manages bot components and their lifecycle"""
@@ -94,6 +97,8 @@ class BotManager:
     """
 
     def __init__(self):
+        global bot_manager
+        bot_manager = self
         self.bot: Optional[TelegramClient] = None
         self.user_clients: Dict[int, Dict[str, TelegramClient]] = {}
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
@@ -686,8 +691,6 @@ class BotManager:
 
     async def _initialize_components(self) -> None:
         try:
-            print("Initializing features...")
-            logger.info("Initializing components...")
             await asyncio.wait_for(self._initialize_core_components(), timeout=15.0)
             await asyncio.wait_for(self._initialize_handlers(), timeout=15.0)
             await asyncio.wait_for(self._initialize_services(), timeout=8.0)
@@ -696,25 +699,18 @@ class BotManager:
             # Initialize auto backup system
             try:
                 from ..utils.backups import init_auto_backup, start_auto_backup
-
                 init_auto_backup(self.bot)
                 await start_auto_backup()
-                print("  Auto backup system ready")
-                logger.info("Auto backup system initialized")
             except Exception as e:
                 logger.warning(f"Auto backup initialization failed: {e}")
 
-            # Set up DM handlers for loaded sessions after all components are
-            # initialized
+            # Set up DM handlers for loaded sessions after all components are initialized
             if self.dm_reply_handler:
                 try:
                     await self.dm_reply_handler.refresh_all_handlers()
-                    print("  DM Reply system ready")
-                    logger.info("DM handlers set up for existing sessions")
                 except Exception as e:
                     logger.warning(f"Failed to set up DM handlers: {e}")
 
-            print("All features ready")
             logger.info("All components initialized")
         except asyncio.TimeoutError:
             logger.error("Component initialization timed out")

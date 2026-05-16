@@ -123,7 +123,9 @@ class SafeConsoleHandler(logging.StreamHandler):
 
 console_handler = SafeConsoleHandler()
 
-console_handler.setLevel(logging.INFO)  # Changed from ERROR to INFO to see all messages
+# Console shows only WARNING+ to keep output clean.
+# All INFO detail goes to the rotating log file.
+console_handler.setLevel(logging.WARNING)
 console_handler.setFormatter(simple_formatter)
 
 # Remove all existing handlers from root logger
@@ -149,7 +151,7 @@ for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "ur
 
 # Get logger after configuration
 logger = get_logger(__name__)
-logger.info("Logging system configured with UTF-8 support")
+logger.debug("Logging system configured with UTF-8 support")
 
 
 
@@ -361,23 +363,23 @@ async def main() -> None:
     """Main application entry point with comprehensive error handling."""
     # Force rebuild - fixed indentation issue
     startup_time = time.time()
-    logger.info("🚀 TeleGuard application starting up...")
+    logger.debug("TeleGuard application starting up")
     
     try:
         # Print startup banner
         print_startup_banner()
-        logger.info("🎨 Startup banner displayed")
+        logger.debug("Startup banner displayed")
 
         # Setup signal handlers
         setup_signal_handlers()
-        logger.info("📶 Signal handlers configured")
+        logger.debug("Signal handlers configured")
         
         # Setup global error handler
         BotLogger.setup_global_error_handler()
-        logger.info("🚨 Global error handler configured")
+        logger.debug("Global error handler configured")
 
         # Database initialization
-        logger.info("💾 Initializing database connections...")
+        logger.debug("Initializing database connections")
         print("Connecting to database...")
         await init_database_manager()
         
@@ -390,28 +392,28 @@ async def main() -> None:
             logger.warning("⚠️ Database health check issues: %s", health)
         
         # Start web server
-        logger.info("🌐 Starting health check web server...")
+        logger.debug("Starting health check web server")
         await start_web_server()
-        logger.info("✅ Web server started successfully")
+        logger.debug("Web server started")
         
         # Initialize Koyeb optimization
         if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true':
-            logger.info("🚀 Starting Koyeb optimization...")
+            logger.debug("Starting Koyeb optimization")
             from teleguard.utils.koyeb_optimizer import koyeb_optimizer
             await koyeb_optimizer.start_optimization()
         
         # Initialize session guardian with IP monitoring
-        logger.info("🔡 Initializing session guardian with IP monitoring...")
+        logger.debug("Initializing session guardian")
         from teleguard.core.session_guardian import init_guardian
         from teleguard.utils.guardian_config import load_guardian_config
         guardian_config = load_guardian_config()
         g = init_guardian(guardian_config)
         # Start IP monitoring background task (requires running event loop)
         await g.start_monitoring()
-        logger.info("✅ Session guardian with IP monitoring active")
+        logger.debug("Session guardian active")
 
         print("\n" + "="*50)
-        logger.info("🤖 Initializing TeleGuard bot...")
+        logger.debug("Initializing TeleGuard bot")
 
         # Start bot without timeout on cloud platforms
         try:
@@ -421,7 +423,7 @@ async def main() -> None:
                 print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
                 logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
                 
-                logger.info("🏃 Starting bot main loop...")
+                logger.debug("Starting bot main loop")
                 await bot.run()
         except Exception as e:
             # Handle rate limits and other startup errors
@@ -460,7 +462,7 @@ async def main() -> None:
                 raise e
 
     except KeyboardInterrupt:
-        logger.info("⌨️ Keyboard interrupt received")
+        logger.debug("Keyboard interrupt received")
         print("\nShutting down TeleGuard...")
         await graceful_shutdown()
         sys.exit(0)
@@ -509,3 +511,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nCritical error: {e}")
         sys.exit(1)
+
