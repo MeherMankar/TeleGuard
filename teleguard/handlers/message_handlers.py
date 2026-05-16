@@ -132,6 +132,8 @@ class MessageHandlers:
             await self._process_import_session_file(event, user_id)
         elif action == "import_zip_sessions":
             await self._process_import_zip(event, user_id)
+        elif action == "import_tdata_session":
+            await self._process_tdata_import(event, user_id)
 
     async def _handle_user_reply(self, event):
         """Handle user text replies for pending actions"""
@@ -883,36 +885,48 @@ class MessageHandlers:
 
         user_id = event.sender_id
         account_phone = self.pending_actions[user_id].get("account_phone")
+
+        # Resolve channel_manager from multiple possible locations
+        cm = None
+        if hasattr(self.bot_manager, "channel_manager"):
+            cm = self.bot_manager.channel_manager
+        elif hasattr(self.bot_manager, "command_handlers") and hasattr(
+            self.bot_manager.command_handlers, "channel_manager"
+        ):
+            cm = self.bot_manager.command_handlers.channel_manager
+
+        back_buttons = [
+            [Button.inline("🔙 Back to Channel Menu", f"channel:select:{account_phone}")],
+            [Button.inline("🏠 Channel Hub", "menu:channels")],
+        ]
+
         if action == "channel_join_target":
-            (
-                success,
-                msg,
-            ) = await self.bot_manager.command_handlers.channel_manager.join_channel(
-                user_id, account_phone, message.strip()
-            )
-            result_text = f"✅ {msg}" if success else f"❌ {msg}"
-            buttons = [
-                [Button.inline("🔙 Back to Actions", f"manage:{account_phone}")],
-                [Button.inline("🔙 Back to Accounts", "back:accounts")],
-            ]
-            await event.reply(result_text, buttons=buttons)
+            if not cm:
+                await event.reply("❌ Channel manager not available")
+                self.pending_actions.pop(user_id, None)
+                return
+            await event.reply("⏳ Joining channel…")
+            success, msg = await cm.join_channel(user_id, account_phone, message.strip())
+            await event.reply(f"{'✅' if success else '❌'} {msg}", buttons=back_buttons)
+            self.pending_actions.pop(user_id, None)
+
         elif action == "channel_leave_target":
-            (
-                success,
-                msg,
-            ) = await self.bot_manager.command_handlers.channel_manager.leave_channel(
-                user_id, account_phone, message.strip()
-            )
-            result_text = f"✅ {msg}" if success else f"❌ {msg}"
-            buttons = [
-                [Button.inline("🔙 Back to Actions", f"manage:{account_phone}")],
-                [Button.inline("🔙 Back to Accounts", "back:accounts")],
-            ]
-            await event.reply(result_text, buttons=buttons)
+            if not cm:
+                await event.reply("❌ Channel manager not available")
+                self.pending_actions.pop(user_id, None)
+                return
+            await event.reply("⏳ Leaving channel…")
+            success, msg = await cm.leave_channel(user_id, account_phone, message.strip())
+            await event.reply(f"{'✅' if success else '❌'} {msg}", buttons=back_buttons)
+            self.pending_actions.pop(user_id, None)
+
         elif action == "channel_create_type":
             channel_type = message.strip().lower()
             if channel_type not in ["channel", "group"]:
-                await event.reply("❌ Invalid type. Reply with 'channel' or 'group':")
+                await event.reply(
+                    "❌ Invalid type. Reply with `channel` or `group`:",
+                    buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
+                )
                 return
             self.pending_actions[user_id] = {
                 "action": "channel_create_title",
@@ -920,11 +934,16 @@ class MessageHandlers:
                 "type": channel_type,
             }
             await event.reply(
-                f"🆕 **Create {channel_type.title()}**\n\nReply with the {channel_type} title:"
+                f"🆕 **Create {channel_type.title()}**\n\nStep 2: Reply with the title:",
+                buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
             )
+
         elif action == "channel_create_title":
-            channel_type = self.pending_actions[user_id].get("type")
+            channel_type = self.pending_actions[user_id].get("type", "channel")
             title = message.strip()
+            if not title:
+                await event.reply("❌ Title cannot be empty. Reply with a title:")
+                return
             self.pending_actions[user_id] = {
                 "action": "channel_create_about",
                 "account_phone": account_phone,
@@ -932,14 +951,14 @@ class MessageHandlers:
                 "title": title,
             }
             await event.reply(
-                f"🆕 **Create {channel_type.title()}: {title}**\n\nReply with description (or 'skip'):"
+                f"🆕 **Create {channel_type.title()}: {title}**\n\nStep 3: Reply with a description (or `skip`):",
+                buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
             )
-        elif action == "channel_create_about":
-            channel_type = self.pending_actions[user_id].get("type")
-            title = self.pending_actions[user_id].get("title")
-            about = "" if message.strip().lower() == "skip" else message.strip()
 
-            # Add privacy selection step
+        elif action == "channel_create_about":
+            channel_type = self.pending_actions[user_id].get("type", "channel")
+            title = self.pending_actions[user_id].get("title", "")
+            about = "" if message.strip().lower() == "skip" else message.strip()
             self.pending_actions[user_id] = {
                 "action": "channel_create_privacy",
                 "account_phone": account_phone,
@@ -948,57 +967,39 @@ class MessageHandlers:
                 "about": about,
             }
             await event.reply(
-                f"🔒 **Create {channel_type.title()}: {title}**\n\nChoose privacy setting:\n\n📝 Reply with:\n• 'public' - Anyone can find and join\n• 'private' - Invite-only access"
+                f"🔒 **Create {channel_type.title()}: {title}**\n\nStep 4: Reply with privacy:\n• `public` — anyone can find and join\n• `private` — invite-only",
+                buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
             )
+
         elif action == "channel_create_privacy":
-            channel_type = self.pending_actions[user_id].get("type")
-            title = self.pending_actions[user_id].get("title")
+            channel_type = self.pending_actions[user_id].get("type", "channel")
+            title = self.pending_actions[user_id].get("title", "")
             about = self.pending_actions[user_id].get("about", "")
             privacy = message.strip().lower()
-
             if privacy not in ["public", "private"]:
                 await event.reply(
-                    "❌ Invalid privacy setting. Reply with 'public' or 'private':"
+                    "❌ Reply with `public` or `private`:",
+                    buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
                 )
                 return
+            if not cm:
+                await event.reply("❌ Channel manager not available")
+                self.pending_actions.pop(user_id, None)
+                return
+            await event.reply("⏳ Creating…")
+            success, msg = await cm.create_channel(user_id, account_phone, channel_type, title, about, privacy)
+            await event.reply(f"{'✅' if success else '❌'} {msg}", buttons=back_buttons)
+            self.pending_actions.pop(user_id, None)
 
-            (
-                success,
-                msg,
-            ) = await self.bot_manager.command_handlers.channel_manager.create_channel(
-                user_id, account_phone, channel_type, title, about, privacy
-            )
-            result_text = f"✅ {msg}" if success else f"❌ {msg}"
-            buttons = [
-                [Button.inline("🔙 Back to Actions", f"manage:{account_phone}")],
-                [Button.inline("🔙 Back to Accounts", "back:accounts")],
-            ]
-            await event.reply(result_text, buttons=buttons)
-            # Clear pending action after channel creation attempt
-            self.pending_actions.pop(user_id, None)
         elif action == "channel_delete_target":
-            (
-                success,
-                msg,
-            ) = await self.bot_manager.command_handlers.channel_manager.delete_channel(
-                user_id, account_phone, message.strip()
-            )
-            result_text = f"✅ {msg}" if success else f"❌ {msg}"
-            buttons = [
-                [Button.inline("🔙 Back to Actions", f"manage:{account_phone}")],
-                [Button.inline("🔙 Back to Accounts", "back:accounts")],
-            ]
-            await event.reply(result_text, buttons=buttons)
+            if not cm:
+                await event.reply("❌ Channel manager not available")
+                self.pending_actions.pop(user_id, None)
+                return
+            await event.reply("⏳ Deleting channel…")
+            success, msg = await cm.delete_channel(user_id, account_phone, message.strip())
+            await event.reply(f"{'✅' if success else '❌'} {msg}", buttons=back_buttons)
             self.pending_actions.pop(user_id, None)
-        # Only clear pending actions for final actions
-        if action in [
-            "channel_join_target",
-            "channel_leave_target",
-            "channel_create_about",
-            "channel_delete_target",
-        ]:
-            if action not in ["channel_create_type", "channel_create_title"]:
-                pass  # Already handled above
 
     async def _handle_session_string_import(self, event, user, action, message):
         """Handle string session import"""
@@ -1610,7 +1611,6 @@ class MessageHandlers:
             "session": ["session_string_login", "import_string_session", "session_phone_login", "validate_session_string", "session_creation_2fa_password"],
             "cleanup": ["cleanup_selection", "bulk_cleanup_selection"],
         }
-
         if action in action_map["auth"]:
             await self._handle_auth_actions(event, user, action, message)
         elif action in action_map["2fa_mgmt"]:
@@ -1727,9 +1727,13 @@ class MessageHandlers:
             logger.error(f"Session file import error: {e}")
             await event.reply(f"❌ Error processing session file: {str(e)}")
         self.pending_actions.pop(user_id, None)
-    
+
     async def _process_bulk_import(self, event, user_id):
-        """Process bulk import from ZIP file"""
+        """Process bulk ZIP session import (session_bulk_import action)"""
+        await self._process_zip_sessions(event, user_id)
+    
+    async def _process_zip_sessions(self, event, user_id):
+        """Process bulk ZIP session import"""
         try:
             filename = self._extract_filename(event)
             if not filename or not filename.endswith(".zip"):
@@ -1737,12 +1741,11 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
                 return
 
-            # Download ZIP file
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
                 zip_path = tmp.name
 
-            await event.reply("⏳ Downloading ZIP file...")
+            status_msg = await event.reply("⏳ **Downloading ZIP file...**")
             zip_path = await event.download_media(file=zip_path)
 
             if not zip_path or not os.path.exists(zip_path):
@@ -1750,23 +1753,29 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
                 return
 
-            # Process ZIP file
-            if hasattr(self.bot_manager, "session_login_handler"):
-                await event.reply("📦 Processing sessions from ZIP...")
-                success, msg = await self.bot_manager.session_login_handler.process_session_file(user_id, zip_path)
-                # Message is sent by the handler itself with progress updates
-            else:
-                await event.reply("❌ Session login not available")
+            # Callback for progress updates
+            async def progress_callback(text):
                 try:
-                    os.remove(zip_path)
+                    await status_msg.edit(text)
                 except Exception:
                     pass
-        except Exception as e:
-            logger.error(f"Bulk import error: {e}")
-            await event.reply(f"❌ Error processing ZIP file: {str(e)}")
-        finally:
+
+            # Process ZIP via SessionImportHandler
+            if hasattr(self.bot_manager, "session_import_handler"):
+                success, result = await self.bot_manager.session_import_handler.process_zip_sessions(
+                    user_id, zip_path, status_callback=progress_callback
+                )
+                await event.reply(result)
+            else:
+                await event.reply("❌ Session import handler not available")
+
             self.pending_actions.pop(user_id, None)
-    
+
+        except Exception as e:
+            logger.error(f"ZIP import error: {e}")
+            await event.reply(f"❌ ZIP import failed: {str(e)}")
+            self.pending_actions.pop(user_id, None)
+
     async def _process_tdata_import(self, event, user_id):
         """Process TData import from ZIP file"""
         try:
@@ -1776,12 +1785,11 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
                 return
 
-            # Download ZIP file
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
                 zip_path = tmp.name
 
-            await event.reply("⏳ Downloading TData ZIP file...")
+            status_msg = await event.reply("⏳ **Downloading TData ZIP...**")
             zip_path = await event.download_media(file=zip_path)
 
             if not zip_path or not os.path.exists(zip_path):
@@ -1789,63 +1797,24 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
                 return
 
-            # Process TData ZIP
-            await event.reply("📂 Converting TData to Telethon format...")
-            
-            # Import session converter
-            try:
-                from ..utils.session_converter import SessionConverter
-                
-                # Extract and convert TData
-                import zipfile
-                import shutil
-                
-                temp_dir = tempfile.mkdtemp()
+            # Callback for progress updates
+            async def progress_callback(text):
                 try:
-                    # Extract ZIP
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(temp_dir)
-                    
-                    # Find TData folder
-                    tdata_path = None
-                    for root, dirs, files in os.walk(temp_dir):
-                        if 'key_datas' in files or 'tdata' in root.lower():
-                            tdata_path = root
-                            break
-                    
-                    if not tdata_path:
-                        await event.reply("❌ TData folder not found in ZIP. Please ensure the ZIP contains a valid TData folder with key_datas file.")
-                        return
-                    
-                    # Convert TData to Telethon
-                    converter = SessionConverter()
-                    session_string = await converter.tdata_to_telethon(tdata_path)
-                    
-                    if not session_string:
-                        await event.reply("❌ Failed to convert TData. Please ensure the TData folder is valid and not corrupted.")
-                        return
-                    
-                    # Import the converted session
-                    if hasattr(self.bot_manager, "session_login_handler"):
-                        success, msg = await self.bot_manager.session_login_handler.process_session_string(user_id, session_string)
-                        await event.reply(msg)
-                    else:
-                        await event.reply("❌ Session login not available")
-                    
-                finally:
-                    # Cleanup
-                    try:
-                        shutil.rmtree(temp_dir)
-                        os.remove(zip_path)
-                    except Exception:
-                        pass
-                    
-            except ImportError:
-                await event.reply("❌ Session converter not available. TData import is not supported.")
-            except Exception as convert_err:
-                logger.error(f"TData conversion error: {convert_err}")
-                await event.reply(f"❌ TData conversion failed: {str(convert_err)}")
-                
+                    await status_msg.edit(text)
+                except Exception:
+                    pass
+
+            # Process TData via SessionImportHandler
+            if hasattr(self.bot_manager, "session_import_handler"):
+                success, result = await self.bot_manager.session_import_handler.process_tdata_import(
+                    user_id, zip_path, status_callback=progress_callback
+                )
+                await event.reply(result)
+            else:
+                await event.reply("❌ Session import handler not available")
+
+            self.pending_actions.pop(user_id, None)
+
         except Exception as e:
             logger.error(f"TData import error: {e}")
             await event.reply(f"❌ Error processing TData ZIP: {str(e)}")

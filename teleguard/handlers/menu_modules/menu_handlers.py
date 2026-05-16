@@ -74,6 +74,14 @@ class MenuHandlers:
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             )
+        # Edit if called from a callback, otherwise send new message
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_otp_manager(self, event):
@@ -120,6 +128,13 @@ class MenuHandlers:
                 [Button.inline("📋 Security Audit Log", "otp:audit_all")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_messaging(self, event):
@@ -159,6 +174,14 @@ class MenuHandlers:
                 ],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
+        # Edit if called from a callback, otherwise send new message
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_channels(self, event):
@@ -193,6 +216,13 @@ class MenuHandlers:
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             )
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_cleanup(self, event):

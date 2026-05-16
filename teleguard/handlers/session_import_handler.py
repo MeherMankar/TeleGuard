@@ -49,6 +49,11 @@ class SessionImportHandler:
             user_id = event.sender_id
             await self._import_zip_sessions(event, user_id)
 
+        @self.bot.on(events.CallbackQuery(pattern=r"^import_tdata$"))
+        async def import_tdata_session(event):
+            user_id = event.sender_id
+            await self._import_tdata_session(event, user_id)
+
         @self.bot.on(events.CallbackQuery(pattern=r"^import_formats$"))
         async def show_supported_formats(event):
             await self._show_supported_formats(event)
@@ -63,26 +68,36 @@ class SessionImportHandler:
             get_supported_formats()
 
             text = (
-                "📥 **Universal Session Import**\n\n"
-                "Import accounts from **any** Telegram library:\n\n"
-                "**📱 Supported Formats:**\n"
-                "• **Telethon**: StringSession, .session files\n"
-                "• **Pyrogram**: Session strings, .session files\n"
-                "• **TDLib**: JSON session data\n"
-                "• **Raw JSON**: Custom session formats\n\n"
-                "**✨ Benefits:**\n"
-                "• No OTP verification needed\n"
-                "• No 2FA password required\n"
-                "• Instant account addition\n"
-                "• Auto-detects session format\n\n"
-                "Choose import method:"
+                "🔐 **Session Import Manager**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Import existing accounts using these professional methods:\n\n"
+                "📁 **Session File**\n"
+                "• Upload `.session` file\n"
+                "• Supports Telethon & Pyrogram\n"
+                "• Instant account addition\n\n"
+                "📝 **Session String**\n"
+                "• Paste any session string format\n"
+                "• Quick & reliable import method\n\n"
+                "📦 **Bulk Import (ZIP)**\n"
+                "• Upload ZIP with multiple sessions\n"
+                "• Import 50+ accounts at once\n"
+                "• Progress tracking & reporting\n\n"
+                "📂 **TData Import (Desktop)**\n"
+                "• Telegram Desktop format\n"
+                "• Upload TData folder as ZIP\n"
+                "• Automatic Telethon conversion\n\n"
+                "**Choose your import method below:**"
             )
             buttons = [
-                [Button.inline("📝 Import Session String", "import_string")],
-                [Button.inline("📁 Import Session File", "import_file")],
-                [Button.inline("📦 Import ZIP (Bulk)", "import_zip")],
-                [Button.inline("📊 View Supported Formats", "import_formats")],
-                [Button.inline("🔙 Back to Account Settings", "menu:accounts")],
+                [
+                    Button.inline("📁 Session File", "import_file"),
+                    Button.inline("📝 Session String", "import_string"),
+                ],
+                [
+                    Button.inline("📦 Bulk Import (ZIP)", "import_zip"),
+                    Button.inline("📂 TData Import", "import_tdata"),
+                ],
+                [Button.inline("📊 Supported Formats Info", "import_formats")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
             await event.edit(text, buttons=buttons)
         except Exception as e:
@@ -142,33 +157,27 @@ class SessionImportHandler:
             logger.error(f"Import session file error: {e}")
             await event.edit("❌ Error setting up file import.")
 
-    async def _import_zip_sessions(self, event, user_id):
-        """Import multiple accounts via ZIP file"""
+    async def _import_tdata_session(self, event, user_id):
+        """Set up TData ZIP import"""
         try:
             if self.bot_manager:
                 self.bot_manager.pending_actions[user_id] = {
-                    "action": "import_zip_sessions"
+                    "action": "import_tdata_session"
                 }
             text = (
-                "📦 **Bulk Session Import (ZIP)**\n\n"
-                "Send a ZIP file containing multiple session files:\n\n"
-                "**📱 Supported Files in ZIP:**\n"
-                "• `.session` files (Telethon/Pyrogram)\n"
-                "• `.txt` files (session strings)\n"
-                "• `.json` files (session data)\n"
-                "• Mixed formats automatically detected\n\n"
-                "**🔍 Process:**\n"
-                "1. Send ZIP file as document\n"
-                "2. Auto-extract all sessions\n"
-                "3. Import each valid session\n"
-                "4. Get detailed report\n\n"
-                "**⚡ Fast:** Import 10+ accounts in seconds!"
+                "📂 **TData Import Manager**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                "**Telegram Desktop (TData) Import:**\n\n"
+                "1️⃣ Create a ZIP file containing your `tdata` folder\n"
+                "2️⃣ Make sure the `key_datas` file is included\n"
+                "3️⃣ Send the ZIP file as a **Document**\n\n"
+                "**⚠️ Note:** Conversion requires a few seconds. "
+                "The bot will automatically detect account info.\n\n"
+                "📥 **Ready! Please send your TData ZIP file:**"
             )
-            await event.edit(text)
-            await event.answer("📦 Send ZIP file with sessions")
+            await event.edit(text, buttons=[[Button.inline("🔙 Cancel", "import_sessions")]])
         except Exception as e:
-            logger.error(f"Import ZIP error: {e}")
-            await event.edit("❌ Error setting up ZIP import.")
+            logger.error(f"TData import setup error: {e}")
+            await event.edit("❌ Error setting up TData import.")
 
     async def _show_supported_formats(self, event):
         """Show detailed list of supported session formats"""
@@ -288,102 +297,90 @@ class SessionImportHandler:
             logger.error(f"Session file import error: {e}")
             return False, f"❌ File import failed: {str(e)}"
 
-    async def process_zip_sessions(self, user_id, zip_path):
-        """Process bulk ZIP session import"""
+    async def process_zip_sessions(self, user_id, zip_path, status_callback=None):
+        """Process bulk ZIP session import with optional progress updates"""
         import shutil
         import tempfile
         import zipfile
+        import time
 
         try:
             if not os.path.exists(zip_path):
                 return False, "❌ ZIP file not found"
 
-            extract_dir = tempfile.mkdtemp(prefix="sessions_")
+            extract_dir = tempfile.mkdtemp(prefix="bulk_import_")
             imported = []
             failed = []
+            
+            if status_callback:
+                await status_callback("📦 **ZIP Analysis...**")
 
             try:
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    all_files = zip_ref.namelist()
                     zip_ref.extractall(extract_dir)
 
-                for root, dirs, files in os.walk(extract_dir):
-                    for filename in files:
-                        file_path = os.path.join(root, filename)
+                session_files = [f for f in all_files if f.endswith(('.session', '.txt', '.json')) and not f.startswith('__')]
+                total = len(session_files)
+                
+                if total == 0:
+                    return False, "❌ No valid session files found in ZIP archive."
 
-                        # Handle different file types
-                        if filename.endswith(".session"):
-                            # Process .session files
-                            success, message = await self.process_session_file(
-                                user_id, file_path
-                            )
-                        elif filename.endswith(".txt"):
-                            # Process .txt files containing session strings
-                            try:
-                                with open(file_path, "r", encoding="utf-8") as f:
-                                    session_string = f.read().strip()
-                                success, message = await self.process_string_session(
-                                    user_id, session_string
-                                )
-                            except Exception as e:
-                                success, message = (
-                                    False,
-                                    f"Error reading file: {str(e)}",
-                                )
-                        elif filename.endswith(".json"):
-                            # Process JSON session files
-                            try:
-                                import json
+                for i, filename in enumerate(session_files, 1):
+                    file_path = os.path.join(extract_dir, filename)
+                    
+                    if status_callback and i % 5 == 0:
+                        await status_callback(f"⏳ **Importing Accounts...**\n━━━━━━━━━━━━\n🔄 Progress: {i}/{total}\n📱 Current: `{filename}`")
 
-                                with open(file_path, "r", encoding="utf-8") as f:
-                                    json_data = json.load(f)
-                                # Convert JSON to session string if possible
-                                if (
-                                    isinstance(json_data, dict)
-                                    and "session_string" in json_data
-                                ):
-                                    session_string = json_data["session_string"]
-                                    success, message = (
-                                        await self.process_string_session(
-                                            user_id, session_string
-                                        )
-                                    )
-                                elif isinstance(json_data, str):
-                                    # JSON file contains just a session string
-                                    success, message = (
-                                        await self.process_string_session(
-                                            user_id, json_data
-                                        )
-                                    )
-                                else:
-                                    success, message = False, "Unsupported JSON format"
-                            except Exception as e:
-                                success, message = (
-                                    False,
-                                    f"Error processing JSON: {str(e)}",
-                                )
-                        else:
-                            # Skip unsupported file types
-                            continue
+                    # Handle different file types
+                    if filename.endswith(".session"):
+                        success, message = await self.process_session_file(user_id, file_path)
+                    elif filename.endswith(".txt"):
+                        try:
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                session_string = f.read().strip()
+                            success, message = await self.process_string_session(user_id, session_string)
+                        except Exception as e:
+                            success, message = False, str(e)
+                    elif filename.endswith(".json"):
+                        try:
+                            import json
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                            session_str = data.get("session_string") if isinstance(data, dict) else data if isinstance(data, str) else None
+                            if session_str:
+                                success, message = await self.process_string_session(user_id, session_str)
+                            else:
+                                success, message = False, "No session_string in JSON"
+                        except Exception as e:
+                            success, message = False, str(e)
+                    else:
+                        continue
 
-                        if success:
-                            imported.append(filename)
-                        else:
-                            failed.append((filename, message))
+                    if success:
+                        imported.append(filename)
+                    else:
+                        failed.append((filename, message))
+                    
+                    # Prevent flood
+                    if total > 20:
+                        await asyncio.sleep(0.1)
 
-                result_text = "✅ **Bulk Import Complete**\n\n"
-                result_text += f"✅ **Imported:** {len(imported)} sessions\n"
+                result_text = (
+                    "📊 **Bulk Import Final Report**\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"✅ **Total Imported:** {len(imported)}\n"
+                    f"❌ **Failed Attempts:** {len(failed)}\n\n"
+                )
 
                 if imported:
-                    result_text += "\n**Successful:**\n"
-                    for name in imported[:10]:
-                        result_text += f"• {name}\n"
-                    if len(imported) > 10:
-                        result_text += f"... and {len(imported) - 10} more\n"
-
+                    result_text += "**Successful Imports (Last 5):**\n"
+                    for name in imported[-5:]:
+                        result_text += f"• `{name}`\n"
+                
                 if failed:
-                    result_text += f"\n❌ **Failed:** {len(failed)}\n"
-                    for name, error in failed[:5]:
-                        result_text += f"• {name}: {error[:50]}\n"
+                    result_text += "\n**Errors (Last 3):**\n"
+                    for name, error in failed[-3:]:
+                        result_text += f"• `{name}`: {error[:60]}...\n"
 
                 return True, result_text
 
@@ -395,3 +392,66 @@ class SessionImportHandler:
         except Exception as e:
             logger.error(f"ZIP import error: {e}")
             return False, f"❌ ZIP import failed: {str(e)}"
+
+    async def process_tdata_import(self, user_id, zip_path, status_callback=None):
+        """Process TData ZIP import with automatic conversion"""
+        import shutil
+        import tempfile
+        import zipfile
+        from ..utils.session_converter import SessionConverter
+
+        try:
+            if status_callback:
+                await status_callback("📂 **Analyzing TData ZIP...**")
+            
+            extract_dir = tempfile.mkdtemp(prefix="tdata_import_")
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                
+                # Find TData folder
+                tdata_path = None
+                for root, dirs, files in os.walk(extract_dir):
+                    if 'key_datas' in files:
+                        tdata_path = root
+                        break
+                
+                if not tdata_path:
+                    # Try another check - sometimes tdata is the folder name
+                    for root, dirs, files in os.walk(extract_dir):
+                        if root.endswith('tdata'):
+                            tdata_path = root
+                            break
+                
+                if not tdata_path:
+                    return False, "❌ TData folder not found in ZIP. Ensure it contains a `tdata` folder with `key_datas`."
+
+                if status_callback:
+                    await status_callback("⚙️ **Converting TData to Telethon...**\nThis may take a few seconds.")
+
+                # Convert TData to Telethon
+                sessions_output = os.path.join(extract_dir, "converted_sessions")
+                os.makedirs(sessions_output, exist_ok=True)
+                
+                success, result = await SessionConverter.tdata_to_telethon(tdata_path, proxy=None, output_dir=sessions_output)
+                
+                if not success:
+                    return False, f"❌ Conversion failed: {result}"
+
+                # The result should be the path to the .session file
+                if os.path.exists(result):
+                    if status_callback:
+                        await status_callback("✅ **Conversion Successful!**\nFinalizing account addition...")
+                    
+                    return await self.process_session_file(user_id, result)
+                else:
+                    return False, "❌ Converted session file not found."
+
+            finally:
+                shutil.rmtree(extract_dir, ignore_errors=True)
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+
+        except Exception as e:
+            logger.error(f"TData processing error: {e}")
+            return False, f"❌ TData process failed: {str(e)}"

@@ -6,6 +6,8 @@ All actions are logged and can be viewed by users.
 import asyncio
 import logging
 import random
+import time
+from datetime import datetime
 from typing import Any, Dict
 
 from telethon import errors, functions, types
@@ -24,6 +26,7 @@ class ActivitySimulator:
         self.user_clients = bot_manager.user_clients
         self.running = False
         self.simulation_tasks: Dict[int, asyncio.Task] = {}
+        self.stats: Dict[str, Dict] = {}  # task_key -> stats data
         self._lock = asyncio.Lock()
         # activity weights with new behaviors
         self.activity_weights = {
@@ -595,5 +598,48 @@ class ActivitySimulator:
 
         return delay
 
-    async def _log_activity(self, *args):
-        """Log activity (placeholder method)"""
+    async def _log_activity(
+        self, account_id: int, user_id: int, action_type: str, *details
+    ):
+        """Log activity and update internal statistics"""
+        try:
+            task_key = f"{user_id}_{account_id}"
+            if task_key not in self.stats:
+                self.stats[task_key] = {
+                    "total_actions": 0,
+                    "last_session": "Never",
+                    "avg_actions_per_session": 0,
+                    "actions": [],
+                }
+
+            stats = self.stats[task_key]
+            stats["total_actions"] += 1
+            stats["last_session"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # Store recent actions (last 5)
+            action_desc = f"{action_type}: {', '.join(map(str, details))}"
+            stats["actions"].append(
+                {"time": stats["last_session"], "description": action_desc}
+            )
+            if len(stats["actions"]) > 5:
+                stats["actions"].pop(0)
+
+            # Update database log for persistence
+            from ..core.mongo_database import mongodb
+            from bson import ObjectId
+
+            await mongodb.db.accounts.update_one(
+                {"_id": ObjectId(account_id)},
+                {
+                    "$push": {
+                        "audit_log": {
+                            "action": f"Simulation: {action_type}",
+                            "details": action_desc,
+                            "timestamp": int(time.time()),
+                        }
+                    }
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error logging simulation activity: {e}")

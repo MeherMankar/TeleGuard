@@ -121,12 +121,18 @@ class SessionLoginHandler:
         @self.bot.on(events.CallbackQuery(pattern=r"^login_bulk_import$"))
         async def login_bulk_import(event):
             user_id = event.sender_id
-            await self._start_bulk_import(event, user_id)
+            if hasattr(self.bot_manager, "session_import_handler"):
+                await self.bot_manager.session_import_handler._import_zip_sessions(event, user_id)
+            else:
+                await event.answer("❌ Bulk import not available")
 
         @self.bot.on(events.CallbackQuery(pattern=r"^login_tdata_import$"))
         async def login_tdata_import(event):
             user_id = event.sender_id
-            await self._start_tdata_import(event, user_id)
+            if hasattr(self.bot_manager, "session_import_handler"):
+                await self.bot_manager.session_import_handler._import_tdata_session(event, user_id)
+            else:
+                await event.answer("❌ TData import not available")
 
         @self.bot.on(events.CallbackQuery(pattern=r"^session_info:(.+)$"))
         async def show_session_info(event):
@@ -159,40 +165,10 @@ class SessionLoginHandler:
 
     async def _show_session_login_menu(self, event, user_id):
         """Show session login main menu"""
-        try:
-            text = (
-                "🔐 **Session Import Manager**\n\n"
-                "Import existing sessions using these methods:\n\n"
-                "**📁 Session File**\n"
-                "• Upload .session file\n"
-                "• Supports Telethon & Pyrogram\n"
-                "• Instant account addition\n\n"
-                "**📝 Session String**\n"
-                "• Paste session string\n"
-                "• Quick import method\n\n"
-                "**📦 Bulk Import**\n"
-                "• Upload ZIP with multiple sessions\n"
-                "• Import 50+ accounts at once\n"
-                "• Progress tracking\n\n"
-                "**📂 TData Import**\n"
-                "• Telegram Desktop format\n"
-                "• Upload TData folder as ZIP\n"
-                "• Automatic conversion\n\n"
-                "Choose your import method:"
-            )
-
-            buttons = [
-                [Button.inline("📁 Upload Session File", "login_session_file")],
-                [Button.inline("📝 Import Session String", "login_session_string")],
-                [Button.inline("📦 Bulk Import (ZIP)", "login_bulk_import")],
-                [Button.inline("📂 TData Import", "login_tdata_import")],
-                [Button.inline("🔙 Back to Account Settings", "menu:accounts")],
-            ]
-
-            await event.edit(text, buttons=buttons)
-        except Exception as e:
-            logger.error(f"Session login menu error: {e}")
-            await event.edit("❌ Error loading session login menu.")
+        if hasattr(self.bot_manager, "session_import_handler"):
+            await self.bot_manager.session_import_handler._show_import_menu(event, user_id)
+        else:
+            await event.answer("❌ Session import manager not available")
 
     async def _start_session_file_login(self, event, user_id):
         """Start session file upload process"""

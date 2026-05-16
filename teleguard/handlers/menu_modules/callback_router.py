@@ -312,11 +312,95 @@ class CallbackRouter:
             await event.answer("❌ Error processing request")
 
     async def handle_contacts_callback(self, event, user_id: int, data: str):
-        """Handle contacts callbacks"""
+        """Handle contacts sub-callbacks (contact:, contacts:, sync:, group:, tag:, export_acc:)"""
         try:
-            # Contacts callbacks are handled by contact_handler
-            # Just acknowledge them here
-            await event.answer("✅ Processing...")
+            ch = getattr(self.menu.account_manager, "contact_handler", None)
+            if ch is None:
+                await event.answer("❌ Contact handler not available")
+                return
+
+            parts = data.split(":")
+            prefix = parts[0]
+
+            # contacts: prefix — main menu actions
+            if prefix == "contacts":
+                action = parts[1] if len(parts) > 1 else "main"
+                if action == "list":
+                    await ch._show_contacts_list(event, user_id)
+                elif action == "add":
+                    await ch._start_add_contact(event, user_id)
+                elif action == "search":
+                    await ch._start_search(event, user_id)
+                elif action == "groups":
+                    await ch._show_groups(event, user_id)
+                elif action == "tags":
+                    await ch._show_tags(event, user_id)
+                elif action == "export":
+                    await ch._export_contacts(event, user_id)
+                elif action == "import":
+                    await ch._start_import(event, user_id)
+                elif action == "sync":
+                    await ch._show_sync_menu(event, user_id)
+                elif action == "main":
+                    await ch._show_main_menu(event, user_id)
+                else:
+                    await event.answer("✅ Processing...")
+
+            # contact: prefix — per-contact actions
+            elif prefix == "contact":
+                action = parts[1] if len(parts) > 1 else ""
+                try:
+                    contact_id = int(parts[2]) if len(parts) > 2 else 0
+                except ValueError:
+                    contact_id = 0
+                dispatch = {
+                    "view": ch._view_contact,
+                    "edit": ch._edit_contact_menu,
+                    "delete": ch._delete_contact,
+                    "delete_confirm": ch._confirm_delete_contact,
+                    "blacklist": ch._toggle_blacklist,
+                    "whitelist": ch._toggle_whitelist,
+                    "add_notes": ch._start_add_notes,
+                    "add_tags": ch._start_add_tags,
+                }
+                handler = dispatch.get(action)
+                if handler:
+                    await handler(event, user_id, contact_id)
+                else:
+                    await event.answer("✅ Processing...")
+
+            elif prefix == "sync":
+                sync_type = parts[1] if len(parts) > 1 else "from_telegram"
+                await ch._handle_sync(event, user_id, sync_type)
+
+            elif prefix == "group":
+                action = parts[1] if len(parts) > 1 else ""
+                if action == "create":
+                    await ch._start_create_group(event, user_id)
+                elif action == "view":
+                    group_name = ":".join(parts[2:]) if len(parts) > 2 else ""
+                    await ch._view_group(event, user_id, group_name)
+                else:
+                    await event.answer("✅ Processing...")
+
+            elif prefix == "tag":
+                action = parts[1] if len(parts) > 1 else ""
+                if action == "view":
+                    tag = ":".join(parts[2:]) if len(parts) > 2 else ""
+                    await ch._view_tag_contacts(event, user_id, tag)
+                else:
+                    await event.answer("✅ Processing...")
+
+            elif prefix == "export_acc":
+                try:
+                    account_idx = int(parts[1]) if len(parts) > 1 else 0
+                except ValueError:
+                    account_idx = 0
+                await ch._process_export(event, user_id, account_idx)
+
+            else:
+                await event.answer("✅ Processing...")
+
         except Exception as e:
             logger.error(f"Contacts callback error: {e}")
             await event.answer("❌ Error processing request")
@@ -549,12 +633,16 @@ class CallbackRouter:
                     await event.answer("❌ Bulk messaging not available")
             elif action == "templates":
                 await self.handle_template_callback(event, user_id, "template:main")
-            elif action == "stats":
+            elif action in ("stats", "analytics"):
                 await self.menu._show_messaging_statistics(user_id, event.message_id)
             elif action == "history":
                 await self.menu._show_message_history(user_id, event.message_id)
             elif action == "settings":
                 await self.menu._show_messaging_settings(user_id, event.message_id)
+            elif action == "autoreply":
+                await self.handle_auto_reply_callback(event, user_id, "auto_reply:main")
+            elif action == "dm":
+                await self.handle_dm_reply_callback(event, user_id, "dm_reply:main")
             else:
                 await event.answer("❌ Unknown messaging action")
         except Exception as e:
@@ -564,6 +652,7 @@ class CallbackRouter:
     async def handle_auto_reply_callback(self, event, user_id: int, data: str):
         """Handle auto-reply callbacks"""
         try:
+            from telethon import Button
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else "main"
 
@@ -574,6 +663,138 @@ class CallbackRouter:
                     )
                 else:
                     await event.answer("❌ Auto-reply not available")
+
+            elif action == "toggle":
+                # Show per-account toggle list
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                if not accounts:
+                    await event.answer("❌ No accounts found")
+                    return
+                text = "🤖 **Auto-Reply — Toggle Per Account**\n\nTap an account to toggle:"
+                buttons = []
+                for acc in accounts:
+                    enabled = acc.get("auto_reply_enabled", False)
+                    status = "✅" if enabled else "❌"
+                    from ...utils.network_helpers import format_display_name
+                    name = format_display_name(acc)
+                    buttons.append([Button.inline(
+                        f"{status} {name}",
+                        f"auto_reply:toggle_acc:{acc['_id']}"
+                    )])
+                buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+            elif action == "toggle_acc":
+                account_id = parts[2] if len(parts) > 2 else None
+                if not account_id:
+                    await event.answer("❌ Invalid account")
+                    return
+                from bson import ObjectId
+                acc = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+                if not acc:
+                    await event.answer("❌ Account not found")
+                    return
+                new_val = not acc.get("auto_reply_enabled", False)
+                await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(account_id)},
+                    {"$set": {"auto_reply_enabled": new_val}}
+                )
+                # Register/unregister handler if auto_reply_handler available
+                am = self.menu.account_manager
+                if hasattr(am, "auto_reply_handler"):
+                    try:
+                        am.auto_reply_handler.setup_auto_reply_handlers()
+                    except Exception:
+                        pass
+                status = "enabled" if new_val else "disabled"
+                await event.answer(f"{'✅' if new_val else '❌'} Auto-reply {status}!")
+                # Refresh toggle list
+                await self.handle_auto_reply_callback(event, user_id, "auto_reply:toggle")
+
+            elif action == "keyword_settings":
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                enabled = settings.get("keyword_replies_enabled", False)
+                keywords = settings.get("keywords", [])
+                kw_list = "\n".join(f"• `{k['trigger']}` → {k['response'][:40]}" for k in keywords[:10]) or "No keywords set."
+                text = (
+                    f"🔑 **Keyword Auto-Reply**\n\n"
+                    f"Status: {'🟢 Enabled' if enabled else '🔴 Disabled'}\n\n"
+                    f"**Keywords ({len(keywords)}):**\n{kw_list}\n\n"
+                    "Use /autoreply_add to add keywords via command."
+                )
+                toggle_label = "🔴 Disable" if enabled else "🟢 Enable"
+                buttons = [
+                    [Button.inline(toggle_label, "auto_reply:toggle_keyword")],
+                    [Button.inline("🔙 Back", "auto_reply:main")],
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+            elif action == "toggle_keyword":
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                new_val = not settings.get("keyword_replies_enabled", False)
+                await mongodb.db.auto_reply_settings.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"keyword_replies_enabled": new_val}},
+                    upsert=True
+                )
+                await event.answer(f"{'🟢 Keyword replies enabled' if new_val else '🔴 Keyword replies disabled'}")
+                await self.handle_auto_reply_callback(event, user_id, "auto_reply:keyword_settings")
+
+            elif action == "time_settings":
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                enabled = settings.get("time_based_replies_enabled", False)
+                start_h = settings.get("active_start_hour", 9)
+                end_h = settings.get("active_end_hour", 22)
+                text = (
+                    f"⏰ **Time-Based Auto-Reply**\n\n"
+                    f"Status: {'🟢 Enabled' if enabled else '🔴 Disabled'}\n"
+                    f"Active Hours: {start_h:02d}:00 – {end_h:02d}:00\n\n"
+                    "Auto-reply only fires during the configured hours.\n"
+                    "Use /autoreply_hours to change the schedule."
+                )
+                toggle_label = "🔴 Disable" if enabled else "🟢 Enable"
+                buttons = [
+                    [Button.inline(toggle_label, "auto_reply:toggle_time")],
+                    [Button.inline("🔙 Back", "auto_reply:main")],
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+            elif action == "toggle_time":
+                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
+                new_val = not settings.get("time_based_replies_enabled", False)
+                await mongodb.db.auto_reply_settings.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"time_based_replies_enabled": new_val}},
+                    upsert=True
+                )
+                await event.answer(f"{'🟢 Time-based replies enabled' if new_val else '🔴 Time-based replies disabled'}")
+                await self.handle_auto_reply_callback(event, user_id, "auto_reply:time_settings")
+
+            elif action == "analytics":
+                # Reuse the messaging stats view
+                await self.menu._show_messaging_statistics(user_id, event.message_id)
+
+            elif action == "reset":
+                text = (
+                    "⚠️ **Reset Auto-Reply Settings**\n\n"
+                    "This will disable auto-reply on all accounts and clear all keyword rules.\n\n"
+                    "Are you sure?"
+                )
+                buttons = [
+                    [Button.inline("✅ Yes, Reset All", "auto_reply:confirm_reset")],
+                    [Button.inline("❌ Cancel", "auto_reply:main")],
+                ]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
+            elif action == "confirm_reset":
+                await mongodb.db.accounts.update_many(
+                    {"user_id": user_id},
+                    {"$set": {"auto_reply_enabled": False}}
+                )
+                await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
+                await event.answer("✅ Auto-reply settings reset!")
+                await self.handle_auto_reply_callback(event, user_id, "auto_reply:main")
+
             else:
                 await event.answer("✅ Processing...")
         except Exception as e:
@@ -827,131 +1048,205 @@ class CallbackRouter:
         """Handle channel management callbacks"""
         try:
             from telethon import Button
+            from ...utils.network_helpers import format_display_name
 
             parts = data.split(":")
             action = parts[1] if len(parts) > 1 else "main"
             account_phone = parts[2] if len(parts) > 2 else None
 
             if action == "select" and account_phone:
-                text = f"📢 **Channel Management**\n\nAccount: {account_phone}\n\nSelect action:"
+                # Show per-account channel operations menu
+                text = (
+                    f"📢 **Channel Management**\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📱 Account: `{account_phone}`\n\n"
+                    "Choose an operation:"
+                )
                 buttons = [
                     [
-                        Button.inline(
-                            "🔗 Join Channel", f"channel:join:{account_phone}"
-                        ),
-                        Button.inline(
-                            "🚪 Leave Channel", f"channel:leave:{account_phone}"
-                        ),
+                        Button.inline("🔗 Join Channel", f"channel:join:{account_phone}"),
+                        Button.inline("🚪 Leave Channel", f"channel:leave:{account_phone}"),
                     ],
                     [
-                        Button.inline(
-                            "🆕 Create Channel", f"channel:create:{account_phone}"
-                        ),
-                        Button.inline(
-                            "🗑️ Delete Channel", f"channel:delete:{account_phone}"
-                        ),
+                        Button.inline("🆕 Create Channel", f"channel:create:{account_phone}"),
+                        Button.inline("🗑️ Delete Channel", f"channel:delete:{account_phone}"),
                     ],
-                    [
-                        Button.inline(
-                            "📋 List Channels", f"channel:list:{account_phone}"
-                        )
-                    ],
-                    [Button.inline("🔙 Back to Accounts", "menu:channels")],
+                    [Button.inline("📋 List Channels", f"channel:list:{account_phone}")],
+                    [Button.inline("🔙 Back", "menu:channels")],
                 ]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
             elif action == "stats":
-                text = "📊 **Channel Statistics**\n\nGlobal channel metrics:\n\n• Total channels joined\n• Active subscriptions\n• Recent activity\n• Engagement metrics\n\nFeature coming soon!"
-                buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
+                # Aggregate channel stats across all accounts
+                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                total_accounts = len(accounts)
+                active = sum(1 for a in accounts if a.get("is_active"))
+                text = (
+                    "📊 **Channel Statistics**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📱 Accounts: {active}/{total_accounts} active\n\n"
+                    "💡 Select an account from the Channel Hub to view its channel list."
                 )
+                buttons = [[Button.inline("🔙 Back", "menu:channels")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
             elif action == "search":
-                text = "🔍 **Channel Discovery**\n\nChannel search feature coming soon!"
-                buttons = [[Button.inline("🔙 Back to Channels", "menu:channels")]]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
+                text = (
+                    "🔍 **Channel Discovery**\n\n"
+                    "To search for channels, use the Join Channel option and enter:\n"
+                    "• A channel username: `@channelname`\n"
+                    "• A t.me link: `https://t.me/channelname`\n"
+                    "• An invite link: `https://t.me/+xxxxx`"
                 )
+                buttons = [[Button.inline("🔙 Back", "menu:channels")]]
+                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+
             elif action == "join" and account_phone:
                 if self.menu.account_manager:
                     self.menu.account_manager.pending_actions[user_id] = {
-                        "action": "channel_join",
+                        "action": "channel_join_target",
                         "account_phone": account_phone,
                     }
-                    await event.answer("🔗 Reply with channel link")
-                    await self.menu.bot.send_message(
-                        user_id,
-                        f"🔗 **Join Channel - {account_phone}**\n\nReply with the channel link or username:\n\nExamples:\n• @channelname\n• https://t.me/channelname\n• t.me/joinchat/xxxxx",
+                await event.answer("🔗 Reply with channel link")
+                try:
+                    await self.menu.bot.edit_message(
+                        user_id, event.message_id,
+                        f"🔗 **Join Channel**\n\n📱 Account: `{account_phone}`\n\n"
+                        "Reply with the channel link or username:\n\n"
+                        "• `@channelname`\n"
+                        "• `https://t.me/channelname`\n"
+                        "• `https://t.me/+invitehash`",
+                        buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
                     )
+                except Exception:
+                    pass
+
             elif action == "leave" and account_phone:
                 if self.menu.account_manager:
                     self.menu.account_manager.pending_actions[user_id] = {
-                        "action": "channel_leave",
+                        "action": "channel_leave_target",
                         "account_phone": account_phone,
                     }
-                    await event.answer("🚪 Reply with channel")
-                    await self.menu.bot.send_message(
-                        user_id,
-                        f"🚪 **Leave Channel - {account_phone}**\n\nReply with the channel username or link to leave:\n\nExamples:\n• @channelname\n• https://t.me/channelname",
+                await event.answer("🚪 Reply with channel")
+                try:
+                    await self.menu.bot.edit_message(
+                        user_id, event.message_id,
+                        f"🚪 **Leave Channel**\n\n📱 Account: `{account_phone}`\n\n"
+                        "Reply with the channel username or link:\n\n"
+                        "• `@channelname`\n"
+                        "• `https://t.me/channelname`\n"
+                        "• A number (1, 2, 3…) from your channel list",
+                        buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
                     )
+                except Exception:
+                    pass
+
             elif action == "create" and account_phone:
                 if self.menu.account_manager:
                     self.menu.account_manager.pending_actions[user_id] = {
-                        "action": "channel_create",
+                        "action": "channel_create_type",
                         "account_phone": account_phone,
                     }
-                    await event.answer("🆕 Reply with channel name")
-                    await self.menu.bot.send_message(
-                        user_id,
-                        f"🆕 **Create Channel - {account_phone}**\n\nReply with the channel name:\n\nExample: My Awesome Channel",
+                await event.answer("🆕 Reply with type")
+                try:
+                    await self.menu.bot.edit_message(
+                        user_id, event.message_id,
+                        f"🆕 **Create Channel/Group**\n\n📱 Account: `{account_phone}`\n\n"
+                        "Reply with the type:\n• `channel` — broadcast channel\n• `group` — supergroup",
+                        buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
                     )
+                except Exception:
+                    pass
+
             elif action == "delete" and account_phone:
                 if self.menu.account_manager:
                     self.menu.account_manager.pending_actions[user_id] = {
-                        "action": "channel_delete",
+                        "action": "channel_delete_target",
                         "account_phone": account_phone,
                     }
-                    await event.answer("🗑️ Reply with channel")
-                    await self.menu.bot.send_message(
-                        user_id,
-                        f"🗑️ **Delete Channel - {account_phone}**\n\n⚠️ Reply with the channel username to delete:\n\nExample: @channelname\n\n🚨 This action cannot be undone!",
-                    )
-            elif action == "list" and account_phone:
-                await event.answer("📋 Loading channels...")
-                # Try to get actual channel list
+                await event.answer("🗑️ Reply with channel")
                 try:
-                    client = None
-                    for uid, clients in self.menu.account_manager.user_clients.items():
-                        for name, c in clients.items():
-                            if name == account_phone or (
-                                hasattr(c, "get_me") and c.is_connected()
-                            ):
-                                me = await c.get_me()
-                                if me.phone == account_phone:
-                                    client = c
-                                    break
-                    if client:
-                        pass
-
-                        dialogs = await client.get_dialogs(limit=100)
-                        channels = [d for d in dialogs if d.is_channel]
-                        text = f"📋 **Channels - {account_phone}**\n\n📊 Total channels: {
-                            len(channels)}\n\n"
-                        for ch in channels[:10]:
-                            text += f"• {ch.name}\n"
-                        if len(channels) > 10:
-                            text += f"\n... and {len(channels) - 10} more"
-                    else:
-                        text = f"📋 **Channels - {account_phone}**\n\n⚠️ Account not loaded. Use /channel_list for full details."
+                    await self.menu.bot.edit_message(
+                        user_id, event.message_id,
+                        f"🗑️ **Delete Channel**\n\n📱 Account: `{account_phone}`\n\n"
+                        "⚠️ Reply with the channel username to delete:\n\n"
+                        "• `@channelname`\n"
+                        "• A number from your channel list\n\n"
+                        "🚨 **This action is permanent and cannot be undone!**",
+                        buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
+                    )
                 except Exception:
-                    text = f"📋 **Channels - {account_phone}**\n\n⚠️ Could not fetch channels. Use /channel_list command."
-                buttons = [
-                    [Button.inline("🔙 Back", f"channel:select:{account_phone}")]
-                ]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
+                    pass
+
+            elif action == "list" and account_phone:
+                await event.answer("📋 Loading channels…")
+                try:
+                    am = self.menu.account_manager
+                    channel_manager = getattr(am, "channel_manager", None)
+                    if channel_manager:
+                        success, channels = await channel_manager.get_user_channels(user_id, account_phone)
+                    else:
+                        # Fallback: get client directly
+                        client = None
+                        for name, c in am.user_clients.get(user_id, {}).items():
+                            if c and c.is_connected():
+                                try:
+                                    me = await c.get_me()
+                                    if me and (me.phone == account_phone.lstrip("+") or
+                                               f"+{me.phone}" == account_phone or
+                                               name == account_phone):
+                                        client = c
+                                        break
+                                except Exception:
+                                    pass
+                        if client:
+                            dialogs = await client.get_dialogs(limit=200)
+                            channels = [
+                                {
+                                    "title": d.entity.title,
+                                    "username": getattr(d.entity, "username", None),
+                                    "type": "channel" if getattr(d.entity, "broadcast", False) else "group",
+                                    "id": d.entity.id,
+                                }
+                                for d in dialogs
+                                if hasattr(d.entity, "broadcast") or hasattr(d.entity, "megagroup")
+                            ]
+                            success = True
+                        else:
+                            success, channels = False, []
+
+                    if success and channels:
+                        text = (
+                            f"📋 **Channels & Groups — `{account_phone}`**\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"📊 Total: {len(channels)}\n\n"
+                        )
+                        ch_lines = []
+                        for i, ch in enumerate(channels[:30], 1):
+                            t = "📢" if ch.get("type") == "channel" else "👥"
+                            uname = f" @{ch['username']}" if ch.get("username") else ""
+                            ch_lines.append(f"{i}. {t} **{ch['title']}**{uname}")
+                        text += "\n".join(ch_lines)
+                        if len(channels) > 30:
+                            text += f"\n\n_…and {len(channels) - 30} more_"
+                    elif success:
+                        text = f"📋 **Channels — `{account_phone}`**\n\n💭 No channels or groups found."
+                    else:
+                        text = f"📋 **Channels — `{account_phone}`**\n\n❌ Could not load channels. Make sure the account is connected."
+
+                    buttons = [
+                        [Button.inline("🔄 Refresh", f"channel:list:{account_phone}")],
+                        [Button.inline("🔙 Back", f"channel:select:{account_phone}")],
+                    ]
+                    await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+                except Exception as list_err:
+                    logger.error(f"Channel list error: {list_err}")
+                    await self.menu.bot.edit_message(
+                        user_id, event.message_id,
+                        f"❌ Error loading channel list: {list_err}",
+                        buttons=[[Button.inline("🔙 Back", f"channel:select:{account_phone}")]]
+                    )
+
             else:
                 await event.answer("❌ Unknown channel action")
         except Exception as e:

@@ -900,16 +900,37 @@ class SessionExportHandler:
         import tempfile
         try:
             logger.info(f"Creating session file for {account_name}...")
-            with tempfile.NamedTemporaryFile(suffix=".session", delete=False) as temp_file:
-                temp_session_path = temp_file.name
-            file_client = TelegramClient(temp_session_path, config.telegram.api_id, config.telegram.api_hash)
-            file_client.session = StringSession(fresh_session)
+            # Use a more robust path for session file
+            fd, temp_session_path = tempfile.mkstemp(suffix=".session")
+            os.close(fd)
+            
+            API_ID = config.telegram.api_id
+            API_HASH = config.telegram.api_hash
+            
+            # Use a temporary client to parse the string session
+            string_client = TelegramClient(StringSession(fresh_session), API_ID, API_HASH)
+            await string_client.connect()
+            
+            # Create the actual .session file
+            file_client = TelegramClient(temp_session_path.replace(".session", ""), API_ID, API_HASH)
+            file_client.session.set_dc(
+                string_client.session.dc_id,
+                string_client.session.server_address,
+                string_client.session.port
+            )
+            file_client.session.auth_key = string_client.session.auth_key
             file_client.session.save()
+            
+            await string_client.disconnect()
+            
             if os.path.exists(temp_session_path):
                 with open(temp_session_path, "rb") as f:
                     session_file_data = f.read()
                 logger.info(f"Session file created: {len(session_file_data)} bytes")
-                os.remove(temp_session_path)
+                try:
+                    os.remove(temp_session_path)
+                except Exception:
+                    pass
                 return session_file_data
         except Exception as e:
             logger.error(f"Session file creation error: {e}")

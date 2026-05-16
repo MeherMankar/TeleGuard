@@ -29,7 +29,7 @@ class CallbackHandlers:
             elif action == "remove":
                 await self._handle_remove_account(event, user_id)
             elif action == "refresh":
-                await self.menu.handlers.handle_account_settings(event)
+                await self._refresh_account_statuses(event, user_id)
             elif action == "list":
                 await self.menu.send_accounts_list(user_id, event.message_id)
         except Exception as e:
@@ -52,12 +52,25 @@ class CallbackHandlers:
                 await event.answer(f"⚠️ Maximum account limit ({MAX_ACCOUNTS}) reached")
                 return
             if self.account_manager:
+                # Guard: if already waiting for phone number, don't send again
+                existing = self.account_manager.pending_actions.get(user_id, {})
+                if existing.get("action") == "add_account":
+                    await event.answer("📞 Already waiting for phone number")
+                    return
+
                 self.account_manager.pending_actions[user_id] = {
                     "action": "add_account"
                 }
                 text = "➕ **Add New Account**\n\nReply with the phone number for the new account.\n\n📞 Format: +1234567890 (include country code)\n💡 Tip: Enter OTP codes as 1-2-3-4-5 (with hyphens)"
                 await event.answer("➕ Reply with phone number")
-                await self.bot.send_message(user_id, text)
+                # Edit the existing message instead of sending a new one
+                try:
+                    from telethon import Button
+                    await event.edit(text, buttons=[
+                        [Button.inline("❌ Cancel", "menu:accounts")]
+                    ])
+                except Exception:
+                    await self.bot.send_message(user_id, text)
             else:
                 await event.answer("❌ Service unavailable")
         except Exception as e:
@@ -163,25 +176,64 @@ class CallbackHandlers:
             elif action == "audit":
                 await self._show_audit_log(user_id, account_id, event.message_id)
             elif action == "stats":
-                if hasattr(self.menu, "_show_otp_statistics"):
-                    await self.menu._show_otp_statistics(user_id, event.message_id)
-                else:
-                    await event.answer("📊 Statistics coming soon!", alert=True)
+                await self._show_otp_statistics(user_id, event.message_id)
             elif action == "enable_all":
                 await self._handle_otp_bulk_toggle(event, user_id, True)
             elif action == "disable_all":
                 await self._handle_otp_bulk_toggle(event, user_id, False)
             elif action == "audit_all":
-                await event.answer("📋 Global audit logs coming soon!", alert=True)
+                await self._show_global_audit_log(user_id, event.message_id)
         except Exception as e:
             logger.error(f"OTP callback error: {e}")
             await event.answer("❌ Error processing OTP request")
+
+    async def _refresh_account_statuses(self, event, user_id):
+        """Perform real-time health check on all accounts and refresh menu"""
+        try:
+            await event.answer("🔄 Refreshing account statuses...")
+            
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                await self.menu.handlers.handle_account_settings(event)
+                return
+
+            from ...core.session_health import session_health
+            
+            updates = 0
+            for account in accounts:
+                phone = account.get("phone")
+                account_name = account.get("name") or phone
+                
+                # Check if client is in memory
+                client = self.account_manager.user_clients.get(user_id, {}).get(account_name)
+                
+                is_active = False
+                if client and client.is_connected():
+                    try:
+                        # Real health check
+                        is_active, _ = await session_health.check_session(client, phone)
+                    except Exception:
+                        is_active = False
+                
+                if is_active != account.get("is_active"):
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"is_active": is_active}}
+                    )
+                    updates += 1
+            
+            await event.answer(f"✅ Refresh complete! ({updates} status updates)")
+            await self.menu.handlers.handle_account_settings(event)
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh account statuses: {e}")
+            await event.answer("⚠️ Error refreshing statuses")
 
     async def _handle_otp_bulk_toggle(self, event, user_id, enabled):
         """Handle bulk OTP toggle for all accounts"""
         try:
             from ...core.mongo_database import mongodb
-            
+
             # Update all accounts for this user
             if enabled:
                 # Enable Destroyer, Disable Forward (they are mutually exclusive in this bot's logic)
@@ -197,9 +249,48 @@ class CallbackHandlers:
                     {"$set": {"otp_destroyer_enabled": False, "otp_forward_enabled": False}}
                 )
                 await event.answer("❌ All OTP protections disabled.", alert=True)
-            
-            # Refresh the OTP manager menu
-            await self.menu.handlers.handle_otp_manager(event)
+
+            # Refresh the OTP manager menu by re-building and editing the message
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            from telethon import Button
+            from ...utils.network_helpers import format_display_name
+
+            destroyer_enabled = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled"))
+            forward_enabled = sum(1 for acc in accounts if acc.get("otp_forward_enabled"))
+            temp_active = sum(1 for acc in accounts if acc.get("otp_temp_passthrough"))
+            security_score = int((destroyer_enabled / len(accounts)) * 100) if accounts else 0
+            security_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+
+            text = (
+                f"🛡️ **OTP Security Manager**\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📊 **Security Dashboard:**\n"
+                f"• {security_emoji} **Security Score:** {security_score}%\n"
+                f"• 🛡️ **Destroyer Active:** {destroyer_enabled}/{len(accounts)} accounts\n"
+                f"• 📤 **Forward Active:** {forward_enabled}/{len(accounts)} accounts\n"
+                f"• ⏰ **Temp Bypass:** {temp_active} active\n\n"
+                f"🎛️ **Protection Controls:**\nChoose your security configuration below:"
+            )
+            buttons = [
+                [
+                    Button.inline("🛡️ OTP Destroyer", "otp_setting:destroyer"),
+                    Button.inline("📤 OTP Forward", "otp_setting:forward"),
+                ],
+                [
+                    Button.inline("⏰ Temp Bypass", "otp_setting:temp"),
+                    Button.inline("📊 Statistics", "otp:stats"),
+                ],
+                [
+                    Button.inline("🟢 Enable All Protection", "otp:enable_all"),
+                    Button.inline("🔴 Disable All Protection", "otp:disable_all"),
+                ],
+                [Button.inline("📋 Security Audit Log", "otp:audit_all")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+            try:
+                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"Bulk OTP toggle error: {e}")
             await event.answer("❌ Error performing bulk update")
@@ -210,7 +301,7 @@ class CallbackHandlers:
         success, message = await self._toggle_otp_destroyer(user_id, account_id, enabled)
         await event.answer(f"{'🛡️' if success else '❌'} {message}")
         if success:
-            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:destroyer")
+            await self.menu.router.handle_otp_setting_callback(event, user_id, "otp_setting:destroyer")
 
     async def _handle_otp_forward_toggle(self, event, user_id, account_id, action):
         """Handle OTP forward enable/disable"""
@@ -218,14 +309,14 @@ class CallbackHandlers:
         success, message = await self._toggle_otp_forward(user_id, account_id, enabled)
         await event.answer(f"{'📤' if success else '❌'} {message}")
         if success:
-            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:forward")
+            await self.menu.router.handle_otp_setting_callback(event, user_id, "otp_setting:forward")
 
     async def _handle_otp_temp(self, event, user_id, account_id):
         """Handle temp OTP request"""
         success, message = await self._handle_temp_otp(user_id, account_id)
         await event.answer(f"{'⏰' if success else '❌'} {message}")
         if success:
-            await self.menu._handle_otp_setting_callback(event, user_id, "otp_setting:temp")
+            await self.menu.router.handle_otp_setting_callback(event, user_id, "otp_setting:temp")
 
     async def _toggle_otp_destroyer(self, user_id, account_id, enabled):
         """Toggle OTP destroyer with proper integration"""
@@ -241,20 +332,14 @@ class CallbackHandlers:
                 # Fallback to direct database update
                 from bson import ObjectId
 
+                update_fields = {"otp_destroyer_enabled": enabled}
+                if enabled:
+                    # Enabling destroyer disables forward
+                    update_fields["otp_forward_enabled"] = False
+
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id), "user_id": user_id},
-                    {
-                        "$set": {
-                            "otp_destroyer_enabled": enabled,
-                            "otp_forward_enabled": (
-                                False
-                                if enabled
-                                else mongodb.db.accounts.find_one(
-                                    {"_id": ObjectId(account_id)}
-                                ).get("otp_forward_enabled", False)
-                            ),
-                        }
-                    },
+                    {"$set": update_fields},
                 )
                 message = f"OTP Destroyer {'enabled' if enabled else 'disabled'}!"
                 if enabled:
@@ -324,29 +409,19 @@ class CallbackHandlers:
 
                 # Enable temp passthrough for 5 minutes
                 expiry_time = time.time() + 300
-                account_name = account.get("name") or account.get("phone") or "Unknown"
 
-                # Store in OTP manager temp passthrough if available
-                if (
-                    hasattr(self.account_manager, "otp_manager")
-                    and self.account_manager.otp_manager
-                ):
-                    temp_key = f"{account_name}_temp_otp"
-                    self.account_manager.otp_manager.temp_passthrough.setdefault(
-                        user_id, {}
-                    )[temp_key] = {"expiry": expiry_time}
-
-                # Log the action
+                # Store in database
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
                     {
+                        "$set": {"otp_temp_passthrough": True, "otp_temp_expiry": int(expiry_time)},
                         "$push": {
                             "audit_log": {
                                 "action": "temp_otp_enabled",
                                 "duration": "5_minutes",
                                 "timestamp": int(time.time()),
                             }
-                        }
+                        },
                     },
                 )
 
@@ -850,3 +925,126 @@ class CallbackHandlers:
         except Exception as e:
             logger.error(f"Error viewing 2FA: {e}")
             await event.answer("❌ Error retrieving 2FA password")
+
+    async def _show_otp_statistics(self, user_id: int, message_id: int):
+        """Show OTP statistics for all accounts"""
+        try:
+            import time
+            from telethon import Button
+
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                await self.bot.edit_message(
+                    user_id, message_id,
+                    "📊 **OTP Statistics**\n\n❌ No accounts found.",
+                    buttons=[[Button.inline("🔙 Back", "menu:otp")]]
+                )
+                return
+
+            total = len(accounts)
+            destroyer_on = sum(1 for a in accounts if a.get("otp_destroyer_enabled"))
+            forward_on = sum(1 for a in accounts if a.get("otp_forward_enabled"))
+            temp_active = sum(1 for a in accounts if a.get("otp_temp_passthrough"))
+            security_score = int((destroyer_on / total) * 100) if total else 0
+            score_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+
+            # Count total audit events across all accounts
+            total_events = sum(len(a.get("audit_log", [])) for a in accounts)
+            # Count recent events (last 24h)
+            cutoff = int(time.time()) - 86400
+            recent_events = sum(
+                sum(1 for e in a.get("audit_log", []) if e.get("timestamp", 0) >= cutoff)
+                for a in accounts
+            )
+
+            text = (
+                "📊 **OTP Security Statistics**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📱 **Accounts:** {total}\n"
+                f"{score_emoji} **Security Score:** {security_score}%\n\n"
+                "🛡️ **Protection Status:**\n"
+                f"• OTP Destroyer: {destroyer_on}/{total} accounts\n"
+                f"• OTP Forward: {forward_on}/{total} accounts\n"
+                f"• Temp Bypass Active: {temp_active}\n\n"
+                "📋 **Audit Activity:**\n"
+                f"• Total Events: {total_events}\n"
+                f"• Last 24h: {recent_events}\n\n"
+                "📈 **Per-Account Breakdown:**\n"
+            )
+            for acc in accounts[:8]:
+                d = "🛡️" if acc.get("otp_destroyer_enabled") else "⚪"
+                f = "📤" if acc.get("otp_forward_enabled") else "⚪"
+                events = len(acc.get("audit_log", []))
+                from ...utils.network_helpers import format_display_name
+                name = format_display_name(acc)
+                text += f"• {name}: {d}{f} | {events} events\n"
+
+            buttons = [
+                [Button.inline("🔄 Refresh", "otp:stats")],
+                [Button.inline("📋 Global Audit Log", "otp:audit_all")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")],
+            ]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error showing OTP statistics: {e}")
+            from telethon import Button
+            await self.bot.edit_message(
+                user_id, message_id,
+                "❌ Error loading OTP statistics",
+                buttons=[[Button.inline("🔙 Back", "menu:otp")]]
+            )
+
+    async def _show_global_audit_log(self, user_id: int, message_id: int):
+        """Show global audit log across all accounts"""
+        try:
+            import time
+            from telethon import Button
+
+            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+            if not accounts:
+                await self.bot.edit_message(
+                    user_id, message_id,
+                    "📋 **Global Audit Log**\n\n❌ No accounts found.",
+                    buttons=[[Button.inline("🔙 Back", "menu:otp")]]
+                )
+                return
+
+            # Collect all audit entries with account name
+            all_entries = []
+            for acc in accounts:
+                from ...utils.network_helpers import format_display_name
+                acc_name = format_display_name(acc)
+                for entry in acc.get("audit_log", []):
+                    all_entries.append({
+                        "account": acc_name,
+                        "action": entry.get("action", "unknown"),
+                        "timestamp": entry.get("timestamp", 0),
+                    })
+
+            # Sort by timestamp descending
+            all_entries.sort(key=lambda x: x["timestamp"], reverse=True)
+
+            if not all_entries:
+                text = "📋 **Global Security Audit Log**\n\n💭 No audit entries found across all accounts."
+            else:
+                text = "📋 **Global Security Audit Log**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                for entry in all_entries[:20]:
+                    ts = time.strftime("%m-%d %H:%M", time.localtime(entry["timestamp"]))
+                    text += f"• `{ts}` **{entry['account']}** — {entry['action']}\n"
+                if len(all_entries) > 20:
+                    text += f"\n_...and {len(all_entries) - 20} more entries_"
+
+            buttons = [
+                [Button.inline("🔄 Refresh", "otp:audit_all")],
+                [Button.inline("📊 Statistics", "otp:stats")],
+                [Button.inline("🔙 Back to OTP Manager", "menu:otp")],
+            ]
+            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        except Exception as e:
+            logger.error(f"Error showing global audit log: {e}")
+            from telethon import Button
+            await self.bot.edit_message(
+                user_id, message_id,
+                "❌ Error loading audit log",
+                buttons=[[Button.inline("🔙 Back", "menu:otp")]]
+            )
