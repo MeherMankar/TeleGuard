@@ -22,7 +22,11 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import asyncio
 import logging
+import warnings
 import signal
+
+# Suppress experimental async session warning from Telethon
+warnings.filterwarnings("ignore", category=UserWarning, module="telethon")
 import sys
 import time
 import traceback

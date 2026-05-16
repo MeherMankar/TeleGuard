@@ -112,7 +112,7 @@ class BotManager:
         self.start_time = time.time()
         self.auth_manager = None
         self.account_invalidation_handler = None
-        self.otp_manager = None
+        self.protection_manager = None
         self.menu_system = None
         self.messaging_manager = None
         self.unified_messaging = None
@@ -677,7 +677,7 @@ class BotManager:
     async def _initialize_core_components(self) -> None:
         logger.debug("Initializing core components...")
         from ..core.messaging import MessagingManager
-        from ..core.otp_manager import OTPManager
+        from ..core.protection_manager import ProtectionManager
         from ..handlers.auth_handler import AuthManager
         from ..handlers.menu_system import MenuSystem
 
@@ -698,18 +698,21 @@ class BotManager:
             "menu_system", MenuSystem, self.bot, self
         )
 
-        logger.debug("Initializing OTP manager...")
-        self.otp_manager = await self.component_manager.initialize_component(
-            "otp_manager", OTPManager, self
+        logger.debug("Initializing Protection manager...")
+        self.protection_manager = await self.component_manager.initialize_component(
+            "protection_manager", ProtectionManager, self
         )
+        self.otp_manager = self.protection_manager # Compatibility alias
 
         # Ensure OTP handlers are registered for existing clients
-        if self.otp_manager and self.user_clients:
+        if self.protection_manager and self.user_clients:
             try:
-                self.otp_manager.register_handlers()
-                logger.info("OTP handlers registered during initialization")
+                self.protection_manager.register_handlers()
+                # Start protection workers (Session Destroyer)
+                await self.protection_manager.start()
+                logger.info("Protection Manager initialized and workers started")
             except Exception as e:
-                logger.warning(f"Failed to register OTP handlers during init: {e}")
+                logger.warning(f"Failed to register protection handlers during init: {e}")
 
         logger.info("Initializing messaging manager...")
         self.messaging_manager = await self.component_manager.initialize_component(
@@ -749,6 +752,11 @@ class BotManager:
         self.help_handler = await self.component_manager.initialize_component(
             "help_handler", HelpHandler, self
         )
+        
+        # Register new Protection Callbacks
+        from ..handlers.protection_callbacks import ProtectionCallbacks
+        self.protection_callbacks = ProtectionCallbacks(self)
+        self.protection_callbacks.register_handlers()
         await self.component_manager.initialize_component(
             "start_handler", StartHandler, self.bot, self.menu_system, self
         )
@@ -1049,8 +1057,8 @@ class BotManager:
             client = self.user_clients.get(user_id, {}).get(account_name)
 
             # Setup OTP handler for the new client
-            if self.otp_manager and client:
-                await self.otp_manager.setup_handler_for_new_client(
+            if self.protection_manager and client:
+                await self.protection_manager.register_handler_for_client(
                     user_id, account_name, client
                 )
                 logger.info(f"OTP handler setup completed for {account_name}")

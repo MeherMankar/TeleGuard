@@ -85,57 +85,9 @@ class MenuHandlers:
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_otp_manager(self, event):
-        user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
-        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
-        if not accounts:
-            text = "🛡️ **OTP Security Manager**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts found!**\n\nYou need to add accounts first before configuring OTP protection.\n\n🎯 **What is OTP Protection?**\n• 🛡️ **Destroyer** - Blocks unauthorized login attempts\n• 📤 **Forward** - Forwards OTP codes to you\n• ⏰ **Temp Pass** - 5-minute security bypass\n\nAdd your first account to get started:"
-            buttons = [
-                [Button.inline("🚀 Add First Account", "account:add")],
-                [Button.inline("❓ Security Guide", "help:security")],
-                [Button.inline("🔙 Back to Main Menu", "menu:main")],
-            ]
-        else:
-            destroyer_enabled = sum(
-                1 for acc in accounts if acc.get("otp_destroyer_enabled", False)
-            )
-            forward_enabled = sum(
-                1 for acc in accounts if acc.get("otp_forward_enabled", False)
-            )
-            temp_active = sum(
-                1 for acc in accounts if acc.get("otp_temp_passthrough", False)
-            )
-            security_score = int((destroyer_enabled / len(accounts)) * 100)
-            security_emoji = (
-                "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
-            )
-            text = f"🛡️ **OTP Security Manager**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **Security Dashboard:**\n• {security_emoji} **Security Score:** {security_score}%\n• 🛡️ **Destroyer Active:** {destroyer_enabled}/{
-                len(accounts)} accounts\n• 📤 **Forward Active:** {forward_enabled}/{
-                len(accounts)} accounts\n• ⏰ **Temp Bypass:** {temp_active} active\n\n🎛️ **Protection Controls:**\nChoose your security configuration below:"
-            buttons = [
-                [
-                    Button.inline("🛡️ OTP Destroyer", "otp_setting:destroyer"),
-                    Button.inline("📤 OTP Forward", "otp_setting:forward"),
-                ],
-                [
-                    Button.inline("⏰ Temp Bypass", "otp_setting:temp"),
-                    Button.inline("📊 Statistics", "otp:stats"),
-                ],
-                [
-                    Button.inline("🟢 Enable All Protection", "otp:enable_all"),
-                    Button.inline("🔴 Disable All Protection", "otp:disable_all"),
-                ],
-                [Button.inline("📋 Security Audit Log", "otp:audit_all")],
-                [Button.inline("🔙 Back to Main Menu", "menu:main")],
-            ]
-        message_id = getattr(event, "message_id", None)
-        if message_id:
-            try:
-                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-                return
-            except Exception:
-                pass
-        await self.bot.send_message(user_id, text, buttons=buttons)
+        from ..protection_menu import ProtectionMenu
+        protection_menu = ProtectionMenu(self.menu.bot_manager)
+        await protection_menu.send_main_menu(event, event.sender_id, edit=False)
 
     async def handle_messaging(self, event):
         user_id = event.sender_id
