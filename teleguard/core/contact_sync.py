@@ -2,6 +2,7 @@
 
 import logging
 
+from telethon.tl.functions.contacts import GetContactsRequest
 from telethon.tl.types import User
 
 from .contact_db import ContactDB
@@ -17,23 +18,32 @@ class ContactSync:
     async def sync_from_telegram(client, managed_by_account: str) -> dict:
         """Sync contacts from Telegram to local database"""
         try:
-            telegram_contacts = await client.get_contacts()
+            result = await client(GetContactsRequest(hash=0))
+            telegram_contacts = result.users
             added, updated, errors = 0, 0, 0
             for tg_contact in telegram_contacts:
                 if not isinstance(tg_contact, User):
                     continue
                 try:
-                    result = await ContactSync._sync_single_contact(tg_contact, managed_by_account)
-                    if result == "added":
+                    result_sync = await ContactSync._sync_single_contact(
+                        tg_contact, managed_by_account
+                    )
+                    if result_sync == "added":
                         added += 1
-                    elif result == "updated":
+                    elif result_sync == "updated":
                         updated += 1
-                    elif result == "error":
+                    elif result_sync == "error":
                         errors += 1
                 except Exception as e:
                     logger.error(f"Error syncing contact {tg_contact.id}: {e}")
                     errors += 1
-            return {"success": True, "added": added, "updated": updated, "errors": errors, "total_telegram": len(telegram_contacts)}
+            return {
+                "success": True,
+                "added": added,
+                "updated": updated,
+                "errors": errors,
+                "total_telegram": len(telegram_contacts),
+            }
         except Exception as e:
             logger.error(f"Error syncing from Telegram: {e}")
             return {"success": False, "error": str(e)}
@@ -45,7 +55,8 @@ class ContactSync:
             local_contacts = await ContactDB.get_all_contacts(
                 managed_by_account, limit=1000
             )
-            telegram_contacts = await client.get_contacts()
+            result = await client(GetContactsRequest(hash=0))
+            telegram_contacts = result.users
             telegram_ids = {
                 contact.id for contact in telegram_contacts if isinstance(contact, User)
             }
@@ -109,8 +120,14 @@ class ContactSync:
                 "username": tg_contact.username,
                 "phone": tg_contact.phone,
             }
-            if any(getattr(existing, k) != v for k, v in update_data.items() if v is not None):
-                await ContactDB.update_contact(tg_contact.id, managed_by_account, update_data)
+            if any(
+                getattr(existing, k) != v
+                for k, v in update_data.items()
+                if v is not None
+            ):
+                await ContactDB.update_contact(
+                    tg_contact.id, managed_by_account, update_data
+                )
                 return "updated"
             return "skipped"
         else:

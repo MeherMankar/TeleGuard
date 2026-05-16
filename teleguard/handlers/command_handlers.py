@@ -34,7 +34,6 @@ class CommandHandlers:
 
     def _register_command_handlers(self):
         """Register command handlers"""
-        self.bot.on(events.NewMessage(pattern=r"/start"))(self._handle_start)
         self.bot.on(events.NewMessage(pattern=r"/cancel"))(self._handle_cancel)
         self.bot.on(events.NewMessage(pattern=r"/accs"))(self._handle_accs)
         self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))(self._handle_add)

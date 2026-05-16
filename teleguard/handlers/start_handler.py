@@ -28,9 +28,29 @@ class StartHandler:
         """Handle /start command"""
         user_id = event.sender_id
         try:
-            await self._ensure_user_exists(user_id)
+            is_new = await self._ensure_user_exists(user_id)
             account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
-            if account_count == 0:
+
+            if is_new:
+                welcome_text = (
+                    "🤖 **Welcome to TeleGuard!**\n\n"
+                    "Your professional Telegram account manager with advanced OTP destroyer protection.\n\n"
+                    "**🚀 Quick Start:**\n"
+                    "1️⃣ Add your first account via '📱 Account Settings'\n"
+                    "2️⃣ Enable OTP protection in '🛡️ OTP Manager'\n"
+                    "3️⃣ Explore features using the menu below\n\n"
+                    "**🛡️ Key Features:**\n"
+                    "• Real-time OTP destroyer protection\n"
+                    "• Multi-account management (up to 10)\n"
+                    "• 2FA management & session control\n"
+                    "• Activity simulation & automation\n"
+                    "• Secure profile & channel management\n\n"
+                    "**💬 Need Help?** Use '❓ Help' or contact @Meher_Mankar"
+                )
+                keyboard = self.menu_system.get_main_menu_keyboard(user_id)
+                await event.reply(welcome_text, buttons=keyboard)
+            elif account_count == 0:
+                # Redirect to account settings for existing users with no accounts
                 await self.menu_system.handlers.handle_account_settings(
                     type("Event", (), {"sender_id": user_id})()
                 )
@@ -44,13 +64,15 @@ class StartHandler:
         """Re-send menu if user needs it"""
         await self.menu_system.send_main_menu(event.sender_id)
 
-    async def _ensure_user_exists(self, user_id: int):
-        """Ensure user exists in database"""
+    async def _ensure_user_exists(self, user_id: int) -> bool:
+        """Ensure user exists in database and return if they are new"""
         user = await mongodb.get_user(user_id)
         if not user:
             await mongodb.create_user(user_id)
             logger.debug(f"New user registered: {user_id}")
             await self._save_to_github_db(user_id)
+            return True
+        return False
 
     async def _save_to_github_db(self, user_id: int):
         """Save user to external database (stub — db_helpers module not present)"""

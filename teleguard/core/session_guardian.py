@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, Optional
 
+from telethon.tl.functions.contacts import GetContactsRequest
+
 # Platform-specific imports
 try:
     if platform.system() == "Windows":
@@ -650,7 +652,7 @@ class SessionGuardian:
             activities = [
                 ("ping", lambda: client.get_me(), 3),
                 ("check_dialogs", lambda: client.get_dialogs(limit=2), 5),
-                ("get_contacts", lambda: client.get_contacts(), 8),
+                ("get_contacts", lambda: client(GetContactsRequest(hash=0)), 8),
             ]
 
             for name, func, base_delay in activities:
