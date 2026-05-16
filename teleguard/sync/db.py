@@ -2,9 +2,13 @@
 
 import logging
 import os
+from dotenv import load_dotenv
 
 import redis.asyncio as aioredis
 from motor.motor_asyncio import AsyncIOMotorClient
+
+# Load environment variables
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 # Environment variables
@@ -19,12 +23,12 @@ redis = None
 async def init_connections():
     """Initialize database connections"""
     global mongo_client, db, redis
-    if not mongo_client and MONGO_URI:
+    if mongo_client is None and MONGO_URI:
         mongo_client = AsyncIOMotorClient(MONGO_URI)
         db = mongo_client.teleguard
         await mongo_client.admin.command("ping")
         logger.info("MongoDB connected for backups")
-    if not redis:
+    if redis is None:
         try:
             redis = aioredis.from_url(REDIS_URL, decode_responses=True)
             await redis.ping()
@@ -36,7 +40,8 @@ async def init_connections():
 
 async def fetch_snapshot_collections():
     """Fetch all collections for snapshot"""
-    if not db:
+    global db
+    if db is None:
         await init_connections()
     data = {}
     # Users collection
@@ -54,9 +59,9 @@ async def fetch_snapshot_collections():
 async def store_backup_meta(meta_data):
     """Store backup metadata in MongoDB or Redis fallback"""
     try:
-        if db:
+        if db is not None:
             await db.backups_meta.insert_one(meta_data)
-        elif redis:
+        elif redis is not None:
             await redis.lpush("backup_meta", str(meta_data))
             await redis.ltrim("backup_meta", 0, 99)  # Keep last 100
     except Exception as e:
@@ -65,7 +70,7 @@ async def store_backup_meta(meta_data):
 
 async def get_old_telegram_messages(older_than_timestamp):
     """Get old Telegram backup messages for cleanup"""
-    if not db:
+    if db is None:
         return []
     if not isinstance(older_than_timestamp, (int, float)):
         return []
@@ -77,5 +82,5 @@ async def get_old_telegram_messages(older_than_timestamp):
 
 async def delete_backup_meta(message_id):
     """Delete backup metadata"""
-    if db:
+    if db is not None:
         await db.backups_meta.delete_one({"message_id": message_id})

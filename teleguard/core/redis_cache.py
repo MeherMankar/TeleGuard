@@ -5,6 +5,10 @@ import json
 import logging
 import os
 import time
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
