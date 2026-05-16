@@ -348,33 +348,70 @@ class AutoReplyHandler:
                 return
             if action_data["action"] == "add_keyword":
                 if action_data["step"] == "keyword":
-                    keyword = text.lower().strip()
-                    if len(keyword) < MIN_KEYWORD_LENGTH:
+                    raw = text.strip()
+
+                    # Parse comma-separated keywords — strip quotes and whitespace
+                    import re as _re
+                    # Split on commas, then strip surrounding quotes/spaces from each token
+                    raw_parts = [p.strip().strip("'\"").strip().lower() for p in raw.split(",")]
+                    # Filter out empty or too-short tokens
+                    valid_keywords = [k for k in raw_parts if len(k) >= MIN_KEYWORD_LENGTH]
+                    invalid_keywords = [k for k in raw_parts if k and len(k) < MIN_KEYWORD_LENGTH]
+
+                    if not valid_keywords:
                         await event.reply(
-                            f"❌ Keyword too short. Please send a keyword (minimum {MIN_KEYWORD_LENGTH} characters):"
+                            f"❌ No valid keywords found. Each keyword must be at least {MIN_KEYWORD_LENGTH} characters.\n\nPlease try again:"
                         )
                         return
-                    action_data["keyword"] = keyword
+
+                    # Store all valid keywords; warn about any that were too short
+                    action_data["keywords"] = valid_keywords
                     action_data["step"] = "message"
+
+                    kw_preview = ", ".join(f"`{k}`" for k in valid_keywords[:10])
+                    if len(valid_keywords) > 10:
+                        kw_preview += f" … (+{len(valid_keywords) - 10} more)"
+
+                    warn = ""
+                    if invalid_keywords:
+                        warn = f"\n⚠️ Skipped (too short): {', '.join(invalid_keywords)}"
+
                     await event.reply(
-                        f"✅ Keyword set: `{keyword}`\n\n📝 Now send the auto-reply message (minimum 5 characters):\n\n💡 Example: 'Thanks for your message! I'll get back to you soon.'",
+                        f"✅ **{len(valid_keywords)} keyword(s) queued:**\n{kw_preview}{warn}\n\n"
+                        f"📝 Now send the auto-reply message (minimum 5 characters):\n\n"
+                        f"💡 Example: 'Thanks for your message! I'll get back to you soon.'",
                         parse_mode="markdown",
                     )
                 elif action_data["step"] == "message":
-                    keyword = action_data["keyword"]
+                    keywords = action_data.get("keywords", [])
+                    # Backwards-compat: single keyword stored as "keyword" key
+                    if not keywords and action_data.get("keyword"):
+                        keywords = [action_data["keyword"]]
+
                     if len(text.strip()) < MIN_MESSAGE_LENGTH:
+                        kw_list = ", ".join(f"`{k}`" for k in keywords[:5])
                         await event.reply(
-                            f"❌ Reply message too short (minimum {MIN_MESSAGE_LENGTH} characters).\n\n📝 Send the auto-reply message for keyword '{keyword}':"
+                            f"❌ Reply message too short (minimum {MIN_MESSAGE_LENGTH} characters).\n\n"
+                            f"📝 Send the auto-reply message for: {kw_list}"
                         )
                         return
-                    await self._add_user_keyword(user_id, keyword, text)
+
+                    # Save each keyword individually with the same reply message
+                    for kw in keywords:
+                        await self._add_user_keyword(user_id, kw, text)
+
                     del self.pending_actions[user_id]
                     buttons = [
                         [Button.inline("🔙 Back to Keywords", "auto_reply:keywords")]
                     ]
                     message_preview = text[:50] + "..." if len(text) > 50 else text
+                    kw_summary = ", ".join(f"`{k}`" for k in keywords[:8])
+                    if len(keywords) > 8:
+                        kw_summary += f" … (+{len(keywords) - 8} more)"
                     await event.reply(
-                        f"✅ **Keyword Added Successfully!**\n\n🔑 Keyword: `{keyword}`\n💬 Reply: {message_preview}",
+                        f"✅ **{len(keywords)} Keyword(s) Added!**\n\n"
+                        f"🔑 Keywords: {kw_summary}\n"
+                        f"💬 Reply: {message_preview}",
                         buttons=buttons,
                     )
 
@@ -519,7 +556,13 @@ class AutoReplyHandler:
                     }
                     buttons = [[Button.inline("❌ Cancel", "auto_reply:keywords")]]
                     await event.edit(
-                        "➕ **Add New Keyword**\n\nSend the keyword you want to detect (e.g., 'busy', 'vacation'):\n\n📝 Type 'cancel' to abort",
+                        "➕ **Add New Keyword(s)**\n\n"
+                        "Send one keyword **or** multiple keywords separated by commas:\n\n"
+                        "**Single:** `busy`\n"
+                        "**Multiple:** `hi, hello, hey, hola`\n\n"
+                        "💡 Quotes are optional — `'hi', 'hello'` and `hi, hello` both work.\n"
+                        "All keywords will share the same auto-reply message.\n\n"
+                        "📝 Type 'cancel' to abort",
                         buttons=buttons,
                     )
                 elif data == "auto_reply:remove_keyword":
