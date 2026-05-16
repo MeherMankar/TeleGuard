@@ -249,6 +249,14 @@ class MenuHandlers:
                     [Button.inline(button_text, f"cleanup:select:{account['_id']}")]
                 )
             buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
+        
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_help(self, event):
@@ -290,6 +298,14 @@ class MenuHandlers:
             dev_text = "🔴 Disable Dev Mode" if dev_mode else "⚙️ Enable Dev Mode"
             buttons.append([Button.inline(dev_text, "help:toggle_dev")])
         buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
+        
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_support(self, event):
@@ -311,6 +327,14 @@ class MenuHandlers:
             ],
             [Button.inline("🔙 Back to Main Menu", "menu:main")],
         ]
+        
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_developer(self, event):
@@ -350,6 +374,14 @@ class MenuHandlers:
                 ],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
+            
+            message_id = getattr(event, "message_id", None)
+            if message_id:
+                try:
+                    await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                    return
+                except Exception:
+                    pass
             await self.bot.send_message(user_id, text, buttons=buttons)
         else:
             await event.reply("❌ User not found")

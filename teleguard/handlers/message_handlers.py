@@ -143,6 +143,24 @@ class MessageHandlers:
         if message.startswith("/"):
             return
 
+        # Check if the message is a menu button (to avoid treating it as pending action input)
+        menu_buttons = [
+            "📱 Account Settings", "Account Settings",
+            "🛡️ OTP Manager", "OTP Manager",
+            "💬 Messaging", "Messaging",
+            "📢 Channels", "Channels",
+            "👥 Contacts", "Contacts",
+            "🎭 SpamMaster", "SpamMaster", "🎯 SpamMaster",
+            "🧹 Cleanup", "Cleanup",
+            "❓ Help", "Help",
+            "🆘 Support", "Support",
+            "⚙️ Developer Panel", "🔧 Developer Panel", "🔧 Developer", "Developer Panel", "Developer",
+            "🌐 Proxy Manager", "Proxy Manager", "Proxy"
+        ]
+        if message in menu_buttons:
+            self.pending_actions.pop(user_id, None)
+            return
+
         logger.info(f"=== MESSAGE HANDLER === User {user_id} sent: '{message}'")
         logger.info(f"Pending actions keys: {list(self.pending_actions.keys())}")
         if user_id in self.pending_actions:

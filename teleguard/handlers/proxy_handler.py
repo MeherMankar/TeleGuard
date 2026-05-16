@@ -21,7 +21,11 @@ class ProxyHandler:
     async def _safe_edit(self, event, text, buttons=None):
         """Safely edit message, ignoring 'content not modified' errors"""
         try:
-            await event.edit(text, buttons=buttons)
+            from telethon.events import CallbackQuery
+            if isinstance(event, CallbackQuery.Event):
+                await event.edit(text, buttons=buttons)
+            else:
+                await event.reply(text, buttons=buttons)
         except Exception as e:
             if "not modified" not in str(e).lower():
                 logger.error(f"Edit error: {e}")

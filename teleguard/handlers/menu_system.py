@@ -101,7 +101,11 @@ class MenuSystem:
                 ],
                 [
                     Button.text("👥 Contacts", resize=True),
+                    Button.text("🎯 SpamMaster", resize=True),
+                ],
+                [
                     Button.text("🧹 Cleanup", resize=True),
+                    Button.text("🌐 Proxy Manager", resize=True),
                 ],
                 [
                     Button.text("❓ Help", resize=True),

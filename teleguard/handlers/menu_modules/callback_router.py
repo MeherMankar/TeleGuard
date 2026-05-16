@@ -163,6 +163,12 @@ class CallbackRouter:
                 await self.menu._handle_contacts(event)
             elif menu_type == "cleanup":
                 await self.menu.handlers.handle_cleanup(event)
+            elif menu_type == "help":
+                await self.menu.handlers.handle_help(event)
+            elif menu_type == "support":
+                await self.menu.handlers.handle_support(event)
+            elif menu_type == "developer":
+                await self.menu.handlers.handle_developer(event)
             elif menu_type == "import":
                 await self.handle_session_import_callback(event, user_id, "import_sessions")
             elif menu_type == "main":

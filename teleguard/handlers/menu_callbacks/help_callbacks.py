@@ -96,37 +96,37 @@ class HelpCallbacks(BaseCallback):
 
         if action == "contact":
             text = "💬 **Contact Support**\n\nReach out to @ContactXYZrobot for assistance!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "bug":
             text = "🐛 **Report Bug**\n\nBug reporting system coming soon!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "docs":
             text = "📚 **Documentation**\n\nFull documentation coming soon!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "feature":
             text = "💡 **Feature Request**\n\nFeature request system coming soon!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "status":
             text = "📊 **System Status**\n\n🟢 All systems operational!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "updates":
             text = "🔄 **Updates**\n\nLatest updates and changelog coming soon!"
-            buttons = [[Button.inline("🔙 Back to Support", "menu:support")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
@@ -163,49 +163,49 @@ class HelpCallbacks(BaseCallback):
                 )
         elif action == "sysinfo":
             text = "📊 **System Dashboard**\n\nSystem information coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "logs":
             text = "📋 **System Logs**\n\nLog viewer coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "dbstats":
             text = "🗄️ **Database Tools**\n\nDatabase statistics coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "perf":
             text = "⚡ **Performance Monitor**\n\nPerformance metrics coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "maintenance":
             text = "🔧 **Maintenance Tools**\n\nMaintenance options coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "restart":
             text = "🔄 **System Restart**\n\nRestart functionality coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "startup":
             text = "🚀 **Startup Config**\n\nStartup configuration coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
         elif action == "commands":
             text = "📚 **Command Reference**\n\nDeveloper command list coming soon!"
-            buttons = [[Button.inline("🔙 Back to Developer", "menu:developer")]]
+            buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
             await self.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )
