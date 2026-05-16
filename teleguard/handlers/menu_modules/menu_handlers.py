@@ -85,9 +85,82 @@ class MenuHandlers:
         await self.bot.send_message(user_id, text, buttons=buttons)
 
     async def handle_otp_manager(self, event):
-        from ..protection_menu import ProtectionMenu
-        protection_menu = ProtectionMenu(self.menu.bot_manager)
-        await protection_menu.send_main_menu(event, event.sender_id, edit=False)
+        user_id = event.sender_id
+        await self.menu._cleanup_old_messages(user_id)
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+        if not accounts:
+            text = "🛡️ **Protection Manager**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts found!**\n\nYou need to add accounts first before configuring protection.\n\n🎯 **Available Protections:**\n• 🔥 **Session Destroyer** - Blocks unauthorized logins\n• 🛡️ **OTP Destroyer** - Blocks unauthorized OTP use\n• 📩 **OTP Forward** - Forwards OTP codes to you\n• ⏰ **Temp Bypass** - Temporary security pause\n\nAdd your first account to get started:"
+            buttons = [
+                [Button.inline("🚀 Add First Account", "account:add")],
+                [Button.inline("❓ Security Guide", "help:security")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+        else:
+            destroyer_enabled = sum(
+                1 for acc in accounts if acc.get("otp_destroyer_enabled", False)
+            )
+            forward_enabled = sum(
+                1 for acc in accounts if acc.get("otp_forward_enabled", False)
+            )
+            temp_active = sum(
+                1 for acc in accounts if acc.get("otp_temp_passthrough", False)
+            )
+            
+            # Session Destroyer stats
+            from ..session_destroyer_handler import SessionDestroyerHandler
+            from ...sync.session_destroyer_db import SessionDestroyerDB
+            
+            sd_settings = await SessionDestroyerDB.get_settings(user_id)
+            sd_enabled = "🔥" if sd_settings.get("enabled") else "⚪"
+            
+            security_score = int((destroyer_enabled / len(accounts)) * 100)
+            if sd_settings.get("enabled"):
+                security_score = min(100, security_score + 20)
+                
+            security_emoji = (
+                "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
+            )
+            
+            text = (
+                f"🛡️ **Protection Manager**\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📊 **Security Dashboard:**\n"
+                f"• {security_emoji} **Security Score:** {security_score}%\n"
+                f"• {sd_enabled} **Session Destroyer:** {'Enabled' if sd_settings.get('enabled') else 'Disabled'}\n"
+                f"• 🛡️ **OTP Destroyer:** {destroyer_enabled}/{len(accounts)} accounts\n"
+                f"• 📩 **OTP Forward:** {forward_enabled}/{len(accounts)} accounts\n\n"
+                f"🎛️ **Protection Controls:**\n"
+                f"Choose your security configuration below:"
+            )
+            
+            buttons = [
+                [
+                    Button.inline("🔥 Session Destroyer", "sd:main"),
+                    Button.inline("🛡️ OTP Destroyer", "otp_setting:destroyer"),
+                ],
+                [
+                    Button.inline("📩 OTP Forward", "otp_setting:forward"),
+                    Button.inline("⏰ Temp Bypass", "otp_setting:temp"),
+                ],
+                [
+                    Button.inline("📊 Statistics", "otp:stats"),
+                ],
+                [
+                    Button.inline("🟢 Enable All Protection", "otp:enable_all"),
+                    Button.inline("🔴 Disable All Protection", "otp:disable_all"),
+                ],
+                [Button.inline("📋 Security Audit Log", "otp:audit_all")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
+        await self.bot.send_message(user_id, text, buttons=buttons)
+>>>>>>> 2a09b6a (feat: implement Session Destroyer and rename OTP Manager to Protection Manager)
 
     async def handle_messaging(self, event):
         user_id = event.sender_id

@@ -11,7 +11,7 @@ class MenuBuilders:
         from ...core.config import ADMIN_IDS
 
         keyboard = [
-            [Button.text("📱 Account Settings"), Button.text("🛡️ OTP Manager")],
+            [Button.text("📱 Account Settings"), Button.text("🛡️ Protection Manager")],
             [Button.text("💬 Messaging"), Button.text("📢 Channels")],
             [Button.text("👥 Contacts"), Button.text("🎯 SpamMaster")],
             [Button.text("🧹 Cleanup"), Button.text("🌐 Proxy Manager")],
@@ -108,7 +108,7 @@ class MenuBuilders:
         buttons.extend(
             [
                 [Button.inline("📊 Password Status", f"otp_pwd:status:{account_id}")],
-                [Button.inline("🔙 Back to OTP Manager", "menu:otp")],
+                [Button.inline("🔙 Back to Protection Manager", "menu:protection")],
             ]
         )
         return buttons

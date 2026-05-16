@@ -6,6 +6,7 @@ from bson import ObjectId
 
 from ...core.mongo_database import mongodb
 from .callback_handlers import CallbackHandlers
+from ..session_destroyer_handler import SessionDestroyerHandler
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class CallbackRouter:
     def __init__(self, menu_system):
         self.menu = menu_system
         self.handlers = CallbackHandlers(menu_system)
+        self.sd_handler = SessionDestroyerHandler(menu_system)
 
         # Callback routing map
         self.routes: Dict[str, Callable] = {
@@ -30,6 +32,7 @@ class CallbackRouter:
             "sessions": self.handlers.handle_session_callback,
             "session": self.handlers.handle_session_callback,
             "2fa": self.handlers.handle_2fa_callback,
+            "sd": self.sd_handler.handle_callback,
             "menu": self.handle_menu_callback,
             "create": self.handle_create_callback,
             "import": self.handle_import_callback,
@@ -153,7 +156,7 @@ class CallbackRouter:
             # Route to appropriate menu handler
             if menu_type == "accounts":
                 await self.menu.handlers.handle_account_settings(event)
-            elif menu_type == "otp":
+            elif menu_type in ["otp", "protection"]:
                 await self.menu.handlers.handle_otp_manager(event)
             elif menu_type == "messaging":
                 await self.menu.handlers.handle_messaging(event)
@@ -578,7 +581,7 @@ class CallbackRouter:
                         [Button.inline(button_text, f"otp:manage:{account['_id']}")]
                     )
 
-            buttons.append([Button.inline("🔙 Back to OTP Manager", "menu:otp")])
+            buttons.append([Button.inline("🔙 Back to Protection Manager", "menu:protection")])
             await self.menu.bot.edit_message(
                 user_id, event.message_id, text, buttons=buttons
             )

@@ -994,9 +994,13 @@ class BotManager:
 
         # Initialize session monitor
         from ..workers.session_monitor import SessionMonitor
-
         self.session_monitor = SessionMonitor(self)
         await self.session_monitor.start_monitoring()
+
+        # Initialize session destroyer worker
+        from ..workers.session_destroyer_worker import SessionDestroyerWorker
+        self.session_destroyer_worker = SessionDestroyerWorker(self)
+        await self.session_destroyer_worker.start()
 
         # Initialize account invalidation handler
         from ..utils.account_invalidation import init_account_invalidation_handler

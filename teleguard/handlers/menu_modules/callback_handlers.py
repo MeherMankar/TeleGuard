@@ -230,69 +230,30 @@ class CallbackHandlers:
             await event.answer("⚠️ Error refreshing statuses")
 
     async def _handle_otp_bulk_toggle(self, event, user_id, enabled):
-        """Handle bulk OTP toggle for all accounts"""
+        """Handle bulk protection toggle for all accounts"""
         try:
             from ...core.mongo_database import mongodb
+            from ...sync.session_destroyer_db import SessionDestroyerDB
 
-            # Update all accounts for this user
             if enabled:
-                # Enable Destroyer, Disable Forward (they are mutually exclusive in this bot's logic)
                 await mongodb.db.accounts.update_many(
                     {"user_id": user_id},
                     {"$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False}}
                 )
-                await event.answer("🛡️ All accounts secured with OTP Destroyer!", alert=True)
+                await SessionDestroyerDB.update_settings(user_id, True)
+                await event.answer("🛡️ All accounts secured with Protection Manager!", alert=True)
             else:
-                # Disable both
                 await mongodb.db.accounts.update_many(
                     {"user_id": user_id},
                     {"$set": {"otp_destroyer_enabled": False, "otp_forward_enabled": False}}
                 )
-                await event.answer("❌ All OTP protections disabled.", alert=True)
+                await SessionDestroyerDB.update_settings(user_id, False)
+                await event.answer("🔴 All protections disabled.", alert=True)
 
-            # Refresh the OTP manager menu by re-building and editing the message
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
-            from telethon import Button
-            from ...utils.network_helpers import format_display_name
-
-            destroyer_enabled = sum(1 for acc in accounts if acc.get("otp_destroyer_enabled"))
-            forward_enabled = sum(1 for acc in accounts if acc.get("otp_forward_enabled"))
-            temp_active = sum(1 for acc in accounts if acc.get("otp_temp_passthrough"))
-            security_score = int((destroyer_enabled / len(accounts)) * 100) if accounts else 0
-            security_emoji = "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
-
-            text = (
-                f"🛡️ **OTP Security Manager**\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📊 **Security Dashboard:**\n"
-                f"• {security_emoji} **Security Score:** {security_score}%\n"
-                f"• 🛡️ **Destroyer Active:** {destroyer_enabled}/{len(accounts)} accounts\n"
-                f"• 📤 **Forward Active:** {forward_enabled}/{len(accounts)} accounts\n"
-                f"• ⏰ **Temp Bypass:** {temp_active} active\n\n"
-                f"🎛️ **Protection Controls:**\nChoose your security configuration below:"
-            )
-            buttons = [
-                [
-                    Button.inline("🛡️ OTP Destroyer", "otp_setting:destroyer"),
-                    Button.inline("📤 OTP Forward", "otp_setting:forward"),
-                ],
-                [
-                    Button.inline("⏰ Temp Bypass", "otp_setting:temp"),
-                    Button.inline("📊 Statistics", "otp:stats"),
-                ],
-                [
-                    Button.inline("🟢 Enable All Protection", "otp:enable_all"),
-                    Button.inline("🔴 Disable All Protection", "otp:disable_all"),
-                ],
-                [Button.inline("📋 Security Audit Log", "otp:audit_all")],
-                [Button.inline("🔙 Back to Main Menu", "menu:main")],
-            ]
-            try:
-                await self.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-            except Exception:
-                pass
+            # Refresh the menu
+            await self.menu.handlers.handle_otp_manager(event)
         except Exception as e:
-            logger.error(f"Bulk OTP toggle error: {e}")
+            logger.error(f"Bulk protection toggle error: {e}")
             await event.answer("❌ Error performing bulk update")
 
     async def _handle_otp_toggle(self, event, user_id, account_id, action):
@@ -1037,7 +998,7 @@ class CallbackHandlers:
             buttons = [
                 [Button.inline("🔄 Refresh", "otp:audit_all")],
                 [Button.inline("📊 Statistics", "otp:stats")],
-                [Button.inline("🔙 Back to OTP Manager", "menu:otp")],
+                [Button.inline("🔙 Back to Protection Manager", "menu:protection")],
             ]
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
         except Exception as e:

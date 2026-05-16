@@ -143,6 +143,15 @@ class MongoDB:
             except Exception:
                 # Index creation may fail on some MongoDB setups; non-fatal
                 logger.warning("Could not create TTL index for otp_protections")
+            # Session Destroyer indexes
+            await self.db.session_destroyer_settings.create_index("user_id", unique=True)
+            await self.db.trusted_sessions.create_index(
+                [("user_id", 1), ("account_id", 1)], unique=True
+            )
+            await self.db.session_destroyer_logs.create_index(
+                [("user_id", 1), ("timestamp", -1)]
+            )
+
             logger.info("Database indexes created successfully")
         except Exception as e:
             logger.warning(f"Failed to create some indexes: {e}")

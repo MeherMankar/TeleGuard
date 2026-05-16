@@ -93,7 +93,7 @@ class MenuSystem:
             buttons = [
                 [
                     Button.text("📱 Account Settings", resize=True),
-                    Button.text("🛡️ OTP Manager", resize=True),
+                    Button.text("🛡️ Protection Manager", resize=True),
                 ],
                 [
                     Button.text("💬 Messaging", resize=True),
@@ -242,7 +242,7 @@ class MenuSystem:
         # All known menu button texts — receiving any of these cancels pending actions
         _MENU_BUTTON_TEXTS = frozenset([
             "📱 Account Settings", "Account Settings",
-            "🛡️ OTP Manager", "OTP Manager",
+            "🛡️ Protection Manager", "Protection Manager",
             "💬 Messaging", "Messaging",
             "📢 Channels", "Channels",
             "👥 Contacts", "Contacts",
@@ -279,7 +279,7 @@ class MenuSystem:
             try:
                 if text in ["📱 Account Settings", "Account Settings"]:
                     await self.handlers.handle_account_settings(event)
-                elif text in ["🛡️ OTP Manager", "OTP Manager"]:
+                elif text in ["🛡️ Protection Manager", "Protection Manager"]:
                     await self.handlers.handle_otp_manager(event)
                 elif text in ["💬 Messaging", "Messaging"]:
                     await self.handlers.handle_messaging(event)
@@ -424,9 +424,9 @@ class MenuSystem:
             event.sender_id, event.message_id
         )
 
-    async def _handle_otp_manager(self, event):
-        """Handle OTP Manager menu"""
-        await event.answer("OTP Manager - use main menu")
+    async def _handle_protection_manager(self, event):
+        """Handle Protection Manager menu"""
+        await event.answer("Protection Manager - use main menu")
 
     async def _handle_messaging(self, event):
         """Handle Messaging menu"""
