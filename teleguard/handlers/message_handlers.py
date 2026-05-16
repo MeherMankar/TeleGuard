@@ -1177,23 +1177,27 @@ class MessageHandlers:
             ):
                 logger.info("Executing cleanup via menu_system.cleanup_operations")
 
-                # Create a mock event object for execute_cleanup
-                class MockEvent:
-                    def __init__(self, message_id):
-                        self.message_id = message_id
+                # Send a status message that execute_cleanup can edit
+                status_msg = await event.reply(
+                    f"⏳ **Starting cleanup...**\n\nSelected: `{selected_types}`\n\nPlease wait — this may take a few minutes."
+                )
 
+                class MsgEvent:
+                    """Wraps a sent message so execute_cleanup can call event.answer()"""
+                    def __init__(self, msg):
+                        self.message_id = msg.id
                     async def answer(self, text):
-                        logger.info(f"MockEvent answer: {text}")
+                        try:
+                            await status_msg.edit(text)
+                        except Exception:
+                            pass
 
-                mock_event = MockEvent(event.id)
                 await self.bot_manager.menu_system.cleanup_operations.execute_cleanup(
-                    mock_event, user_id, account_id, selected_types
+                    MsgEvent(status_msg), user_id, account_id, selected_types
                 )
                 logger.info("Cleanup execution completed")
             else:
-                logger.error(
-                    "Cleanup service not available - menu_system or cleanup_operations not found"
-                )
+                logger.error("Cleanup service not available")
                 await event.reply("❌ Cleanup service not available")
         except Exception as e:
             logger.error(f"Error executing cleanup: {e}", exc_info=True)

@@ -31,20 +31,33 @@ class CleanupOperations:
             return
 
         active_accounts = [acc for acc in accounts if acc.get("is_active", False)]
-        text = f"🧹 **Bulk Cleanup - All Accounts**\n\n📊 **Accounts:** {
-            len(active_accounts)} active / {
-            len(accounts)} total\n\n📋 **What would you like to clean?**\n\nThis will clean ALL your accounts at once.\n\n💬 **Personal chats** - Direct messages\n🤖 **Bot chats** - Bot conversations\n📢 **Telegram official** - Service chats\n🚫 **Spambot chats** - @spambot\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete your groups\n📺 **Delete owned channels** - Delete your channels\n\n⚠️ **WARNING**: This affects ALL accounts!"
 
         if self.bot_manager:
             self.bot_manager.pending_actions[user_id] = {
                 "action": "bulk_cleanup_selection"
             }
 
-        await self.bot.edit_message(user_id, message_id, text)
-        await self.bot.send_message(
-            user_id,
-            "📝 **Reply with cleanup type:**\n\n**Examples:**\n• `personal,bots`\n• `channels,groups`\n• `my_messages`\n• `all`\n\n**Options:** `personal`, `bots`, `telegram`, `spambot`, `my_messages`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
+        text = (
+            f"🧹 **Bulk Cleanup — All Accounts**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📊 **Accounts:** {len(active_accounts)} active / {len(accounts)} total\n\n"
+            "📋 **What would you like to clean?**\n\n"
+            "💬 `personal` — Direct messages\n"
+            "🤖 `bots` — Bot conversations\n"
+            "📢 `telegram` — Service chats\n"
+            "🚫 `spambot` — @spambot\n"
+            "�️ `my_messages` — Your sent messages from groups\n"
+            "🚪 `channels` — Leave all channels\n"
+            "👥 `groups` — Leave all groups\n"
+            "🗑️ `owned_groups` — Delete your groups\n"
+            "📺 `owned_channels` — Delete your channels\n"
+            "🔥 `all` — Everything above\n\n"
+            "⚠️ **This affects ALL accounts!**\n\n"
+            "📝 **Reply with your selection** (comma-separated):\n"
+            "Examples: `personal,bots` · `channels,groups` · `all`"
         )
+        buttons = [[Button.inline("❌ Cancel", "cleanup:menu")]]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def execute_bulk_cleanup(self, user_id, cleanup_types):
         """Execute cleanup on all user accounts"""
@@ -173,18 +186,35 @@ class CleanupOperations:
                 buttons=[[Button.inline("🔙 Back", "cleanup:menu")]],
             )
             return
+
         display_name = format_display_name(account)
-        text = f"🧹 **Cleanup Selection - {display_name}**\n\n📋 **What would you like to clean?**\n\nSelect what to clean (you can choose multiple options):\n\n💬 **Personal chats** - Direct messages with users\n🤖 **Bot chats** - Conversations with bots\n📢 **Telegram official** - Telegram service chats\n🚫 **Spambot chats** - @spambot conversations\n🗑️ **My messages** - Delete all your sent messages from groups\n🚪 **Exit channels** - Leave all channels\n👥 **Exit groups** - Leave all groups\n🗑️ **Delete owned groups** - Delete groups you own\n📺 **Delete owned channels** - Delete channels you own\n\n⚠️ **WARNING**: These actions cannot be undone!"
+
         if self.bot_manager:
             self.bot_manager.pending_actions[user_id] = {
                 "action": "cleanup_selection",
                 "account_id": account_id,
             }
-        await self.bot.edit_message(user_id, message_id, text)
-        await self.bot.send_message(
-            user_id,
-            "📝 **Reply with your selection:**\n\nType what you want to clean, separated by commas:\n\n**Examples:**\n• `personal,bots` - Clean personal chats and bot chats\n• `channels,groups` - Exit all channels and groups\n• `my_messages` - Delete all your sent messages from groups\n• `all` - Clean everything\n\n**Available options:**\n`personal`, `bots`, `telegram`, `spambot`, `my_messages`, `channels`, `groups`, `owned_groups`, `owned_channels`, `all`",
+
+        text = (
+            f"🧹 **Cleanup Selection — {display_name}**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📋 **What would you like to clean?**\n\n"
+            "💬 `personal` — Direct messages with users\n"
+            "🤖 `bots` — Conversations with bots\n"
+            "📢 `telegram` — Telegram service chats\n"
+            "🚫 `spambot` — @spambot conversations\n"
+            "🗑️ `my_messages` — Delete your sent messages from groups\n"
+            "🚪 `channels` — Leave all channels\n"
+            "👥 `groups` — Leave all groups\n"
+            "🗑️ `owned_groups` — Delete groups you own\n"
+            "📺 `owned_channels` — Delete channels you own\n"
+            "🔥 `all` — Everything above\n\n"
+            "⚠️ **These actions cannot be undone!**\n\n"
+            "📝 **Reply with your selection** (comma-separated):\n"
+            "Examples: `personal,bots` · `channels,groups` · `all`"
         )
+        buttons = [[Button.inline("❌ Cancel", "cleanup:menu")]]
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def execute_cleanup(self, event, user_id, account_id, cleanup_types):
         from bson import ObjectId

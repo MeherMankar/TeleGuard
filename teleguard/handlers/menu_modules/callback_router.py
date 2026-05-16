@@ -278,6 +278,7 @@ class CallbackRouter:
 
             if action == "menu":
                 await self.menu.handlers.handle_cleanup(event)
+
             elif action == "select" and len(parts) >= 3:
                 account_id = parts[2]
                 if hasattr(self.menu, "cleanup_operations"):
@@ -286,6 +287,7 @@ class CallbackRouter:
                     )
                 else:
                     await event.answer("❌ Cleanup not available")
+
             elif action == "bulk_all":
                 if hasattr(self.menu, "cleanup_operations"):
                     await self.menu.cleanup_operations.send_bulk_cleanup_selection(
@@ -293,6 +295,35 @@ class CallbackRouter:
                     )
                 else:
                     await event.answer("❌ Cleanup not available")
+
+            elif action == "options" and len(parts) >= 4:
+                # cleanup:options:{account_id}:{cleanup_types}
+                account_id = parts[2]
+                cleanup_types = ":".join(parts[3:])
+                try:
+                    await self.menu._send_cleanup_confirmation(
+                        user_id, event.message_id, account_id, cleanup_types
+                    )
+                except Exception as e:
+                    if "not modified" in str(e).lower():
+                        await event.answer("✅ Already confirmed")
+                    else:
+                        logger.error(f"Cleanup options error: {e}")
+                        await event.answer("❌ Error processing cleanup options")
+
+            elif action == "confirm" and len(parts) >= 4:
+                # cleanup:confirm:{account_id}:{cleanup_types}
+                account_id = parts[2]
+                cleanup_types = ":".join(parts[3:])
+                await self.menu._execute_cleanup(event, user_id, account_id, cleanup_types)
+
+            elif action == "appeal" and len(parts) >= 3:
+                account_id = parts[2]
+                await self.menu._handle_spam_appeal(event, user_id, account_id)
+
+            elif action == "spam_appeal_select":
+                await self.menu._handle_spam_appeal_select(event, user_id)
+
             else:
                 await event.answer("❌ Unknown cleanup action")
 
