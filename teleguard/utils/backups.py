@@ -291,7 +291,7 @@ def backup_user_change(action: str, user_id: int, user_data: dict):
 
 
 # Database snapshot functionality
-async def create_database_snapshot():
+async def create_snapshot():
     """Create JSON snapshot of database collections"""
     try:
         from ..sync.db import fetch_snapshot_collections, init_connections
@@ -338,8 +338,27 @@ def encrypt_snapshot(snapshot_bytes: bytes) -> bytes:
 
 
 def push_to_github(snapshot_path: str, _branch: str = "backups"):
-    """Push snapshot to GitHub repository (feature removed)"""
-    logger.warning("GitHub sync feature has been removed")
+    """Push snapshot to GitHub repository"""
+    try:
+        from .session_backup import SessionBackupManager
+
+        manager = SessionBackupManager()
+        if not manager.enabled:
+            logger.warning("GitHub sync disabled")
+            return
+
+        manager.ensure_local_clone()
+        # Copy snapshot to workdir
+        import shutil
+
+        target_dir = manager.workdir / "snapshots"
+        target_dir.mkdir(exist_ok=True)
+        shutil.copy(snapshot_path, target_dir / os.path.basename(snapshot_path))
+
+        manager.commit_and_push(f"Database snapshot: {os.path.basename(snapshot_path)}")
+        logger.info(f"Pushed snapshot {snapshot_path} to GitHub")
+    except Exception as e:
+        logger.error(f"GitHub push failed: {e}")
 
 
 def force_orphan_push(snapshot_path: str, _branch: str = "backups"):

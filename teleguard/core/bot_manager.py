@@ -648,10 +648,16 @@ class BotManager:
             # Initialize auto backup system
             try:
                 from ..utils.backups import init_auto_backup, start_auto_backup
+                from ..sync.scheduler import start_scheduler
+                
                 init_auto_backup(self.bot)
                 await start_auto_backup()
+                
+                # Start hourly/daily backup scheduler
+                start_scheduler(self.bot)
+                logger.info("Backup system and scheduler fully initialized")
             except Exception as e:
-                logger.warning(f"Auto backup initialization failed: {e}")
+                logger.warning(f"Backup system initialization failed: {e}")
 
             # Set up DM handlers for loaded sessions after all components are initialized
             if self.dm_reply_handler:
