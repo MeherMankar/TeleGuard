@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timezone
 from telethon import functions
+from telethon.tl.types import Authorization
 
 from ..core.mongo_database import mongodb
 
@@ -14,7 +15,7 @@ class ProtectionNotifier:
     def __init__(self, bot):
         self.bot = bot
 
-    async def notify_session_destroyed(self, user_id: int, auth: functions.account.Authorization):
+    async def notify_session_destroyed(self, user_id: int, auth: Authorization):
         """Send rich alert when an unauthorized session is destroyed"""
         try:
             # Mask the hash for security

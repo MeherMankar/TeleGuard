@@ -129,7 +129,7 @@ class MongoDB:
             
             # Topic mappings indexes
             await self.db.topic_mappings.create_index(
-                [("user_id", 1), ("account_id", 1)], unique=True
+                [("user_id", 1), ("account_id", 1)]
             )
             await self.db.topic_mappings.create_index("topic_id")
             
