@@ -783,18 +783,20 @@ class AdvancedSpamHandler:
 
     def _get_client(self, phone):
         phone = str(phone)
-        if phone in self.user_clients:
-            return self.user_clients[phone]
         phone_clean = phone.lstrip("+")
-        if phone_clean in self.user_clients:
-            return self.user_clients[phone_clean]
         phone_plus = f"+{phone_clean}"
-        if phone_plus in self.user_clients:
-            return self.user_clients[phone_plus]
-        for key in self.user_clients:
-            key_str = str(key).lstrip("+")
-            if phone_clean in key_str or key_str in phone_clean:
-                return self.user_clients[key]
+        
+        for user_id, user_dict in self.user_clients.items():
+            if phone in user_dict:
+                return user_dict[phone]
+            if phone_clean in user_dict:
+                return user_dict[phone_clean]
+            if phone_plus in user_dict:
+                return user_dict[phone_plus]
+            for key in user_dict:
+                key_str = str(key).lstrip("+")
+                if phone_clean in key_str or key_str in phone_clean:
+                    return user_dict[key]
         return None
 
     async def _execute_mass_invite(self, event, temp_data):
@@ -873,7 +875,9 @@ class AdvancedSpamHandler:
                         await asyncio.sleep(1)
 
             # Export to CSV
-            filename = f"contacts_{group.replace('@', '')}_{user_id}.csv"
+            import re
+            safe_group = re.sub(r'[^a-zA-Z0-9_]', '', group)
+            filename = f"contacts_{safe_group}_{user_id}.csv"
             with open(filename, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(
                     f,
