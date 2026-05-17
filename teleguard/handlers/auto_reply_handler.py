@@ -475,7 +475,7 @@ class AutoReplyHandler:
                 [Button.inline("⏰ Time Settings", "auto_reply:time_settings")],
                 [Button.inline("📊 View Stats", "auto_reply:analytics")],
                 [Button.inline("🗑️ Reset All", "auto_reply:reset")],
-                [Button.inline("🔙 Back", "menu:main")],
+                [Button.inline("🔙 Back", "menu:messaging")],
             ]
             await event.edit(text, buttons=buttons)
         except Exception as e:
