@@ -94,7 +94,6 @@ class SessionMonitor:
                     "user_deactivated",
                     "authorization key",
                     "duplicated",
-                    "failed to get valid user info",
                 ]
             ):
                 raise e  # Re-raise for invalidation handling

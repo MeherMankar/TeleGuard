@@ -403,10 +403,10 @@ class MenuSystem:
                     await self.router.handle_toggle_session_callback(event, user_id, data)
                     return
                 elif data == "toggle_all_sessions":
-                    await self.router.handle_toggle_all_sessions_callback(event, user_id)
+                    await self.router.handle_toggle_all_sessions_callback(event, user_id, data)
                     return
                 elif data == "create_selected_sessions":
-                    await self.router.handle_create_selected_sessions_callback(event, user_id)
+                    await self.router.handle_create_selected_sessions_callback(event, user_id, data)
                     return
 
                 await self.router.route_callback(event, user_id, data)
@@ -420,9 +420,7 @@ class MenuSystem:
 
     async def _handle_account_settings(self, event):
         """Handle Account Settings menu"""
-        await self.account_operations.show_account_list(
-            event.sender_id, event.message_id
-        )
+        await self.handlers.handle_account_settings(event)
 
     async def _handle_protection_manager(self, event):
         """Handle Protection Manager menu"""

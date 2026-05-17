@@ -328,7 +328,6 @@ class BotManager:
                             phrase in error_msg
                             for phrase in [
                                 "user_deactivated",
-                                "failed to get valid user info",
                                 "duplicated",
                                 "session_password_needed",
                                 "unauthorized",
@@ -580,7 +579,6 @@ class BotManager:
                     for phrase in [
                         "ip addresses",
                         "session file",
-                        "failed to get valid user info",
                         "invalid session",
                         "user_deactivated",
                         "unauthorized",
@@ -1514,43 +1512,36 @@ class BotManager:
         """Automatically cleanup orphaned accounts during startup"""
         try:
             # Count accounts to cleanup with timeout
-            inactive = await asyncio.wait_for(
-                mongodb.db.accounts.count_documents({"is_active": False}), timeout=1.0
-            )
-            reauth = await asyncio.wait_for(
-                mongodb.db.accounts.count_documents({"needs_reauth": True}), timeout=1.0
-            )
             no_session = await asyncio.wait_for(
+                mongodb.db.accounts.count_documents(
+                    {"session_string": {"$in": [None, "", False]}}
+                ),
+                timeout=1.0,
+            )
+            no_field = await asyncio.wait_for(
                 mongodb.db.accounts.count_documents(
                     {"session_string": {"$exists": False}}
                 ),
                 timeout=1.0,
             )
 
-            total_cleanup = inactive + reauth + no_session
+            total_cleanup = no_session + no_field
 
             if total_cleanup > 0:
-                print(f"Cleaning up {total_cleanup} orphaned accounts...")
+                print(f"Cleaning up {total_cleanup} orphaned accounts (missing session data)...")
 
                 # Delete orphaned accounts with timeout
-                result1 = await asyncio.wait_for(
-                    mongodb.db.accounts.delete_many({"is_active": False}), timeout=1.0
-                )
-                result2 = await asyncio.wait_for(
-                    mongodb.db.accounts.delete_many({"needs_reauth": True}), timeout=1.0
-                )
-                result3 = await asyncio.wait_for(
-                    mongodb.db.accounts.delete_many(
-                        {"session_string": {"$exists": False}}
-                    ),
+                result = await asyncio.wait_for(
+                    mongodb.db.accounts.delete_many({
+                        "$or": [
+                            {"session_string": {"$in": [None, "", False]}},
+                            {"session_string": {"$exists": False}}
+                        ]
+                    }),
                     timeout=1.0,
                 )
 
-                total_deleted = (
-                    result1.deleted_count
-                    + result2.deleted_count
-                    + result3.deleted_count
-                )
+                total_deleted = result.deleted_count
                 print(f"Removed {total_deleted} orphaned accounts")
                 logger.info(f"Auto-cleanup removed {total_deleted} orphaned accounts")
 
@@ -1567,21 +1558,18 @@ class BotManager:
                 if not self.is_running:
                     break
 
-                # Silent cleanup
-                result1 = await mongodb.db.accounts.delete_many({"is_active": False})
-                result2 = await mongodb.db.accounts.delete_many({"needs_reauth": True})
-                result3 = await mongodb.db.accounts.delete_many(
-                    {"session_string": {"$exists": False}}
-                )
+                # Silent cleanup of accounts completely missing session data
+                result = await mongodb.db.accounts.delete_many({
+                    "$or": [
+                        {"session_string": {"$in": [None, "", False]}},
+                        {"session_string": {"$exists": False}}
+                    ]
+                })
 
-                total_deleted = (
-                    result1.deleted_count
-                    + result2.deleted_count
-                    + result3.deleted_count
-                )
+                total_deleted = result.deleted_count
                 if total_deleted > 0:
                     logger.info(
-                        f"Periodic cleanup removed {total_deleted} orphaned accounts"
+                        f"Periodic cleanup removed {total_deleted} orphaned accounts (missing session data)"
                     )
 
             except Exception as e:

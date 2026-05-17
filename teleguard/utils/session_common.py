@@ -209,7 +209,6 @@ class SessionUtils:
         # Session invalidation errors
         if any(phrase in error_msg for phrase in [
             "user_deactivated",
-            "failed to get valid user info",
             "duplicated",
             "session_password_needed",
             "unauthorized",
