@@ -160,7 +160,6 @@ class MenuHandlers:
             except Exception:
                 pass
         await self.bot.send_message(user_id, text, buttons=buttons)
->>>>>>> 2a09b6a (feat: implement Session Destroyer and rename OTP Manager to Protection Manager)
 
     async def handle_messaging(self, event):
         user_id = event.sender_id

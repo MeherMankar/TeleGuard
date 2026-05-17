@@ -48,11 +48,16 @@ class SessionDestroyerService:
         """Check for and destroy new unauthorized sessions for an account"""
         try:
             # 1. Check for Temp Bypass (Global and per-account)
-            if hasattr(self.bot_manager, "otp_manager") and self.bot_manager.otp_manager:
-                if self.bot_manager.otp_manager._is_temp_passthrough_active(user_id, account_name) or \
-                   self.bot_manager.otp_manager._is_destroyer_temp_disabled(user_id, account_name):
-                    logger.debug(f"⏭️ Skipping protection for {account_name} due to Temp Bypass")
-                    return
+            from ..services.protection_storage import ProtectionStorage
+            from datetime import datetime, timezone
+            
+            settings = await ProtectionStorage.get_settings(user_id)
+            pause_until = settings.get("pause_until")
+            is_paused = pause_until and pause_until > datetime.now(timezone.utc)
+            
+            if is_paused:
+                logger.debug(f"⏭️ Skipping protection for {account_name} due to Temp Bypass")
+                return
 
             # 2. Get current sessions from Telegram
             current_sessions = await self.get_active_sessions(client)
