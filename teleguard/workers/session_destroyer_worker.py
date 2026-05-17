@@ -64,19 +64,18 @@ class SessionDestroyerWorker:
             for user_settings in protected_users:
                 user_id = user_settings["user_id"]
                 
-                # Get all active clients for this user from bot_manager
-                user_clients = self.bot_manager.user_clients.get(user_id, {})
+                # Get all active accounts for this user from DB
+                from ..utils.crypto_utils import DataEncryption
+                accounts_enc = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
                 
-                for account_name, client in user_clients.items():
-                    if not client.is_connected():
-                        continue
-                    
-                    # We need the account_id (MongoDB _id) for database operations
-                    account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                    if not account:
+                for acc_doc in accounts_enc:
+                    account = DataEncryption.decrypt_account_data(acc_doc)
+                    client = self.bot_manager.get_client(user_id, account)
+                    if not client or not client.is_connected():
                         continue
                     
                     account_id = str(account["_id"])
+                    account_name = account.get("name")
                     
                     # Process protection for this specific account
                     await self.service.process_account_protection(

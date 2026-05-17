@@ -537,6 +537,11 @@ class SessionGuardian:
         new_ip = await self._get_ip_with_fallback()
 
         if new_ip and self.current_ip and self.current_ip != new_ip:
+            # Check if this is just a protocol family switch (IPv4 <-> IPv6)
+            if (":" in str(self.current_ip)) != (":" in str(new_ip)):
+                logger.info(f"IP protocol family switch detected (IPv4 <-> IPv6): {self.current_ip} -> {new_ip}. Updating cached IP without alert.")
+                self.current_ip = new_ip
+                return
             self.ip_change_count += 1
             await self._handle_ip_change(self.current_ip, new_ip)
 

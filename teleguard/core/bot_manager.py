@@ -636,6 +636,57 @@ class BotManager:
             logger.error(f"Failed to start user client {account_name}: {e}")
             raise
 
+    def get_client(self, user_id: int, account) -> Optional[TelegramClient]:
+        """
+        Get a TelegramClient instance for a user and account using multiple key variations
+        to prevent key mismatch errors.
+        """
+        user_clients_dict = self.user_clients.get(user_id, {})
+        if not user_clients_dict:
+            return None
+
+        if isinstance(account, str):
+            # If a string is passed, try direct lookup or substring phone matches
+            if account in user_clients_dict:
+                return user_clients_dict[account]
+            # Try phone variations
+            account_clean = account.replace("+", "")
+            for key in user_clients_dict.keys():
+                if account_clean in str(key).replace("+", ""):
+                    return user_clients_dict[key]
+            return None
+
+        if not account or not isinstance(account, dict):
+            return None
+
+        # Try different possible identifying keys in order
+        keys_to_try = [
+            account.get("phone"),
+            account.get("name"),
+            account.get("display_name"),
+            account.get("first_name"),
+            account.get("username"),
+        ]
+
+        for key in keys_to_try:
+            if key and key in user_clients_dict:
+                client = user_clients_dict[key]
+                if client:
+                    return client
+
+        # Fallback to phone number variations without '+'
+        phone = account.get("phone")
+        if phone:
+            phone_clean = phone.replace("+", "")
+            for key in user_clients_dict.keys():
+                if phone_clean in str(key).replace("+", ""):
+                    client = user_clients_dict[key]
+                    if client:
+                        return client
+
+        return None
+
+
     async def _initialize_components(self) -> None:
         try:
             await asyncio.wait_for(self._initialize_core_components(), timeout=15.0)

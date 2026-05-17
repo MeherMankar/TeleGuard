@@ -68,13 +68,9 @@ class ProfileOperations:
 
     async def _get_current_profile_info(self, user_id, account_name):
         try:
-            if (
-                not self.account_manager
-                or user_id not in self.account_manager.user_clients
-            ):
+            if not self.account_manager:
                 return None
-            user_clients = self.account_manager.user_clients.get(user_id, {})
-            client = user_clients.get(account_name)
+            client = self.account_manager.get_client(user_id, account_name)
             if not client or not client.is_connected():
                 return None
             me = await client.get_me()
@@ -109,10 +105,8 @@ class ProfileOperations:
             first_name = names[0]
             last_name = names[1] if len(names) > 1 else ""
             client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
+            if self.account_manager:
+                client = self.account_manager.get_client(user_id, account)
             if client:
                 try:
                     from telethon import functions
@@ -151,10 +145,8 @@ class ProfileOperations:
                 return
             username = username_event.raw_text.replace("@", "").strip()
             client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
+            if self.account_manager:
+                client = self.account_manager.get_client(user_id, account)
             if client:
                 try:
                     from telethon import functions
@@ -192,10 +184,8 @@ class ProfileOperations:
                 return
             bio_text = bio_event.raw_text.strip()
             client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
+            if self.account_manager:
+                client = self.account_manager.get_client(user_id, account)
             if client:
                 try:
                     from telethon import functions
@@ -228,10 +218,8 @@ class ProfileOperations:
         @self.bot.on(events.NewMessage(from_users=user_id, func=lambda e: e.photo))
         async def handle_photo_input(photo_event):
             client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
+            if self.account_manager:
+                client = self.account_manager.get_client(user_id, account)
             if client:
                 try:
                     photo_path = await photo_event.download_media()

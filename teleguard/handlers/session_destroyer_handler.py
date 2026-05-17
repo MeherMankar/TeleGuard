@@ -79,14 +79,36 @@ class SessionDestroyerHandler:
         await SessionDestroyerDB.update_settings(user_id, True)
         
         # 2. Sync trusted sessions for all active accounts
-        user_clients = self.menu.account_manager.user_clients.get(user_id, {})
+        from ..utils.crypto_utils import DataEncryption
+        
+        accounts_enc = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
         synced_count = 0
-        for account_name, client in user_clients.items():
-            if client.is_connected():
-                account = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
-                if account:
-                    await self.service.sync_trusted_sessions(user_id, str(account["_id"]), client)
-                    synced_count += 1
+        for acc_doc in accounts_enc:
+            account = DataEncryption.decrypt_account_data(acc_doc)
+            client = self.menu.account_manager.get_client(user_id, account)
+            
+            # Auto-load/start client if not in memory
+            if not client:
+                try:
+                    session_str = account.get("session_string")
+                    acc_name = account.get("name")
+                    if session_str and acc_name:
+                        logger.info(f"Starting disconnected client {acc_name} during trust sync...")
+                        await self.menu.account_manager._start_user_client(user_id, acc_name, session_str)
+                        client = self.menu.account_manager.get_client(user_id, account)
+                except Exception as start_err:
+                    logger.error(f"Failed to start client {account.get('name')} during trust sync: {start_err}")
+            
+            # Auto-connect if loaded but disconnected
+            if client and not client.is_connected():
+                try:
+                    await client.connect()
+                except Exception as conn_err:
+                    logger.error(f"Failed to connect client {account.get('name')} during trust sync: {conn_err}")
+            
+            if client and client.is_connected():
+                await self.service.sync_trusted_sessions(user_id, str(account["_id"]), client)
+                synced_count += 1
         
         await event.answer(f"✅ Session Destroyer Enabled!\nSynced {synced_count} accounts.", alert=True)
         await self.show_submenu(user_id, event.message_id)

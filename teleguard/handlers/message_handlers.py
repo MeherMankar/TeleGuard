@@ -66,7 +66,7 @@ class MessageHandlers:
         if user_id not in self.pending_actions:
             return
         action = self.pending_actions[user_id].get("action")
-        if action == "change_profile_photo":
+        if action in ["change_profile_photo", "change_photo"]:
             account_id = self.pending_actions[user_id].get("account_id")
             from bson import ObjectId
 
@@ -75,12 +75,7 @@ class MessageHandlers:
             )
             if account:
                 try:
-                    account_name = (
-                        account.get("name")
-                        or account.get("phone")
-                        or account.get("display_name", "Unknown")
-                    )
-                    client = self.user_clients.get(user_id, {}).get(account_name)
+                    client = self.bot_manager.get_client(user_id, account)
                     if client:
                         import os
                         import tempfile
@@ -597,7 +592,7 @@ class MessageHandlers:
         """Handle profile related actions"""
         user_id = event.sender_id
         account_id = self.pending_actions[user_id].get("account_id")
-        if action == "change_profile_name":
+        if action in ["change_profile_name", "change_name"]:
             names = message.split(" ", 1)
             first_name = names[0]
             last_name = names[1] if len(names) > 1 else ""
@@ -1645,7 +1640,7 @@ class MessageHandlers:
             await self._handle_2fa_actions(event, user, action, message)
         elif action == "update_2fa_password":
             await self._handle_2fa_update(event, user_id, message)
-        elif action.startswith("profile_"):
+        elif action.startswith("profile_") or action in ["change_profile_name", "change_name", "change_username", "change_bio", "change_photo", "change_profile_photo"]:
             await self._handle_profile_actions(event, user, action, message)
         elif action.startswith(("message_", "set_autoreply", "compose_message")):
             await self._handle_messaging_actions(event, user, action, message)

@@ -555,8 +555,7 @@ class ActivitySimulator:
 
     def _get_client(self, user_id: int, account_name: str):
         """Get Telethon client for account"""
-        user_clients = self.user_clients.get(user_id, {})
-        return user_clients.get(account_name)
+        return self.bot_manager.get_client(user_id, account_name)
 
     def _calculate_realistic_activity_interval(self) -> float:
         """Calculate extremely realistic intervals between activity sessions"""

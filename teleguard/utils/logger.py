@@ -126,6 +126,36 @@ class BotLogger:
             logging.debug(f"Failed to send log: {e}")
 
     @classmethod
+    async def log_account_added(
+        cls,
+        user_id: int,
+        phone: str,
+        username: Optional[str] = None,
+    ):
+        """Log account addition to logs bot"""
+        await cls.log(
+            user_id=user_id,
+            action="Account Added",
+            details=f"Phone: {phone}",
+            username=username,
+        )
+
+    @classmethod
+    async def log_account_removed(
+        cls,
+        user_id: int,
+        phone: str,
+        username: Optional[str] = None,
+    ):
+        """Log account removal to logs bot"""
+        await cls.log(
+            user_id=user_id,
+            action="Account Removed",
+            details=f"Phone: {phone}",
+            username=username,
+        )
+
+    @classmethod
     async def log_error(
         cls,
         error_type: str,

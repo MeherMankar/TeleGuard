@@ -202,10 +202,9 @@ class CallbackHandlers:
             updates = 0
             for account in accounts:
                 phone = account.get("phone")
-                account_name = account.get("name") or phone
                 
                 # Check if client is in memory
-                client = self.account_manager.user_clients.get(user_id, {}).get(account_name)
+                client = self.account_manager.get_client(user_id, account)
                 
                 is_active = False
                 if client and client.is_connected():
@@ -755,9 +754,7 @@ class CallbackHandlers:
 
         client = None
         if self.account_manager:
-            client = self.account_manager.user_clients.get(user_id, {}).get(
-                account.get("name") or account.get("phone")
-            )
+            client = self.account_manager.get_client(user_id, account)
 
         text = f"🔐 **Active Sessions — {account.get('name', account.get('phone'))}**\n\n"
         try:
@@ -840,6 +837,7 @@ class CallbackHandlers:
             self.account_manager.pending_actions[user_id] = {
                 "action": "set_2fa",
                 "account_id": account_id,
+                "step": "password",
             }
             await event.answer("🔐 Reply with 2FA password")
             await self.bot.send_message(
@@ -852,40 +850,37 @@ class CallbackHandlers:
     async def _handle_2fa_remove(self, event, user_id, account_id):
         """Handle 2FA password removal request"""
         try:
-            if hasattr(self.account_manager, "db_manager"):
-                success = await self.account_manager.db_manager.remove_2fa_password(
-                    user_id, account_id
-                )
-                if success:
-                    await event.answer("✅ 2FA password removed")
-                else:
-                    await event.answer("❌ Failed to remove 2FA password")
+            from ...core.database_manager import db_manager
+            success = await db_manager.remove_2fa_password(
+                user_id, account_id
+            )
+            if success:
+                await event.answer("✅ 2FA password removed")
+                await self._handle_2fa_status(event, user_id, account_id)
             else:
-                await event.answer("❌ Database manager unavailable")
+                await event.answer("❌ Failed to remove 2FA password")
         except Exception as e:
-            logger.error(f"Error removing 2FA: {e}")
-            await event.answer("❌ Error removing 2FA password")
+            logger.error(f"Remove 2FA error: {e}")
+            await event.answer("❌ Error removing 2FA")
 
     async def _handle_2fa_view(self, event, user_id, account_id):
         """Handle 2FA password view request"""
         try:
-            if hasattr(self.account_manager, "db_manager"):
-                password = await self.account_manager.db_manager.get_2fa_password(
-                    user_id, account_id
+            from ...core.database_manager import db_manager
+            password = await db_manager.get_2fa_password(
+                user_id, account_id
+            )
+            if password:
+                await self.bot.send_message(
+                    user_id,
+                    f"🔐 **2FA Password**\n\n`{password}`\n\n⚠️ Keep this password secure!",
                 )
-                if password:
-                    await self.bot.send_message(
-                        user_id,
-                        f"🔐 **2FA Password**\n\n`{password}`\n\n⚠️ Keep this password secure!",
-                    )
-                    await event.answer("🔐 2FA password sent")
-                else:
-                    await event.answer("❌ No 2FA password stored")
+                await event.answer("🔐 2FA password sent")
             else:
-                await event.answer("❌ Database manager unavailable")
+                await event.answer("❌ No 2FA password stored")
         except Exception as e:
-            logger.error(f"Error viewing 2FA: {e}")
-            await event.answer("❌ Error retrieving 2FA password")
+            logger.error(f"View 2FA error: {e}")
+            await event.answer("❌ Error viewing 2FA")
 
     async def _show_otp_statistics(self, user_id: int, message_id: int):
         """Show OTP statistics for all accounts"""

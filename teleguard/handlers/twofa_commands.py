@@ -316,8 +316,7 @@ class TwoFACommands:
             )
             if not account:
                 return None, None
-            user_clients = self.account_manager.user_clients.get(user_id, {})
-            client = user_clients.get(account["name"])
+            client = self.account_manager.get_client(user_id, account)
             return account, client
         except Exception as e:
             logger.error(f"Get account and client error: {e}")

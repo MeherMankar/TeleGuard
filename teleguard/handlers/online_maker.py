@@ -125,20 +125,16 @@ class OnlineMaker:
     async def _find_account(self, user_id: int, account_name: str):
         """Find account by multiple criteria"""
         for field in ["name", "phone", "display_name"]:
-            account = await mongodb.db.accounts.find_one({" user_id": user_id, field: account_name})
+            account = await mongodb.db.accounts.find_one({"user_id": user_id, field: account_name})
             if account:
                 return account
         return None
 
     async def _find_connected_client(self, user_id: int, account_name: str, account: dict):
         """Find connected client for account"""
-        user_clients_dict = self.user_clients.get(user_id, {})
-        possible_keys = [account_name, account.get("phone"), account.get("name"), account.get("display_name")]
-        for key in possible_keys:
-            if key and key in user_clients_dict:
-                client = user_clients_dict[key]
-                if client and client.is_connected():
-                    return client
+        client = self.bot_manager.get_client(user_id, account)
+        if client and client.is_connected():
+            return client
         logger.warning(f"Client not found or disconnected for {account_name}")
         return None
 

@@ -97,17 +97,52 @@ class SessionDestroyerService:
             # Terminate via Telegram API
             await client(functions.account.ResetAuthorizationRequest(hash=session.hash))
             
+            # Formulate timezones natively
+            from datetime import timezone, timedelta
+            ist_tz = timezone(timedelta(hours=5, minutes=30))
+            
+            # Parse Login Time (date_created)
+            login_time_str = "Unknown"
+            if getattr(session, 'date_created', None):
+                try:
+                    dt_utc = session.date_created.astimezone(timezone.utc)
+                    dt_ist = dt_utc.astimezone(ist_tz)
+                    login_time_str = f"{dt_utc.strftime('%I:%M %p')} UTC ({dt_ist.strftime('%I:%M %p')} IST)"
+                except Exception as ex:
+                    logger.error(f"Error formatting login time: {ex}")
+            
+            # Clean and sanitize attributes, handling missing/empty ones
+            device = session.device_model.strip() if getattr(session, 'device_model', None) else "Unknown Device"
+            platform = session.platform.strip() if getattr(session, 'platform', None) else "Unknown Platform"
+            system_version = session.system_version.strip() if getattr(session, 'system_version', None) else "Unknown"
+            
+            ip_val = session.ip.strip() if getattr(session, 'ip', None) else "Unknown"
+            if not ip_val:
+                ip_val = "Unknown"
+                
+            country = session.country.strip() if getattr(session, 'country', None) else "Unknown"
+            if not country:
+                country = "Unknown"
+                
+            region = session.region.strip() if getattr(session, 'region', None) else "Unknown"
+            if not region:
+                region = "Unknown"
+                
+            app_name = session.app_name.strip() if getattr(session, 'app_name', None) else "Unknown App"
+            app_version = session.app_version.strip() if getattr(session, 'app_version', None) else ""
+            
             # Prepare session info for logging and notification
             session_info = {
-                "device": f"{session.device_model}",
-                "platform": f"{session.platform}",
-                "system_version": f"{session.system_version}",
-                "ip": f"{session.ip}",
-                "country": f"{session.country}",
-                "region": f"{session.region}",
-                "app_name": f"{session.app_name}",
-                "app_version": f"{session.app_version}",
+                "device": device,
+                "platform": platform,
+                "system_version": system_version,
+                "ip": ip_val,
+                "country": country,
+                "region": region,
+                "app_name": app_name,
+                "app_version": app_version,
                 "hash": session.hash,
+                "login_time": login_time_str,
                 "success": True
             }
 
@@ -117,10 +152,19 @@ class SessionDestroyerService:
             # Notify User
             await self.notify_user_of_destruction(user_id, account_name, session_info)
             
-            logger.warning(f"🔥 Session Destroyer: Terminated session {session.hash} ({session.device_model}) for {account_name}")
+            logger.warning(f"🔥 Session Destroyer: Terminated session {session.hash} ({device}) for {account_name}")
             
         except Exception as e:
-            logger.error(f"Failed to destroy session {session.hash} for {account_name}: {e}")
+            error_msg = str(e)
+            if "FRESH_RESET_AUTHORISATION_FORBIDDEN" in error_msg or "too new" in error_msg.lower():
+                logger.warning(
+                    f"⚠️ Session Destroyer: Cannot destroy session {session.hash} for {account_name} yet. "
+                    "Telegram requires the newly logged-in session to be active (usually for 24 hours) "
+                    "before it is allowed to terminate other active authorizations."
+                )
+            else:
+                logger.error(f"Failed to destroy session {session.hash} for {account_name}: {e}")
+            
             # Log failure
             session_info = {"hash": session.hash, "success": False, "device": session.device_model}
             await SessionDestroyerDB.log_destruction(user_id, account_id, session_info)
@@ -134,13 +178,25 @@ class SessionDestroyerService:
             # 📱 Platform: iOS
             # 🌍 Country: India
             # 📍 IP Address: 49.xxx.xxx.xxx
-            # 🕒 Login Time: 12:31 PM
+            # 🕒 Login Time: 12:31 PM UTC (06:01 PM IST)
+            # 🕒 Detection Time: 12:32 PM UTC (06:02 PM IST)
             # 📦 App: Telegram iOS 11.2
             # 🔐 Status: Session Terminated Successfully
             
-            # Note: Telegram Authorizations don't directly give 'Login Time' in the object returned by GetAuthorizationsRequest
-            # but we can use current time as detection time.
-            now = datetime.now().strftime("%I:%M %p")
+            from datetime import timezone, timedelta
+            ist_tz = timezone(timedelta(hours=5, minutes=30))
+            now_utc = datetime.now(timezone.utc)
+            now_ist = now_utc.astimezone(ist_tz)
+            
+            detection_time = f"{now_utc.strftime('%I:%M %p')} UTC ({now_ist.strftime('%I:%M %p')} IST)"
+            
+            # Use 'login_time' if present, otherwise default to "Unknown"
+            login_time = session.get("login_time", "Unknown")
+            
+            # Check if app version is present, format beautifully
+            app_str = session['app_name']
+            if session.get('app_version'):
+                app_str += f" {session['app_version']}"
             
             message = (
                 "🚨 **New Unauthorized Session Destroyed**\n\n"
@@ -148,8 +204,9 @@ class SessionDestroyerService:
                 f"📱 **Platform:** {session['platform']}\n"
                 f"🌍 **Country:** {session['country']}\n"
                 f"📍 **IP Address:** `{session['ip']}`\n"
-                f"🕒 **Detection Time:** {now}\n"
-                f"📦 **App:** {session['app_name']} {session['app_version']}\n"
+                f"🕒 **Login Time:** {login_time}\n"
+                f"🕒 **Detection Time:** {detection_time}\n"
+                f"📦 **App:** {app_str}\n"
                 "🔐 **Status:** Session Terminated Successfully\n\n"
                 f"💡 **Account:** {account_name}\n"
                 "⚡ **Session Destroyer protected your account.**"

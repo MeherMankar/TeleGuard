@@ -43,6 +43,7 @@ class AutoReplyHandler:
         }
         self.pending_actions = {}  # Track user input states
         self.last_toggle_time = {}  # Prevent rapid toggles
+        self.last_reply_time = {}  # Prevent duplicate replies (cooldown)
         self.setup_text_handler()
         self.setup_auto_reply_menu()
 
@@ -190,6 +191,15 @@ class AutoReplyHandler:
                         )
                 else:
                     return  # Nothing to reply
+
+                # Cooldown / Deduplication check to prevent duplicate replies within 3 seconds
+                reply_key = (client_key, sender_id)
+                current_time = time_module.time()
+                if reply_key in self.last_reply_time:
+                    if current_time - self.last_reply_time[reply_key] < 3.0:
+                        logger.debug(f"Skipping duplicate auto-reply to {sender_id} on {client_key} (cooldown active)")
+                        return
+                self.last_reply_time[reply_key] = current_time
 
                 contact_type = await self._get_contact_type(sender_id)
                 if contact_type == "family":
@@ -465,6 +475,7 @@ class AutoReplyHandler:
                 [Button.inline("⏰ Time Settings", "auto_reply:time_settings")],
                 [Button.inline("📊 View Stats", "auto_reply:analytics")],
                 [Button.inline("🗑️ Reset All", "auto_reply:reset")],
+                [Button.inline("🔙 Back", "menu:main")],
             ]
             await event.edit(text, buttons=buttons)
         except Exception as e:
