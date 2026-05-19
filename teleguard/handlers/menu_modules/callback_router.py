@@ -54,7 +54,6 @@ class CallbackRouter:
             "resend_otp": self.handle_resend_otp_callback,
             "cancel_session": self.handle_cancel_session_callback,
             "msg": self.handle_messaging_callback,
-            "auto_reply": self.handle_auto_reply_callback,
             "dm_reply": self.handle_dm_reply_callback,
             "template": self.handle_template_callback,
             "bulk": self.handle_bulk_callback,
@@ -85,7 +84,6 @@ class CallbackRouter:
             "session_op": self.handle_session_login_callback,
             "session_delete": self.handle_session_login_callback,
             "session_export_string": self.handle_session_login_callback,
-            "autoreply": self.handle_auto_reply_callback,
             "channels": self.handle_channel_callback,
             "import_sessions": self.handle_session_login_callback,
         }
@@ -685,140 +683,12 @@ class CallbackRouter:
             elif action == "settings":
                 await self.menu._show_messaging_settings(user_id, event.message_id)
             elif action == "autoreply":
-                await self.handle_auto_reply_callback(event, user_id, "auto_reply:main")
-            elif action == "dm":
-                await self.handle_dm_reply_callback(event, user_id, "dm_reply:main")
-            else:
-                await event.answer("❌ Unknown messaging action")
-        except Exception as e:
-            logger.error(f"Messaging callback error: {e}")
-            await event.answer("❌ Error processing messaging request")
-
-    async def handle_auto_reply_callback(self, event, user_id: int, data: str):
-        """Handle auto-reply callbacks"""
-        try:
-            from telethon import Button
-            parts = data.split(":")
-            action = parts[1] if len(parts) > 1 else "main"
-
-            if action == "main":
-                if hasattr(self.menu, "messaging_operations"):
-                    await self.menu.messaging_operations.send_autoreply_menu(
-                        user_id, event.message_id
-                    )
+                if hasattr(self.menu.account_manager, "auto_reply_handler"):
+                    await self.menu.account_manager.auto_reply_handler._refresh_main_menu(event, user_id)
                 else:
                     await event.answer("❌ Auto-reply not available")
-
-            elif action == "toggle":
-                # Show per-account toggle list
-                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
-                if not accounts:
-                    await event.answer("❌ No accounts found")
-                    return
-                text = "🤖 **Auto-Reply — Toggle Per Account**\n\nTap an account to toggle:"
-                buttons = []
-                for acc in accounts:
-                    enabled = acc.get("auto_reply_enabled", False)
-                    status = "✅" if enabled else "❌"
-                    from ...utils.network_helpers import format_display_name
-                    name = format_display_name(acc)
-                    buttons.append([Button.inline(
-                        f"{status} {name}",
-                        f"auto_reply:toggle_acc:{acc['_id']}"
-                    )])
-                buttons.append([Button.inline("🔙 Back", "auto_reply:main")])
-                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-
-            elif action == "toggle_acc":
-                account_id = parts[2] if len(parts) > 2 else None
-                if not account_id:
-                    await event.answer("❌ Invalid account")
-                    return
-                from bson import ObjectId
-                acc = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
-                if not acc:
-                    await event.answer("❌ Account not found")
-                    return
-                new_val = not acc.get("auto_reply_enabled", False)
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {"$set": {"auto_reply_enabled": new_val}}
-                )
-                # Register/unregister handler if auto_reply_handler available
-                am = self.menu.account_manager
-                if hasattr(am, "auto_reply_handler"):
-                    try:
-                        am.auto_reply_handler.setup_auto_reply_handlers()
-                    except Exception:
-                        pass
-                status = "enabled" if new_val else "disabled"
-                await event.answer(f"{'✅' if new_val else '❌'} Auto-reply {status}!")
-                # Refresh toggle list
-                await self.handle_auto_reply_callback(event, user_id, "auto_reply:toggle")
-
-            elif action == "keyword_settings":
-                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
-                enabled = settings.get("keyword_replies_enabled", False)
-                keywords = settings.get("keywords", [])
-                kw_list = "\n".join(f"• `{k['trigger']}` → {k['response'][:40]}" for k in keywords[:10]) or "No keywords set."
-                text = (
-                    f"🔑 **Keyword Auto-Reply**\n\n"
-                    f"Status: {'🟢 Enabled' if enabled else '🔴 Disabled'}\n\n"
-                    f"**Keywords ({len(keywords)}):**\n{kw_list}\n\n"
-                    "Use /autoreply_add to add keywords via command."
-                )
-                toggle_label = "🔴 Disable" if enabled else "🟢 Enable"
-                buttons = [
-                    [Button.inline(toggle_label, "auto_reply:toggle_keyword")],
-                    [Button.inline("🔙 Back", "auto_reply:main")],
-                ]
-                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-
-            elif action == "toggle_keyword":
-                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
-                new_val = not settings.get("keyword_replies_enabled", False)
-                await mongodb.db.auto_reply_settings.update_one(
-                    {"user_id": user_id},
-                    {"$set": {"keyword_replies_enabled": new_val}},
-                    upsert=True
-                )
-                await event.answer(f"{'🟢 Keyword replies enabled' if new_val else '🔴 Keyword replies disabled'}")
-                await self.handle_auto_reply_callback(event, user_id, "auto_reply:keyword_settings")
-
-            elif action == "time_settings":
-                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
-                enabled = settings.get("time_based_replies_enabled", False)
-                start_h = settings.get("active_start_hour", 9)
-                end_h = settings.get("active_end_hour", 22)
-                text = (
-                    f"⏰ **Time-Based Auto-Reply**\n\n"
-                    f"Status: {'🟢 Enabled' if enabled else '🔴 Disabled'}\n"
-                    f"Active Hours: {start_h:02d}:00 – {end_h:02d}:00\n\n"
-                    "Auto-reply only fires during the configured hours.\n"
-                    "Use /autoreply_hours to change the schedule."
-                )
-                toggle_label = "🔴 Disable" if enabled else "🟢 Enable"
-                buttons = [
-                    [Button.inline(toggle_label, "auto_reply:toggle_time")],
-                    [Button.inline("🔙 Back", "auto_reply:main")],
-                ]
-                await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-
-            elif action == "toggle_time":
-                settings = await mongodb.db.auto_reply_settings.find_one({"user_id": user_id}) or {}
-                new_val = not settings.get("time_based_replies_enabled", False)
-                await mongodb.db.auto_reply_settings.update_one(
-                    {"user_id": user_id},
-                    {"$set": {"time_based_replies_enabled": new_val}},
-                    upsert=True
-                )
-                await event.answer(f"{'🟢 Time-based replies enabled' if new_val else '🔴 Time-based replies disabled'}")
-                await self.handle_auto_reply_callback(event, user_id, "auto_reply:time_settings")
-
-            elif action == "analytics":
-                # Reuse the messaging stats view
-                await self.menu._show_messaging_statistics(user_id, event.message_id)
-
+            elif action == "dm":
+                await self.handle_dm_reply_callback(event, user_id, "dm_reply:main")
             elif action == "reset":
                 text = (
                     "⚠️ **Reset Auto-Reply Settings**\n\n"
@@ -830,21 +700,11 @@ class CallbackRouter:
                     [Button.inline("❌ Cancel", "auto_reply:main")],
                 ]
                 await self.menu.bot.edit_message(user_id, event.message_id, text, buttons=buttons)
-
-            elif action == "confirm_reset":
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id},
-                    {"$set": {"auto_reply_enabled": False}}
-                )
-                await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
-                await event.answer("✅ Auto-reply settings reset!")
-                await self.handle_auto_reply_callback(event, user_id, "auto_reply:main")
-
             else:
-                await event.answer("✅ Processing...")
+                await event.answer("❌ Unknown messaging action")
         except Exception as e:
-            logger.error(f"Auto-reply callback error: {e}")
-            await event.answer("❌ Error processing auto-reply")
+            logger.error(f"Messaging callback error: {e}")
+            await event.answer("❌ Error processing messaging request")
 
     async def handle_dm_reply_callback(self, event, user_id: int, data: str):
         """Handle DM reply callbacks"""

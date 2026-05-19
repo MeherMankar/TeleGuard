@@ -123,6 +123,7 @@ class BotManager:
         self.dm_reply_commands = None
         self.dm_reply_handler = None
         self.session_monitor = None
+        self.fullclient_manager = None
 
         # SessionMaster functionality is integrated into existing components
         self._is_running = False
@@ -719,6 +720,11 @@ class BotManager:
 
     async def _initialize_core_components(self) -> None:
         logger.debug("Initializing core components...")
+        
+        # Initialize fullclient_manager first since other components depend on it
+        from ..core.client_manager import init_client_manager
+        self.fullclient_manager = init_client_manager(self.bot, self.user_clients)
+
         from ..core.messaging import MessagingManager
         from ..core.protection_manager import ProtectionManager
         from ..handlers.auth_handler import AuthManager

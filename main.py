@@ -68,7 +68,7 @@ def _safe_streamhandler_emit(self, record):
 logging.StreamHandler.emit = _safe_streamhandler_emit
 
 try:
-    from teleguard import AccountManager
+    from teleguard import AccountManager, __version__
     from teleguard.core.client_manager import get_client_manager
     from teleguard.core.task_queue import task_queue
     from teleguard.core.database_manager import init_database_manager, db_manager
@@ -329,9 +329,10 @@ async def start_web_server():
 def print_startup_banner() -> None:
     """Print professional startup banner."""
     try:
-        banner = """
+        # Dynamically center version in the banner slot (12 characters wide)
+        banner = f"""
 ╔══════════════════════════════════════════════════════════════╗
-║                      TeleGuard v1.0.0                        ║
+║                      TeleGuard v{__version__:<12}                ║
 ║              Professional Telegram Account Manager           ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  OTP Destroyer Protection      Multi-Account Support         ║
@@ -348,7 +349,7 @@ def print_startup_banner() -> None:
     except UnicodeEncodeError:
         # Fallback for systems with encoding issues
         print("=" * 60)
-        print("           TeleGuard v1.0.0")
+        print(f"           TeleGuard v{__version__}")
         print("    Professional Telegram Account Manager")
         print("=" * 60)
         print("Features:")

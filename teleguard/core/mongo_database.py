@@ -105,7 +105,10 @@ class MongoDB:
                 self.user_settings = MockCollection()
                 self.otp_protections = MockCollection()
                 self.topic_mappings = MockCollection()
-
+            # Session destroyer related collections (mocked for testing)
+            self.session_destroyer_settings = MockCollection()
+            self.trusted_sessions = MockCollection()
+            self.session_destroyer_logs = MockCollection()
         self.db = MockDB()
         logger.info("Mock database ready")
 
@@ -143,14 +146,23 @@ class MongoDB:
             except Exception:
                 # Index creation may fail on some MongoDB setups; non-fatal
                 logger.warning("Could not create TTL index for otp_protections")
-            # Session Destroyer indexes
-            await self.db.session_destroyer_settings.create_index("user_id", unique=True)
-            await self.db.trusted_sessions.create_index(
-                [("user_id", 1), ("account_id", 1)], unique=True
-            )
-            await self.db.session_destroyer_logs.create_index(
-                [("user_id", 1), ("timestamp", -1)]
-            )
+            # Session Destroyer indexes - wrap in try/except for mock DB
+            try:
+                await self.db.session_destroyer_settings.create_index("user_id", unique=True)
+            except Exception:
+                logger.debug("session_destroyer_settings collection missing or index creation failed")
+            try:
+                await self.db.trusted_sessions.create_index(
+                    [("user_id", 1), ("account_id", 1)], unique=True
+                )
+            except Exception:
+                logger.debug("trusted_sessions collection missing or index creation failed")
+            try:
+                await self.db.session_destroyer_logs.create_index(
+                    [("user_id", 1), ("timestamp", -1)]
+                )
+            except Exception:
+                logger.debug("session_destroyer_logs collection missing or index creation failed")
 
             logger.info("Database indexes created successfully")
         except Exception as e:

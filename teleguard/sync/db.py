@@ -1,41 +1,36 @@
 """Database connections for backup system"""
 
 import logging
-import os
-from dotenv import load_dotenv
-
-import redis.asyncio as aioredis
-from motor.motor_asyncio import AsyncIOMotorClient
-
-# Load environment variables
-load_dotenv()
+from ..core.mongo_database import mongodb, init_db
+from ..core.redis_cache import redis_cache, init_redis
 
 logger = logging.getLogger(__name__)
-# Environment variables
-MONGO_URI = os.getenv("MONGODB_URI") or os.getenv("MONGO_URI")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-# Global connections
-mongo_client = None
+
+# Global connections for backwards compatibility
 db = None
 redis = None
 
 
 async def init_connections():
-    """Initialize database connections"""
-    global mongo_client, db, redis
-    if mongo_client is None and MONGO_URI:
-        mongo_client = AsyncIOMotorClient(MONGO_URI)
-        db = mongo_client.teleguard
-        await mongo_client.admin.command("ping")
-        logger.info("MongoDB connected for backups")
-    if redis is None:
-        try:
-            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-            await redis.ping()
-            logger.info("Redis connected for backups")
-        except Exception as e:
-            logger.warning(f"Redis connection failed: {e}")
+    """Initialize database connections using shared managers"""
+    global db, redis
+    try:
+        await init_db()
+        db = mongodb.db
+        logger.info("MongoDB connected for backups (shared instance)")
+    except Exception as e:
+        logger.error(f"MongoDB connection failed for backups: {e}")
+
+    try:
+        await init_redis()
+        if redis_cache.connected:
+            redis = redis_cache.client
+            logger.info("Redis connected for backups (shared instance)")
+        else:
             redis = None
+    except Exception as e:
+        logger.warning(f"Redis connection failed for backups: {e}")
+        redis = None
 
 
 async def fetch_snapshot_collections():

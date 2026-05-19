@@ -1,6 +1,6 @@
-"""TeleGuard - Telegram Account Manager with OTP Destroyer Protection"""
+from .core.constants import AppConstants
 
-__version__ = "2.0.0"
+__version__ = AppConstants.APP_VERSION
 __author__ = "Meher Mankar & Gutkesh"
 __email__ = "support@teleguard.dev"
 
