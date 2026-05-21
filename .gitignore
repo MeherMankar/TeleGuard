@@ -135,6 +135,10 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Frontend exceptions (override Python lib/ rule)
+!frontend/
+!frontend/**
+
 # TeleGuard specific
 *.session
 *.session-journal
@@ -165,3 +169,5 @@ snapshots/
 # OS
 .DS_Store
 Thumbs.db
+
+.amazonq

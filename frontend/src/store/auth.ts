@@ -16,7 +16,10 @@ interface AuthState {
 type Listener = (state: AuthState) => void
 const listeners = new Set<Listener>()
 
+const isBrowser = typeof window !== "undefined"
+
 function loadUser(): AuthUser | null {
+  if (!isBrowser) return null
   try {
     const raw = localStorage.getItem("tg_user")
     return raw ? (JSON.parse(raw) as AuthUser) : null
@@ -28,7 +31,7 @@ function loadUser(): AuthUser | null {
 const state: AuthState = {
   user: loadUser(),
   authenticated: isAuthenticated(),
-  activeAccountName: localStorage.getItem("tg_active_account"),
+  activeAccountName: isBrowser ? localStorage.getItem("tg_active_account") : null,
 }
 
 function notify() {
@@ -44,8 +47,10 @@ export const authStore = {
   },
 
   login(token: string, user: AuthUser) {
-    setToken(token)
-    localStorage.setItem("tg_user", JSON.stringify(user))
+    if (isBrowser) {
+      setToken(token)
+      localStorage.setItem("tg_user", JSON.stringify(user))
+    }
     state.user = user
     state.authenticated = true
     socket.connect(token)
@@ -53,9 +58,11 @@ export const authStore = {
   },
 
   logout() {
-    clearToken()
-    localStorage.removeItem("tg_user")
-    localStorage.removeItem("tg_active_account")
+    if (isBrowser) {
+      clearToken()
+      localStorage.removeItem("tg_user")
+      localStorage.removeItem("tg_active_account")
+    }
     state.user = null
     state.authenticated = false
     state.activeAccountName = null
@@ -65,16 +72,19 @@ export const authStore = {
 
   setActiveAccount(name: string | null) {
     state.activeAccountName = name
-    if (name) {
-      localStorage.setItem("tg_active_account", name)
-    } else {
-      localStorage.removeItem("tg_active_account")
+    if (isBrowser) {
+      if (name) {
+        localStorage.setItem("tg_active_account", name)
+      } else {
+        localStorage.removeItem("tg_active_account")
+      }
     }
     notify()
   },
 
   // Reconnect socket on page load if already authenticated
   init() {
+    if (!isBrowser) return
     const token = localStorage.getItem("tg_token")
     if (token && state.authenticated) {
       socket.connect(token)
