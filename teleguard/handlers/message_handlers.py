@@ -316,6 +316,18 @@ class MessageHandlers:
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
 
+            # Notify webapp via WebSocket so it refreshes account list in real-time
+            try:
+                from backend.notifier import notify
+                await notify(user_id, {
+                    "type": "account_added",
+                    "phone": phone,
+                    "name": phone,
+                    "source": "bot",
+                })
+            except Exception as ws_err:
+                logger.debug(f"WebSocket notify skipped: {ws_err}")
+
             # Log to logs bot
             try:
                 from ..utils.logger import BotLogger
@@ -403,6 +415,18 @@ class MessageHandlers:
 
             # Fetch and store real account name
             await self._fetch_and_store_account_name(user_id, phone)
+
+            # Notify webapp via WebSocket so it refreshes account list in real-time
+            try:
+                from backend.notifier import notify
+                await notify(user_id, {
+                    "type": "account_added",
+                    "phone": phone,
+                    "name": phone,
+                    "source": "bot",
+                })
+            except Exception as ws_err:
+                logger.debug(f"WebSocket notify skipped: {ws_err}")
 
             # Log to logs bot
             try:

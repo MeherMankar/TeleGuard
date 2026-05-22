@@ -39,6 +39,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ["accounts"] })
   })
 
+  // When an account is removed via WebSocket, refresh the list
+  useWsEvent("account_removed", () => {
+    queryClient.invalidateQueries({ queryKey: ["accounts"] })
+  })
+
   const activeAccount =
     accounts.find((a) => a.name === activeAccountName) ?? accounts[0] ?? null
 

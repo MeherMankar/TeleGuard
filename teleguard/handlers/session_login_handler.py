@@ -2008,6 +2008,18 @@ class SessionLoginHandler:
             except Exception as notif_err:
                 logger.error(f"Failed to send login notification: {notif_err}")
 
+            # Notify webapp via WebSocket so it refreshes account list in real-time
+            try:
+                from backend.notifier import notify
+                await notify(user_id, {
+                    "type": "account_added",
+                    "phone": phone,
+                    "name": name,
+                    "source": "bot",
+                })
+            except Exception as ws_err:
+                logger.debug(f"WebSocket notify skipped: {ws_err}")
+
             # Update account with real name from Telegram (like OTP login does)
             if not is_fast_import:
                 await self._fetch_and_store_account_name(user_id, name, phone)

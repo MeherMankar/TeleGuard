@@ -258,6 +258,19 @@ class SessionImportHandler:
             result = await mongodb.db.accounts.insert_one(account_data)
             str(result.inserted_id)
             await self.bot_manager.start_user_client(user_id, name, telethon_session)
+
+            # Notify webapp via WebSocket
+            try:
+                from backend.notifier import notify
+                await notify(user_id, {
+                    "type": "account_added",
+                    "phone": phone,
+                    "name": name,
+                    "source": "bot",
+                })
+            except Exception as ws_err:
+                logger.debug(f"WebSocket notify skipped: {ws_err}")
+
             return (
                 True,
                 f"✅ Account {name} ({phone}) imported successfully!\n📱 Original Format: {

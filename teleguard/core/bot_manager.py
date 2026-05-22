@@ -1200,6 +1200,19 @@ class BotManager:
             except Exception as coowner_error:
                 logger.error(f"Failed to share account with co-owners: {coowner_error}")
 
+            # Push real-time event to webapp
+            try:
+                from backend.notifier import notify
+                phone = await self._get_phone_for_account(user_id, account_name)
+                await notify(user_id, {
+                    "type": "account_added",
+                    "name": account_name,
+                    "phone": phone,
+                    "source": "bot",
+                })
+            except Exception:
+                pass
+
             return True
         except Exception as e:
             logger.error(f"Failed to add user account: {e}")

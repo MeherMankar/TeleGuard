@@ -8,9 +8,11 @@ const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080"
 export type WsEventType =
   | "session_revoked"
   | "account_added"
+  | "account_removed"
   | "new_message"
   | "security_alert"
   | "automation_log"
+  | "otp_event"
 
 export interface WsEvent {
   type: WsEventType

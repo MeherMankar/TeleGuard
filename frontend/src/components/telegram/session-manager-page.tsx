@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { sessionsApi, type Session } from "@/lib/api"
 import { toast } from "sonner"
+import { useWsEvent } from "@/hooks/use-ws-event"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,11 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     queryFn: sessionsApi.list,
     enabled: isOpen,
     refetchInterval: isOpen ? 30_000 : false,
+  })
+
+  // Auto-refresh when bot destroys a session
+  useWsEvent("session_revoked", () => {
+    queryClient.invalidateQueries({ queryKey: ["sessions"] })
   })
 
   const revokeMutation = useMutation({

@@ -427,7 +427,17 @@ async def main() -> None:
                 koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
                 print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
                 logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
-                
+
+                # ── Start FastAPI dashboard server alongside the bot ──────────
+                try:
+                    from backend.main import start_api_server
+                    api_task = asyncio.create_task(start_api_server())
+                    logger.info("🌐 Dashboard API server started")
+                except Exception as api_err:
+                    logger.warning(f"⚠️ Dashboard API server failed to start: {api_err}")
+                    api_task = None
+                # ─────────────────────────────────────────────────────────────
+
                 logger.debug("Starting bot main loop")
                 await bot.run()
         except Exception as e:

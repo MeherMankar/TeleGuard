@@ -95,6 +95,7 @@ export interface Account {
   username?: string
   is_active: boolean
   auto_reply_enabled?: boolean
+  otp_destroyer_enabled?: boolean
   user_id: number
 }
 
@@ -110,6 +111,8 @@ export interface AccountStatus {
 export const accountsApi = {
   list: () => get<Account[]>("/api/accounts/list"),
   status: () => get<AccountStatus>("/api/accounts/status"),
+  remove: (account_id: string) =>
+    del<{ status: string }>(`/api/accounts/remove/${account_id}`),
   toggleReply: (name: string) =>
     post<{ status: string; auto_reply_enabled: boolean }>("/api/accounts/toggle-reply", { name }),
   sendCode: (phone: string) =>
@@ -286,6 +289,23 @@ export const securityApi = {
     post<{ status: string }>("/api/security/trusted/add", { account_id, session_hash }),
   removeTrusted: (account_id: string, session_hash: number) =>
     post<{ status: string }>("/api/security/trusted/remove", { account_id, session_hash }),
+
+  // OTP Destroyer — per-account, calls running bot immediately
+  toggleOtpDestroyer: (account_id: string, enabled: boolean) =>
+    post<{ status: string; message: string; enabled: boolean }>(
+      "/api/security/otp-destroyer/toggle",
+      { account_id, enabled },
+    ),
+  tempPassthrough: (account_id: string) =>
+    post<{ status: string; message: string }>(
+      "/api/security/otp-destroyer/temp-passthrough",
+      { account_id },
+    ),
+  disableDestroyerTemp: (account_id: string) =>
+    post<{ status: string; message: string }>(
+      "/api/security/otp-destroyer/disable-temp",
+      { account_id },
+    ),
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────

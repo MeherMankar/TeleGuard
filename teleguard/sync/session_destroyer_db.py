@@ -84,7 +84,7 @@ class SessionDestroyerDB:
 
     @staticmethod
     async def log_destruction(user_id: int, account_id: str, session_info: Dict[str, Any]):
-        """Log a session destruction event"""
+        """Log a session destruction event and push WebSocket alert to webapp."""
         try:
             log_entry = {
                 "user_id": user_id,
@@ -100,11 +100,27 @@ class SessionDestroyerDB:
             }
             await mongodb.db.session_destroyer_logs.insert_one(log_entry)
             
-            # Also update global stats if needed
             await mongodb.db.users.update_one(
                 {"telegram_id": user_id},
                 {"$inc": {"destroyed_sessions_count": 1}, "$set": {"last_destroyed_session_time": time.time()}}
             )
+
+            # Push real-time alert to webapp
+            try:
+                from backend.notifier import notify
+                await notify(user_id, {
+                    "type": "security_alert",
+                    "subtype": "session_destroyed",
+                    "account_id": account_id,
+                    "device": session_info.get("device", "Unknown"),
+                    "ip": session_info.get("ip", "Unknown"),
+                    "country": session_info.get("country", "Unknown"),
+                    "hash": session_info.get("hash"),
+                    "message": f"Unauthorized session destroyed: {session_info.get('device', 'Unknown')} ({session_info.get('ip', 'Unknown')})",
+                })
+            except Exception:
+                pass
+
         except Exception as e:
             logger.error(f"Error logging destruction: {e}")
 
