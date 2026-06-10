@@ -3,20 +3,19 @@ services:
   - name: teleguard-bot
     type: web
     git:
-      branch: main
-      build_command: pip install -r requirements.txt
-      run_command: python main.py
+      branch: test
+      dockerfile: Dockerfile
     instance_type: nano
     regions:
       - fra
     ports:
-      - port: 8000
+      - port: 8080
         protocol: http
     health_check:
       http:
         path: /health
-        port: 8000
-      grace_period_seconds: 60
+        port: 8080
+      grace_period_seconds: 90
       interval_seconds: 30
       restart_limit: 3
     env:
@@ -28,13 +27,15 @@ services:
         scope: project
       - key: ADMIN_IDS
         scope: project
-      - key: PORT
-        value: "8000"
-      - key: KOYEB_DEPLOYMENT
-        value: "true"
-      - key: DATABASE_URL
-        value: "sqlite+aiosqlite:///bot_data.db"
-      - key: BACKUP_RETENTION_COUNT
-        value: "1"
+      - key: MONGO_URI
+        scope: project
+      - key: REDIS_URL
+        scope: project
       - key: FERNET_KEY
         scope: project
+      - key: PORT
+        value: "8080"
+      - key: ENVIRONMENT
+        value: "production"
+      - key: KOYEB_DEPLOYMENT
+        value: "true"

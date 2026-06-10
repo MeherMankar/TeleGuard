@@ -1,26 +1,28 @@
 [app]
 name = "teleguard"
 
-[services.teleguard]
+[services.teleguard-bot]
 type = "web"
 instance_type = "nano"
 regions = ["fra"]
-env = [
-  "PORT=8000"
-]
 
-[services.teleguard.build]
-type = "buildpack"
-buildpack = "heroku/python"
+[services.teleguard-bot.build]
+type = "docker"
+dockerfile = "Dockerfile"
 
-[services.teleguard.health_check]
-http = { path = "/health" }
+[services.teleguard-bot.ports]
+[[services.teleguard-bot.ports]]
+port = 8080
+protocol = "http"
+public = true
 
-[services.teleguard.scaling]
-min = 1
-max = 1
+[services.teleguard-bot.health_check]
+http = { path = "/health", port = 8080 }
+grace_period_seconds = 90
+interval_seconds = 30
+restart_limit = 3
 
-[services.teleguard.ports]
-- port = 8000
-  protocol = "http"
-  public = true
+[services.teleguard-bot.env]
+PORT = "8080"
+ENVIRONMENT = "production"
+KOYEB_DEPLOYMENT = "true"
