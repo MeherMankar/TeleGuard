@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { SearchHeader } from "@/components/telegram/search-header"
@@ -42,6 +42,36 @@ function IndexPage() {
 
 function AppShell() {
   const { authenticated } = useAuth()
+  const [autoLogging, setAutoLogging] = useState(true)
+
+  // On mount: if running inside Telegram WebApp, auto-login with initData
+  useEffect(() => {
+    if (authenticated) { setAutoLogging(false); return }
+
+    const tg = (window as any).Telegram?.WebApp
+    if (tg?.initData) {
+      // Running inside Telegram — auto-login silently
+      authApi.login(tg.initData)
+        .then((res) => {
+          authStore.login(res.token, res.user)
+          tg.ready?.()
+          tg.expand?.()
+        })
+        .catch(console.error)
+        .finally(() => setAutoLogging(false))
+    } else {
+      setAutoLogging(false)
+    }
+  }, [authenticated])
+
+  if (autoLogging) {
+    return (
+      <div className="dark min-h-screen bg-[#17212b] flex items-center justify-center">
+        <Loader2 className="h-10 w-10 text-[#2AABEE] animate-spin" />
+      </div>
+    )
+  }
+
   return authenticated ? <TelegramChatList /> : <LoginGate />
 }
 
@@ -50,6 +80,7 @@ function AppShell() {
 function LoginGate() {
   const [loading, setLoading] = useState(false)
   const [showAuthFlow, setShowAuthFlow] = useState(false)
+  const isTelegramWebApp = !!(window as any).Telegram?.WebApp?.initData
 
   const handleDevLogin = async () => {
     setLoading(true)
@@ -66,23 +97,43 @@ function LoginGate() {
   return (
     <div className="dark">
       <div className="min-h-screen bg-[#17212b] text-white flex flex-col items-center justify-center px-6 max-w-md mx-auto">
+        {/* Logo */}
         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center mb-6 shadow-2xl">
           <svg viewBox="0 0 24 24" className="w-14 h-14 text-white fill-current">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z" />
           </svg>
         </div>
+
         <h1 className="text-3xl font-bold mb-2">TeleGuard</h1>
-        <p className="text-gray-400 text-center mb-10 text-sm leading-relaxed">
+        <p className="text-gray-400 text-center mb-8 text-sm leading-relaxed">
           Telegram Security Dashboard
           <br />
           Multi-account control center
         </p>
+
+        {/* If opened in browser, explain how to use properly */}
+        {!isTelegramWebApp && (
+          <div className="w-full bg-[#242f3d] border border-[#2AABEE]/30 rounded-xl p-4 mb-6 text-center">
+            <p className="text-[#2AABEE] text-sm font-medium mb-1">Open inside Telegram</p>
+            <p className="text-gray-400 text-xs leading-relaxed">
+              For automatic login, open TeleGuard via{" "}
+              <span className="text-white font-medium">@TeleGuardRobot</span>
+              {" "}→ Menu → Dashboard.
+              <br />
+              Your bot accounts will load instantly.
+            </p>
+          </div>
+        )}
+
+        {/* Manual Telegram login — adds this browser session as a new account */}
         <button
           onClick={() => setShowAuthFlow(true)}
           className="w-full py-4 bg-[#2AABEE] text-white rounded-xl font-semibold text-base mb-3 hover:bg-[#2AABEE]/90 transition-colors"
         >
           Login with Telegram
         </button>
+
+        {/* Dev login — only in development mode */}
         {import.meta.env.DEV && (
           <button
             onClick={handleDevLogin}
@@ -93,6 +144,7 @@ function LoginGate() {
             Dev Login (local only)
           </button>
         )}
+
         <AuthFlow
           isOpen={showAuthFlow}
           onClose={() => setShowAuthFlow(false)}
