@@ -54,11 +54,8 @@ class SpamFiltersHandler:
 
             text = (
                 "🎯 **Smart Filters & Delays**\n\n"
-                f"Smart Delays: {
-                    '✅ Enabled' if config.get('smart_delays') else '❌ Disabled'}\n"
-                f"Delay Range: {config.get('min_delay',
-                                           40)}-{config.get('max_delay',
-                                                            60)}s\n"
+                f"Smart Delays: {'✅ Enabled' if config.get('smart_delays') else '❌ Disabled'}\n"
+                f"Delay Range: {config.get('min_delay', 40)}-{config.get('max_delay', 60)}s\n"
                 f"Active Filters: {len(config.get('filters', []))}\n"
             )
 
