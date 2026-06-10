@@ -1,20 +1,17 @@
 {
-  "functions": {
-    "backend/main.py": {
-      "runtime": "python3.11",
-      "memory": 1024,
-      "maxDuration": 10
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "echo 'skip root install'",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
     }
-  },
-  "env": {
-    "API_ID": "YOUR_API_ID",
-    "API_HASH": "YOUR_API_HASH",
-    "BOT_TOKEN": "YOUR_BOT_TOKEN",
-    "FERNET_KEY": "YOUR_FERNET_KEY"
-  },
-  "build": {
-    "env": {
-      "PYTHON_VERSION": "3.11"
-    }
-  }
+  ]
 }
