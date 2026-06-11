@@ -1,13 +1,12 @@
 """
 Accounts API — full bot↔webapp sync.
 
-Account storage contract:
-- Bot stores accounts with encrypted fields (name_enc, phone_enc, session_string_enc, etc.)
-  via DataEncryption.encrypt_account_data()
-- Webapp reads them via DataEncryption.decrypt_account_data()
-- Webapp adds accounts via send-code/verify-code/verify-password/qr-login
-- After webapp adds an account it calls bot_manager.start_user_client() so the bot
-  immediately picks it up — no restart needed.
+Account storage contract (IMPORTANT):
+- Accounts stored in MongoDB use PLAIN fields: phone, name, session_string, is_active
+  This is the same format the bot uses (mongodb.create_account) and what
+  bot_manager._load_existing_sessions() reads on restart.
+- DataEncryption is only used to READ accounts that were added by the bot via
+  its own encrypted format (legacy accounts). New accounts from webapp are plain.
 - user_id in JWT == telegram_id of the dashboard owner == user_id stored on accounts
 """
 
@@ -43,92 +42,111 @@ def _get_bot_manager():
 
 async def _save_and_start_account(user_id: int, phone: str, session_string: str, telegram_user, session_id: str = None) -> dict:
     """
-    Save account to MongoDB (encrypted) and register the already-connected
-    client with bot_manager — no second login, no double notification.
+    Save account using EXACTLY the same format as the bot's /add command
+    (mongodb.create_account with plain fields, no encryption), then register
+    the client with bot_manager so it survives restarts.
     """
-    # Extract real name from Telegram user object
+    # Build display name the same way the bot does
     first_name = getattr(telegram_user, "first_name", "") or ""
     last_name = getattr(telegram_user, "last_name", "") or ""
-    full_name = f"{first_name} {last_name}".strip()
-    if not full_name:
-        full_name = getattr(telegram_user, "username", None) or phone
+    display_name = f"{first_name} {last_name}".strip()
+    if not display_name:
+        display_name = getattr(telegram_user, "username", None) or phone
     username = getattr(telegram_user, "username", None)
     tg_id = getattr(telegram_user, "id", None)
 
+    # Save using plain fields — same as mongodb.create_account()
+    # This is what bot_manager._load_existing_sessions() reads on restart
     account_data = {
         "user_id": user_id,
         "phone": phone,
-        "name": full_name,
+        "name": display_name,
+        "display_name": display_name,
+        "first_name": first_name,
+        "last_name": last_name,
         "username": username,
-        "session_string": session_string,
+        "session_string": session_string,   # plain field — bot reads this directly
         "is_active": True,
         "otp_destroyer_enabled": False,
         "added_via": "webapp",
-        "created_at": int(time.time()),
+        "fast_import": False,
     }
     if tg_id:
         account_data["telegram_id"] = tg_id
 
-    # Encrypt and upsert
-    encrypted = DataEncryption.encrypt_account_data(account_data)
+    # Upsert — if account already added via bot, update session only
     await mongodb.db.accounts.update_one(
         {"user_id": user_id, "phone": phone},
-        {"$set": encrypted},
+        {"$set": account_data},
         upsert=True,
     )
+    logger.info(f"Saved webapp account: {display_name} ({phone}) for user {user_id}")
 
-    # Hand the already-connected client to bot_manager
-    # This avoids creating a second Telethon session (which triggers a 2nd login notification)
+    # Register with bot_manager using add_user_account() — this sets up
+    # OTP handler, auto-reply handler, DM handler, activity simulator, etc.
+    # It also means the account will be loaded on next restart.
     bot_manager = _get_bot_manager()
     if bot_manager:
-        # Try to reuse the existing connected client from telegram_auth_manager
+        # Try to reuse existing auth client to avoid a second login notification
         existing_client = None
         if session_id:
             existing_client = telegram_auth_manager.get_connected_client(session_id)
 
         if existing_client and existing_client.is_connected():
-            # Register directly — no new connection needed
             try:
+                # Register the already-connected client directly
                 if user_id not in bot_manager.user_clients:
                     bot_manager.user_clients[user_id] = {}
-                bot_manager.user_clients[user_id][full_name] = existing_client
-                logger.info(f"Registered existing client for {full_name} — no new session created")
+                bot_manager.user_clients[user_id][display_name] = existing_client
 
-                # Set up protection/auto-reply handlers for the new client
+                # Set up all handlers the same way add_user_account() does
                 if hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:
                     try:
-                        bot_manager.protection_manager.register_handler_for_client(user_id, full_name, existing_client)
+                        bot_manager.protection_manager.register_handler_for_client(
+                            user_id, display_name, existing_client
+                        )
                     except Exception as e:
-                        logger.warning(f"Could not register protection handler: {e}")
+                        logger.warning(f"Protection handler setup: {e}")
 
                 if hasattr(bot_manager, "auto_reply_handler") and bot_manager.auto_reply_handler:
                     try:
-                        await bot_manager.auto_reply_handler.setup_new_client_handler(user_id, full_name, existing_client)
+                        await bot_manager.auto_reply_handler.setup_new_client_handler(
+                            user_id, display_name, existing_client
+                        )
                     except Exception as e:
-                        logger.warning(f"Could not setup auto-reply handler: {e}")
+                        logger.warning(f"Auto-reply handler setup: {e}")
 
+                if hasattr(bot_manager, "dm_reply_handler") and bot_manager.dm_reply_handler:
+                    try:
+                        await bot_manager.dm_reply_handler.setup_new_client_handler(
+                            user_id, display_name, existing_client
+                        )
+                    except Exception as e:
+                        logger.warning(f"DM reply handler setup: {e}")
+
+                logger.info(f"Registered existing client for {display_name} — no new session")
             except Exception as e:
-                logger.warning(f"Could not register existing client: {e}")
-                # Fall back to start_user_client
+                logger.warning(f"Direct client registration failed, falling back: {e}")
                 try:
-                    await bot_manager.start_user_client(user_id, full_name, session_string)
+                    await bot_manager.add_user_account(user_id, display_name, session_string)
                 except Exception as e2:
-                    logger.warning(f"start_user_client also failed: {e2}")
+                    logger.warning(f"add_user_account also failed: {e2}")
         else:
-            # No existing client — start fresh (only happens for QR or edge cases)
+            # No existing client (QR edge case, or client was disconnected)
+            # Use add_user_account which sets up all handlers properly
             try:
-                await bot_manager.start_user_client(user_id, full_name, session_string)
-                logger.info(f"Started new client for {full_name}")
+                await bot_manager.add_user_account(user_id, display_name, session_string)
+                logger.info(f"Started new client for {display_name} via add_user_account")
             except Exception as e:
-                logger.warning(f"Could not start client immediately: {e}")
+                logger.warning(f"Could not start client immediately (will load on restart): {e}")
 
-    # Notify webapp
+    # Push real-time event to webapp
     await ws_manager.send_personal_message(
-        {"type": "account_added", "phone": phone, "name": full_name},
+        {"type": "account_added", "phone": phone, "name": display_name},
         user_id,
     )
 
-    return {"status": "success", "message": "Account added successfully", "name": full_name}
+    return {"status": "success", "message": "Account added successfully", "name": display_name}
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
