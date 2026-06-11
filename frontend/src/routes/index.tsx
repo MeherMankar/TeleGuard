@@ -23,7 +23,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
 import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { Loader2, MessageSquare, FolderOpen } from "lucide-react"
+import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 
@@ -302,12 +302,24 @@ function TelegramChatList() {
                 ? totalUnread
                 : dialogs.filter((d) =>
                     d.unread_count > 0 && (
-                      folder.groups && d.is_group ||
-                      folder.broadcasts && d.is_channel ||
-                      folder.contacts && d.is_user ||
+                      (folder.groups && d.is_group) ||
+                      (folder.broadcasts && d.is_channel) ||
+                      (folder.contacts && d.is_user) ||
                       folder.included_peers.includes(Math.abs(d.id))
                     )
                   ).reduce((s, d) => s + d.unread_count, 0)
+
+              // Pick icon based on folder type or stored icon id
+              const FolderTabIcon = folder.is_default
+                ? MessageSquare
+                : folder.emoji === "users" || folder.groups ? Users
+                : folder.emoji === "radio" || folder.broadcasts ? Radio
+                : folder.emoji === "bot" || folder.bots ? Bot
+                : folder.emoji === "user" || folder.contacts ? User
+                : folder.emoji === "bell" ? Bell
+                : Folder
+
+              const isActive = activeFolder === folder.id
 
               return (
                 <button
@@ -315,17 +327,17 @@ function TelegramChatList() {
                   onClick={() => setActiveFolder(folder.id)}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0",
-                    activeFolder === folder.id
+                    isActive
                       ? "bg-[#2AABEE] text-white"
                       : "bg-[#242f3d] text-gray-400 hover:text-white",
                   )}
                 >
-                  {folder.emoji && <span>{folder.emoji}</span>}
+                  <FolderTabIcon className="h-3.5 w-3.5 flex-shrink-0" />
                   <span>{folder.title}</span>
                   {unread > 0 && (
                     <span className={cn(
                       "text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                      activeFolder === folder.id ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
+                      isActive ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
                     )}>
                       {unread > 99 ? "99+" : unread}
                     </span>
@@ -333,10 +345,11 @@ function TelegramChatList() {
                 </button>
               )
             })}
-            {/* Edit folders button */}
+            {/* Edit folders */}
             <button
               onClick={() => setIsChatFoldersOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-gray-500 hover:text-[#2AABEE] bg-[#242f3d] transition-colors flex-shrink-0"
+              className="p-2 rounded-full text-gray-500 hover:text-[#2AABEE] bg-[#242f3d] transition-colors flex-shrink-0"
+              title="Manage folders"
             >
               <FolderOpen className="h-4 w-4" />
             </button>

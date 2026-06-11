@@ -1,7 +1,10 @@
 import { useState } from "react"
 import {
-  ArrowLeft, Plus, Trash2, Pencil, Loader2, Folder, Users,
-  Radio, Bot, Check, X, User, UserX, VolumeX, MailOpen, Archive,
+  ArrowLeft, Plus, Trash2, Pencil, Loader2,
+  Folder, Users, Radio, Bot, Check, User, UserX,
+  VolumeX, MailOpen, Archive, MessageSquare, Star,
+  Briefcase, Home, Gamepad2, BookOpen, Music, Bell,
+  Crown, Zap, FolderPlus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -9,15 +12,34 @@ import { chatsApi, type ChatFolder } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
 import { toast } from "sonner"
 
-// Telegram folder emojis
-const FOLDER_EMOJIS = ["📁", "⭐", "👥", "📢", "🤖", "❤️", "💼", "🏠", "🎮", "📚", "🎵", "💬", "🔔", "🌍"]
+// Icon options for folder customization — no emojis
+const FOLDER_ICONS = [
+  { id: "folder",    Icon: Folder,       label: "Folder",    color: "text-sky-400"     },
+  { id: "star",      Icon: Star,         label: "Starred",   color: "text-amber-400"   },
+  { id: "users",     Icon: Users,        label: "Groups",    color: "text-green-400"   },
+  { id: "radio",     Icon: Radio,        label: "Channels",  color: "text-blue-400"    },
+  { id: "bot",       Icon: Bot,          label: "Bots",      color: "text-red-400"     },
+  { id: "chat",      Icon: MessageSquare,label: "Chats",     color: "text-purple-400"  },
+  { id: "bell",      Icon: Bell,         label: "Unread",    color: "text-orange-400"  },
+  { id: "crown",     Icon: Crown,        label: "Admin",     color: "text-yellow-400"  },
+  { id: "briefcase", Icon: Briefcase,    label: "Work",      color: "text-slate-400"   },
+  { id: "home",      Icon: Home,         label: "Personal",  color: "text-cyan-400"    },
+  { id: "music",     Icon: Music,        label: "Music",     color: "text-pink-400"    },
+  { id: "book",      Icon: BookOpen,     label: "Reading",   color: "text-lime-400"    },
+  { id: "game",      Icon: Gamepad2,     label: "Gaming",    color: "text-indigo-400"  },
+  { id: "user",      Icon: User,         label: "Contacts",  color: "text-teal-400"    },
+]
+
+function getFolderIconDef(iconId: string | null | undefined) {
+  return FOLDER_ICONS.find((i) => i.id === iconId) ?? FOLDER_ICONS[0]
+}
 
 interface ChatFoldersPageProps {
   isOpen: boolean
   onClose: () => void
 }
 
-const DEFAULT_FOLDER: Partial<ChatFolder> = {
+const DEFAULT_FOLDER: Partial<ChatFolder> & { iconId?: string } = {
   title: "",
   emoji: null,
   contacts: false,
@@ -33,8 +55,8 @@ const DEFAULT_FOLDER: Partial<ChatFolder> = {
 export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
   const { activeAccount } = useUser()
   const qc = useQueryClient()
-  const [editingFolder, setEditingFolder] = useState<Partial<ChatFolder> | null>(null)
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [editingFolder, setEditingFolder] = useState<(Partial<ChatFolder> & { iconId?: string }) | null>(null)
+  const [showIconPicker, setShowIconPicker] = useState(false)
 
   const { data: folders = [], isLoading } = useQuery({
     queryKey: ["folders", activeAccount?.name],
@@ -57,7 +79,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
   const presetMutation = useMutation({
     mutationFn: () => chatsApi.createPresetFolders(activeAccount!.name),
     onSuccess: (res) => {
-      toast.success(`Created: ${res.created.join(", ")}`)
+      toast.success(`Created ${res.created.length} folders`)
       qc.invalidateQueries({ queryKey: ["folders", activeAccount?.name] })
     },
     onError: (e) => toast.error((e as Error).message),
@@ -78,14 +100,22 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
       toast.error("Folder name is required")
       return
     }
-    createMutation.mutate(editingFolder)
+    // Store icon selection as the emoji field so Telegram shows it
+    createMutation.mutate({
+      ...editingFolder,
+      emoji: editingFolder.iconId ?? null,
+    })
   }
 
   const toggleFlag = (key: keyof ChatFolder) => {
-    setEditingFolder((prev) => prev ? { ...prev, [key]: !prev[key] } : prev)
+    setEditingFolder((prev) => prev ? { ...prev, [key]: !prev[key as keyof typeof prev] } : prev)
   }
 
-  // If editing — show editor view
+  const selectedIconDef = getFolderIconDef(editingFolder?.iconId)
+  const SelectedIcon = selectedIconDef.Icon
+
+  // ── Editor view ──────────────────────────────────────────────────────────
+
   if (editingFolder !== null) {
     return (
       <div style={{ zIndex: 80 }} className={cn(
@@ -104,41 +134,52 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
             disabled={createMutation.isPending}
             className="px-4 py-1.5 bg-[#2AABEE] text-white rounded-lg text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
           >
-            {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {createMutation.isPending
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Check className="h-4 w-4" />}
             Save
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Folder name */}
+          {/* Folder name + icon */}
           <div className="bg-[#242f3d] rounded-xl p-4">
             <p className="text-sky-400 text-xs font-medium uppercase tracking-wider mb-3">Folder Name</p>
             <div className="flex items-center gap-3">
-              {/* Emoji button */}
+              {/* Icon selector */}
               <div className="relative">
                 <button
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="w-12 h-12 rounded-xl bg-[#17212b] flex items-center justify-center text-2xl border border-white/10 hover:border-[#2AABEE] transition-colors"
+                  onClick={() => setShowIconPicker(!showIconPicker)}
+                  className={cn(
+                    "w-12 h-12 rounded-xl bg-[#17212b] flex items-center justify-center border transition-colors",
+                    showIconPicker ? "border-[#2AABEE]" : "border-white/10 hover:border-[#2AABEE]/50",
+                  )}
                 >
-                  {editingFolder.emoji || <Folder className="h-5 w-5 text-gray-400" />}
+                  <SelectedIcon className={cn("h-5 w-5", selectedIconDef.color)} />
                 </button>
-                {showEmojiPicker && (
-                  <div className="absolute top-14 left-0 bg-[#1c2b3a] border border-white/10 rounded-xl p-3 grid grid-cols-7 gap-2 z-10 shadow-xl">
-                    {FOLDER_EMOJIS.map((emoji) => (
+
+                {showIconPicker && (
+                  <div className="absolute top-14 left-0 bg-[#1c2b3a] border border-white/10 rounded-xl p-3 grid grid-cols-7 gap-2 z-10 shadow-xl w-64">
+                    {FOLDER_ICONS.map(({ id, Icon, label, color }) => (
                       <button
-                        key={emoji}
+                        key={id}
+                        title={label}
                         onClick={() => {
-                          setEditingFolder((p) => p ? { ...p, emoji } : p)
-                          setShowEmojiPicker(false)
+                          setEditingFolder((p) => p ? { ...p, iconId: id } : p)
+                          setShowIconPicker(false)
                         }}
-                        className="text-xl hover:bg-white/10 rounded p-1"
+                        className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors",
+                          editingFolder?.iconId === id && "bg-white/20",
+                        )}
                       >
-                        {emoji}
+                        <Icon className={cn("h-4 w-4", color)} />
                       </button>
                     ))}
                   </div>
                 )}
               </div>
+
               <input
                 value={editingFolder.title || ""}
                 onChange={(e) => setEditingFolder((p) => p ? { ...p, title: e.target.value } : p)}
@@ -154,22 +195,24 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
               <p className="text-sky-400 text-xs font-medium uppercase tracking-wider">Include Chat Types</p>
-              <p className="text-gray-500 text-xs mt-0.5">Chats of these types will appear in this folder</p>
+              <p className="text-gray-500 text-xs mt-0.5">These chat types appear in this folder</p>
             </div>
-            {[
-              { key: "contacts" as const, label: "Contacts", icon: User, color: "text-blue-400" },
-              { key: "non_contacts" as const, label: "Non-Contacts", icon: UserX, color: "text-purple-400" },
-              { key: "groups" as const, label: "Groups", icon: Users, color: "text-green-400" },
-              { key: "broadcasts" as const, label: "Channels", icon: Radio, color: "text-amber-400" },
-              { key: "bots" as const, label: "Bots", icon: Bot, color: "text-red-400" },
-            ].map(({ key, label, icon: Icon, color }, i, arr) => (
+            {([
+              { key: "contacts"     as const, label: "Contacts",     Icon: User,    color: "text-blue-400"   },
+              { key: "non_contacts" as const, label: "Non-Contacts", Icon: UserX,   color: "text-purple-400" },
+              { key: "groups"       as const, label: "Groups",       Icon: Users,   color: "text-green-400"  },
+              { key: "broadcasts"   as const, label: "Channels",     Icon: Radio,   color: "text-amber-400"  },
+              { key: "bots"         as const, label: "Bots",         Icon: Bot,     color: "text-red-400"    },
+            ]).map(({ key, label, Icon: ItemIcon, color }, i, arr) => (
               <button
                 key={key}
                 onClick={() => toggleFlag(key)}
-                className={cn("w-full flex items-center gap-4 px-4 py-3.5 hover:bg-white/5 transition-colors",
-                  i < arr.length - 1 && "border-b border-white/5")}
+                className={cn(
+                  "w-full flex items-center gap-4 px-4 py-3.5 hover:bg-white/5 transition-colors",
+                  i < arr.length - 1 && "border-b border-white/5",
+                )}
               >
-                <Icon className={cn("h-5 w-5 flex-shrink-0", color)} />
+                <ItemIcon className={cn("h-5 w-5 flex-shrink-0", color)} />
                 <span className="flex-1 text-white text-[15px] text-left">{label}</span>
                 {editingFolder[key] && <Check className="h-5 w-5 text-[#2AABEE]" />}
               </button>
@@ -181,18 +224,20 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
             <div className="px-4 py-3 border-b border-white/10">
               <p className="text-sky-400 text-xs font-medium uppercase tracking-wider">Exclude Options</p>
             </div>
-            {[
-              { key: "exclude_muted" as const, label: "Exclude Muted", icon: VolumeX },
-              { key: "exclude_read" as const, label: "Exclude Read", icon: MailOpen },
-              { key: "exclude_archived" as const, label: "Exclude Archived", icon: Archive },
-            ].map(({ key, label, icon: Icon }, i, arr) => (
+            {([
+              { key: "exclude_muted"    as const, label: "Exclude Muted",    Icon: VolumeX  },
+              { key: "exclude_read"     as const, label: "Exclude Read",     Icon: MailOpen },
+              { key: "exclude_archived" as const, label: "Exclude Archived", Icon: Archive  },
+            ]).map(({ key, label, Icon: ItemIcon }, i, arr) => (
               <button
                 key={key}
                 onClick={() => toggleFlag(key)}
-                className={cn("w-full flex items-center gap-4 px-4 py-3.5 hover:bg-white/5 transition-colors",
-                  i < arr.length - 1 && "border-b border-white/5")}
+                className={cn(
+                  "w-full flex items-center gap-4 px-4 py-3.5 hover:bg-white/5 transition-colors",
+                  i < arr.length - 1 && "border-b border-white/5",
+                )}
               >
-                <Icon className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                <ItemIcon className="h-5 w-5 text-gray-400 flex-shrink-0" />
                 <span className="flex-1 text-white text-[15px] text-left">{label}</span>
                 {editingFolder[key] && <Check className="h-5 w-5 text-[#2AABEE]" />}
               </button>
@@ -203,7 +248,8 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
     )
   }
 
-  // Folder list view
+  // ── Folder list view ─────────────────────────────────────────────────────
+
   return (
     <div style={{ zIndex: 75 }} className={cn(
       "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
@@ -222,61 +268,74 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
         )}
 
         {isLoading && (
-          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 text-[#2AABEE] animate-spin" /></div>
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 text-[#2AABEE] animate-spin" />
+          </div>
         )}
 
+        {/* Existing folders */}
         {!isLoading && folders.length > 0 && (
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
               <span className="text-sky-400 text-sm font-medium">Your Folders ({folders.length})</span>
             </div>
             <ul role="list">
-              {folders.map((folder, i) => (
-                <li key={folder.id} className={cn("flex items-center gap-3 px-4 py-3.5", i < folders.length - 1 && "border-b border-white/5")}>
-                  <span className="text-xl w-8 text-center flex-shrink-0">
-                    {folder.emoji || (folder.is_default ? "💬" : "📁")}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium text-[15px] truncate">{folder.title}</p>
-                    <p className="text-gray-500 text-xs mt-0.5">
-                      {folder.is_default
-                        ? "Default — all chats"
-                        : [
-                            folder.contacts && "Contacts",
-                            folder.non_contacts && "Non-Contacts",
-                            folder.groups && "Groups",
-                            folder.broadcasts && "Channels",
-                            folder.bots && "Bots",
-                          ].filter(Boolean).join(", ") || "Custom folder"}
-                    </p>
-                  </div>
-                  {!folder.is_default && (
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => setEditingFolder({ ...folder })}
-                        className="p-2 text-gray-400 hover:text-[#2AABEE] transition-colors"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteMutation.mutate(folder.id)}
-                        disabled={deleteMutation.isPending}
-                        className="p-2 text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+              {folders.map((folder, i) => {
+                const iconDef = getFolderIconDef(folder.emoji)
+                const FolderIcon = folder.is_default ? MessageSquare : iconDef.Icon
+                const iconColor = folder.is_default ? "text-[#2AABEE]" : iconDef.color
+
+                return (
+                  <li key={folder.id} className={cn(
+                    "flex items-center gap-3 px-4 py-3.5",
+                    i < folders.length - 1 && "border-b border-white/5",
+                  )}>
+                    <div className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0",
+                      "bg-white/5",
+                    )}>
+                      <FolderIcon className={cn("h-5 w-5", iconColor)} />
                     </div>
-                  )}
-                </li>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium text-[15px] truncate">{folder.title}</p>
+                      <p className="text-gray-500 text-xs mt-0.5">
+                        {folder.is_default ? "All chats" : [
+                          folder.contacts && "Contacts",
+                          folder.non_contacts && "Non-Contacts",
+                          folder.groups && "Groups",
+                          folder.broadcasts && "Channels",
+                          folder.bots && "Bots",
+                        ].filter(Boolean).join(", ") || "Custom"}
+                      </p>
+                    </div>
+                    {!folder.is_default && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => setEditingFolder({ ...folder, iconId: folder.emoji ?? undefined })}
+                          className="p-2 text-gray-400 hover:text-[#2AABEE] transition-colors"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteMutation.mutate(folder.id)}
+                          disabled={deleteMutation.isPending}
+                          className="p-2 text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           </div>
         )}
 
-        {/* Create new folder */}
+        {/* Action buttons */}
         {activeAccount && (
           <div className="space-y-2">
-            {/* Add smart preset folders */}
+            {/* Preset folders */}
             <button
               onClick={() => presetMutation.mutate()}
               disabled={presetMutation.isPending}
@@ -285,7 +344,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
               <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
                 {presetMutation.isPending
                   ? <Loader2 className="h-5 w-5 text-amber-400 animate-spin" />
-                  : <span className="text-lg">⚡</span>
+                  : <Zap className="h-5 w-5 text-amber-400" />
                 }
               </div>
               <div className="text-left">
@@ -294,12 +353,13 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
               </div>
             </button>
 
+            {/* Custom folder */}
             <button
               onClick={() => setEditingFolder({ ...DEFAULT_FOLDER })}
               className="w-full flex items-center gap-4 px-4 py-4 bg-[#242f3d] rounded-xl hover:bg-[#2a3548] transition-colors"
             >
               <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
-                <Plus className="h-5 w-5 text-[#2AABEE]" />
+                <FolderPlus className="h-5 w-5 text-[#2AABEE]" />
               </div>
               <span className="text-[#2AABEE] font-medium text-[15px]">Create Custom Folder</span>
             </button>
@@ -307,7 +367,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
         )}
 
         <p className="text-gray-600 text-xs text-center px-4">
-          Folders sync with your Telegram account — visible on all your devices.
+          Folders sync with Telegram — visible on all your devices.
         </p>
       </div>
     </div>
