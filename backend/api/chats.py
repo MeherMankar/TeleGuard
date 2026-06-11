@@ -11,6 +11,29 @@ router = APIRouter(prefix="/chats", tags=["Chats"])
 logger = logging.getLogger(__name__)
 
 
+def _safe_str(v) -> Optional[str]:
+    """
+    Coerce a value to a plain Python str, or None if empty.
+    Handles Telegram's MessageEntityMention, MessageEntityBold, etc.
+    that Telethon sometimes returns in place of plain message text.
+    """
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v or None
+    # TLObject or any object with a 'message' or 'text' attribute
+    for attr in ("message", "text"):
+        val = getattr(v, attr, None)
+        if isinstance(val, str):
+            return val or None
+    # Last resort — stringify
+    try:
+        s = str(v)
+        return s if s not in ("None", "") else None
+    except Exception:
+        return None
+
+
 # ── Client resolver ───────────────────────────────────────────────────────────
 
 def _get_bot_manager():
@@ -354,7 +377,7 @@ async def get_dialogs(
             if dialog.message:
                 last_message = {
                     "id": dialog.message.id,
-                    "text": str(dialog.message.message) if dialog.message.message else None,
+                    "text": _safe_str(dialog.message.message),
                     "date": dialog.message.date.isoformat() if dialog.message.date else None,
                     "out": dialog.message.out,
                     "media_type": _extract_media_info(dialog.message).get("type")
@@ -420,7 +443,7 @@ async def get_chat_history(
                 try:
                     replied = await client.get_messages(chat_id, ids=message.reply_to_msg_id)
                     if replied:
-                        reply["text"] = (replied.message or "")[:80]
+                        reply["text"] = _safe_str(replied.message)
                         reply["sender_id"] = replied.sender_id
                         if replied.media:
                             info = _extract_media_info(replied)
@@ -428,21 +451,22 @@ async def get_chat_history(
                 except Exception:
                     pass
 
-            # Sender name
+            # Sender name — coerce to plain string
             sender_name = None
-            if message.sender_id and (dialog_is_group := True):
+            if message.sender_id:
                 try:
                     sender = await message.get_sender()
                     if sender:
-                        fn = getattr(sender, "first_name", "") or ""
-                        ln = getattr(sender, "last_name", "") or ""
-                        sender_name = f"{fn} {ln}".strip() or getattr(sender, "title", None)
+                        fn = str(getattr(sender, "first_name", "") or "")
+                        ln = str(getattr(sender, "last_name", "") or "")
+                        title = str(getattr(sender, "title", "") or "")
+                        sender_name = f"{fn} {ln}".strip() or title or None
                 except Exception:
                     pass
 
             messages.append({
                 "id": message.id,
-                "text": str(message.message) if message.message else None,
+                "text": _safe_str(message.message),
                 "date": message.date.isoformat() if message.date else None,
                 "out": message.out,
                 "sender_id": message.sender_id,
@@ -459,8 +483,6 @@ async def get_chat_history(
     except Exception as e:
         logger.error(f"Error fetching history for {chat_id} on {account_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 # ── Chat Folders (Dialog Filters) ─────────────────────────────────────────────
 
 @router.get("/folders/{account_name}")
