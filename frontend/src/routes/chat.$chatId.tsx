@@ -5,16 +5,27 @@ import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { chatsApi, messagingApi, type Message } from "@/lib/api"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { useUser } from "@/contexts/user-context"
+import { useUser, UserProvider } from "@/contexts/user-context"
 import { toast } from "sonner"
 import { format } from "date-fns"
+import { Toaster } from "@/components/ui/sonner"
 
 export const Route = createFileRoute("/chat/$chatId")({
   validateSearch: (search: Record<string, unknown>) => ({
     account: (search.account as string) ?? "",
   }),
-  component: ChatPage,
+  component: ChatPageWrapper,
 })
+
+// UserProvider must wrap the chat page — it's a separate route from index
+function ChatPageWrapper() {
+  return (
+    <UserProvider>
+      <ChatPage />
+      <Toaster />
+    </UserProvider>
+  )
+}
 
 function ChatPage() {
   const { chatId } = Route.useParams()
