@@ -40,39 +40,13 @@ class SessionLoginHandler:
         self.pending_actions = {}
         self.device_snooper = DeviceSnooper(mongodb) if mongodb else None
 
-        # Device list for realistic session creation
-        self.devices = [
-            {"model": "Samsung SM-G973F", "system": "Android 10", "version": "8.4.1"},
-            {"model": "Samsung SM-G975F", "system": "Android 11", "version": "8.5.0"},
-            {"model": "Samsung SM-G981B", "system": "Android 11", "version": "8.5.1"},
-            {"model": "Samsung SM-G991B", "system": "Android 12", "version": "8.6.1"},
-            {"model": "Samsung SM-A525F", "system": "Android 11", "version": "8.5.4"},
-            {"model": "Samsung SM-N975F", "system": "Android 10", "version": "8.4.3"},
-            {"model": "Samsung SM-G996B", "system": "Android 12", "version": "8.6.4"},
-            {"model": "Samsung SM-G998B", "system": "Android 13", "version": "8.7.2"},
-            {"model": "Xiaomi Mi 11", "system": "Android 11", "version": "8.5.2"},
-            {"model": "Xiaomi Mi 12", "system": "Android 12", "version": "8.6.5"},
-            {
-                "model": "Xiaomi Redmi Note 10",
-                "system": "Android 11",
-                "version": "8.5.5",
-            },
-            {"model": "Xiaomi POCO F3", "system": "Android 11", "version": "8.5.6"},
-            {"model": "OnePlus 9 Pro", "system": "Android 12", "version": "8.6.0"},
-            {"model": "OnePlus 8T", "system": "Android 11", "version": "8.5.7"},
-            {"model": "Google Pixel 6", "system": "Android 13", "version": "8.7.1"},
-            {"model": "Google Pixel 5", "system": "Android 12", "version": "8.6.8"},
-            {"model": "Huawei P40 Pro", "system": "Android 10", "version": "8.4.2"},
-            {"model": "Oppo Find X3", "system": "Android 11", "version": "8.5.1"},
-            {"model": "Vivo X60 Pro", "system": "Android 11", "version": "8.5.2"},
-            {"model": "Realme GT", "system": "Android 11", "version": "8.5.3"},
-        ]
+        # Device list imported from central device_profiles module
+        from teleguard.data.device_profiles import get_random_device_legacy
+        self._get_random_device = get_random_device_legacy
 
     def get_random_device(self):
-        """Get random device configuration"""
-        import random
-
-        return random.choice(self.devices)
+        """Get random device configuration from central device_profiles."""
+        return self._get_random_device()
 
     def register_handlers(self):
         """Register all session login handlers"""

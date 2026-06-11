@@ -8,9 +8,16 @@ interface CloudPasswordPageProps {
   isOpen: boolean
   sessionId: string
   onSuccess: () => void
+  /** "phone" = after phone+OTP, "qr" = after QR scan with 2FA */
+  mode?: "phone" | "qr"
 }
 
-export function CloudPasswordPage({ isOpen, sessionId, onSuccess }: CloudPasswordPageProps) {
+export function CloudPasswordPage({
+  isOpen,
+  sessionId,
+  onSuccess,
+  mode = "phone",
+}: CloudPasswordPageProps) {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -19,7 +26,11 @@ export function CloudPasswordPage({ isOpen, sessionId, onSuccess }: CloudPasswor
     if (!password || loading) return
     setLoading(true)
     try {
-      await accountsApi.verifyPassword(sessionId, password)
+      if (mode === "qr") {
+        await accountsApi.qrPassword(sessionId, password)
+      } else {
+        await accountsApi.verifyPassword(sessionId, password)
+      }
       toast.success("Account added successfully")
       onSuccess()
     } catch (e) {
@@ -39,14 +50,18 @@ export function CloudPasswordPage({ isOpen, sessionId, onSuccess }: CloudPasswor
       )}
     >
       <div className="flex-1 flex flex-col justify-center px-6 max-w-md mx-auto w-full">
-        <h1 className="text-2xl font-semibold text-foreground mb-3">Cloud password check</h1>
+        <h1 className="text-2xl font-semibold text-foreground mb-3">
+          Two-step verification
+        </h1>
         <p className="text-muted-foreground text-sm mb-8">
-          Please enter your two-step verification password.
+          {mode === "qr"
+            ? "Your account has two-step verification enabled. Please enter your cloud password to continue."
+            : "Please enter your cloud password."}
         </p>
 
-        <div className="mb-4">
+        <div className="mb-6">
           <label className="text-primary text-sm font-medium mb-2 block">
-            Your cloud password
+            Password
           </label>
           <div className="relative">
             <input
@@ -56,6 +71,7 @@ export function CloudPasswordPage({ isOpen, sessionId, onSuccess }: CloudPasswor
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
               className="w-full bg-transparent text-foreground border-b-2 border-primary pb-2 focus:outline-none pr-10"
               autoFocus
+              placeholder="Enter your 2FA password"
             />
             <button
               type="button"
@@ -71,14 +87,14 @@ export function CloudPasswordPage({ isOpen, sessionId, onSuccess }: CloudPasswor
           onClick={handleSubmit}
           disabled={password.length === 0 || loading}
           className={cn(
-            "w-full py-4 rounded-lg font-medium text-base transition-all flex items-center justify-center gap-2 mt-8",
+            "w-full py-4 rounded-xl font-medium text-base transition-all flex items-center justify-center gap-2",
             password.length > 0 && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/50 text-primary-foreground/70 cursor-not-allowed",
           )}
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          Submit
+          {loading ? "Verifying..." : "Submit"}
         </button>
       </div>
     </div>

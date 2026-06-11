@@ -149,81 +149,10 @@ class AuthManager:
                 "api_hash": config.telegram.api_hash,
             }
         }
-        # Android device profiles only
-        self.devices = [
-            # Samsung Galaxy Series
-            {"model": "SM-G973F", "system": "Android 10", "version": "10.14.5"},
-            {"model": "SM-G975F", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-G980F", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-G981B", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-G991B", "system": "Android 12", "version": "10.14.5"},
-            {"model": "SM-G996B", "system": "Android 12", "version": "10.14.5"},
-            {"model": "SM-G998B", "system": "Android 13", "version": "10.14.5"},
-            {"model": "SM-S901B", "system": "Android 13", "version": "10.14.5"},
-            {"model": "SM-S906B", "system": "Android 13", "version": "10.14.5"},
-            {"model": "SM-S908B", "system": "Android 13", "version": "10.14.5"},
-            {"model": "SM-A525F", "system": "Android 12", "version": "10.14.5"},
-            {"model": "SM-A715F", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-A515F", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-A315G", "system": "Android 10", "version": "10.14.5"},
-            {"model": "SM-M515F", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-N975F", "system": "Android 10", "version": "10.14.5"},
-            {"model": "SM-N986B", "system": "Android 11", "version": "10.14.5"},
-            {"model": "SM-N981B", "system": "Android 12", "version": "10.14.5"},
-            # Google Pixel Series
-            {"model": "Pixel 4", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Pixel 4a", "system": "Android 12", "version": "10.14.5"},
-            {"model": "Pixel 5", "system": "Android 12", "version": "10.14.5"},
-            {"model": "Pixel 6", "system": "Android 13", "version": "10.14.5"},
-            {"model": "Pixel 6 Pro", "system": "Android 13", "version": "10.14.5"},
-            {"model": "Pixel 7", "system": "Android 14", "version": "10.14.5"},
-            {"model": "Pixel 7 Pro", "system": "Android 14", "version": "10.14.5"},
-            {"model": "Pixel 8", "system": "Android 14", "version": "10.14.5"},
-            {"model": "Pixel 8 Pro", "system": "Android 14", "version": "10.14.5"},
-            # OnePlus Series
-            {"model": "OnePlus 8", "system": "Android 11", "version": "10.14.5"},
-            {"model": "OnePlus 8 Pro", "system": "Android 11", "version": "10.14.5"},
-            {"model": "OnePlus 9", "system": "Android 12", "version": "10.14.5"},
-            {"model": "OnePlus 9 Pro", "system": "Android 12", "version": "10.14.5"},
-            {"model": "OnePlus 10 Pro", "system": "Android 13", "version": "10.14.5"},
-            {"model": "OnePlus 11", "system": "Android 13", "version": "10.14.5"},
-            {"model": "OnePlus Nord", "system": "Android 11", "version": "10.14.5"},
-            {"model": "OnePlus Nord 2", "system": "Android 12", "version": "10.14.5"},
-            {"model": "OnePlus Nord CE", "system": "Android 11", "version": "10.14.5"},
-            # Xiaomi Series
-            {"model": "Xiaomi Mi 10", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Xiaomi Mi 11", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Xiaomi Mi 12", "system": "Android 12", "version": "10.14.5"},
-            {"model": "Xiaomi 13", "system": "Android 13", "version": "10.14.5"},
-            {"model": "Xiaomi 13 Pro", "system": "Android 13", "version": "10.14.5"},
-            {
-                "model": "Xiaomi Redmi Note 9",
-                "system": "Android 10",
-                "version": "10.14.5",
-            },
-            {
-                "model": "Xiaomi Redmi Note 10",
-                "system": "Android 11",
-                "version": "10.14.5",
-            },
-            {
-                "model": "Xiaomi Redmi Note 11",
-                "system": "Android 11",
-                "version": "10.14.5",
-            },
-            {
-                "model": "Xiaomi Redmi Note 12",
-                "system": "Android 12",
-                "version": "10.14.5",
-            },
-            {"model": "Xiaomi POCO F3", "system": "Android 11", "version": "10.14.5"},
-            {"model": "Xiaomi POCO X3", "system": "Android 10", "version": "10.14.5"},
-            {
-                "model": "Xiaomi Black Shark 4",
-                "system": "Android 11",
-                "version": "10.14.5",
-            },
-        ]
+        # Android device profiles — imported from central device_profiles module
+        from teleguard.data.device_profiles import get_random_device_legacy
+        self.devices = [get_random_device_legacy() for _ in range(1)]  # kept for compatibility
+        # We use get_random_device_legacy() directly in _start_normal_auth
 
     async def destroy_otp_code(self, phone: str, code: str) -> bool:
         """Legacy method - now handled by invalidateSignInCodes in bot"""
@@ -280,19 +209,16 @@ class AuthManager:
         return "android"
 
     async def _start_normal_auth(self, phone: str) -> Dict[str, any]:
-        """Start normal authentication flow with Android device spoofing"""
-        device = random.choice(self.devices)
+        """Start normal authentication flow with Android device spoofing from central profiles."""
+        from teleguard.data.device_profiles import get_random_device
+        device = get_random_device()
         credentials = self.api_credentials["android"]
 
         client = TelegramClient(
             StringSession(),
             credentials["api_id"],
             credentials["api_hash"],
-            device_model=device["model"],
-            system_version=device["system"],
-            app_version="10.14.5",
-            lang_code="en",
-            system_lang_code="en-US",
+            **device,
         )
         await retry_async(client.connect)
         sent_code = await retry_async(client.send_code_request, phone)

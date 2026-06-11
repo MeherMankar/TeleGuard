@@ -9,9 +9,10 @@ interface QRLoginPageProps {
   onClose: () => void
   onPhoneLogin: () => void
   onSuccess: () => void
+  onRequires2FA: (sessionId: string) => void
 }
 
-export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess }: QRLoginPageProps) {
+export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequires2FA }: QRLoginPageProps) {
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -59,10 +60,13 @@ export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess }: QRLogi
             stopPolling()
             toast.success("Account added successfully")
             onSuccess()
+          } else if (status.status === "requires_2fa") {
+            // 2FA needed — stop polling, redirect to password screen
+            stopPolling()
+            onRequires2FA(res.session_id)
           } else if (status.status === "failed") {
             stopPolling()
             if (status.error?.includes("AUTH_TOKEN_EXPIRED")) {
-              // QR expired — auto-refresh
               startQR()
             } else {
               setError(status.error ?? "QR login failed")

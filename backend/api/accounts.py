@@ -354,7 +354,7 @@ async def qr_login(user_id: int = Depends(get_current_user_id)):
 
 @router.get("/qr-status/{session_id}")
 async def qr_status(session_id: str, user_id: int = Depends(get_current_user_id)):
-    """Poll QR login status. On success, saves account and starts bot client."""
+    """Poll QR login status. Returns success, requires_2fa, failed, or pending."""
     try:
         res = await telegram_auth_manager.get_qr_status(session_id)
         if res.get("status") == "success":
@@ -366,6 +366,30 @@ async def qr_status(session_id: str, user_id: int = Depends(get_current_user_id)
         return res
     except Exception as e:
         logger.error(f"Error getting QR status: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class QRPasswordRequest(BaseModel):
+    session_id: str
+    password: str
+
+
+@router.post("/qr-password")
+async def qr_password(req: QRPasswordRequest, user_id: int = Depends(get_current_user_id)):
+    """Submit 2FA password after QR scan when 2FA is enabled."""
+    try:
+        res = await telegram_auth_manager.verify_qr_password(req.session_id, req.password)
+        if res.get("status") == "success":
+            tg_user = res.get("user")
+            phone = getattr(tg_user, "phone", "") or ""
+            await _save_and_start_account(user_id, phone, res["session"], tg_user, session_id=req.session_id)
+            await telegram_auth_manager.finish_login(req.session_id, keep_client=True)
+            return {"status": "success"}
+        raise HTTPException(status_code=400, detail="Unexpected state")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error verifying QR 2FA password: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

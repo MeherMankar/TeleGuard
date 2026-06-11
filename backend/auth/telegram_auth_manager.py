@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import time
 import uuid
 from typing import Dict, Any, Optional
@@ -8,35 +7,22 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
 from teleguard.core.config import config
+from teleguard.data.device_profiles import get_random_device
 
 logger = logging.getLogger(__name__)
 
 API_ID = config.telegram.api_id
 API_HASH = config.telegram.api_hash
 
-# Android device profiles — matches the bot's DeviceSnooper
-_DEVICES = [
-    {"device_model": "Samsung SM-G991B", "system_version": "Android 12", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-    {"device_model": "Samsung SM-G998B", "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-    {"device_model": "Google Pixel 7",   "system_version": "Android 14", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-    {"device_model": "OnePlus 11",       "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-    {"device_model": "Xiaomi 13 Pro",    "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-    {"device_model": "Samsung SM-S908B", "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
-]
-
 
 def _make_client() -> TelegramClient:
-    """Create a Telethon client with random Android device spoofing."""
-    device = random.choice(_DEVICES)
+    """Create a Telethon client with random Android device spoofing from central profiles."""
+    device = get_random_device()
     return TelegramClient(
         StringSession(),
         API_ID,
         API_HASH,
-        device_model=device["device_model"],
-        system_version=device["system_version"],
-        app_version=device["app_version"],
-        lang_code=device["lang_code"],
-        system_lang_code=device["system_lang_code"],
+        **device,
         connection_retries=3,
         retry_delay=2,
     )
@@ -180,6 +166,14 @@ class TelegramAuthManager:
                         "session": session_string,
                         "user": user,
                     })
+        except SessionPasswordNeededError:
+            # 2FA is enabled — keep the client alive so the frontend can submit the password
+            async with self._lock:
+                if session_id in self.pending_logins:
+                    self.pending_logins[session_id].update({
+                        "status": "requires_2fa",
+                    })
+            logger.info(f"QR login requires 2FA for session {session_id}")
         except Exception as e:
             async with self._lock:
                 if session_id in self.pending_logins:
@@ -203,9 +197,33 @@ class TelegramAuthManager:
                 "session": login_data.get("session"),
                 "user": login_data.get("user"),
             }
+        elif status == "requires_2fa":
+            return {"status": "requires_2fa"}
         elif status == "failed":
             return {"status": "failed", "error": login_data.get("error")}
         return {"status": "pending"}
+
+    async def verify_qr_password(self, session_id: str, password: str) -> Dict[str, Any]:
+        """Verify 2FA password after QR scan when 2FA is enabled."""
+        async with self._lock:
+            login_data = self.pending_logins.get(session_id)
+        if not login_data:
+            raise ValueError("Invalid or expired session_id")
+        if login_data.get("status") != "requires_2fa":
+            raise ValueError("Session is not awaiting 2FA password")
+
+        client: TelegramClient = login_data["client"]
+        login_data["timestamp"] = time.time()
+
+        try:
+            user = await client.sign_in(password=password)
+            session_string = client.session.save()
+            login_data["session"] = session_string
+            login_data["user"] = user
+            login_data["status"] = "success"
+            return {"status": "success", "session": session_string, "user": user}
+        except Exception as e:
+            raise e
 
     def get_connected_client(self, session_id: str) -> Optional[TelegramClient]:
         """

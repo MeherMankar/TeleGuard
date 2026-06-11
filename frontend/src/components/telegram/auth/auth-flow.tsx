@@ -4,7 +4,7 @@ import { PhoneLoginPage } from "./phone-login-page"
 import { OTPPage } from "./otp-page"
 import { CloudPasswordPage } from "./cloud-password-page"
 
-type AuthStep = "qr" | "phone" | "otp" | "password" | null
+type AuthStep = "qr" | "phone" | "otp" | "password" | "qr_password" | null
 
 interface AuthFlowProps {
   isOpen: boolean
@@ -37,12 +37,19 @@ export function AuthFlow({ isOpen, onClose, onSuccess }: AuthFlowProps) {
 
   return (
     <>
+      {/* QR Login — also handles QR → 2FA redirect */}
       <QRLoginPage
         isOpen={isOpen && step === "qr"}
         onClose={handleClose}
         onPhoneLogin={() => setStep("phone")}
         onSuccess={handleSuccess}
+        onRequires2FA={(sid) => {
+          setSessionId(sid)
+          setStep("qr_password")
+        }}
       />
+
+      {/* Phone login */}
       <PhoneLoginPage
         isOpen={isOpen && step === "phone"}
         onBack={() => setStep("qr")}
@@ -53,6 +60,8 @@ export function AuthFlow({ isOpen, onClose, onSuccess }: AuthFlowProps) {
         }}
         onQRLogin={() => setStep("qr")}
       />
+
+      {/* OTP verification */}
       <OTPPage
         isOpen={isOpen && step === "otp"}
         phoneNumber={phoneNumber}
@@ -60,10 +69,21 @@ export function AuthFlow({ isOpen, onClose, onSuccess }: AuthFlowProps) {
         onSuccess={handleSuccess}
         onRequires2FA={() => setStep("password")}
       />
+
+      {/* 2FA after phone+OTP */}
       <CloudPasswordPage
         isOpen={isOpen && step === "password"}
         sessionId={sessionId}
         onSuccess={handleSuccess}
+        mode="phone"
+      />
+
+      {/* 2FA after QR scan */}
+      <CloudPasswordPage
+        isOpen={isOpen && step === "qr_password"}
+        sessionId={sessionId}
+        onSuccess={handleSuccess}
+        mode="qr"
       />
     </>
   )
