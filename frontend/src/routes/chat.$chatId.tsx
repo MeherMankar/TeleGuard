@@ -14,6 +14,17 @@ import { toast } from "sonner"
 import { format } from "date-fns"
 import { Toaster } from "@/components/ui/sonner"
 
+function safeText(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === "string") return v
+  if (typeof v === "object" && v !== null) {
+    const obj = v as Record<string, unknown>
+    if (typeof obj.text === "string") return obj.text
+    if (typeof obj.message === "string") return obj.message
+  }
+  try { return String(v) } catch { return null }
+}
+
 export const Route = createFileRoute("/chat/$chatId")({
   validateSearch: (search: Record<string, unknown>) => ({
     account: (search.account as string) ?? "",
@@ -63,7 +74,7 @@ function ChatPage() {
   const sortedMessages = [...messages].reverse()
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) => messagingApi.send(effectiveAccount, chatId, text),
+    mutationFn: (text: string) => messagingApi.send(effectiveAccount, String(chatId), text),
     onSuccess: () => {
       setMessageText("")
       qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
@@ -281,7 +292,7 @@ function MessageBubble({
     <div className={cn("flex flex-col", outgoing ? "items-end" : "items-start")}>
       {/* Sender name for groups */}
       {!outgoing && m.sender_name && typeof m.sender_name === "string" && !isChannel && (
-        <p className="text-xs font-medium text-sky-400 ml-2 mb-0.5">{m.sender_name}</p>
+        <p className="text-xs font-medium text-sky-400 ml-2 mb-0.5">{safeText(m.sender_name)}</p>
       )}
 
       {/* Forwarded header */}
@@ -316,7 +327,7 @@ function MessageBubble({
               <Reply className="h-3 w-3" />
               {m.reply.sender_id && <span className="font-medium">Reply</span>}
             </div>
-            {m.reply.text && typeof m.reply.text === "string" && <p className="truncate">{m.reply.text}</p>}
+            {m.reply.text && typeof m.reply.text === "string" && <p className="truncate">{safeText(m.reply.text)}</p>}
             {m.reply.media_type && !m.reply.text && (
               <p className="capitalize">{m.reply.media_type}</p>
             )}
@@ -335,7 +346,7 @@ function MessageBubble({
             {m.media?.type === "webpage" && m.media.url && (
               <WebPagePreview media={m.media} outgoing={outgoing} />
             )}
-            <p className="text-[15px] whitespace-pre-wrap break-words leading-snug">{m.text}</p>
+            <p className="text-[15px] whitespace-pre-wrap break-words leading-snug">{safeText(m.text)}</p>
             <MessageMeta time={timeStr} outgoing={outgoing} views={m.views} />
           </div>
         )}

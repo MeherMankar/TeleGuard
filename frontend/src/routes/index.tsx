@@ -27,6 +27,18 @@ import { Loader2, MessageSquare, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 
+function safeText(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === "string") return v
+  if (typeof v === "object" && v !== null) {
+    // Telegram message object with text field
+    const obj = v as Record<string, unknown>
+    if (typeof obj.text === "string") return obj.text
+    if (typeof obj.message === "string") return obj.message
+  }
+  try { return String(v) } catch { return null }
+}
+
 export const Route = createFileRoute("/")({
   component: IndexPage,
 })
@@ -400,9 +412,7 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
   const displayName = dialog.name || dialog.title || "Unknown"
   const initial = displayName.charAt(0).toUpperCase()
   const color = colors[Math.abs(dialog.id) % colors.length]
-  const lastMsgText = typeof dialog.last_message?.text === "string"
-    ? dialog.last_message.text
-    : null
+  const lastMsgText = safeText(dialog.last_message?.text)
   const lastMsgTime = dialog.last_message?.date
     ? formatDistanceToNow(new Date(dialog.last_message.date), { addSuffix: false })
     : ""
