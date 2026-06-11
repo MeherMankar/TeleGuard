@@ -123,6 +123,9 @@ async def list_accounts(user_id: int = Depends(get_current_user_id)):
                 # Ensure boolean fields are present for the frontend
                 decrypted.setdefault("otp_destroyer_enabled", False)
                 decrypted.setdefault("is_active", True)
+                # Ensure name always has a usable value (falls back to phone)
+                if not decrypted.get("name"):
+                    decrypted["name"] = decrypted.get("phone", str(doc["_id"]))
                 result.append(decrypted)
             except Exception as e:
                 logger.error(f"Failed to decrypt account {doc.get('_id')}: {e}")
