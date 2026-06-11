@@ -354,7 +354,7 @@ async def get_dialogs(
             if dialog.message:
                 last_message = {
                     "id": dialog.message.id,
-                    "text": dialog.message.message,
+                    "text": str(dialog.message.message) if dialog.message.message else None,
                     "date": dialog.message.date.isoformat() if dialog.message.date else None,
                     "out": dialog.message.out,
                     "media_type": _extract_media_info(dialog.message).get("type")
@@ -442,7 +442,7 @@ async def get_chat_history(
 
             messages.append({
                 "id": message.id,
-                "text": message.message,
+                "text": str(message.message) if message.message else None,
                 "date": message.date.isoformat() if message.date else None,
                 "out": message.out,
                 "sender_id": message.sender_id,

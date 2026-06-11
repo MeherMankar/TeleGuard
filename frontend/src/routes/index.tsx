@@ -400,7 +400,9 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
   const displayName = dialog.name || dialog.title || "Unknown"
   const initial = displayName.charAt(0).toUpperCase()
   const color = colors[Math.abs(dialog.id) % colors.length]
-  const lastMsgText = dialog.last_message?.text
+  const lastMsgText = typeof dialog.last_message?.text === "string"
+    ? dialog.last_message.text
+    : null
   const lastMsgTime = dialog.last_message?.date
     ? formatDistanceToNow(new Date(dialog.last_message.date), { addSuffix: false })
     : ""

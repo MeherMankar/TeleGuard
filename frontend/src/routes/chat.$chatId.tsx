@@ -280,7 +280,7 @@ function MessageBubble({
   return (
     <div className={cn("flex flex-col", outgoing ? "items-end" : "items-start")}>
       {/* Sender name for groups */}
-      {!outgoing && m.sender_name && !isChannel && (
+      {!outgoing && m.sender_name && typeof m.sender_name === "string" && !isChannel && (
         <p className="text-xs font-medium text-sky-400 ml-2 mb-0.5">{m.sender_name}</p>
       )}
 
@@ -316,7 +316,7 @@ function MessageBubble({
               <Reply className="h-3 w-3" />
               {m.reply.sender_id && <span className="font-medium">Reply</span>}
             </div>
-            {m.reply.text && <p className="truncate">{m.reply.text}</p>}
+            {m.reply.text && typeof m.reply.text === "string" && <p className="truncate">{m.reply.text}</p>}
             {m.reply.media_type && !m.reply.text && (
               <p className="capitalize">{m.reply.media_type}</p>
             )}
@@ -329,7 +329,7 @@ function MessageBubble({
         )}
 
         {/* Text */}
-        {m.text && (
+        {m.text && typeof m.text === "string" && (
           <div className="px-3 py-2">
             {/* Webpage preview above text */}
             {m.media?.type === "webpage" && m.media.url && (
