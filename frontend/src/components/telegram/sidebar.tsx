@@ -128,19 +128,22 @@ export function Sidebar({
   const handleAction = (action: string | null) => {
     if (!action) return
     onClose()
-    switch (action) {
-      case "add_account": onAddAccountClick(); break
-      case "profile": onProfileClick(); break
-      case "settings": onSettingsClick(); break
-      case "contacts": onContactsClick(); break
-      case "protection": onProtectionManagerClick(); break
-      case "spam": onSpamMasterClick(); break
-      case "cleanup": onCleanupClick(); break
-      case "automation": onAutomationClick(); break
-      case "sessions": onSessionManagerClick(); break
-      case "dashboard": onDashboardClick(); break
-      case "proxy": onProxyManagerClick(); break
-    }
+    // Delay panel open until sidebar close animation finishes (300ms)
+    setTimeout(() => {
+      switch (action) {
+        case "add_account": onAddAccountClick(); break
+        case "profile": onProfileClick(); break
+        case "settings": onSettingsClick(); break
+        case "contacts": onContactsClick(); break
+        case "protection": onProtectionManagerClick(); break
+        case "spam": onSpamMasterClick(); break
+        case "cleanup": onCleanupClick(); break
+        case "automation": onAutomationClick(); break
+        case "sessions": onSessionManagerClick(); break
+        case "dashboard": onDashboardClick(); break
+        case "proxy": onProxyManagerClick(); break
+      }
+    }, 320)
   }
 
   return (

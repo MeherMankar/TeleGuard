@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 import uuid
 from typing import Dict, Any, Optional
@@ -13,9 +14,44 @@ logger = logging.getLogger(__name__)
 API_ID = config.telegram.api_id
 API_HASH = config.telegram.api_hash
 
+# Android device profiles — matches the bot's DeviceSnooper
+_DEVICES = [
+    {"device_model": "Samsung SM-G991B", "system_version": "Android 12", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+    {"device_model": "Samsung SM-G998B", "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+    {"device_model": "Google Pixel 7",   "system_version": "Android 14", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+    {"device_model": "OnePlus 11",       "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+    {"device_model": "Xiaomi 13 Pro",    "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+    {"device_model": "Samsung SM-S908B", "system_version": "Android 13", "app_version": "10.14.5", "lang_code": "en", "system_lang_code": "en-US"},
+]
+
+
+def _make_client() -> TelegramClient:
+    """Create a Telethon client with random Android device spoofing."""
+    device = random.choice(_DEVICES)
+    return TelegramClient(
+        StringSession(),
+        API_ID,
+        API_HASH,
+        device_model=device["device_model"],
+        system_version=device["system_version"],
+        app_version=device["app_version"],
+        lang_code=device["lang_code"],
+        system_lang_code=device["system_lang_code"],
+        connection_retries=3,
+        retry_delay=2,
+    )
+
 
 class TelegramAuthManager:
-    """Manages temporary Telethon clients during the multi-step login process."""
+    """
+    Manages temporary Telethon clients during multi-step webapp login.
+
+    Key design:
+    - Uses Android device params (not PC) to avoid "PC 64bit" login notifications
+    - After successful login, hands the already-connected client directly to
+      bot_manager instead of disconnecting it and creating a second one.
+      This prevents the double-login-notification problem.
+    """
 
     def __init__(self):
         self.pending_logins: Dict[str, Dict[str, Any]] = {}
@@ -47,7 +83,7 @@ class TelegramAuthManager:
             raise ValueError("API_ID and API_HASH not configured")
 
         session_id = str(uuid.uuid4())
-        client = TelegramClient(StringSession(), API_ID, API_HASH)
+        client = _make_client()
         await client.connect()
 
         try:
@@ -81,6 +117,9 @@ class TelegramAuthManager:
                 phone_code_hash=login_data["phone_code_hash"],
             )
             session_string = client.session.save()
+            # Keep client alive — will be handed to bot_manager
+            login_data["session"] = session_string
+            login_data["user"] = user
             return {"status": "success", "session": session_string, "user": user}
         except SessionPasswordNeededError:
             return {"status": "requires_2fa"}
@@ -99,6 +138,8 @@ class TelegramAuthManager:
         try:
             user = await client.sign_in(password=password)
             session_string = client.session.save()
+            login_data["session"] = session_string
+            login_data["user"] = user
             return {"status": "success", "session": session_string, "user": user}
         except Exception as e:
             raise e
@@ -108,7 +149,7 @@ class TelegramAuthManager:
             raise ValueError("API_ID and API_HASH not configured")
 
         session_id = str(uuid.uuid4())
-        client = TelegramClient(StringSession(), API_ID, API_HASH)
+        client = _make_client()
         await client.connect()
 
         try:
@@ -129,7 +170,7 @@ class TelegramAuthManager:
 
     async def _wait_for_qr(self, session_id: str, qr_login):
         try:
-            user = await qr_login.wait(timeout=120)
+            user = await qr_login.wait(timeout=115)
             async with self._lock:
                 if session_id in self.pending_logins:
                     client = self.pending_logins[session_id]["client"]
@@ -166,13 +207,28 @@ class TelegramAuthManager:
             return {"status": "failed", "error": login_data.get("error")}
         return {"status": "pending"}
 
-    async def finish_login(self, session_id: str):
+    def get_connected_client(self, session_id: str) -> Optional[TelegramClient]:
+        """
+        Return the already-connected client after successful login.
+        Used by accounts.py to hand to bot_manager WITHOUT disconnecting/reconnecting.
+        """
+        data = self.pending_logins.get(session_id)
+        if data and data.get("status") in ("success", None):
+            return data.get("client")
+        return None
+
+    async def finish_login(self, session_id: str, keep_client: bool = False):
+        """
+        Clean up pending login state.
+        If keep_client=True, do NOT disconnect — bot_manager owns it now.
+        """
         async with self._lock:
             if session_id in self.pending_logins:
-                try:
-                    await self.pending_logins[session_id]["client"].disconnect()
-                except Exception:
-                    pass
+                if not keep_client:
+                    try:
+                        await self.pending_logins[session_id]["client"].disconnect()
+                    except Exception:
+                        pass
                 del self.pending_logins[session_id]
 
 

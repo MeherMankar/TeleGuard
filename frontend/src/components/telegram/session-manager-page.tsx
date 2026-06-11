@@ -58,9 +58,9 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
   return (
     <>
       <div
-        style={{ zIndex: 70 }}
+        style={{ zIndex: 75 }}
         className={cn(
-          "fixed top-0 right-0 h-screen w-full max-w-md bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+          "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "translate-x-full",
         )}
       >
@@ -187,3 +187,5 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     </>
   )
 }
+
+

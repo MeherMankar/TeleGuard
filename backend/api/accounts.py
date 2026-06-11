@@ -41,18 +41,20 @@ def _get_bot_manager():
         return None
 
 
-async def _save_and_start_account(user_id: int, phone: str, session_string: str, telegram_user) -> dict:
+async def _save_and_start_account(user_id: int, phone: str, session_string: str, telegram_user, session_id: str = None) -> dict:
     """
-    Save account to MongoDB (encrypted, matching bot's format) and immediately
-    start the Telethon client in bot_manager so the bot sees it without restart.
+    Save account to MongoDB (encrypted) and register the already-connected
+    client with bot_manager — no second login, no double notification.
     """
+    # Extract real name from Telegram user object
     first_name = getattr(telegram_user, "first_name", "") or ""
     last_name = getattr(telegram_user, "last_name", "") or ""
-    full_name = f"{first_name} {last_name}".strip() or phone
+    full_name = f"{first_name} {last_name}".strip()
+    if not full_name:
+        full_name = getattr(telegram_user, "username", None) or phone
     username = getattr(telegram_user, "username", None)
     tg_id = getattr(telegram_user, "id", None)
 
-    # Build account document — encrypt sensitive fields to match bot's format
     account_data = {
         "user_id": user_id,
         "phone": phone,
@@ -67,26 +69,60 @@ async def _save_and_start_account(user_id: int, phone: str, session_string: str,
     if tg_id:
         account_data["telegram_id"] = tg_id
 
-    # Encrypt to match bot's storage format
+    # Encrypt and upsert
     encrypted = DataEncryption.encrypt_account_data(account_data)
-
-    # Upsert — if account already exists (added via bot) just update session
     await mongodb.db.accounts.update_one(
         {"user_id": user_id, "phone": phone},
         {"$set": encrypted},
         upsert=True,
     )
 
-    # Immediately start the client in bot_manager so bot sees it now
+    # Hand the already-connected client to bot_manager
+    # This avoids creating a second Telethon session (which triggers a 2nd login notification)
     bot_manager = _get_bot_manager()
-    if bot_manager and hasattr(bot_manager, "_start_user_client"):
-        try:
-            await bot_manager._start_user_client(user_id, full_name, session_string)
-            logger.info(f"Started client for {full_name} via webapp login")
-        except Exception as e:
-            logger.warning(f"Could not start client immediately: {e}")
+    if bot_manager:
+        # Try to reuse the existing connected client from telegram_auth_manager
+        existing_client = None
+        if session_id:
+            existing_client = telegram_auth_manager.get_connected_client(session_id)
 
-    # Notify webapp via WebSocket
+        if existing_client and existing_client.is_connected():
+            # Register directly — no new connection needed
+            try:
+                if user_id not in bot_manager.user_clients:
+                    bot_manager.user_clients[user_id] = {}
+                bot_manager.user_clients[user_id][full_name] = existing_client
+                logger.info(f"Registered existing client for {full_name} — no new session created")
+
+                # Set up protection/auto-reply handlers for the new client
+                if hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:
+                    try:
+                        bot_manager.protection_manager.register_handler_for_client(user_id, full_name, existing_client)
+                    except Exception as e:
+                        logger.warning(f"Could not register protection handler: {e}")
+
+                if hasattr(bot_manager, "auto_reply_handler") and bot_manager.auto_reply_handler:
+                    try:
+                        await bot_manager.auto_reply_handler.setup_new_client_handler(user_id, full_name, existing_client)
+                    except Exception as e:
+                        logger.warning(f"Could not setup auto-reply handler: {e}")
+
+            except Exception as e:
+                logger.warning(f"Could not register existing client: {e}")
+                # Fall back to start_user_client
+                try:
+                    await bot_manager.start_user_client(user_id, full_name, session_string)
+                except Exception as e2:
+                    logger.warning(f"start_user_client also failed: {e2}")
+        else:
+            # No existing client — start fresh (only happens for QR or edge cases)
+            try:
+                await bot_manager.start_user_client(user_id, full_name, session_string)
+                logger.info(f"Started new client for {full_name}")
+            except Exception as e:
+                logger.warning(f"Could not start client immediately: {e}")
+
+    # Notify webapp
     await ws_manager.send_personal_message(
         {"type": "account_added", "phone": phone, "name": full_name},
         user_id,
@@ -271,8 +307,8 @@ async def verify_code(req: VerifyCodeRequest, user_id: int = Depends(get_current
         res = await telegram_auth_manager.verify_code(req.session_id, req.code)
         if res.get("status") == "success":
             phone = telegram_auth_manager.pending_logins.get(req.session_id, {}).get("phone", "")
-            await _save_and_start_account(user_id, phone, res["session"], res["user"])
-            await telegram_auth_manager.finish_login(req.session_id)
+            await _save_and_start_account(user_id, phone, res["session"], res["user"], session_id=req.session_id)
+            await telegram_auth_manager.finish_login(req.session_id, keep_client=True)
             return {"status": "success"}
         elif res.get("status") == "requires_2fa":
             return {"status": "requires_2fa"}
@@ -293,8 +329,8 @@ async def verify_password(req: VerifyPasswordRequest, user_id: int = Depends(get
         res = await telegram_auth_manager.verify_password(req.session_id, req.password)
         if res.get("status") == "success":
             phone = telegram_auth_manager.pending_logins.get(req.session_id, {}).get("phone", "")
-            await _save_and_start_account(user_id, phone, res["session"], res["user"])
-            await telegram_auth_manager.finish_login(req.session_id)
+            await _save_and_start_account(user_id, phone, res["session"], res["user"], session_id=req.session_id)
+            await telegram_auth_manager.finish_login(req.session_id, keep_client=True)
             return {"status": "success"}
         raise HTTPException(status_code=400, detail="Unexpected auth state")
     except ValueError as e:
@@ -324,8 +360,8 @@ async def qr_status(session_id: str, user_id: int = Depends(get_current_user_id)
         if res.get("status") == "success":
             tg_user = res.get("user")
             phone = getattr(tg_user, "phone", "") or ""
-            await _save_and_start_account(user_id, phone, res["session"], tg_user)
-            await telegram_auth_manager.finish_login(session_id)
+            await _save_and_start_account(user_id, phone, res["session"], tg_user, session_id=session_id)
+            await telegram_auth_manager.finish_login(session_id, keep_client=True)
             return {"status": "success"}
         return res
     except Exception as e:
