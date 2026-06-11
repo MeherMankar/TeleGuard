@@ -108,11 +108,27 @@ export interface AccountStatus {
   }
 }
 
+export interface AccountProfile {
+  id: number
+  first_name: string
+  last_name: string
+  username: string
+  phone: string
+  bio: string
+  dc_id: number | null
+  premium: boolean
+  verified: boolean
+  has_photo: boolean
+  account_name: string
+}
+
 export const accountsApi = {
   list: () => get<Account[]>("/api/accounts/list"),
   status: () => get<AccountStatus>("/api/accounts/status"),
   remove: (account_id: string) =>
     del<{ status: string }>(`/api/accounts/remove/${account_id}`),
+  profile: (account_name: string) =>
+    get<AccountProfile>(`/api/accounts/profile/${encodeURIComponent(account_name)}`),
   toggleReply: (name: string) =>
     post<{ status: string; auto_reply_enabled: boolean }>("/api/accounts/toggle-reply", { name }),
   sendCode: (phone: string) =>
@@ -132,6 +148,33 @@ export const accountsApi = {
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
 
+export interface MediaInfo {
+  type: "photo" | "video" | "gif" | "sticker" | "voice" | "audio" | "file" | "webpage" | "unknown"
+  id?: string
+  width?: number
+  height?: number
+  duration?: number
+  size?: number
+  filename?: string
+  mime?: string
+  emoji?: string
+  animated?: boolean
+  round?: boolean
+  has_spoiler?: boolean
+  url?: string
+  title?: string
+  description?: string
+  site_name?: string
+  photo_id?: string
+}
+
+export interface InlineButton {
+  text: string
+  type: "url" | "callback" | "unknown"
+  url?: string
+  data?: string
+}
+
 export interface Dialog {
   id: number
   name: string
@@ -145,8 +188,11 @@ export interface Dialog {
     text: string | null
     date: string | null
     out: boolean
+    media_type?: string | null
   } | null
   pinned: boolean
+  has_photo: boolean
+  entity_id: number
 }
 
 export interface Message {
@@ -155,9 +201,26 @@ export interface Message {
   date: string | null
   out: boolean
   sender_id: number | null
-  reply_to_msg_id: number | null
-  media: boolean
+  sender_name: string | null
+  reply: {
+    msg_id: number
+    text?: string
+    sender_id?: number
+    media_type?: string | null
+  } | null
+  forward: {
+    from_name?: string
+    channel_post?: number
+    date?: string
+  } | null
+  media: MediaInfo | null
+  buttons: InlineButton[][] | null
+  views: number | null
+  pinned: boolean
+  silent: boolean
 }
+
+const API_URL_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080"
 
 export const chatsApi = {
   dialogs: (accountName: string, limit = 50) =>
@@ -166,6 +229,12 @@ export const chatsApi = {
     get<Message[]>(
       `/api/chats/history/${encodeURIComponent(accountName)}/${chatId}?limit=${limit}`,
     ),
+  /** Returns a URL to proxy the entity's profile photo via the backend */
+  photoUrl: (accountName: string, entityId: number): string =>
+    `${API_URL_BASE}/api/chats/photo/${encodeURIComponent(accountName)}/${entityId}`,
+  /** Returns a URL to proxy a message's media (thumbnail or file) */
+  mediaUrl: (accountName: string, chatId: number, messageId: number): string =>
+    `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`,
 }
 
 // ─── Messaging ───────────────────────────────────────────────────────────────

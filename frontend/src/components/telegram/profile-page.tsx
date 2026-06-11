@@ -1,234 +1,221 @@
-
 import { useState } from "react"
 import {
-  X,
-  Pencil,
-  Star,
-  Phone,
-  User,
-  AtSign,
-  Cake,
-  Server,
-  PlayCircle,
-  RotateCcw,
-  Forward,
-  Users,
+  X, Pencil, Phone, User, AtSign, Server, Loader2,
+  BadgeCheck, Sparkles, Copy, CheckCheck,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { EditProfilePage } from "@/components/telegram/edit-profile-page"
-import { useUser, formatBirthday, calculateAge } from "@/contexts/user-context"
+import { useUser } from "@/contexts/user-context"
+import { accountsApi, chatsApi } from "@/lib/api"
+import { useQuery } from "@tanstack/react-query"
+import { toast } from "sonner"
 
 interface ProfilePageProps {
   isOpen: boolean
   onClose: () => void
 }
 
-
-const mediaItems = [
-  { id: "1", type: "video", duration: "00:11", color: "bg-amber-800" },
-  { id: "2", type: "video", duration: "00:24", color: "bg-stone-700" },
-  { id: "3", type: "video", duration: "00:08", color: "bg-teal-800" },
-]
+const DC_LOCATIONS: Record<number, string> = {
+  1: "Miami, USA",
+  2: "Amsterdam, Netherlands",
+  3: "Miami, USA",
+  4: "Amsterdam, Netherlands",
+  5: "Singapore, SG",
+}
 
 export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
-  const [isEditOpen, setIsEditOpen] = useState(false)
-  const { profile } = useUser()
+  const { activeAccount } = useUser()
+  const [copied, setCopied] = useState<string | null>(null)
+
+  const { data: profile, isLoading, error } = useQuery({
+    queryKey: ["profile", activeAccount?.name],
+    queryFn: () => accountsApi.profile(activeAccount!.name),
+    enabled: isOpen && !!activeAccount,
+    staleTime: 60_000,
+  })
+
+  const photoUrl = profile?.has_photo && activeAccount
+    ? chatsApi.photoUrl(activeAccount.name, profile.id)
+    : null
+
+  const displayName = profile
+    ? `${profile.first_name} ${profile.last_name}`.trim() || profile.username || profile.phone
+    : activeAccount?.name ?? "—"
+
+  const copyToClipboard = (value: string, label: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(label)
+      toast.success(`${label} copied`)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
 
   return (
-    <>
-      {/* Edit Profile — slides over the top */}
-      <EditProfilePage
-        isOpen={isEditOpen}
-        onClose={onClose}
-        onBack={() => setIsEditOpen(false)}
-      />
+    <div
+      style={{ zIndex: 75 }}
+      className={cn(
+        "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
+        isOpen ? "translate-x-0" : "translate-x-full",
+      )}
+    >
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-4 pt-5 pb-3 sticky top-0 bg-[#17212b] z-10 border-b border-white/10">
+        <button onClick={onClose} className="p-2 text-gray-400 hover:text-white transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+        <h1 className="text-white font-medium">My Profile</h1>
+        <button className="p-2 text-gray-400 hover:text-white transition-colors opacity-50">
+          <Pencil className="h-5 w-5" />
+        </button>
+      </div>
 
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{ zIndex: 60 }}
-        className={cn(
-          "fixed inset-0 bg-black/70 transition-opacity duration-300",
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        )}
-        aria-hidden="true"
-      />
-
-      {/* Slide-in panel from right */}
-      <div
-        style={{ zIndex: 75 }}
-        className={cn(
-          "fixed inset-0 bg-background flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
-          isOpen ? "translate-x-0" : "translate-x-full"
-        )}
-      >
-        {/* Top action buttons */}
-        <div className="flex items-center justify-end gap-4 px-4 pt-5 pb-3 absolute top-0 right-0 z-10">
-          <button
-            onClick={() => setIsEditOpen(true)}
-            aria-label="Edit profile"
-            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Pencil className="h-5 w-5" />
-          </button>
-          <button
-            onClick={onClose}
-            aria-label="Close profile"
-            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+      {isLoading && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 text-[#2AABEE] animate-spin" />
         </div>
+      )}
 
-        {/* Avatar section */}
-        <div className="flex flex-col items-center pt-14 pb-6 bg-card">
-          <div className="w-28 h-28 rounded-full bg-gradient-to-br from-green-400 to-green-700 flex items-center justify-center text-4xl font-bold text-white overflow-hidden mb-4 border-4 border-card">
-            {profile.avatarUrl ? (
-              <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              <span>{profile.name.charAt(0)}</span>
+      {error && !isLoading && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+          <p className="text-gray-400 text-sm">Could not load profile</p>
+          <p className="text-gray-600 text-xs mt-1">Ensure the account is connected</p>
+        </div>
+      )}
+
+      {profile && !isLoading && (
+        <>
+          {/* Avatar + name */}
+          <div className="flex flex-col items-center py-8 bg-[#17212b]">
+            <div className="w-28 h-28 rounded-full overflow-hidden mb-4 border-4 border-[#2AABEE]/30">
+              {photoUrl ? (
+                <img
+                  src={photoUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-4xl font-bold text-white">
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-xl font-semibold text-white">{displayName}</h1>
+              {profile.verified && <BadgeCheck className="h-5 w-5 text-[#2AABEE]" />}
+              {profile.premium && <Sparkles className="h-5 w-5 text-amber-400" />}
+            </div>
+
+            {profile.username && (
+              <p className="text-[#2AABEE] text-sm">@{profile.username}</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-foreground">{profile.name}</h1>
-            <Star className="h-5 w-5 fill-sky-400 text-sky-400" />
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">last seen today at 09:45 AM</p>
-        </div>
 
-        {/* Channel card */}
-        <div className="mx-0 mt-2 bg-card border-y border-border/40">
-          <div className="flex items-start gap-3 px-4 py-3">
-            {/* Channel avatar */}
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-fuchsia-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-xs font-bold">LL</span>
-            </div>
+          {/* Info cards */}
+          <div className="px-4 space-y-3 pb-8">
+            {/* Phone */}
+            {profile.phone && (
+              <InfoRow
+                icon={<Phone className="h-5 w-5 text-[#2AABEE]" />}
+                label="Mobile"
+                value={`+${profile.phone}`}
+                onCopy={() => copyToClipboard(`+${profile.phone}`, "Phone")}
+                copied={copied === "Phone"}
+              />
+            )}
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-[15px] font-medium text-foreground leading-tight">
-                  Lossless music collection [Waiting ...
-                </p>
-                <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0 pt-0.5">
-                  11-01-2026
+            {/* Bio */}
+            {profile.bio && (
+              <InfoRow
+                icon={<User className="h-5 w-5 text-[#2AABEE]" />}
+                label="Bio"
+                value={profile.bio}
+                multiline
+              />
+            )}
+
+            {/* Username */}
+            {profile.username && (
+              <InfoRow
+                icon={<AtSign className="h-5 w-5 text-[#2AABEE]" />}
+                label="Username"
+                value={`@${profile.username}`}
+                onCopy={() => copyToClipboard(`@${profile.username}`, "Username")}
+                copied={copied === "Username"}
+              />
+            )}
+
+            {/* Telegram ID */}
+            <InfoRow
+              icon={<Server className="h-5 w-5 text-[#2AABEE]" />}
+              label={profile.dc_id ? `DC${profile.dc_id} · ${DC_LOCATIONS[profile.dc_id] ?? "Unknown"}` : "Telegram ID"}
+              value={String(profile.id)}
+              onCopy={() => copyToClipboard(String(profile.id), "ID")}
+              copied={copied === "ID"}
+            />
+
+            {/* Account status badges */}
+            <div className="bg-[#242f3d] rounded-xl p-4 flex flex-wrap gap-2">
+              {profile.premium && (
+                <span className="flex items-center gap-1 bg-amber-500/20 text-amber-400 text-xs font-medium px-3 py-1.5 rounded-full border border-amber-500/30">
+                  <Sparkles className="h-3.5 w-3.5" /> Telegram Premium
                 </span>
-              </div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <Forward className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Dm @meher_mankar</span>
-              </div>
-              <div className="flex items-center gap-1.5 mt-1">
-                <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Channel · 194 subscribers</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Info rows */}
-        <div className="mt-2 bg-card border-y border-border/40">
-          {/* Phone */}
-          <div className="flex items-center gap-4 px-4 py-3.5 border-b border-border/30">
-            <Phone className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-[15px] text-foreground">{profile.phone}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Mobile</p>
-            </div>
-          </div>
-
-          {/* Bio */}
-          <div className="flex items-start gap-4 px-4 py-3.5 border-b border-border/30">
-            <User className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-[15px] text-foreground leading-relaxed">
-                {profile.bio}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Bio</p>
-            </div>
-          </div>
-
-          {/* Username */}
-          <div className="flex items-center gap-4 px-4 py-3.5 border-b border-border/30">
-            <AtSign className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-[15px] text-foreground">{profile.username}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Username</p>
-            </div>
-            {/* QR grid icon */}
-            <div className="grid grid-cols-2 gap-0.5 w-6 h-6 flex-shrink-0">
-              <div className="bg-muted-foreground rounded-sm" />
-              <div className="bg-muted-foreground rounded-sm" />
-              <div className="bg-muted-foreground rounded-sm" />
-              <div className="bg-muted-foreground rounded-sm" />
-            </div>
-          </div>
-
-          {/* Birthday */}
-          <div className="flex items-center gap-4 px-4 py-3.5 border-b border-border/30">
-            <Cake className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-[15px] text-foreground">
-                {formatBirthday(profile.birthday)}{" "}
-                <span className="text-primary">({calculateAge(profile.birthday)} years old)</span>
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Birthday</p>
-            </div>
-          </div>
-
-          {/* DC / Telegram ID */}
-          <div className="flex items-center gap-4 px-4 py-3.5">
-            <Server className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-[15px] text-foreground">6121637257</p>
-              <p className="text-xs text-muted-foreground mt-0.5">DC5, Singapore, SG</p>
-            </div>
-            {/* Calendar-like icon */}
-            <div className="w-8 h-8 rounded border border-border flex flex-col overflow-hidden flex-shrink-0">
-              <div className="bg-primary h-2" />
-              <div className="flex-1 flex items-center justify-center">
-                <span className="text-[10px] text-muted-foreground font-bold">DC</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Story Archive */}
-        <div className="mt-2 bg-card border-y border-border/40">
-          <div className="flex items-center gap-4 px-4 py-3.5">
-            <RotateCcw className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <span className="flex-1 text-[15px] text-foreground">Story Archive</span>
-            <span className="text-[15px] text-primary font-medium">1</span>
-          </div>
-        </div>
-
-        {/* Media thumbnails */}
-        <div className="mt-2 grid grid-cols-3 gap-0.5 flex-1">
-          {mediaItems.map((item) => (
-            <div
-              key={item.id}
-              className={cn(
-                "relative aspect-square",
-                item.color
               )}
-            >
-              {item.type === "video" && (
-                <>
-                  <PlayCircle className="absolute inset-0 m-auto h-8 w-8 text-white/80" />
-                  <span className="absolute bottom-1.5 left-1.5 text-[11px] text-white font-medium bg-black/40 px-1 rounded">
-                    {item.duration}
-                  </span>
-                </>
+              {profile.verified && (
+                <span className="flex items-center gap-1 bg-sky-500/20 text-sky-400 text-xs font-medium px-3 py-1.5 rounded-full border border-sky-500/30">
+                  <BadgeCheck className="h-3.5 w-3.5" /> Verified
+                </span>
               )}
+              <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-xs font-medium px-3 py-1.5 rounded-full border border-green-500/30">
+                ● Connected
+              </span>
             </div>
-          ))}
-          {/* Empty fill cells */}
-          <div className="aspect-square bg-card" />
-          <div className="aspect-square bg-card" />
-          <div className="aspect-square bg-card" />
+          </div>
+        </>
+      )}
+
+      {/* No account selected */}
+      {!activeAccount && !isLoading && (
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <p className="text-gray-400 text-sm">Select an account from the sidebar to view its profile</p>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   )
 }
 
-
+function InfoRow({
+  icon,
+  label,
+  value,
+  onCopy,
+  copied,
+  multiline,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  onCopy?: () => void
+  copied?: boolean
+  multiline?: boolean
+}) {
+  return (
+    <div className="bg-[#242f3d] rounded-xl px-4 py-3.5 flex items-start gap-3">
+      <div className="mt-0.5 flex-shrink-0">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <p className={cn("text-white text-[15px]", multiline ? "whitespace-pre-wrap" : "truncate")}>
+          {value}
+        </p>
+        <p className="text-gray-500 text-xs mt-0.5">{label}</p>
+      </div>
+      {onCopy && (
+        <button
+          onClick={onCopy}
+          className="p-1 text-gray-500 hover:text-[#2AABEE] transition-colors flex-shrink-0"
+        >
+          {copied ? <CheckCheck className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+        </button>
+      )}
+    </div>
+  )
+}

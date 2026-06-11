@@ -1,252 +1,290 @@
 """
 TeleGuard Device Profiles
 =========================
-Single source of truth for all Android device spoofing data.
+Single source of truth for Android device spoofing.
 
-All Telethon clients — bot auth, webapp auth, session login, device snooper —
-import from here. This keeps device lists consistent and avoids duplicate
-"PC 64bit" or outdated device strings across the codebase.
+Every Telethon client created in TeleGuard (bot auth, webapp auth, session
+import) calls get_random_device() from here.  Keeping it in one place means:
+  - No more "PC 64bit" login notifications
+  - Consistent device fingerprint across all code paths
+  - Easy to update when new flagship devices release
 
-Format used by device_snooper / auth_manager:
-    {"device_model": str, "system_version": str, "app_version": str}
+Usage
+-----
+Standard (Telethon keyword args):
+    from teleguard.data.device_profiles import get_random_device
+    client = TelegramClient(session, api_id, api_hash, **get_random_device())
 
-Format used by auth_handler / session_login_handler (legacy):
-    {"model": str, "system": str, "version": str}
-
-Use get_random_device() for the standard format,
-or get_random_device_legacy() for the legacy format.
+Legacy (model/system/version dict):
+    from teleguard.data.device_profiles import get_random_device_legacy
+    d = get_random_device_legacy()
+    client = TelegramClient(session, api_id, api_hash,
+                            device_model=d["model"],
+                            system_version=d["system"],
+                            app_version=d["version"])
 """
 
 import random
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-APP_VERSION = "10.14.5"
-LANG_CODE = "en"
-SYSTEM_LANG_CODE = "en-US"
+APP_VERSION   = "10.14.5"
+LANG_CODE     = "en"
+SYSTEM_LANG   = "en-US"
 
-# ─── Master device list ───────────────────────────────────────────────────────
-# All unique Android devices collected from device_snooper.py, auth_handler.py,
-# session_login_handler.py, and backend/auth/telegram_auth_manager.py
+# ─── Device pool ─────────────────────────────────────────────────────────────
+# Format: (device_model, system_version, weight)
+# Weight controls how often a device is picked — flagship 2023/2024 models
+# are weighted higher because they're the most common in the real world.
+# This makes sessions look natural instead of always using the same device.
 
-ANDROID_DEVICES: List[Dict[str, str]] = [
-    # ── Google Pixel ──────────────────────────────────────────────────────────
-    {"device_model": "Pixel Fold",    "system_version": "Android 14"},
-    {"device_model": "Pixel 8 Pro",   "system_version": "Android 14"},
-    {"device_model": "Pixel 8",       "system_version": "Android 14"},
-    {"device_model": "Pixel 7 Pro",   "system_version": "Android 14"},
-    {"device_model": "Pixel 7",       "system_version": "Android 14"},
-    {"device_model": "Pixel 6 Pro",   "system_version": "Android 13"},
-    {"device_model": "Pixel 6",       "system_version": "Android 13"},
-    {"device_model": "Pixel 5",       "system_version": "Android 12"},
-    {"device_model": "Pixel 4a",      "system_version": "Android 12"},
-    {"device_model": "Pixel 4 XL",    "system_version": "Android 11"},
-    {"device_model": "Pixel 4",       "system_version": "Android 11"},
-    {"device_model": "Pixel 3 XL",    "system_version": "Android 10"},
-    {"device_model": "Pixel 3",       "system_version": "Android 10"},
+_DEVICES: List[Tuple[str, str, int]] = [
+    # ── Google Pixel ─────────────────────────────────────── weight
+    ("Pixel 9 Pro",          "Android 15",  6),
+    ("Pixel 9",              "Android 15",  6),
+    ("Pixel 8 Pro",          "Android 14",  8),
+    ("Pixel 8",              "Android 14",  8),
+    ("Pixel Fold",           "Android 14",  3),
+    ("Pixel 7 Pro",          "Android 14",  6),
+    ("Pixel 7",              "Android 14",  6),
+    ("Pixel 6 Pro",          "Android 13",  4),
+    ("Pixel 6",              "Android 13",  4),
+    ("Pixel 5",              "Android 12",  3),
+    ("Pixel 4a",             "Android 12",  2),
+    ("Pixel 4 XL",           "Android 11",  2),
+    ("Pixel 4",              "Android 11",  2),
 
-    # ── Samsung Galaxy S ──────────────────────────────────────────────────────
-    {"device_model": "Galaxy S24 Ultra", "system_version": "Android 14"},
-    {"device_model": "Galaxy S24+",      "system_version": "Android 14"},
-    {"device_model": "Galaxy S24",       "system_version": "Android 14"},
-    {"device_model": "Galaxy S23 Ultra", "system_version": "Android 13"},
-    {"device_model": "Galaxy S23+",      "system_version": "Android 13"},
-    {"device_model": "Galaxy S23",       "system_version": "Android 13"},
-    {"device_model": "SM-S908B",         "system_version": "Android 13"},
-    {"device_model": "SM-S906B",         "system_version": "Android 13"},
-    {"device_model": "SM-S901B",         "system_version": "Android 13"},
-    {"device_model": "Galaxy S22 Ultra", "system_version": "Android 12"},
-    {"device_model": "Galaxy S22+",      "system_version": "Android 12"},
-    {"device_model": "Galaxy S22",       "system_version": "Android 12"},
-    {"device_model": "SM-G998B",         "system_version": "Android 13"},
-    {"device_model": "SM-G996B",         "system_version": "Android 12"},
-    {"device_model": "Galaxy S21 Ultra", "system_version": "Android 11"},
-    {"device_model": "Galaxy S21+",      "system_version": "Android 11"},
-    {"device_model": "Galaxy S21",       "system_version": "Android 11"},
-    {"device_model": "SM-G991B",         "system_version": "Android 12"},
-    {"device_model": "SM-G981B",         "system_version": "Android 11"},
-    {"device_model": "Galaxy S20 Ultra", "system_version": "Android 10"},
-    {"device_model": "Galaxy S20+",      "system_version": "Android 10"},
-    {"device_model": "Galaxy S20",       "system_version": "Android 10"},
-    {"device_model": "Galaxy S10+",      "system_version": "Android 10"},
-    {"device_model": "Galaxy S10",       "system_version": "Android 10"},
-    {"device_model": "SM-G975F",         "system_version": "Android 11"},
-    {"device_model": "SM-G973F",         "system_version": "Android 10"},
-    {"device_model": "SM-G980F",         "system_version": "Android 11"},
+    # ── Samsung Galaxy S ─────────────────────────────────
+    ("Galaxy S25 Ultra",     "Android 15",  7),
+    ("Galaxy S25+",          "Android 15",  6),
+    ("Galaxy S25",           "Android 15",  6),
+    ("Galaxy S24 Ultra",     "Android 14",  8),
+    ("Galaxy S24+",          "Android 14",  7),
+    ("Galaxy S24",           "Android 14",  7),
+    ("Galaxy S23 Ultra",     "Android 13",  6),
+    ("Galaxy S23+",          "Android 13",  5),
+    ("Galaxy S23",           "Android 13",  5),
+    ("SM-S908B",             "Android 13",  4),
+    ("SM-S906B",             "Android 13",  3),
+    ("Galaxy S22 Ultra",     "Android 12",  5),
+    ("Galaxy S22+",          "Android 12",  4),
+    ("Galaxy S22",           "Android 12",  4),
+    ("SM-G998B",             "Android 13",  4),
+    ("SM-G996B",             "Android 12",  3),
+    ("SM-G991B",             "Android 12",  3),
+    ("Galaxy S21 Ultra",     "Android 11",  4),
+    ("Galaxy S21+",          "Android 11",  3),
+    ("Galaxy S21",           "Android 11",  3),
+    ("Galaxy S20 Ultra",     "Android 10",  2),
+    ("Galaxy S10+",          "Android 10",  2),
 
-    # ── Samsung Galaxy Note ───────────────────────────────────────────────────
-    {"device_model": "Galaxy Note 20 Ultra", "system_version": "Android 14"},
-    {"device_model": "Galaxy Note 20",       "system_version": "Android 14"},
-    {"device_model": "SM-N986B",             "system_version": "Android 11"},
-    {"device_model": "SM-N981B",             "system_version": "Android 12"},
-    {"device_model": "SM-N975F",             "system_version": "Android 10"},
+    # ── Samsung Galaxy A ─────────────────────────────────
+    ("Galaxy A55",           "Android 14",  5),
+    ("Galaxy A35",           "Android 14",  5),
+    ("Galaxy A54",           "Android 14",  4),
+    ("Galaxy A34",           "Android 14",  4),
+    ("Galaxy A24",           "Android 13",  3),
+    ("Galaxy A14",           "Android 13",  3),
+    ("SM-A525F",             "Android 12",  3),
+    ("SM-A715F",             "Android 11",  2),
 
-    # ── Samsung Galaxy A ──────────────────────────────────────────────────────
-    {"device_model": "Galaxy A54",  "system_version": "Android 14"},
-    {"device_model": "Galaxy A34",  "system_version": "Android 14"},
-    {"device_model": "Galaxy A24",  "system_version": "Android 14"},
-    {"device_model": "Galaxy A14",  "system_version": "Android 14"},
-    {"device_model": "SM-A525F",    "system_version": "Android 12"},
-    {"device_model": "SM-A715F",    "system_version": "Android 11"},
-    {"device_model": "SM-A515F",    "system_version": "Android 11"},
-    {"device_model": "SM-A315G",    "system_version": "Android 10"},
-    {"device_model": "SM-M515F",    "system_version": "Android 11"},
+    # ── Samsung Galaxy Z (Fold/Flip) ──────────────────────
+    ("Galaxy Z Fold 6",      "Android 14",  4),
+    ("Galaxy Z Flip 6",      "Android 14",  4),
+    ("Galaxy Z Fold 5",      "Android 13",  3),
+    ("Galaxy Z Flip 5",      "Android 13",  3),
+    ("Galaxy Z Fold 4",      "Android 12",  2),
 
-    # ── Samsung Galaxy Z ──────────────────────────────────────────────────────
-    {"device_model": "Galaxy Z Fold 5",  "system_version": "Android 14"},
-    {"device_model": "Galaxy Z Flip 5",  "system_version": "Android 14"},
-    {"device_model": "Galaxy Z Fold 4",  "system_version": "Android 13"},
-    {"device_model": "Galaxy Z Flip 4",  "system_version": "Android 13"},
+    # ── Samsung Galaxy Note ───────────────────────────────
+    ("Galaxy Note 20 Ultra", "Android 13",  2),
+    ("SM-N986B",             "Android 11",  2),
 
-    # ── OnePlus ───────────────────────────────────────────────────────────────
-    {"device_model": "OnePlus Open",     "system_version": "Android 14"},
-    {"device_model": "OnePlus 12",       "system_version": "Android 14"},
-    {"device_model": "OnePlus 11",       "system_version": "Android 13"},
-    {"device_model": "OnePlus 10 Pro",   "system_version": "Android 12"},
-    {"device_model": "OnePlus 10T",      "system_version": "Android 12"},
-    {"device_model": "OnePlus 9 Pro",    "system_version": "Android 11"},
-    {"device_model": "OnePlus 9",        "system_version": "Android 11"},
-    {"device_model": "OnePlus 8 Pro",    "system_version": "Android 11"},
-    {"device_model": "OnePlus 8",        "system_version": "Android 11"},
-    {"device_model": "OnePlus 8T",       "system_version": "Android 11"},
-    {"device_model": "OnePlus 7T Pro",   "system_version": "Android 10"},
-    {"device_model": "OnePlus 7T",       "system_version": "Android 10"},
-    {"device_model": "OnePlus Nord 3",   "system_version": "Android 13"},
-    {"device_model": "OnePlus Nord CE 3","system_version": "Android 13"},
-    {"device_model": "OnePlus Nord 2",   "system_version": "Android 12"},
-    {"device_model": "OnePlus Nord",     "system_version": "Android 11"},
-    {"device_model": "OnePlus Nord CE",  "system_version": "Android 11"},
+    # ── OnePlus ───────────────────────────────────────────
+    ("OnePlus Open",         "Android 14",  4),
+    ("OnePlus 12",           "Android 14",  6),
+    ("OnePlus 12R",          "Android 14",  4),
+    ("OnePlus 11",           "Android 13",  5),
+    ("OnePlus 10 Pro",       "Android 12",  4),
+    ("OnePlus 10T",          "Android 12",  3),
+    ("OnePlus 9 Pro",        "Android 12",  3),
+    ("OnePlus 9",            "Android 11",  3),
+    ("OnePlus 8 Pro",        "Android 11",  2),
+    ("OnePlus 8T",           "Android 11",  2),
+    ("OnePlus Nord 3",       "Android 13",  4),
+    ("OnePlus Nord CE 3",    "Android 13",  3),
+    ("OnePlus Nord 2",       "Android 12",  2),
 
-    # ── Xiaomi ────────────────────────────────────────────────────────────────
-    {"device_model": "Xiaomi 14",         "system_version": "Android 14"},
-    {"device_model": "Xiaomi 13 Pro",     "system_version": "Android 13"},
-    {"device_model": "Xiaomi 13",         "system_version": "Android 13"},
-    {"device_model": "Xiaomi 12 Pro",     "system_version": "Android 12"},
-    {"device_model": "Xiaomi 12",         "system_version": "Android 12"},
-    {"device_model": "Xiaomi Mi 12",      "system_version": "Android 12"},
-    {"device_model": "Xiaomi Mi 11",      "system_version": "Android 11"},
-    {"device_model": "Xiaomi Mi 10",      "system_version": "Android 10"},
-    {"device_model": "Xiaomi Mix Fold 3", "system_version": "Android 13"},
+    # ── Xiaomi ────────────────────────────────────────────
+    ("Xiaomi 14 Ultra",      "Android 14",  6),
+    ("Xiaomi 14",            "Android 14",  6),
+    ("Xiaomi 13 Ultra",      "Android 13",  5),
+    ("Xiaomi 13 Pro",        "Android 13",  5),
+    ("Xiaomi 13",            "Android 13",  5),
+    ("Xiaomi 12 Pro",        "Android 12",  4),
+    ("Xiaomi 12",            "Android 12",  4),
+    ("Xiaomi Mi 11",         "Android 11",  3),
+    ("Xiaomi Mi 10",         "Android 10",  2),
+    ("Xiaomi Mix Fold 3",    "Android 13",  3),
 
-    # ── Redmi ─────────────────────────────────────────────────────────────────
-    {"device_model": "Redmi Note 13 Pro", "system_version": "Android 13"},
-    {"device_model": "Redmi Note 12 Pro", "system_version": "Android 12"},
-    {"device_model": "Redmi Note 11 Pro", "system_version": "Android 11"},
-    {"device_model": "Redmi Note 10 Pro", "system_version": "Android 11"},
-    {"device_model": "Xiaomi Redmi Note 12", "system_version": "Android 12"},
-    {"device_model": "Xiaomi Redmi Note 11", "system_version": "Android 11"},
-    {"device_model": "Xiaomi Redmi Note 10", "system_version": "Android 11"},
-    {"device_model": "Xiaomi Redmi Note 9",  "system_version": "Android 10"},
-    {"device_model": "Redmi K70",         "system_version": "Android 13"},
+    # ── Redmi ─────────────────────────────────────────────
+    ("Redmi Note 13 Pro+",   "Android 13",  5),
+    ("Redmi Note 13 Pro",    "Android 13",  5),
+    ("Redmi Note 12 Pro",    "Android 12",  4),
+    ("Redmi Note 11 Pro",    "Android 11",  3),
+    ("Redmi Note 10 Pro",    "Android 11",  3),
+    ("Redmi K70 Pro",        "Android 14",  4),
+    ("Redmi K70",            "Android 13",  3),
 
-    # ── POCO ──────────────────────────────────────────────────────────────────
-    {"device_model": "POCO F5 Pro",  "system_version": "Android 13"},
-    {"device_model": "POCO F4 GT",   "system_version": "Android 12"},
-    {"device_model": "POCO F3",      "system_version": "Android 11"},
-    {"device_model": "POCO F2 Pro",  "system_version": "Android 10"},
-    {"device_model": "POCO X5 Pro",  "system_version": "Android 12"},
-    {"device_model": "Xiaomi POCO F3", "system_version": "Android 11"},
-    {"device_model": "Xiaomi POCO X3", "system_version": "Android 10"},
-    {"device_model": "Xiaomi Black Shark 4", "system_version": "Android 11"},
+    # ── POCO ──────────────────────────────────────────────
+    ("POCO F6 Pro",          "Android 14",  4),
+    ("POCO F6",              "Android 14",  4),
+    ("POCO F5 Pro",          "Android 13",  4),
+    ("POCO F5",              "Android 13",  4),
+    ("POCO F4 GT",           "Android 12",  3),
+    ("POCO F3",              "Android 11",  3),
+    ("POCO X6 Pro",          "Android 14",  4),
+    ("POCO X5 Pro",          "Android 12",  3),
 
-    # ── Oppo ──────────────────────────────────────────────────────────────────
-    {"device_model": "Oppo Find N3",     "system_version": "Android 14"},
-    {"device_model": "Oppo Find X6 Pro", "system_version": "Android 14"},
-    {"device_model": "Oppo Find X5 Pro", "system_version": "Android 14"},
-    {"device_model": "Oppo Find X3",     "system_version": "Android 11"},
-    {"device_model": "Oppo Reno 10 Pro", "system_version": "Android 14"},
-    {"device_model": "Oppo A98",         "system_version": "Android 14"},
-    {"device_model": "Oppo A78",         "system_version": "Android 14"},
+    # ── Oppo ──────────────────────────────────────────────
+    ("Oppo Find N3 Flip",    "Android 14",  4),
+    ("Oppo Find N3",         "Android 14",  4),
+    ("Oppo Find X7 Ultra",   "Android 14",  4),
+    ("Oppo Find X6 Pro",     "Android 13",  3),
+    ("Oppo Find X5 Pro",     "Android 12",  3),
+    ("Oppo Reno 11 Pro",     "Android 14",  4),
+    ("Oppo Reno 10 Pro",     "Android 13",  3),
 
-    # ── Vivo ──────────────────────────────────────────────────────────────────
-    {"device_model": "Vivo X100 Pro", "system_version": "Android 14"},
-    {"device_model": "Vivo X90 Pro",  "system_version": "Android 14"},
-    {"device_model": "Vivo X60 Pro",  "system_version": "Android 11"},
-    {"device_model": "Vivo V29 Pro",  "system_version": "Android 14"},
-    {"device_model": "Vivo Y100",     "system_version": "Android 14"},
-    {"device_model": "Vivo T2 Pro",   "system_version": "Android 14"},
-    {"device_model": "vivo V2135",    "system_version": "Android 13"},
+    # ── Vivo ──────────────────────────────────────────────
+    ("Vivo X100 Ultra",      "Android 14",  4),
+    ("Vivo X100 Pro",        "Android 14",  4),
+    ("Vivo X100",            "Android 14",  4),
+    ("Vivo X90 Pro",         "Android 13",  3),
+    ("Vivo V30 Pro",         "Android 14",  4),
+    ("Vivo V29 Pro",         "Android 13",  3),
+    ("vivo V2135",           "Android 13",  2),
 
-    # ── Realme ────────────────────────────────────────────────────────────────
-    {"device_model": "Realme GT 5",        "system_version": "Android 14"},
-    {"device_model": "Realme GT Neo 5",    "system_version": "Android 14"},
-    {"device_model": "Realme GT",          "system_version": "Android 11"},
-    {"device_model": "Realme 11 Pro+",     "system_version": "Android 14"},
-    {"device_model": "Realme C55",         "system_version": "Android 14"},
-    {"device_model": "Realme Narzo 60 Pro","system_version": "Android 14"},
+    # ── Realme ────────────────────────────────────────────
+    ("Realme GT 6",          "Android 14",  4),
+    ("Realme GT 5 Pro",      "Android 14",  4),
+    ("Realme GT 5",          "Android 14",  3),
+    ("Realme GT Neo 6",      "Android 14",  3),
+    ("Realme 12 Pro+",       "Android 14",  4),
+    ("Realme 11 Pro+",       "Android 13",  3),
 
-    # ── Huawei ────────────────────────────────────────────────────────────────
-    {"device_model": "Huawei P60 Pro",    "system_version": "Android 14"},
-    {"device_model": "Huawei Mate 50 Pro","system_version": "Android 14"},
-    {"device_model": "Huawei Nova 11",    "system_version": "Android 14"},
-    {"device_model": "Huawei P40 Pro",    "system_version": "Android 10"},
+    # ── Huawei ────────────────────────────────────────────
+    ("Huawei Pura 70 Pro",   "Android 14",  3),
+    ("Huawei P60 Pro",       "Android 13",  3),
+    ("Huawei Mate 60 Pro",   "Android 13",  3),
+    ("Huawei Mate 50 Pro",   "Android 12",  2),
+    ("Huawei P40 Pro",       "Android 10",  2),
 
-    # ── Honor ─────────────────────────────────────────────────────────────────
-    {"device_model": "Honor Magic 5 Pro", "system_version": "Android 14"},
-    {"device_model": "Honor Magic Vs",    "system_version": "Android 13"},
-    {"device_model": "Honor 90",          "system_version": "Android 14"},
-    {"device_model": "Honor X50",         "system_version": "Android 14"},
+    # ── Honor ─────────────────────────────────────────────
+    ("Honor Magic 6 Pro",    "Android 14",  4),
+    ("Honor Magic 5 Pro",    "Android 13",  3),
+    ("Honor 200 Pro",        "Android 14",  4),
+    ("Honor 90",             "Android 13",  3),
 
-    # ── Nothing ───────────────────────────────────────────────────────────────
-    {"device_model": "Nothing Phone 2", "system_version": "Android 14"},
-    {"device_model": "Nothing Phone 1", "system_version": "Android 14"},
+    # ── Nothing ───────────────────────────────────────────
+    ("Nothing Phone 2a",     "Android 14",  4),
+    ("Nothing Phone 2",      "Android 14",  4),
+    ("Nothing Phone 1",      "Android 13",  3),
 
-    # ── Motorola ──────────────────────────────────────────────────────────────
-    {"device_model": "Motorola Edge 40 Pro", "system_version": "Android 14"},
-    {"device_model": "Motorola G84",         "system_version": "Android 14"},
-    {"device_model": "Motorola Edge 30",     "system_version": "Android 14"},
+    # ── Motorola ──────────────────────────────────────────
+    ("Motorola Edge 50 Pro", "Android 14",  4),
+    ("Motorola Edge 40 Pro", "Android 13",  3),
+    ("Motorola Razr 50",     "Android 14",  3),
 
-    # ── Sony ──────────────────────────────────────────────────────────────────
-    {"device_model": "Sony Xperia 1 V",  "system_version": "Android 14"},
-    {"device_model": "Sony Xperia 5 V",  "system_version": "Android 14"},
-    {"device_model": "Sony Xperia 10 V", "system_version": "Android 14"},
+    # ── Sony ──────────────────────────────────────────────
+    ("Sony Xperia 1 VI",     "Android 14",  3),
+    ("Sony Xperia 5 VI",     "Android 14",  3),
+    ("Sony Xperia 1 V",      "Android 13",  2),
+    ("Sony Xperia 10 V",     "Android 13",  2),
 
-    # ── Asus ──────────────────────────────────────────────────────────────────
-    {"device_model": "Asus ROG Phone 7", "system_version": "Android 14"},
-    {"device_model": "Asus Zenfone 10",  "system_version": "Android 14"},
-    {"device_model": "Asus ROG Phone 6", "system_version": "Android 14"},
+    # ── Asus ──────────────────────────────────────────────
+    ("Asus ROG Phone 8 Pro", "Android 14",  3),
+    ("Asus ROG Phone 8",     "Android 14",  3),
+    ("Asus Zenfone 11",      "Android 14",  3),
+    ("Asus ROG Phone 7",     "Android 13",  2),
 
-    # ── Fairphone ─────────────────────────────────────────────────────────────
-    {"device_model": "Fairphone 5", "system_version": "Android 13"},
-    {"device_model": "Fairphone 4", "system_version": "Android 13"},
-
-    # ── TCL ───────────────────────────────────────────────────────────────────
-    {"device_model": "TCL 40 SE",  "system_version": "Android 13"},
-    {"device_model": "TCL 30 5G",  "system_version": "Android 12"},
-
-    # ── Nokia ─────────────────────────────────────────────────────────────────
-    {"device_model": "Nokia G60", "system_version": "Android 12"},
-    {"device_model": "Nokia X30",  "system_version": "Android 12"},
+    # ── Fairphone / Nokia / TCL ───────────────────────────
+    ("Fairphone 5",          "Android 13",  2),
+    ("Nokia X30",            "Android 12",  2),
+    ("TCL 40 SE",            "Android 13",  2),
 ]
 
+# Unzip into separate lists + weights for random.choices
+_models   = [d[0] for d in _DEVICES]
+_versions = [d[1] for d in _DEVICES]
+_weights  = [d[2] for d in _DEVICES]
+
+
+# ─── Public API ──────────────────────────────────────────────────────────────
 
 def get_random_device() -> Dict[str, str]:
     """
-    Return a random Android device profile in Telethon TelegramClient format.
-    Use when creating clients: TelegramClient(..., **get_random_device())
+    Return a weighted-random Android device in Telethon TelegramClient format.
+
+        client = TelegramClient(session, api_id, api_hash, **get_random_device())
+
+    Flagship 2023/2024 devices are chosen more often, matching real-world
+    distribution so sessions look natural.
     """
-    d = random.choice(ANDROID_DEVICES)
+    idx = random.choices(range(len(_DEVICES)), weights=_weights, k=1)[0]
     return {
-        "device_model":    d["device_model"],
-        "system_version":  d["system_version"],
-        "app_version":     APP_VERSION,
-        "lang_code":       LANG_CODE,
-        "system_lang_code": SYSTEM_LANG_CODE,
+        "device_model":     _models[idx],
+        "system_version":   _versions[idx],
+        "app_version":      APP_VERSION,
+        "lang_code":        LANG_CODE,
+        "system_lang_code": SYSTEM_LANG,
     }
 
 
 def get_random_device_legacy() -> Dict[str, str]:
     """
-    Return a random device in the legacy format used by auth_handler/session_login_handler:
-    {"model": ..., "system": ..., "version": ...}
+    Return a random device in the legacy {model, system, version} format
+    used by auth_handler and session_login_handler.
     """
-    d = random.choice(ANDROID_DEVICES)
+    idx = random.choices(range(len(_DEVICES)), weights=_weights, k=1)[0]
     return {
-        "model":   d["device_model"],
-        "system":  d["system_version"],
+        "model":   _models[idx],
+        "system":  _versions[idx],
         "version": APP_VERSION,
     }
 
 
 def get_spoofed_device_params() -> Dict[str, str]:
-    """Alias for get_random_device() — used by DeviceSnooper.get_spoofed_device_params()."""
+    """Alias for get_random_device() — called by DeviceSnooper."""
     return get_random_device()
+
+
+def get_device_for_android_version(min_version: int = 12) -> Dict[str, str]:
+    """
+    Return a device that runs at least the specified Android major version.
+    Useful when you need a modern device for API compatibility.
+    """
+    candidates = [
+        (i, w) for i, (m, v, w) in enumerate(_DEVICES)
+        if _parse_android_version(v) >= min_version
+    ]
+    if not candidates:
+        return get_random_device()
+    indices, weights = zip(*candidates)
+    idx = random.choices(indices, weights=weights, k=1)[0]
+    return {
+        "device_model":     _models[idx],
+        "system_version":   _versions[idx],
+        "app_version":      APP_VERSION,
+        "lang_code":        LANG_CODE,
+        "system_lang_code": SYSTEM_LANG,
+    }
+
+
+def _parse_android_version(system_version: str) -> int:
+    """Extract the Android major version number from a version string."""
+    try:
+        return int(system_version.replace("Android ", "").split(".")[0])
+    except (ValueError, AttributeError):
+        return 0
+
+
+# Total device count available for logging/debugging
+TOTAL_DEVICES = len(_DEVICES)

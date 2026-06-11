@@ -430,3 +430,69 @@ async def remove_account(account_id: str, user_id: int = Depends(get_current_use
     except Exception as e:
         logger.error(f"Error removing account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ─── Profile info endpoint ────────────────────────────────────────────────────
+
+@router.get("/profile/{account_name}")
+async def get_profile(account_name: str, user_id: int = Depends(get_current_user_id)):
+    """
+    Fetch real profile info for an account directly from Telegram.
+    Returns: id, first_name, last_name, username, phone, bio, dc_id, photo_url
+    """
+    bot_manager = _get_bot_manager()
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot manager not initialized")
+
+    # Resolve client
+    user_clients = bot_manager.user_clients.get(user_id, {})
+    client = user_clients.get(account_name)
+    if not client:
+        # Try phone / partial match
+        clean = account_name.replace("+", "").replace(" ", "")
+        for key, c in user_clients.items():
+            if clean in str(key).replace("+", "").replace(" ", ""):
+                client = c
+                break
+    if not client:
+        if len(user_clients) == 1:
+            client = next(iter(user_clients.values()))
+
+    if not client:
+        raise HTTPException(status_code=404, detail=f"No active client for '{account_name}'")
+
+    try:
+        me = await client.get_me()
+        if not me:
+            raise HTTPException(status_code=404, detail="Could not fetch profile")
+
+        # Get full user info (includes bio)
+        from telethon.tl.functions.users import GetFullUserRequest
+        full = await client(GetFullUserRequest(me))
+        bio = ""
+        try:
+            bio = full.full_user.about or ""
+        except Exception:
+            pass
+
+        # Check if profile photo exists
+        has_photo = bool(getattr(me, "photo", None))
+
+        return {
+            "id": me.id,
+            "first_name": me.first_name or "",
+            "last_name": me.last_name or "",
+            "username": me.username or "",
+            "phone": me.phone or "",
+            "bio": bio,
+            "dc_id": getattr(me, "photo", None) and getattr(me.photo, "dc_id", None),
+            "premium": getattr(me, "premium", False),
+            "verified": getattr(me, "verified", False),
+            "has_photo": has_photo,
+            "account_name": account_name,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching profile for {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

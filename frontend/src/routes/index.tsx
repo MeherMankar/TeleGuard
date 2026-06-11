@@ -296,6 +296,7 @@ function TelegramChatList() {
               <DialogItem
                 key={dialog.id}
                 dialog={dialog}
+                accountName={activeAccount.name}
                 onClick={() =>
                   navigate({
                     to: "/chat/$chatId",
@@ -315,23 +316,41 @@ function TelegramChatList() {
   )
 }
 
-function DialogItem({ dialog, onClick }: { dialog: Dialog; onClick: () => void }) {
-  const colors = ["bg-pink-500", "bg-green-500", "bg-blue-500", "bg-purple-500", "bg-amber-500", "bg-rose-600", "bg-cyan-500", "bg-indigo-500"]
-  const avatarColor = colors[Math.abs(dialog.id) % colors.length]
+function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountName: string; onClick: () => void }) {
+  const colors = ["bg-pink-500", "bg-green-500", "bg-blue-600", "bg-purple-500", "bg-amber-500", "bg-rose-600", "bg-cyan-600", "bg-indigo-500"]
   const displayName = dialog.name || dialog.title || "Unknown"
+  const initial = displayName.charAt(0).toUpperCase()
+  const color = colors[Math.abs(dialog.id) % colors.length]
   const lastMsgText = dialog.last_message?.text
   const lastMsgTime = dialog.last_message?.date
     ? formatDistanceToNow(new Date(dialog.last_message.date), { addSuffix: false })
     : ""
+  const [imgError, setImgError] = useState(false)
+  const photoUrl = accountName && dialog.has_photo
+    ? chatsApi.photoUrl(accountName, dialog.entity_id)
+    : null
 
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
     >
-      <div className={cn("w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg flex-shrink-0", avatarColor)}>
-        {displayName.charAt(0).toUpperCase()}
-      </div>
+      {/* Avatar */}
+      {photoUrl && !imgError ? (
+        <img
+          src={photoUrl}
+          alt={displayName}
+          onError={() => setImgError(true)}
+          className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+          loading="lazy"
+        />
+      ) : (
+        <div className={cn("w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg flex-shrink-0", color)}>
+          {initial}
+        </div>
+      )}
+
+      {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-0.5">
           <p className="text-white font-medium text-[15px] truncate">{displayName}</p>
@@ -340,7 +359,11 @@ function DialogItem({ dialog, onClick }: { dialog: Dialog; onClick: () => void }
         <div className="flex items-center justify-between">
           <p className="text-gray-400 text-sm truncate flex-1">
             {dialog.last_message?.out && <span className="text-[#2AABEE] mr-1">You:</span>}
-            {lastMsgText ?? (dialog.is_channel ? "Channel" : dialog.is_group ? "Group" : "")}
+            {lastMsgText ?? (
+              dialog.last_message?.media_type
+                ? <span className="capitalize">{dialog.last_message.media_type}</span>
+                : dialog.is_channel ? "Channel" : dialog.is_group ? "Group" : ""
+            )}
           </p>
           {dialog.unread_count > 0 && (
             <span className="ml-2 min-w-[20px] h-5 rounded-full bg-[#2AABEE] text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0">
