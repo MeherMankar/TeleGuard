@@ -194,7 +194,8 @@ function TelegramChatList() {
     queryKey: ["dialogs", activeAccount?.name],
     queryFn: () => chatsApi.dialogs(activeAccount!.name, 100),
     enabled: !!activeAccount,
-    staleTime: 15_000,
+    staleTime: 0,
+    retry: false,
   })
 
   // Fetch real Telegram folders

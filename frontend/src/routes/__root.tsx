@@ -31,6 +31,15 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error)
   const router = useRouter()
+  const { queryClient } = Route.useRouteContext()
+
+  const handleReset = () => {
+    // Clear ALL cached query data — forces fresh fetches after error
+    queryClient.clear()
+    router.invalidate()
+    reset()
+  }
+
   return (
     <div className="dark flex min-h-screen items-center justify-center bg-[#17212b] px-4">
       <div className="max-w-md text-center">
@@ -38,7 +47,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <p className="mt-2 text-sm text-gray-400">{error.message}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
-            onClick={() => { router.invalidate(); reset() }}
+            onClick={handleReset}
             className="inline-flex items-center justify-center rounded-md bg-[#2AABEE] px-4 py-2 text-sm font-medium text-white"
           >
             Try again
