@@ -193,6 +193,7 @@ export interface Dialog {
   pinned: boolean
   has_photo: boolean
   entity_id: number
+  status: string | null  // "online", "last seen Xm ago", "last seen recently", etc.
 }
 
 export interface Message {
@@ -263,6 +264,11 @@ export const chatsApi = {
     const base = `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`
     return token ? `${base}?token=${encodeURIComponent(token)}` : base
   },
+  /** Get real-time online/last-seen status for a user */
+  userStatus: (accountName: string, entityId: number) =>
+    get<{ entity_id: number; status: string | null; is_online: boolean }>(
+      `/api/chats/status/${encodeURIComponent(accountName)}/${entityId}`,
+    ),
   // ── Folders ──────────────────────────────────────────────────────────────
   folders: (accountName: string) =>
     get<ChatFolder[]>(`/api/chats/folders/${encodeURIComponent(accountName)}`),

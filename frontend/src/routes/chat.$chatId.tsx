@@ -63,6 +63,20 @@ function ChatPage() {
   })
 
   const dialog = dialogs.find((d) => String(d.id) === chatId) as Dialog | undefined
+  const isPrivate = dialog?.is_user ?? false
+
+  // Poll status every 30s for private chats
+  const { data: statusData } = useQuery({
+    queryKey: ["user-status", effectiveAccount, chatId],
+    queryFn: () => chatsApi.userStatus(effectiveAccount, parseInt(chatId)),
+    enabled: !!effectiveAccount && isPrivate,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+
+  // Use dialog status as initial value, then live status from poll
+  const userStatus = statusData?.status ?? dialog?.status ?? null
+  const isOnline = statusData?.is_online ?? userStatus === "online"
 
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ["messages", effectiveAccount, chatId],
@@ -113,10 +127,18 @@ function ChatPage() {
   const isGroup = dialog?.is_group ?? false
   const entityId = dialog?.entity_id ?? parseInt(chatId)
 
-  // Profile photo URL (proxied through backend)
   const photoUrl = effectiveAccount && dialog?.has_photo
     ? chatsApi.photoUrl(effectiveAccount, entityId)
     : null
+
+  // Status display string
+  const statusDisplay = isPrivate
+    ? (isOnline ? "online" : userStatus ?? "")
+    : isGroup
+    ? "group"
+    : isChannel
+    ? "channel"
+    : ""
 
   return (
     <div className="dark">
@@ -127,17 +149,21 @@ function ChatPage() {
             <ArrowLeft className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Avatar — uses real photo or colored initial */}
-            <EntityAvatar
-              name={displayName}
-              photoUrl={photoUrl}
-              size={10}
-              className="flex-shrink-0"
-            />
+            {/* Avatar with live online indicator */}
+            <div className="relative flex-shrink-0">
+              <EntityAvatar
+                name={displayName}
+                photoUrl={photoUrl}
+                size={10}
+              />
+              {isOnline && (
+                <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-400 border-2 border-card" />
+              )}
+            </div>
             <div className="min-w-0">
               <p className="text-[15px] font-semibold text-foreground truncate">{displayName}</p>
-              <p className="text-xs text-muted-foreground">
-                {isChannel ? "channel" : isGroup ? "group" : "private chat"}
+              <p className={cn("text-xs truncate", isOnline ? "text-green-400" : "text-muted-foreground")}>
+                {statusDisplay || (isChannel ? "channel" : isGroup ? "group" : "private chat")}
               </p>
             </div>
           </div>

@@ -440,20 +440,25 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
     >
-      {/* Avatar */}
-      {photoUrl && !imgError ? (
-        <img
-          src={photoUrl}
-          alt={displayName}
-          onError={() => setImgError(true)}
-          className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-          loading="lazy"
-        />
-      ) : (
-        <div className={cn("w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg flex-shrink-0", color)}>
-          {initial}
-        </div>
-      )}
+      {/* Avatar with online dot */}
+      <div className="relative flex-shrink-0">
+        {photoUrl && !imgError ? (
+          <img
+            src={photoUrl}
+            alt={displayName}
+            onError={() => setImgError(true)}
+            className="w-12 h-12 rounded-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className={cn("w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg", color)}>
+            {initial}
+          </div>
+        )}
+        {dialog.status === "online" && (
+          <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-green-400 border-2 border-[#17212b]" />
+        )}
+      </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
@@ -463,11 +468,17 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
         </div>
         <div className="flex items-center justify-between">
           <p className="text-gray-400 text-sm truncate flex-1">
-            {dialog.last_message?.out && <span className="text-[#2AABEE] mr-1">You:</span>}
-            {lastMsgText ?? (
-              dialog.last_message?.media_type
-                ? <span className="capitalize">{dialog.last_message.media_type}</span>
-                : dialog.is_channel ? "Channel" : dialog.is_group ? "Group" : ""
+            {dialog.is_user && dialog.status && dialog.status !== "online" ? (
+              <span className="text-gray-500 text-xs">{dialog.status}</span>
+            ) : (
+              <>
+                {dialog.last_message?.out && <span className="text-[#2AABEE] mr-1">You:</span>}
+                {lastMsgText ?? (
+                  dialog.last_message?.media_type
+                    ? <span className="capitalize">{dialog.last_message.media_type}</span>
+                    : dialog.is_channel ? "Channel" : dialog.is_group ? "Group" : ""
+                )}
+              </>
             )}
           </p>
           {dialog.unread_count > 0 && (

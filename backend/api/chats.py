@@ -34,6 +34,54 @@ def _safe_str(v) -> Optional[str]:
         return None
 
 
+def _extract_user_status(entity) -> Optional[str]:
+    """
+    Extract human-readable online/last-seen status from a Telegram entity.
+    Returns: "online", "recently", "last_week", "last_month", "long_ago",
+             "never", "within_X_seconds/minutes/hours/days", or None for non-users.
+    """
+    from telethon.tl.types import (
+        UserStatusOnline, UserStatusOffline, UserStatusRecently,
+        UserStatusLastWeek, UserStatusLastMonth, UserStatusEmpty,
+    )
+    from datetime import datetime, timezone
+
+    status = getattr(entity, "status", None)
+    if status is None:
+        return None
+
+    if isinstance(status, UserStatusOnline):
+        return "online"
+    elif isinstance(status, UserStatusOffline):
+        # was_online is a datetime
+        was = getattr(status, "was_online", None)
+        if was:
+            if was.tzinfo is None:
+                was = was.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            diff = int((now - was).total_seconds())
+            if diff < 60:
+                return f"last seen {diff}s ago"
+            elif diff < 3600:
+                return f"last seen {diff // 60}m ago"
+            elif diff < 86400:
+                return f"last seen {diff // 3600}h ago"
+            elif diff < 86400 * 7:
+                return f"last seen {diff // 86400}d ago"
+            else:
+                return "last seen long ago"
+        return "offline"
+    elif isinstance(status, UserStatusRecently):
+        return "last seen recently"
+    elif isinstance(status, UserStatusLastWeek):
+        return "last seen last week"
+    elif isinstance(status, UserStatusLastMonth):
+        return "last seen last month"
+    elif isinstance(status, UserStatusEmpty):
+        return None
+    return None
+
+
 # ── Client resolver ───────────────────────────────────────────────────────────
 
 def _get_bot_manager():
@@ -406,8 +454,8 @@ async def get_dialogs(
                 "last_message": last_message,
                 "pinned": dialog.pinned,
                 "has_photo": has_photo,
-                # Frontend uses this to build the photo URL
                 "entity_id": dialog.id,
+                "status": _extract_user_status(entity) if dialog.is_user else None,
             })
         return dialogs
     except Exception as e:
@@ -483,7 +531,50 @@ async def get_chat_history(
     except Exception as e:
         logger.error(f"Error fetching history for {chat_id} on {account_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-# ── Chat Folders (Dialog Filters) ─────────────────────────────────────────────
+# ── User status ───────────────────────────────────────────────────────────────
+
+@router.get("/status/{account_name}/{entity_id}")
+async def get_user_status(
+    account_name: str,
+    entity_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Get real-time online/last-seen status for a user.
+    Only works for private chats (users) — groups/channels return null.
+    """
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="No active client")
+
+    try:
+        try:
+            entity = await client.get_entity(entity_id)
+        except Exception:
+            if entity_id > 0:
+                try:
+                    entity = await client.get_entity(-entity_id)
+                except Exception:
+                    raise HTTPException(status_code=404, detail="Entity not found")
+            else:
+                raise HTTPException(status_code=404, detail="Entity not found")
+
+        status = _extract_user_status(entity)
+        is_online = status == "online"
+
+        return {
+            "entity_id": entity_id,
+            "status": status,
+            "is_online": is_online,
+            "username": getattr(entity, "username", None),
+            "first_name": _safe_str(getattr(entity, "first_name", None)),
+            "last_name": _safe_str(getattr(entity, "last_name", None)),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug(f"Status fetch failed for {entity_id}: {e}")
+        raise HTTPException(status_code=404, detail="Status unavailable")
 
 @router.get("/folders/{account_name}")
 async def get_folders(
@@ -524,7 +615,7 @@ async def get_folders(
                     "included_peers": [],
                     "excluded_peers": [],
                 })
-            elif isinstance(f, DialogFilter):
+            if isinstance(f, DialogFilter):
                 # Build list of included peer IDs
                 included = []
                 for peer in getattr(f, "include_peers", []):
@@ -542,9 +633,16 @@ async def get_folders(
                     if pid:
                         excluded.append(int(pid))
 
+                # title can be a TextWithEntities object — extract plain text
+                raw_title = f.title
+                if hasattr(raw_title, "text"):
+                    title_str = str(raw_title.text or "")
+                else:
+                    title_str = str(raw_title or "")
+
                 folders.append({
                     "id": f.id,
-                    "title": f.title,
+                    "title": title_str,
                     "emoji": getattr(f, "emoticon", None),
                     "is_default": False,
                     "contacts": getattr(f, "contacts", False),
