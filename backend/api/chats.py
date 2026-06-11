@@ -578,38 +578,35 @@ async def create_folder(
 
     try:
         from telethon.tl.functions.messages import UpdateDialogFilterRequest
-        from telethon.tl.types import (
-            DialogFilter,
-            InputPeerEmpty,
-        )
+        from telethon.tl.types import DialogFilter, TextWithEntities
         import random
 
         folder_id = int(payload.get("id") or random.randint(2, 255))
-        title = str(payload.get("title", "New Folder"))
+        title_str = str(payload.get("title", "New Folder"))
         emoticon = payload.get("emoji") or None
 
-        # Telethon requires non-None lists — use InputPeerEmpty() as placeholder
-        # when there are no specific peers to include/exclude
+        # Telethon 1.41+ requires TextWithEntities for title
+        title_obj = TextWithEntities(text=title_str, entities=[])
+
         dialog_filter = DialogFilter(
             id=folder_id,
-            title=title,
+            title=title_obj,
             emoticon=emoticon,
-            contacts=bool(payload.get("contacts", False)),
-            non_contacts=bool(payload.get("non_contacts", False)),
-            groups=bool(payload.get("groups", False)),
-            broadcasts=bool(payload.get("broadcasts", False)),
-            bots=bool(payload.get("bots", False)),
-            exclude_muted=bool(payload.get("exclude_muted", False)),
-            exclude_read=bool(payload.get("exclude_read", False)),
-            exclude_archived=bool(payload.get("exclude_archived", False)),
-            # These MUST be valid lists of InputPeer — empty list is fine
+            contacts=bool(payload.get("contacts", False)) or None,
+            non_contacts=bool(payload.get("non_contacts", False)) or None,
+            groups=bool(payload.get("groups", False)) or None,
+            broadcasts=bool(payload.get("broadcasts", False)) or None,
+            bots=bool(payload.get("bots", False)) or None,
+            exclude_muted=bool(payload.get("exclude_muted", False)) or None,
+            exclude_read=bool(payload.get("exclude_read", False)) or None,
+            exclude_archived=bool(payload.get("exclude_archived", False)) or None,
             include_peers=[],
             exclude_peers=[],
             pinned_peers=[],
         )
 
         await client(UpdateDialogFilterRequest(id=folder_id, filter=dialog_filter))
-        return {"status": "success", "id": folder_id, "title": title}
+        return {"status": "success", "id": folder_id, "title": title_str}
     except Exception as e:
         logger.error(f"Error creating folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -621,13 +618,8 @@ async def create_preset_folders(
     user_id: int = Depends(get_current_user_id),
 ):
     """
-    Create the standard preset folders:
-    - Personal (contacts DMs)
-    - Groups
-    - Channels
-    - Bots
-    - Admin (groups/channels where user is admin/owner)
-    - Unread
+    Create ALL preset folders at once.
+    Each preset is created as a separate Telegram dialog filter.
     """
     client = await _resolve_client(user_id, account_name)
     if not client:
@@ -635,48 +627,33 @@ async def create_preset_folders(
 
     try:
         from telethon.tl.functions.messages import UpdateDialogFilterRequest
-        from telethon.tl.types import DialogFilter
+        from telethon.tl.types import DialogFilter, TextWithEntities
 
         presets = [
-            {"id": 2, "title": "Personal",  "emoji": "👤", "contacts": True,  "non_contacts": False, "groups": False, "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
-            {"id": 3, "title": "Groups",    "emoji": "👥", "contacts": False, "non_contacts": False, "groups": True,  "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
-            {"id": 4, "title": "Channels",  "emoji": "📢", "contacts": False, "non_contacts": False, "groups": False, "broadcasts": True,  "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
-            {"id": 5, "title": "Bots",      "emoji": "🤖", "contacts": False, "non_contacts": False, "groups": False, "broadcasts": False, "bots": True,  "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
-            {"id": 6, "title": "Unread",    "emoji": "🔔", "contacts": True,  "non_contacts": True,  "groups": True,  "broadcasts": True,  "bots": True,  "exclude_muted": False, "exclude_read": True,  "exclude_archived": True},
+            {"id": 2, "title": "Personal",  "contacts": True,  "non_contacts": False, "groups": False, "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
+            {"id": 3, "title": "Groups",    "contacts": False, "non_contacts": False, "groups": True,  "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
+            {"id": 4, "title": "Channels",  "contacts": False, "non_contacts": False, "groups": False, "broadcasts": True,  "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
+            {"id": 5, "title": "Bots",      "contacts": False, "non_contacts": False, "groups": False, "broadcasts": False, "bots": True,  "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
+            {"id": 6, "title": "Unread",    "contacts": True,  "non_contacts": True,  "groups": True,  "broadcasts": True,  "bots": True,  "exclude_muted": False, "exclude_read": True,  "exclude_archived": True},
         ]
 
-        # Admin folder — detect chats where user is admin
-        # Get all dialogs, filter for admin/creator status
-        admin_peers = []
-        try:
-            async for dialog in client.iter_dialogs(limit=500):
-                entity = dialog.entity
-                participant = getattr(entity, "admin_rights", None) or \
-                              getattr(entity, "creator", False)
-                if participant:
-                    from telethon.utils import get_input_peer
-                    try:
-                        admin_peers.append(get_input_peer(entity))
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning(f"Could not fetch admin peers: {e}")
-
         created = []
+        failed = []
         for p in presets:
             try:
+                title_obj = TextWithEntities(text=p["title"], entities=[])
                 df = DialogFilter(
                     id=p["id"],
-                    title=p["title"],
-                    emoticon=p["emoji"],
-                    contacts=p["contacts"],
-                    non_contacts=p["non_contacts"],
-                    groups=p["groups"],
-                    broadcasts=p["broadcasts"],
-                    bots=p["bots"],
-                    exclude_muted=p["exclude_muted"],
-                    exclude_read=p["exclude_read"],
-                    exclude_archived=p["exclude_archived"],
+                    title=title_obj,
+                    emoticon=None,
+                    contacts=p["contacts"] or None,
+                    non_contacts=p["non_contacts"] or None,
+                    groups=p["groups"] or None,
+                    broadcasts=p["broadcasts"] or None,
+                    bots=p["bots"] or None,
+                    exclude_muted=p["exclude_muted"] or None,
+                    exclude_read=p["exclude_read"] or None,
+                    exclude_archived=p["exclude_archived"] or None,
                     include_peers=[],
                     exclude_peers=[],
                     pinned_peers=[],
@@ -685,32 +662,45 @@ async def create_preset_folders(
                 created.append(p["title"])
             except Exception as e:
                 logger.warning(f"Failed to create preset '{p['title']}': {e}")
+                failed.append({"title": p["title"], "error": str(e)})
 
-        # Admin folder with real peer list
-        if admin_peers:
-            try:
+        # Admin folder — chats where user is admin
+        try:
+            admin_peers = []
+            from telethon.utils import get_input_peer
+            async for dialog in client.iter_dialogs(limit=300):
+                entity = dialog.entity
+                if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
+                    try:
+                        admin_peers.append(get_input_peer(entity))
+                    except Exception:
+                        pass
+
+            if admin_peers:
+                title_obj = TextWithEntities(text="Admin", entities=[])
                 admin_df = DialogFilter(
                     id=7,
-                    title="Admin",
-                    emoticon="👑",
-                    contacts=False,
-                    non_contacts=False,
-                    groups=False,
-                    broadcasts=False,
-                    bots=False,
-                    exclude_muted=False,
-                    exclude_read=False,
-                    exclude_archived=False,
+                    title=title_obj,
+                    emoticon=None,
+                    contacts=None,
+                    non_contacts=None,
+                    groups=None,
+                    broadcasts=None,
+                    bots=None,
+                    exclude_muted=None,
+                    exclude_read=None,
+                    exclude_archived=None,
                     include_peers=admin_peers[:100],
                     exclude_peers=[],
                     pinned_peers=[],
                 )
                 await client(UpdateDialogFilterRequest(id=7, filter=admin_df))
                 created.append("Admin")
-            except Exception as e:
-                logger.warning(f"Failed to create Admin folder: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to create Admin folder: {e}")
+            failed.append({"title": "Admin", "error": str(e)})
 
-        return {"status": "success", "created": created}
+        return {"status": "success", "created": created, "failed": failed}
     except Exception as e:
         logger.error(f"Error creating preset folders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
