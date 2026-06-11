@@ -220,7 +220,29 @@ export interface Message {
   silent: boolean
 }
 
+export interface ChatFolder {
+  id: number
+  title: string
+  emoji: string | null
+  is_default: boolean
+  contacts: boolean
+  non_contacts: boolean
+  groups: boolean
+  broadcasts: boolean
+  bots: boolean
+  exclude_muted: boolean
+  exclude_read: boolean
+  exclude_archived: boolean
+  included_peers: number[]
+  excluded_peers: number[]
+}
+
 const API_URL_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080"
+
+function getPhotoToken(): string {
+  if (typeof window === "undefined") return ""
+  return localStorage.getItem("tg_token") ?? ""
+}
 
 export const chatsApi = {
   dialogs: (accountName: string, limit = 50) =>
@@ -229,12 +251,28 @@ export const chatsApi = {
     get<Message[]>(
       `/api/chats/history/${encodeURIComponent(accountName)}/${chatId}?limit=${limit}`,
     ),
-  /** Returns a URL to proxy the entity's profile photo via the backend */
-  photoUrl: (accountName: string, entityId: number): string =>
-    `${API_URL_BASE}/api/chats/photo/${encodeURIComponent(accountName)}/${entityId}`,
-  /** Returns a URL to proxy a message's media (thumbnail or file) */
-  mediaUrl: (accountName: string, chatId: number, messageId: number): string =>
-    `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`,
+  /** Returns a URL to proxy the entity's profile photo — includes JWT so <img> works */
+  photoUrl: (accountName: string, entityId: number): string => {
+    const token = getPhotoToken()
+    const base = `${API_URL_BASE}/api/chats/photo/${encodeURIComponent(accountName)}/${entityId}`
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base
+  },
+  /** Returns a URL to proxy a message's media thumbnail/file */
+  mediaUrl: (accountName: string, chatId: number, messageId: number): string => {
+    const token = getPhotoToken()
+    const base = `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base
+  },
+  // ── Folders ──────────────────────────────────────────────────────────────
+  folders: (accountName: string) =>
+    get<ChatFolder[]>(`/api/chats/folders/${encodeURIComponent(accountName)}`),
+  createFolder: (accountName: string, folder: Partial<ChatFolder>) =>
+    post<{ status: string; id: number; title: string }>(
+      `/api/chats/folders/${encodeURIComponent(accountName)}`,
+      folder,
+    ),
+  deleteFolder: (accountName: string, folderId: number) =>
+    del<{ status: string }>(`/api/chats/folders/${encodeURIComponent(accountName)}/${folderId}`),
 }
 
 // ─── Messaging ───────────────────────────────────────────────────────────────

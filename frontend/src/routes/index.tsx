@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { SearchHeader } from "@/components/telegram/search-header"
-import { FilterTabs } from "@/components/telegram/filter-tabs"
 import { FabButton } from "@/components/telegram/fab-button"
 import { Sidebar } from "@/components/telegram/sidebar"
 import { ProfilePage } from "@/components/telegram/profile-page"
@@ -18,12 +17,13 @@ import { AutomationPage } from "@/components/telegram/automation-page"
 import { SessionManagerPage } from "@/components/telegram/session-manager-page"
 import { DashboardPage } from "@/components/telegram/dashboard-page"
 import { ProxyManagerPage } from "@/components/telegram/proxy-manager-page"
+import { ChatFoldersPage } from "@/components/telegram/chat-folders-page"
 import { Toaster } from "@/components/ui/sonner"
 import { useAuth } from "@/hooks/use-auth"
-import { authApi, chatsApi, type Dialog } from "@/lib/api"
+import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
 import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { Loader2, MessageSquare } from "lucide-react"
+import { Loader2, MessageSquare, FolderOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 
@@ -163,7 +163,6 @@ function TelegramChatList() {
   const { activeAccount } = useUser()
 
   const [searchValue, setSearchValue] = useState("")
-  const [activeTab, setActiveTab] = useState("all")
   const [activeNavTab, setActiveNavTab] = useState<"chats" | "contacts" | "settings" | "profile">("chats")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
@@ -177,12 +176,21 @@ function TelegramChatList() {
   const [isSessionManagerOpen, setIsSessionManagerOpen] = useState(false)
   const [isDashboardOpen, setIsDashboardOpen] = useState(false)
   const [isProxyManagerOpen, setIsProxyManagerOpen] = useState(false)
+  const [isChatFoldersOpen, setIsChatFoldersOpen] = useState(false)
 
   const { data: dialogs = [], isLoading: dialogsLoading } = useQuery({
     queryKey: ["dialogs", activeAccount?.name],
     queryFn: () => chatsApi.dialogs(activeAccount!.name, 100),
     enabled: !!activeAccount,
     staleTime: 15_000,
+  })
+
+  // Fetch real Telegram folders
+  const { data: folders = [] } = useQuery({
+    queryKey: ["folders", activeAccount?.name],
+    queryFn: () => chatsApi.folders(activeAccount!.name),
+    enabled: !!activeAccount,
+    staleTime: 60_000,
   })
 
   useWsEvent(
@@ -199,23 +207,32 @@ function TelegramChatList() {
     else if (tab === "profile") setIsProfileOpen(true)
   }
 
+  const [activeFolder, setActiveFolder] = useState<number>(0) // 0 = All Chats
+
   const filteredDialogs = dialogs.filter((d) => {
     const matchesSearch = !searchValue || d.name?.toLowerCase().includes(searchValue.toLowerCase())
     if (!matchesSearch) return false
-    if (activeTab === "all") return true
-    if (activeTab === "people") return d.is_user
-    if (activeTab === "groups") return d.is_group
+
+    if (activeFolder === 0) return true // All Chats
+
+    const folder = folders.find((f) => f.id === activeFolder)
+    if (!folder) return true
+
+    // Filter by folder rules
+    if (folder.contacts && d.is_user) return true
+    if (folder.non_contacts && d.is_user) return true
+    if (folder.groups && d.is_group) return true
+    if (folder.broadcasts && d.is_channel) return true
+    if (folder.bots && d.is_user) return true // bots are users too
+    if (folder.included_peers.includes(Math.abs(d.id))) return true
+
+    // If folder has type rules, exclude non-matching
+    const hasTypeRules = folder.contacts || folder.non_contacts || folder.groups || folder.broadcasts || folder.bots
+    if (hasTypeRules || folder.included_peers.length > 0) return false
     return true
   })
 
   const totalUnread = dialogs.reduce((sum, d) => sum + (d.unread_count ?? 0), 0)
-
-  const tabsWithCounts = [
-    { id: "all", icon: "all" as const, count: totalUnread },
-    { id: "people", icon: "people" as const, count: dialogs.filter((d) => d.is_user && d.unread_count > 0).length },
-    { id: "groups", icon: "groups" as const, count: dialogs.filter((d) => d.is_group && d.unread_count > 0).length },
-    { id: "bots", icon: "bots" as const, count: 0 },
-  ]
 
   return (
     <div className="dark">
@@ -234,6 +251,7 @@ function TelegramChatList() {
           onSessionManagerClick={() => setIsSessionManagerOpen(true)}
           onDashboardClick={() => setIsDashboardOpen(true)}
           onProxyManagerClick={() => setIsProxyManagerOpen(true)}
+          onChatFoldersClick={() => setIsChatFoldersOpen(true)}
         />
 
         <SettingsPage isOpen={isSettingsOpen} onClose={() => { setIsSettingsOpen(false); setActiveNavTab("chats") }} />
@@ -246,6 +264,7 @@ function TelegramChatList() {
         <SessionManagerPage isOpen={isSessionManagerOpen} onClose={() => setIsSessionManagerOpen(false)} />
         <DashboardPage isOpen={isDashboardOpen} onClose={() => setIsDashboardOpen(false)} />
         <ProxyManagerPage isOpen={isProxyManagerOpen} onClose={() => setIsProxyManagerOpen(false)} />
+        <ChatFoldersPage isOpen={isChatFoldersOpen} onClose={() => setIsChatFoldersOpen(false)} />
 
         <AuthFlow
           isOpen={isAuthFlowOpen}
@@ -263,7 +282,67 @@ function TelegramChatList() {
           title={activeAccount?.name ?? "TeleGuard"}
         />
 
-        <FilterTabs tabs={tabsWithCounts} activeTab={activeTab} onTabChange={setActiveTab} />
+        {/* Dynamic folder tabs — from real Telegram API */}
+        {folders.length > 0 && (
+          <div className="flex gap-1 px-2 py-2 overflow-x-auto scrollbar-hide border-b border-[#242f3d]">
+            {folders.map((folder) => {
+              const unread = folder.id === 0
+                ? totalUnread
+                : dialogs.filter((d) =>
+                    d.unread_count > 0 && (
+                      folder.groups && d.is_group ||
+                      folder.broadcasts && d.is_channel ||
+                      folder.contacts && d.is_user ||
+                      folder.included_peers.includes(Math.abs(d.id))
+                    )
+                  ).reduce((s, d) => s + d.unread_count, 0)
+
+              return (
+                <button
+                  key={folder.id}
+                  onClick={() => setActiveFolder(folder.id)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0",
+                    activeFolder === folder.id
+                      ? "bg-[#2AABEE] text-white"
+                      : "bg-[#242f3d] text-gray-400 hover:text-white",
+                  )}
+                >
+                  {folder.emoji && <span>{folder.emoji}</span>}
+                  <span>{folder.title}</span>
+                  {unread > 0 && (
+                    <span className={cn(
+                      "text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                      activeFolder === folder.id ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
+                    )}>
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+            {/* Edit folders button */}
+            <button
+              onClick={() => setIsChatFoldersOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-gray-500 hover:text-[#2AABEE] bg-[#242f3d] transition-colors flex-shrink-0"
+            >
+              <FolderOpen className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* No folders yet — show edit button */}
+        {activeAccount && folders.length === 0 && !dialogsLoading && (
+          <div className="px-4 py-2 flex items-center gap-2">
+            <button
+              onClick={() => setIsChatFoldersOpen(true)}
+              className="flex items-center gap-2 text-gray-500 hover:text-[#2AABEE] text-sm transition-colors"
+            >
+              <FolderOpen className="h-4 w-4" />
+              <span>Create chat folders</span>
+            </button>
+          </div>
+        )}
 
         {!activeAccount && (
           <div className="flex flex-col items-center justify-center py-20 px-6 text-center">

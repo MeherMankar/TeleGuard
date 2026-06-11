@@ -493,8 +493,12 @@ async def get_profile(account_name: str, user_id: int = Depends(get_current_user
         except Exception:
             pass
 
-        # Check if profile photo exists
-        has_photo = bool(getattr(me, "photo", None))
+        # Robust photo check — works for User, UserProfilePhoto, ChatPhoto etc.
+        entity_photo = getattr(me, "photo", None)
+        has_photo = (
+            entity_photo is not None and
+            "Empty" not in type(entity_photo).__name__
+        )
 
         return {
             "id": me.id,

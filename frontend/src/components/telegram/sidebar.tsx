@@ -21,6 +21,7 @@ import {
   Wifi,
   WifiOff,
   Loader2,
+  FolderOpen,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/contexts/user-context"
@@ -45,6 +46,7 @@ interface SidebarProps {
   onSessionManagerClick: () => void
   onDashboardClick: () => void
   onProxyManagerClick: () => void
+  onChatFoldersClick: () => void
 }
 
 const navItems = [
@@ -61,6 +63,7 @@ const navItems = [
   { icon: Zap, label: "Automation", action: "automation" },
   { icon: KeyRound, label: "Session Manager", action: "sessions" },
   { icon: Globe, label: "Proxy Manager", action: "proxy" },
+  { icon: FolderOpen, label: "Chat Folders", action: "folders" },
   { icon: Megaphone, label: "New Channel", action: null },
 ]
 
@@ -78,6 +81,7 @@ export function Sidebar({
   onSessionManagerClick,
   onDashboardClick,
   onProxyManagerClick,
+  onChatFoldersClick,
 }: SidebarProps) {
   const { profile, accounts, activeAccount, setActiveAccount } = useUser()
   const { user } = useAuth()
@@ -142,6 +146,7 @@ export function Sidebar({
         case "sessions": onSessionManagerClick(); break
         case "dashboard": onDashboardClick(); break
         case "proxy": onProxyManagerClick(); break
+        case "folders": onChatFoldersClick(); break
       }
     }, 320)
   }

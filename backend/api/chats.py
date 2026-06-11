@@ -242,23 +242,38 @@ async def get_entity_photo(
 ):
     """
     Download and proxy a Telegram entity's profile photo.
-    entity_id can be a user ID, chat ID, or channel ID.
-    Returns the image bytes with correct content-type.
+    JWT accepted via Authorization header OR ?token= query param (for <img> tags).
     """
     client = await _resolve_client(user_id, account_name)
     if not client:
         raise HTTPException(status_code=404, detail="No active client")
 
     try:
-        entity = await client.get_entity(entity_id)
-        photo_bytes = await client.download_profile_photo(entity, bytes)
+        try:
+            entity = await client.get_entity(entity_id)
+        except Exception:
+            if entity_id > 0:
+                try:
+                    entity = await client.get_entity(-entity_id)
+                except Exception:
+                    raise HTTPException(status_code=404, detail="Entity not found")
+            else:
+                raise HTTPException(status_code=404, detail="Entity not found")
+
+        photo_bytes = await client.download_profile_photo(entity, file=bytes)
+
         if not photo_bytes:
             raise HTTPException(status_code=404, detail="No profile photo")
-        return Response(content=photo_bytes, media_type="image/jpeg")
+
+        return Response(
+            content=photo_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.debug(f"Profile photo fetch failed for {entity_id}: {e}")
+        logger.debug(f"Profile photo fetch failed for entity {entity_id}: {e}")
         raise HTTPException(status_code=404, detail="Photo unavailable")
 
 
@@ -346,11 +361,16 @@ async def get_dialogs(
                     if dialog.message.media else None,
                 }
 
-            # Check if entity has a photo
-            has_photo = bool(
-                getattr(entity, "photo", None) and
-                getattr(entity.photo, "photo_id", None)
-            )
+            # Robust photo detection for all entity types:
+            # - User/Bot: UserProfilePhoto has photo_id
+            # - Chat/Channel: ChatPhoto has photo_small (different type)
+            # - Empty: UserProfilePhotoEmpty / ChatPhotoEmpty (no real photo)
+            entity_photo = getattr(entity, "photo", None)
+            has_photo = False
+            if entity_photo is not None:
+                photo_type = type(entity_photo).__name__
+                # Any non-empty photo type counts
+                has_photo = "Empty" not in photo_type and photo_type not in ("NoneType",)
 
             dialogs.append({
                 "id": dialog.id,
@@ -438,4 +458,149 @@ async def get_chat_history(
         return messages
     except Exception as e:
         logger.error(f"Error fetching history for {chat_id} on {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Chat Folders (Dialog Filters) ─────────────────────────────────────────────
+
+@router.get("/folders/{account_name}")
+async def get_folders(
+    account_name: str,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Fetch all Telegram chat folders (dialog filters) for an account.
+    These are the real folders the user created in Telegram.
+    """
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        return []
+
+    try:
+        from telethon.tl.functions.messages import GetDialogFiltersRequest
+        from telethon.tl.types import DialogFilter, DialogFilterDefault
+
+        result = await client(GetDialogFiltersRequest())
+        folders = []
+
+        for f in result.filters:
+            if isinstance(f, DialogFilterDefault):
+                # "All Chats" default folder
+                folders.append({
+                    "id": 0,
+                    "title": "All Chats",
+                    "emoji": None,
+                    "is_default": True,
+                    "contacts": False,
+                    "non_contacts": False,
+                    "groups": False,
+                    "broadcasts": False,
+                    "bots": False,
+                    "exclude_muted": False,
+                    "exclude_read": False,
+                    "exclude_archived": False,
+                    "included_peers": [],
+                    "excluded_peers": [],
+                })
+            elif isinstance(f, DialogFilter):
+                # Build list of included peer IDs
+                included = []
+                for peer in getattr(f, "include_peers", []):
+                    pid = getattr(peer, "channel_id", None) or \
+                          getattr(peer, "chat_id", None) or \
+                          getattr(peer, "user_id", None)
+                    if pid:
+                        included.append(int(pid))
+
+                excluded = []
+                for peer in getattr(f, "exclude_peers", []):
+                    pid = getattr(peer, "channel_id", None) or \
+                          getattr(peer, "chat_id", None) or \
+                          getattr(peer, "user_id", None)
+                    if pid:
+                        excluded.append(int(pid))
+
+                folders.append({
+                    "id": f.id,
+                    "title": f.title,
+                    "emoji": getattr(f, "emoticon", None),
+                    "is_default": False,
+                    "contacts": getattr(f, "contacts", False),
+                    "non_contacts": getattr(f, "non_contacts", False),
+                    "groups": getattr(f, "groups", False),
+                    "broadcasts": getattr(f, "broadcasts", False),
+                    "bots": getattr(f, "bots", False),
+                    "exclude_muted": getattr(f, "exclude_muted", False),
+                    "exclude_read": getattr(f, "exclude_read", False),
+                    "exclude_archived": getattr(f, "exclude_archived", False),
+                    "included_peers": included,
+                    "excluded_peers": excluded,
+                })
+
+        return folders
+    except Exception as e:
+        logger.error(f"Error fetching folders for {account_name}: {e}")
+        return []
+
+
+@router.post("/folders/{account_name}")
+async def create_folder(
+    account_name: str,
+    payload: Dict[str, Any],
+    user_id: int = Depends(get_current_user_id),
+):
+    """Create or update a chat folder."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="No active client")
+
+    try:
+        from telethon.tl.functions.messages import UpdateDialogFilterRequest
+        from telethon.tl.types import DialogFilter, InputPeerUser, InputPeerChat, InputPeerChannel
+        import random
+
+        folder_id = payload.get("id") or random.randint(2, 255)
+        title = payload.get("title", "New Folder")
+
+        dialog_filter = DialogFilter(
+            id=folder_id,
+            title=title,
+            emoticon=payload.get("emoji"),
+            contacts=payload.get("contacts", False),
+            non_contacts=payload.get("non_contacts", False),
+            groups=payload.get("groups", False),
+            broadcasts=payload.get("broadcasts", False),
+            bots=payload.get("bots", False),
+            exclude_muted=payload.get("exclude_muted", False),
+            exclude_read=payload.get("exclude_read", False),
+            exclude_archived=payload.get("exclude_archived", False),
+            include_peers=[],
+            exclude_peers=[],
+            pinned_peers=[],
+        )
+
+        await client(UpdateDialogFilterRequest(id=folder_id, filter=dialog_filter))
+        return {"status": "success", "id": folder_id, "title": title}
+    except Exception as e:
+        logger.error(f"Error creating folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/folders/{account_name}/{folder_id}")
+async def delete_folder(
+    account_name: str,
+    folder_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Delete a chat folder."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="No active client")
+
+    try:
+        from telethon.tl.functions.messages import UpdateDialogFilterRequest
+        await client(UpdateDialogFilterRequest(id=folder_id))
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error deleting folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
