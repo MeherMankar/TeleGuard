@@ -396,11 +396,19 @@ async def main() -> None:
         else:
             logger.warning("⚠️ Database health check issues: %s", health)
         
-        # Start web server
-        logger.debug("Starting health check web server")
-        await start_web_server()
-        logger.debug("Web server started")
-        
+        # ── Start FastAPI dashboard server (replaces aiohttp health server) ──
+        # FastAPI handles /health, /ip, AND all /api/* routes on the single PORT
+        try:
+            from backend.main import start_api_server
+            api_task = asyncio.create_task(start_api_server())
+            logger.info("🌐 FastAPI dashboard server starting on port %s", os.getenv("PORT", "8080"))
+            # Give it a moment to bind before bot starts
+            await asyncio.sleep(1)
+        except Exception as api_err:
+            logger.error(f"💥 Dashboard API server failed to start: {api_err}")
+            raise RuntimeError(f"Cannot start API server: {api_err}")
+        # ─────────────────────────────────────────────────────────────────────
+
         # Initialize Koyeb optimization
         if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true':
             logger.debug("Starting Koyeb optimization")
@@ -427,16 +435,6 @@ async def main() -> None:
                 koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
                 print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
                 logger.info("✨ TeleGuard bot ready! Startup completed in %.2f seconds", startup_elapsed)
-
-                # ── Start FastAPI dashboard server alongside the bot ──────────
-                try:
-                    from backend.main import start_api_server
-                    api_task = asyncio.create_task(start_api_server())
-                    logger.info("🌐 Dashboard API server started")
-                except Exception as api_err:
-                    logger.warning(f"⚠️ Dashboard API server failed to start: {api_err}")
-                    api_task = None
-                # ─────────────────────────────────────────────────────────────
 
                 logger.debug("Starting bot main loop")
                 await bot.run()
