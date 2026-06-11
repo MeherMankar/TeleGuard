@@ -271,6 +271,11 @@ export const chatsApi = {
       `/api/chats/folders/${encodeURIComponent(accountName)}`,
       folder,
     ),
+  createPresetFolders: (accountName: string) =>
+    post<{ status: string; created: string[] }>(
+      `/api/chats/folders/${encodeURIComponent(accountName)}/presets`,
+      {},
+    ),
   deleteFolder: (accountName: string, folderId: number) =>
     del<{ status: string }>(`/api/chats/folders/${encodeURIComponent(accountName)}/${folderId}`),
 }

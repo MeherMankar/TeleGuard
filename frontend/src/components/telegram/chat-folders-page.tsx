@@ -54,6 +54,15 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
     onError: (e) => toast.error((e as Error).message),
   })
 
+  const presetMutation = useMutation({
+    mutationFn: () => chatsApi.createPresetFolders(activeAccount!.name),
+    onSuccess: (res) => {
+      toast.success(`Created: ${res.created.join(", ")}`)
+      qc.invalidateQueries({ queryKey: ["folders", activeAccount?.name] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (folderId: number) =>
       chatsApi.deleteFolder(activeAccount!.name, folderId),
@@ -266,15 +275,35 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
 
         {/* Create new folder */}
         {activeAccount && (
-          <button
-            onClick={() => setEditingFolder({ ...DEFAULT_FOLDER })}
-            className="w-full flex items-center gap-4 px-4 py-4 bg-[#242f3d] rounded-xl hover:bg-[#2a3548] transition-colors"
-          >
-            <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
-              <Plus className="h-5 w-5 text-[#2AABEE]" />
-            </div>
-            <span className="text-[#2AABEE] font-medium text-[15px]">Create New Folder</span>
-          </button>
+          <div className="space-y-2">
+            {/* Add smart preset folders */}
+            <button
+              onClick={() => presetMutation.mutate()}
+              disabled={presetMutation.isPending}
+              className="w-full flex items-center gap-4 px-4 py-4 bg-[#242f3d] rounded-xl hover:bg-[#2a3548] transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                {presetMutation.isPending
+                  ? <Loader2 className="h-5 w-5 text-amber-400 animate-spin" />
+                  : <span className="text-lg">⚡</span>
+                }
+              </div>
+              <div className="text-left">
+                <p className="text-amber-400 font-medium text-[15px]">Add Preset Folders</p>
+                <p className="text-gray-500 text-xs">Personal · Groups · Channels · Bots · Admin · Unread</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setEditingFolder({ ...DEFAULT_FOLDER })}
+              className="w-full flex items-center gap-4 px-4 py-4 bg-[#242f3d] rounded-xl hover:bg-[#2a3548] transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
+                <Plus className="h-5 w-5 text-[#2AABEE]" />
+              </div>
+              <span className="text-[#2AABEE] font-medium text-[15px]">Create Custom Folder</span>
+            </button>
+          </div>
         )}
 
         <p className="text-gray-600 text-xs text-center px-4">
