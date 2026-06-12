@@ -449,6 +449,18 @@ async def get_dialogs(
         dialogs = []
         async for dialog in client.iter_dialogs(limit=limit):
             entity = dialog.entity
+            # Extract sender name for groups (name of who sent the last msg)
+            last_sender_name = None
+            if dialog.message and (dialog.is_group or (dialog.is_channel and getattr(entity, "megagroup", False))):
+                try:
+                    sender = await dialog.message.get_sender()
+                    if sender:
+                        fn = _safe_str(getattr(sender, "first_name", "")) or ""
+                        ln = _safe_str(getattr(sender, "last_name", "")) or ""
+                        last_sender_name = f"{fn} {ln}".strip() or _safe_str(getattr(sender, "title", ""))
+                except Exception:
+                    pass
+
             last_message = None
             if dialog.message:
                 last_message = {
@@ -458,6 +470,7 @@ async def get_dialogs(
                     "out": dialog.message.out,
                     "media_type": _extract_media_info(dialog.message).get("type")
                     if dialog.message.media else None,
+                    "sender_name": last_sender_name,
                 }
 
             # Robust photo detection for all entity types:
@@ -471,6 +484,16 @@ async def get_dialogs(
                 # Any non-empty photo type counts
                 has_photo = "Empty" not in photo_type and photo_type not in ("NoneType",)
 
+            # Check muted status
+            is_muted = False
+            try:
+                notify = getattr(dialog, "notify_settings", None)
+                if notify:
+                    mute_until = getattr(notify, "mute_until", None)
+                    is_muted = mute_until is not None and mute_until > 0
+            except Exception:
+                pass
+
             dialogs.append({
                 "id": dialog.id,
                 "name": dialog.name,
@@ -479,11 +502,16 @@ async def get_dialogs(
                 "is_channel": dialog.is_channel and not getattr(entity, "megagroup", False),
                 "is_user": dialog.is_user,
                 "unread_count": dialog.unread_count,
+                "unread_mentions": getattr(dialog, "unread_mentions_count", 0) or 0,
                 "last_message": last_message,
                 "pinned": dialog.pinned,
+                "muted": is_muted,
                 "has_photo": has_photo,
                 "entity_id": dialog.id,
                 "status": _extract_user_status(entity) if dialog.is_user else None,
+                "is_bot": bool(getattr(entity, "bot", False)) if dialog.is_user else False,
+                "verified": bool(getattr(entity, "verified", False)),
+                "participants_count": getattr(entity, "participants_count", None),
             })
         return dialogs
     except Exception as e:

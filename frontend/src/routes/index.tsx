@@ -23,9 +23,8 @@ import { useAuth } from "@/hooks/use-auth"
 import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
 import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder } from "lucide-react"
+import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder, Pin, Check, VolumeX, BadgeCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatDistanceToNow } from "date-fns"
 
 function safeText(v: unknown): string | null {
   if (v === null || v === undefined) return null
@@ -422,70 +421,156 @@ function TelegramChatList() {
 }
 
 function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountName: string; onClick: () => void }) {
-  const colors = ["bg-pink-500", "bg-green-500", "bg-blue-600", "bg-purple-500", "bg-amber-500", "bg-rose-600", "bg-cyan-600", "bg-indigo-500"]
-  const displayName = dialog.name || dialog.title || "Unknown"
-  const initial = displayName.charAt(0).toUpperCase()
-  const color = colors[Math.abs(dialog.id) % colors.length]
-  const lastMsgText = safeText(dialog.last_message?.text)
-  const lastMsgTime = dialog.last_message?.date
-    ? formatDistanceToNow(new Date(dialog.last_message.date), { addSuffix: false })
-    : ""
   const [imgError, setImgError] = useState(false)
+  const displayName = dialog.name || dialog.title || "Unknown"
   const photoUrl = accountName && dialog.has_photo
     ? chatsApi.photoUrl(accountName, dialog.entity_id)
     : null
 
+  // ── Time formatting (Telegram-style) ─────────────────────────────────
+  const timeDisplay = (() => {
+    if (!dialog.last_message?.date) return ""
+    const msgDate = new Date(dialog.last_message.date)
+    const now = new Date()
+    const diffMs = now.getTime() - msgDate.getTime()
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffDays === 0) return msgDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    if (diffDays === 1) return "Yesterday"
+    if (diffDays < 7) return msgDate.toLocaleDateString([], { weekday: "short" })
+    return msgDate.toLocaleDateString([], { day: "numeric", month: "short" })
+  })()
+
+  // ── Message preview text ──────────────────────────────────────────────
+  const mediaIcon = (() => {
+    const t = dialog.last_message?.media_type
+    if (!t) return null
+    const icons: Record<string, string> = {
+      photo: "🖼", video: "🎬", gif: "GIF", sticker: "🎭",
+      voice: "🎤", audio: "🎵", file: "📄", webpage: "🔗",
+    }
+    return icons[t] ?? "📎"
+  })()
+
+  const previewText = safeText(dialog.last_message?.text)
+  const senderName = safeText(dialog.last_message?.sender_name)
+
+  // ── Avatar fallback color ─────────────────────────────────────────────
+  const colors = [
+    "#E53935", "#D81B60", "#8E24AA", "#5E35B1",
+    "#1E88E5", "#00897B", "#43A047", "#FB8C00",
+    "#F4511E", "#6D4C41", "#039BE5", "#00ACC1",
+  ]
+  const color = colors[Math.abs(dialog.id) % colors.length]
+  const initial = displayName.charAt(0).toUpperCase()
+
+  const isOnline = dialog.status === "online"
+
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
+      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 active:bg-white/10 transition-colors text-left"
     >
-      {/* Avatar with online dot */}
+      {/* Avatar */}
       <div className="relative flex-shrink-0">
         {photoUrl && !imgError ? (
           <img
             src={photoUrl}
             alt={displayName}
             onError={() => setImgError(true)}
-            className="w-12 h-12 rounded-full object-cover"
+            className="w-[54px] h-[54px] rounded-full object-cover"
             loading="lazy"
           />
         ) : (
-          <div className={cn("w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg", color)}>
+          <div
+            className="w-[54px] h-[54px] rounded-full flex items-center justify-center text-white font-semibold text-xl"
+            style={{ backgroundColor: color }}
+          >
             {initial}
           </div>
         )}
-        {dialog.status === "online" && (
-          <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-green-400 border-2 border-[#17212b]" />
+        {/* Online dot */}
+        {isOnline && (
+          <span className="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-[#17212b]" />
+        )}
+        {/* Unread mentions badge */}
+        {dialog.unread_mentions > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+            @
+          </span>
         )}
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-0.5">
-          <p className="text-white font-medium text-[15px] truncate">{displayName}</p>
-          <span className="text-gray-400 text-xs flex-shrink-0 ml-2">{lastMsgTime}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <p className="text-gray-400 text-sm truncate flex-1">
-            {dialog.is_user && dialog.status && dialog.status !== "online" ? (
-              <span className="text-gray-500 text-xs">{dialog.status}</span>
-            ) : (
-              <>
-                {dialog.last_message?.out && <span className="text-[#2AABEE] mr-1">You:</span>}
-                {lastMsgText ?? (
-                  dialog.last_message?.media_type
-                    ? <span className="capitalize">{dialog.last_message.media_type}</span>
-                    : dialog.is_channel ? "Channel" : dialog.is_group ? "Group" : ""
-                )}
-              </>
+        {/* Row 1: Name + time */}
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <div className="flex items-center gap-1 min-w-0">
+            {/* Pinned */}
+            {dialog.pinned && <Pin className="h-3 w-3 text-gray-500 flex-shrink-0" />}
+            {/* Chat type icon */}
+            {dialog.is_channel && !dialog.is_group && (
+              <Radio className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
             )}
-          </p>
-          {dialog.unread_count > 0 && (
-            <span className="ml-2 min-w-[20px] h-5 rounded-full bg-[#2AABEE] text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0">
-              {dialog.unread_count > 99 ? "99+" : dialog.unread_count}
+            {dialog.is_group && (
+              <Users className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            )}
+            {dialog.is_bot && (
+              <Bot className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            )}
+            <p className="text-white font-medium text-[15px] truncate leading-tight">
+              {displayName}
+            </p>
+            {dialog.verified && (
+              <BadgeCheck className="h-3.5 w-3.5 text-[#2AABEE] flex-shrink-0" />
+            )}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {dialog.last_message?.out && !dialog.muted && (
+              <Check className="h-3.5 w-3.5 text-gray-500" />
+            )}
+            {dialog.muted && <VolumeX className="h-3 w-3 text-gray-600" />}
+            <span className={cn(
+              "text-xs whitespace-nowrap",
+              dialog.unread_count > 0 && !dialog.muted ? "text-[#2AABEE]" : "text-gray-500",
+            )}>
+              {timeDisplay}
             </span>
-          )}
+          </div>
+        </div>
+
+        {/* Row 2: Preview + unread */}
+        <div className="flex items-center justify-between gap-1">
+          <p className="text-gray-400 text-[13px] truncate flex-1 leading-tight">
+            {/* Sender name in groups */}
+            {senderName && !dialog.last_message?.out && (
+              <span className="text-[#2AABEE] mr-1 font-medium">{senderName}:</span>
+            )}
+            {/* Outgoing indicator */}
+            {dialog.last_message?.out && (
+              <span className="text-gray-500 mr-1">You:</span>
+            )}
+            {/* Media icon */}
+            {mediaIcon && <span className="mr-1">{mediaIcon}</span>}
+            {/* Text preview */}
+            {previewText ? (
+              <span>{previewText}</span>
+            ) : dialog.last_message?.media_type ? (
+              <span className="capitalize text-gray-500">{dialog.last_message.media_type}</span>
+            ) : null}
+          </p>
+
+          {/* Unread badge */}
+          {dialog.unread_count > 0 ? (
+            <span className={cn(
+              "ml-1 min-w-[20px] h-5 rounded-full text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0",
+              dialog.muted ? "bg-gray-600" : "bg-[#2AABEE]",
+            )}>
+              {dialog.unread_count > 9999 ? "9999+" : dialog.unread_count}
+            </span>
+          ) : dialog.pinned ? (
+            <Pin className="h-3.5 w-3.5 text-gray-600 flex-shrink-0" />
+          ) : null}
         </div>
       </div>
     </button>

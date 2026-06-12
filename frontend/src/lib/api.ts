@@ -185,17 +185,23 @@ export interface Dialog {
   is_channel: boolean
   is_user: boolean
   unread_count: number
+  unread_mentions: number
   last_message: {
     id: number
     text: string | null
     date: string | null
     out: boolean
     media_type?: string | null
+    sender_name?: string | null
   } | null
   pinned: boolean
+  muted: boolean
   has_photo: boolean
   entity_id: number
-  status: string | null  // "online", "last seen Xm ago", "last seen recently", etc.
+  status: string | null
+  is_bot: boolean
+  verified: boolean
+  participants_count: number | null
 }
 
 export interface Message {
