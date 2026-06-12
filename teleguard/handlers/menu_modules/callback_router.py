@@ -743,9 +743,9 @@ class CallbackRouter:
                 user = await mongodb.db.users.find_one({"telegram_id": user_id})
                 dm_group = user.get("dm_reply_group_id") if user else None
                 if dm_group:
-                    text = f"⚙️ **DM Manager Setup**\n\n✅ Already configured!\n\n📱 Admin Group ID: `{dm_group}`\n\nTo change, use /dm_reply command."
+                    text = f"⚙️ **DM Manager Setup**\n\n✅ Already configured!\n\n📱 Admin Group ID: `{dm_group}`\n\nTo change, use /enable_topics command."
                 else:
-                    text = "⚙️ **DM Manager Setup**\n\n📋 **Steps:**\n1. Create a new group\n2. Enable Topics in group settings\n3. Add this bot to the group\n4. Use /dm_reply command to link the group\n\n💡 All DMs will be forwarded to topics in that group."
+                    text = "⚙️ **DM Manager Setup**\n\n📋 **Steps:**\n1. Create a new group\n2. Enable Topics in group settings\n3. Add this bot to the group\n4. Use /enable_topics command to link the group\n\n💡 All DMs will be forwarded to topics in that group."
                 buttons = [[Button.inline("🔙 Back", "dm_reply:main")]]
                 await self.menu.bot.edit_message(
                     user_id, event.message_id, text, buttons=buttons

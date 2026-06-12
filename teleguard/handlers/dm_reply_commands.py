@@ -328,7 +328,7 @@ class DMReplyCommands:
                     f"✅ **DM Manager Disabled**\n\n"
                     f"❌ Disabled for {account_name}\n"
                     f"🗑️ All topics removed\n\n"
-                    f"Use /dm_reply in a forum group to enable again."
+                    f"Use /enable_topics in a forum group to enable again."
                 )
 
     async def handle_dm_group_input(self, event, _user_id, _group_id_text):
