@@ -111,28 +111,56 @@ async def _resolve_client(user_id: int, account_name: str):
         async for acc_doc in mongodb.db.accounts.find({"user_id": user_id}):
             try:
                 acc = DataEncryption.decrypt_account_data(acc_doc)
-                name = acc.get("name", "")
-                phone = acc.get("phone", "")
-                if name == account_name or phone == account_name:
-                    for key in [name, phone]:
-                        if key in user_clients:
+                name = acc.get("name", "").strip()
+                phone = acc.get("phone", "").strip()
+                display_name = acc.get("display_name", "").strip()
+
+                # Match by any name variant or phone
+                match_keys = {name, phone, display_name}
+                match_keys.discard("")
+
+                if account_name in match_keys:
+                    # Try all keys the client might be stored under
+                    for key in list(match_keys) + [
+                        phone.replace("+", ""),
+                        phone.lstrip("+"),
+                    ]:
+                        if key and key in user_clients:
                             return user_clients[key]
             except Exception:
                 continue
     except Exception as e:
         logger.debug(f"MongoDB lookup failed: {e}")
 
-    # 3. Partial phone match
-    clean = account_name.replace("+", "").replace(" ", "")
-    for key, client in user_clients.items():
-        if clean in str(key).replace("+", "").replace(" ", ""):
-            return client
+    # 3. Partial match on phone digits
+    clean = account_name.replace("+", "").replace(" ", "").replace(".", "")
+    if clean:
+        for key, client in user_clients.items():
+            key_clean = str(key).replace("+", "").replace(" ", "")
+            if clean and len(clean) >= 5 and (clean in key_clean or key_clean in clean):
+                return client
 
-    # 4. Single account — return it regardless
+    # 4. If account_name looks like a display name (not a phone), try all clients
+    #    and find which one's get_me() matches — expensive but reliable fallback
+    if not account_name.startswith("+") and len(user_clients) <= 5:
+        for key, client in user_clients.items():
+            if client and client.is_connected():
+                try:
+                    me = await client.get_me()
+                    fn = str(getattr(me, "first_name", "") or "")
+                    ln = str(getattr(me, "last_name", "") or "")
+                    full = f"{fn} {ln}".strip()
+                    uname = str(getattr(me, "username", "") or "")
+                    if account_name in (full, uname, fn, f"@{uname}"):
+                        return client
+                except Exception:
+                    pass
+
+    # 5. Single account — return it regardless
     if len(user_clients) == 1:
         return next(iter(user_clients.values()))
 
-    # 5. First connected client
+    # 6. Return first connected client as last resort
     for client in user_clients.values():
         if client and client.is_connected():
             return client

@@ -129,6 +129,8 @@ export const accountsApi = {
     del<{ status: string }>(`/api/accounts/remove/${account_id}`),
   profile: (account_name: string) =>
     get<AccountProfile>(`/api/accounts/profile/${encodeURIComponent(account_name)}`),
+  refreshNames: () =>
+    post<{ status: string; updated: string[]; skipped: string[] }>("/api/accounts/refresh-names", {}),
   toggleReply: (name: string) =>
     post<{ status: string; auto_reply_enabled: boolean }>("/api/accounts/toggle-reply", { name }),
   sendCode: (phone: string) =>

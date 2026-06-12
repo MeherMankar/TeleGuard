@@ -47,13 +47,20 @@ async def _save_and_start_account(user_id: int, phone: str, session_string: str,
     the client with bot_manager so it survives restarts.
     """
     # Build display name the same way the bot does
-    first_name = getattr(telegram_user, "first_name", "") or ""
-    last_name = getattr(telegram_user, "last_name", "") or ""
+    first_name = str(getattr(telegram_user, "first_name", "") or "").strip()
+    last_name = str(getattr(telegram_user, "last_name", "") or "").strip()
     display_name = f"{first_name} {last_name}".strip()
-    if not display_name:
-        display_name = getattr(telegram_user, "username", None) or phone
     username = getattr(telegram_user, "username", None)
     tg_id = getattr(telegram_user, "id", None)
+
+    # Ensure we always have a meaningful name — never store "." or empty string
+    if not display_name or display_name in (".", " ", ""):
+        if username:
+            display_name = f"@{username}"
+        elif phone:
+            display_name = phone
+        else:
+            display_name = f"User {tg_id or 'Unknown'}"
 
     # Save using plain fields — same as mongodb.create_account()
     # This is what bot_manager._load_existing_sessions() reads on restart
@@ -517,4 +524,83 @@ async def get_profile(account_name: str, user_id: int = Depends(get_current_user
         raise
     except Exception as e:
         logger.error(f"Error fetching profile for {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh-names")
+async def refresh_account_names(user_id: int = Depends(get_current_user_id)):
+    """
+    Refresh display names for all accounts by fetching real data from Telegram.
+    Fixes accounts stored with '.' or blank names.
+    """
+    bot_manager = _get_bot_manager()
+    updated = []
+    skipped = []
+
+    try:
+        cursor = mongodb.db.accounts.find({"user_id": user_id})
+        docs = await cursor.to_list(length=200)
+
+        for doc in docs:
+            try:
+                # Find the live client for this account
+                acc_id = str(doc["_id"])
+                phone = doc.get("phone", "")
+                current_name = doc.get("name", "")
+
+                # Skip if name is already meaningful
+                if current_name and current_name not in (".", "", " ") and len(current_name) > 1:
+                    skipped.append(current_name)
+                    continue
+
+                # Find client
+                client = None
+                if bot_manager:
+                    for key, c in bot_manager.user_clients.get(user_id, {}).items():
+                        if phone and (phone in str(key) or str(key) in phone.replace("+", "")):
+                            client = c
+                            break
+                    if not client and bot_manager.user_clients.get(user_id):
+                        # Try all clients
+                        for key, c in bot_manager.user_clients.get(user_id, {}).items():
+                            if c and c.is_connected():
+                                try:
+                                    me = await c.get_me()
+                                    if str(getattr(me, "phone", "")).endswith(phone.lstrip("+")[-8:]):
+                                        client = c
+                                        break
+                                except Exception:
+                                    pass
+
+                if not client:
+                    skipped.append(f"{phone} (no client)")
+                    continue
+
+                me = await client.get_me()
+                fn = str(getattr(me, "first_name", "") or "").strip()
+                ln = str(getattr(me, "last_name", "") or "").strip()
+                uname = getattr(me, "username", None)
+                new_name = f"{fn} {ln}".strip()
+                if not new_name or new_name in (".", ""):
+                    new_name = f"@{uname}" if uname else phone
+
+                await mongodb.db.accounts.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {
+                        "name": new_name,
+                        "display_name": new_name,
+                        "first_name": fn,
+                        "last_name": ln,
+                        "username": uname,
+                    }}
+                )
+                updated.append(f"{phone} → {new_name}")
+                logger.info(f"Refreshed account name: {phone} → {new_name}")
+
+            except Exception as e:
+                logger.warning(f"Failed to refresh name for {doc.get('phone')}: {e}")
+
+        return {"status": "success", "updated": updated, "skipped": skipped}
+    except Exception as e:
+        logger.error(f"Error refreshing account names: {e}")
         raise HTTPException(status_code=500, detail=str(e))
