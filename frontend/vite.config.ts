@@ -7,8 +7,8 @@ import tsconfigPaths from "vite-tsconfig-paths"
 export default defineConfig({
   base: "/",
   plugins: [
-    // TanStack Router file-based routing (must come before react plugin)
-    TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
+    // TanStack Router file-based routing — disable generation, use manual routeTree
+    TanStackRouterVite({ target: "react", autoCodeSplitting: false, generateRouteTree: false }),
     react(),
     tailwindcss(),
     tsconfigPaths(),
