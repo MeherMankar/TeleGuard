@@ -23,7 +23,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
 import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder, Pin, Check, VolumeX, BadgeCheck } from "lucide-react"
+import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder, Pin, Check, VolumeX, BadgeCheck, Bookmark } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 function safeText(v: unknown): string | null {
@@ -248,7 +248,7 @@ function TelegramChatList() {
 
   return (
     <div className="dark">
-      <div className="min-h-screen bg-[#17212b] text-foreground max-w-md mx-auto relative pb-16">
+      <div className="min-h-screen bg-[#17212b] text-foreground max-w-md mx-auto relative pb-20">
         <Sidebar
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
@@ -473,7 +473,12 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
     >
       {/* Avatar */}
       <div className="relative flex-shrink-0">
-        {photoUrl && !imgError ? (
+        {dialog.is_saved_messages ? (
+          /* Saved Messages — always shows a bookmark icon on gradient bg */
+          <div className="w-[54px] h-[54px] rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center">
+            <Bookmark className="h-6 w-6 text-white fill-white" />
+          </div>
+        ) : photoUrl && !imgError ? (
           <img
             src={photoUrl}
             alt={displayName}
@@ -489,8 +494,8 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
             {initial}
           </div>
         )}
-        {/* Online dot */}
-        {isOnline && (
+        {/* Online dot — not shown for saved messages */}
+        {isOnline && !dialog.is_saved_messages && (
           <span className="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-[#17212b]" />
         )}
         {/* Unread mentions badge */}

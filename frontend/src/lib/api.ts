@@ -202,6 +202,7 @@ export interface Dialog {
   is_bot: boolean
   verified: boolean
   participants_count: number | null
+  is_saved_messages?: boolean
 }
 
 export interface Message {

@@ -473,6 +473,15 @@ async def get_dialogs(
                     "sender_name": last_sender_name,
                 }
 
+            # Detect "Saved Messages" — when dialog entity is the user themselves
+            is_saved_messages = False
+            try:
+                from telethon.tl.types import User
+                if isinstance(entity, User) and getattr(entity, "is_self", False):
+                    is_saved_messages = True
+            except Exception:
+                pass
+
             # Robust photo detection for all entity types:
             # - User/Bot: UserProfilePhoto has photo_id
             # - Chat/Channel: ChatPhoto has photo_small (different type)
@@ -496,19 +505,20 @@ async def get_dialogs(
 
             dialogs.append({
                 "id": dialog.id,
-                "name": dialog.name,
-                "title": dialog.title,
+                "name": "Saved Messages" if is_saved_messages else dialog.name,
+                "title": "Saved Messages" if is_saved_messages else dialog.title,
                 "is_group": dialog.is_group or getattr(entity, "megagroup", False),
                 "is_channel": dialog.is_channel and not getattr(entity, "megagroup", False),
                 "is_user": dialog.is_user,
+                "is_saved_messages": is_saved_messages,
                 "unread_count": dialog.unread_count,
                 "unread_mentions": getattr(dialog, "unread_mentions_count", 0) or 0,
                 "last_message": last_message,
                 "pinned": dialog.pinned,
                 "muted": is_muted,
-                "has_photo": has_photo,
+                "has_photo": has_photo and not is_saved_messages,
                 "entity_id": dialog.id,
-                "status": _extract_user_status(entity) if dialog.is_user else None,
+                "status": _extract_user_status(entity) if dialog.is_user and not is_saved_messages else None,
                 "is_bot": bool(getattr(entity, "bot", False)) if dialog.is_user else False,
                 "verified": bool(getattr(entity, "verified", False)),
                 "participants_count": getattr(entity, "participants_count", None),
