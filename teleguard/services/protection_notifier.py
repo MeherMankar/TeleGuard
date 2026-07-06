@@ -18,32 +18,73 @@ class ProtectionNotifier:
     async def notify_session_destroyed(self, user_id: int, auth: Authorization):
         """Send rich alert when an unauthorized session is destroyed"""
         try:
-            # Mask the hash for security
-            masked_hash = str(auth.hash)[:4] + "****" + str(auth.hash)[-4:] if len(str(auth.hash)) > 8 else "****"
-            
-            # Format times
-            login_time = auth.date.strftime('%Y-%m-%d %H:%M UTC') if hasattr(auth, 'date') else "Unknown"
-            last_active = auth.date_active.strftime('%Y-%m-%d %H:%M UTC') if hasattr(auth, 'date_active') else "Just now"
+            # Mask the hash — keep first 4 and last 4 chars
+            hash_str = str(auth.hash)
+            masked_hash = (
+                hash_str[:4] + "••••" + hash_str[-4:]
+                if len(hash_str) > 8
+                else "••••••••"
+            )
+
+            # Format timestamps — show "—" when unavailable
+            def _fmt_time(dt):
+                if dt is None:
+                    return "—"
+                try:
+                    return dt.strftime("%Y-%m-%d %H:%M UTC")
+                except Exception:
+                    return "—"
+
+            login_time  = _fmt_time(getattr(auth, "date",        None))
+            last_active = _fmt_time(getattr(auth, "date_active", None))
+
+            # Build location string: "City, Country" or just whichever is present
+            country = (getattr(auth, "country", None) or "").strip()
+            region  = (getattr(auth, "region",  None) or "").strip()
+            location_parts = [p for p in [region, country] if p]
+            location = ", ".join(location_parts) if location_parts else "Unknown"
+
+            # IP
+            ip = (getattr(auth, "ip", None) or "").strip() or "Unknown"
+
+            # Official app badge
+            official = getattr(auth, "official_app", False)
+            official_badge = "✅ Yes" if official else "⚠️ No (Third-party)"
+
+            # System info — collapse empty parts
+            platform       = (getattr(auth, "platform",       None) or "").strip()
+            system_version = (getattr(auth, "system_version", None) or "").strip()
+            system_line = platform
+            if system_version:
+                system_line = f"{platform} {system_version}".strip()
+
+            app_name    = (getattr(auth, "app_name",    None) or "").strip()
+            app_version = (getattr(auth, "app_version", None) or "").strip()
+            app_line = f"{app_name} {app_version}".strip() or "Unknown"
 
             message = (
-                "🚨 **Unauthorized Session Destroyed**\n\n"
-                f"💻 **Device:** {auth.device_model}\n"
-                f"🎛 **Platform:** {auth.platform}\n"
-                f"🖥 **System:** {auth.system_version}\n\n"
-                f"📱 **App:** {auth.app_name} {auth.app_version}\n"
-                f"🌐 **IP:** `{auth.ip}`\n\n"
-                f"🌍 **Country:** {auth.country}\n"
-                f"📍 **Region:** {auth.region}\n\n"
-                f"📥 **Login Time:** {login_time}\n"
-                f"🕒 **Last Active:** {last_active}\n\n"
-                f"🆔 **Session Hash:** `{masked_hash}`\n"
-                f"✅ **Official App:** {'Yes' if auth.official_app else 'No'}\n\n"
-                "🛡 **Status:** Session terminated successfully."
+                "🚨 **Unauthorized Session Destroyed**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📱 **Device Info**\n"
+                f"  💻 Device: {auth.device_model or 'Unknown'}\n"
+                f"  🖥 OS: {system_line or 'Unknown'}\n"
+                f"  📲 App: {app_line}\n"
+                f"  🏷 Official App: {official_badge}\n\n"
+                "🌐 **Network**\n"
+                f"  🔌 IP: `{ip}`\n"
+                f"  📍 Location: {location}\n\n"
+                "🕰 **Timeline**\n"
+                f"  📥 Logged In: {login_time}\n"
+                f"  🕒 Last Active: {last_active}\n\n"
+                "🔐 **Session**\n"
+                f"  🆔 Hash: `{masked_hash}`\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "🛡 **Terminated successfully.**"
             )
 
             await self.bot.send_message(user_id, message)
             logger.info(f"Sent intruder alert to {user_id} for session {auth.hash}")
-            
+
         except Exception as e:
             logger.error(f"Error sending session destruction alert to {user_id}: {e}")
 
