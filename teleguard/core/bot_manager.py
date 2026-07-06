@@ -282,8 +282,8 @@ class BotManager:
                 return
 
             loaded_count = 0
-            # Limit to 3 accounts and shorter timeout for faster startup
-            for account in accounts[:3]:
+            # Load all accounts — no artificial cap
+            for account in accounts:
                 if account.get("session_string"):
                     try:
                         await asyncio.wait_for(
@@ -709,6 +709,10 @@ class BotManager:
                     await self.dm_reply_handler.refresh_all_handlers()
                 except Exception as e:
                     logger.warning(f"Failed to set up DM handlers: {e}")
+
+            # Deferred re-sweep: some clients may still be connecting when
+            # setup_handlers() ran. Re-register any that were missed.
+            asyncio.create_task(self._deferred_handler_sweep())
 
             logger.debug("All components initialized")
         except asyncio.TimeoutError:
@@ -1445,6 +1449,42 @@ class BotManager:
     def get_user_clients(self, user_id: int) -> Dict[str, TelegramClient]:
         """Get all clients for a user"""
         return self.user_clients.get(user_id, {})
+
+    async def _deferred_handler_sweep(self) -> None:
+        """Re-register unified messaging handlers for any client that wasn't
+        connected when setup_handlers() first ran at startup.
+        Runs two passes: one at 10 s and one at 30 s after startup."""
+        for delay in (10, 30):
+            await asyncio.sleep(delay)
+            if not self.unified_messaging:
+                continue
+            try:
+                newly_registered = 0
+                for user_id, clients in self.user_clients.items():
+                    for account_name, client in clients.items():
+                        if not client:
+                            continue
+                        client_key = f"{user_id}:{account_name}"
+                        # Already registered — skip
+                        if client_key in self.unified_messaging.handled_clients:
+                            continue
+                        # Register regardless of connection state; Telethon
+                        # will fire the handler once the client is live.
+                        self.unified_messaging._setup_client_handlers(
+                            user_id, account_name, client
+                        )
+                        newly_registered += 1
+                        logger.info(
+                            f"Deferred handler sweep: registered {account_name} "
+                            f"(user {user_id})"
+                        )
+                if newly_registered:
+                    logger.info(
+                        f"Deferred sweep at +{delay}s: {newly_registered} "
+                        "account(s) registered"
+                    )
+            except Exception as e:
+                logger.warning(f"Deferred handler sweep error: {e}")
 
     async def cleanup(self) -> None:
         """Clean up all resources"""

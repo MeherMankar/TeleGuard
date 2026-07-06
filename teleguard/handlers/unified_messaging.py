@@ -27,7 +27,9 @@ class UnifiedMessagingSystem:
         client_count = 0
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
-                if client and client.is_connected():
+                if client:
+                    # Register handler even if not connected yet — Telethon
+                    # will fire the handler once the client reconnects.
                     self._setup_client_handlers(user_id, account_name, client)
                     client_count += 1
         self._setup_admin_reply_handler()
@@ -1064,13 +1066,19 @@ class UnifiedMessagingSystem:
 
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up handlers for newly added client"""
-        if client and client.is_connected():
+        if client:
             logger.info(f"Setting up unified messaging handler for {account_name}")
             self._setup_client_handlers(user_id, account_name, client)
-            # Auto-scrape existing DMs
-            await self.scrape_existing_dms(user_id, account_name, client)
+            # Scrape existing DMs only once the client is actually connected
+            if client.is_connected():
+                await self.scrape_existing_dms(user_id, account_name, client)
+            else:
+                logger.warning(
+                    f"Client for {account_name} not connected yet — handler registered, "
+                    "DM scrape deferred until connection"
+                )
         else:
-            logger.warning(f"Client for {account_name} not connected, skipping handler setup")
+            logger.warning(f"No client object for {account_name}, skipping handler setup")
 
     async def scrape_existing_dms(self, user_id: int, account_name: str, client):
         """Scrape existing DMs and create topics for them"""
