@@ -119,24 +119,45 @@ class UnifiedMessagingSystem:
                 
                 logger.debug(f"📩 Reply in topic {topic_id}, chat {event.chat_id}, sender {event.sender_id}")
                 
-                # Find which account this group belongs to
-                account = await mongodb.db.accounts.find_one(
+                # Find ALL accounts that have this group configured — supports multiple accounts
+                # sharing the same admin group as well as accounts owned by different users.
+                accounts = await mongodb.db.accounts.find(
                     {"dm_reply_group_id": event.chat_id}
-                )
-                if not account:
+                ).to_list(None)
+
+                if not accounts:
                     logger.debug(f"No account found for group {event.chat_id}")
                     return
-                
-                # Verify sender is the account owner
-                if event.sender_id != account["user_id"]:
-                    logger.debug(f"Sender {event.sender_id} is not account owner {account['user_id']}")
+
+                # Verify sender is the owner of at least one of those accounts
+                sender_accounts = [a for a in accounts if a["user_id"] == event.sender_id]
+                if not sender_accounts:
+                    logger.debug(
+                        f"Sender {event.sender_id} is not the owner of any account linked to group {event.chat_id}"
+                    )
                     return
-                
-                # Get topic mapping
-                mapping = await mongodb.db.topic_mappings.find_one(
-                    {"admin_group_id": event.chat_id, "topic_id": topic_id}
-                )
-                
+
+                # Get topic mapping — filter by the accounts that actually belong to this sender
+                account_ids = []
+                for acc in sender_accounts:
+                    tg_id = acc.get("telegram_id")
+                    if tg_id:
+                        account_ids.append(tg_id)
+
+                # Build query: match group + topic, and restrict to the sender's accounts when possible
+                mapping_query = {"admin_group_id": event.chat_id, "topic_id": topic_id}
+                if account_ids:
+                    mapping_query["account_id"] = {"$in": account_ids}
+
+                mapping = await mongodb.db.topic_mappings.find_one(mapping_query)
+
+                # Fallback: if no mapping found with account filter, try without it
+                # (handles legacy mappings that pre-date the account_id field being set correctly)
+                if not mapping and account_ids:
+                    mapping = await mongodb.db.topic_mappings.find_one(
+                        {"admin_group_id": event.chat_id, "topic_id": topic_id}
+                    )
+
                 if mapping:
                     logger.debug(f"✅ Found mapping, sending reply: has_media={event.message.media is not None}, has_text={event.text is not None}")
                     await self._send_topic_reply(
@@ -291,17 +312,24 @@ class UnifiedMessagingSystem:
     async def _find_existing_topic(
         self, admin_group_id: int, sender_id: int, account_id: int
     ) -> Optional[int]:
-        """Find existing topic for sender (one topic per user)"""
+        """Find existing topic for a specific sender on a specific account.
+
+        Each (sender, account) pair gets its own topic so that messages from
+        the same person sent to different managed accounts are kept separate.
+        """
         try:
             if not all(
                 isinstance(x, int) for x in [admin_group_id, sender_id, account_id]
             ):
                 logger.error("Invalid input types for topic mapping")
                 return None
+            # account_id MUST be part of the query — without it a single topic
+            # would be reused across all accounts for the same sender.
             mapping = await mongodb.db.topic_mappings.find_one(
                 {
                     "admin_group_id": admin_group_id,
                     "sender_id": sender_id,
+                    "account_id": account_id,
                 }
             )
             if mapping:
