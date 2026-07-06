@@ -64,27 +64,67 @@ class SessionDestroyerService:
             if not current_sessions:
                 return
 
-            # 2. Get trusted sessions from DB
+            # 3. Get trusted sessions and fresh-pending hashes from DB
             trusted_hashes = await SessionDestroyerDB.get_trusted_sessions(user_id, account_id)
-            
-            # 3. Identify new sessions
+
+            now = datetime.now(timezone.utc)
+
+            # Load pending hashes — hashes that hit FRESH_RESET_AUTHORISATION_FORBIDDEN
+            pending_docs = await mongodb.db.session_destroyer_pending.find(
+                {"user_id": user_id, "account_id": account_id}
+            ).to_list(None)
+            pending_map = {doc["hash"]: doc for doc in pending_docs}
+
+            # 4. Retry any pending hashes whose cool-down has expired
+            for hash_val, doc in list(pending_map.items()):
+                retry_after = doc.get("retry_after")
+                if retry_after and retry_after.tzinfo is None:
+                    retry_after = retry_after.replace(tzinfo=timezone.utc)
+                if retry_after and now >= retry_after:
+                    # Find the live session object if it still exists
+                    live_session = next(
+                        (s for s in current_sessions if s.hash == hash_val), None
+                    )
+                    if live_session:
+                        logger.info(
+                            f"🔄 Retrying deferred kill for session {hash_val} "
+                            f"({doc.get('device', '?')}) on {account_name}"
+                        )
+                        await self.destroy_session(
+                            user_id, account_id, client, live_session, account_name
+                        )
+                    else:
+                        # Session is gone — clean up the pending record
+                        logger.info(
+                            f"✅ Pending session {hash_val} for {account_name} "
+                            "no longer present — removing from queue"
+                        )
+                    # Remove the pending record regardless (killed or gone)
+                    await mongodb.db.session_destroyer_pending.delete_one(
+                        {"user_id": user_id, "account_id": account_id, "hash": hash_val}
+                    )
+                    del pending_map[hash_val]
+
+            # 5. Identify new suspicious sessions
             suspicious_sessions = []
             for session in current_sessions:
-                # Rule: Never destroy current session (the bot itself)
+                # Never destroy the current session (the bot itself)
                 if session.current:
-                    # Automatically trust the current session if not already trusted
                     if session.hash not in trusted_hashes:
                         await SessionDestroyerDB.add_trusted_hash(user_id, account_id, session.hash)
                     continue
 
-                # Rule: If session hash is in trusted list, skip
+                # Already trusted
                 if session.hash in trusted_hashes:
                     continue
 
-                # Rule: Any other NEW session is suspicious
+                # Still inside the fresh cool-down window — skip silently
+                if session.hash in pending_map:
+                    continue
+
                 suspicious_sessions.append(session)
 
-            # 4. Destroy suspicious sessions
+            # 6. Destroy suspicious sessions
             for session in suspicious_sessions:
                 await self.destroy_session(user_id, account_id, client, session, account_name)
 
@@ -157,10 +197,26 @@ class SessionDestroyerService:
         except Exception as e:
             error_msg = str(e)
             if "FRESH_RESET_AUTHORISATION_FORBIDDEN" in error_msg or "too new" in error_msg.lower():
+                # Telegram enforces a ~24h cool-down before a brand-new session
+                # is allowed to terminate other authorizations.  We store the hash
+                # in a "fresh_pending" document so the poller can retry after the
+                # window passes instead of hammering the same error every 5 seconds.
+                from datetime import timezone, timedelta
+                retry_after = datetime.now(timezone.utc) + timedelta(hours=25)
+                await mongodb.db.session_destroyer_pending.update_one(
+                    {"user_id": user_id, "account_id": account_id, "hash": session.hash},
+                    {"$set": {
+                        "user_id": user_id,
+                        "account_id": account_id,
+                        "hash": session.hash,
+                        "retry_after": retry_after,
+                        "device": getattr(session, "device_model", "Unknown"),
+                    }},
+                    upsert=True,
+                )
                 logger.warning(
-                    f"⚠️ Session Destroyer: Cannot destroy session {session.hash} for {account_name} yet. "
-                    "Telegram requires the newly logged-in session to be active (usually for 24 hours) "
-                    "before it is allowed to terminate other active authorizations."
+                    f"⚠️ Session Destroyer: Session {session.hash} for {account_name} is too new to terminate — "
+                    f"queued for retry after {retry_after.strftime('%Y-%m-%d %H:%M UTC')}"
                 )
             else:
                 logger.error(f"Failed to destroy session {session.hash} for {account_name}: {e}")

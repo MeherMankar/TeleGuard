@@ -144,6 +144,17 @@ class SessionDestroyer:
                             )
                             allow_next = False
 
+                # Load pending (fresh-restriction) hashes BEFORE the detection
+                # loop so they are excluded from newly_detected on every cycle.
+                from ..core.mongo_database import mongodb as _mdb
+                from datetime import timedelta
+
+                now = datetime.now(timezone.utc)
+                pending_docs = await _mdb.db.session_destroyer_pending.find(
+                    {"user_id": user_id}
+                ).to_list(None)
+                pending_hashes = {doc["hash"] for doc in pending_docs}
+
                 newly_detected = []
 
                 for auth in current_auths:
@@ -156,6 +167,9 @@ class SessionDestroyer:
                     # Skip already destroyed (may linger briefly)
                     if auth.hash in destroyed_hashes:
                         continue
+                    # Skip sessions waiting out the 24-h fresh restriction
+                    if auth.hash in pending_hashes:
+                        continue
 
                     # If 'allow next login' is active, trust this new session
                     if allow_next:
@@ -167,7 +181,7 @@ class SessionDestroyer:
                         )
                         continue
 
-                    # Unauthorized session
+                    # Unauthorized session — queue for immediate kill
                     newly_detected.append(auth)
 
                 # 6. Terminate all unauthorized sessions in parallel — no delay between kills
@@ -185,11 +199,71 @@ class SessionDestroyer:
                                 f"(device: {auth.device_model}, ip: {auth.ip})"
                             )
                         except Exception as e:
-                            logger.error(
-                                f"Failed to terminate session {auth.hash} for user {user_id}: {e}"
-                            )
+                            error_msg = str(e)
+                            if (
+                                "FRESH_RESET_AUTHORISATION_FORBIDDEN" in error_msg
+                                or "too new" in error_msg.lower()
+                            ):
+                                # Telegram's 24-h restriction — queue and silence
+                                retry_after = now + timedelta(hours=25)
+                                await _mdb.db.session_destroyer_pending.update_one(
+                                    {"user_id": user_id, "hash": auth.hash},
+                                    {"$set": {
+                                        "user_id": user_id,
+                                        "hash": auth.hash,
+                                        "retry_after": retry_after,
+                                        "device": getattr(auth, "device_model", "Unknown"),
+                                    }},
+                                    upsert=True,
+                                )
+                                logger.warning(
+                                    f"⚠️ Session Destroyer: Session {auth.hash} "
+                                    f"({getattr(auth, 'device_model', '?')}) for user {user_id} "
+                                    f"is too new — queued for retry after "
+                                    f"{retry_after.strftime('%Y-%m-%d %H:%M UTC')}"
+                                )
+                            else:
+                                logger.error(
+                                    f"Failed to terminate session {auth.hash} "
+                                    f"for user {user_id}: {e}"
+                                )
 
                     await asyncio.gather(*[_kill(auth) for auth in newly_detected])
+
+                # 7. Retry any pending sessions whose cool-down has elapsed
+                due_pending = [d for d in pending_docs if d.get("retry_after") and (
+                    d["retry_after"].replace(tzinfo=timezone.utc)
+                    if d["retry_after"].tzinfo is None
+                    else d["retry_after"]
+                ) <= now]
+
+                for doc in due_pending:
+                    live = next((a for a in current_auths if a.hash == doc["hash"]), None)
+                    if live:
+                        try:
+                            await target_client(
+                                functions.account.ResetAuthorizationRequest(hash=live.hash)
+                            )
+                            await ProtectionStorage.add_destroyed_hash(user_id, live.hash)
+                            await self.notifier.notify_session_destroyed(user_id, live)
+                            logger.warning(
+                                f"🛡️ Session Destroyer: Terminated deferred session "
+                                f"{live.hash} for user {user_id} "
+                                f"(device: {live.device_model})"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Deferred kill failed for {doc['hash']}, user {user_id}: {e}"
+                            )
+                    else:
+                        logger.info(
+                            f"Pending session {doc['hash']} for user {user_id} "
+                            "no longer present — removing from queue"
+                        )
+                    # Remove pending record whether session was killed or disappeared
+                    await _mdb.db.session_destroyer_pending.delete_one(
+                        {"user_id": user_id, "hash": doc["hash"]}
+                    )
 
                 await ProtectionStorage.update_settings(
                     user_id, {"last_check": datetime.now(timezone.utc)}
