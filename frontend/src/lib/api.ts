@@ -96,6 +96,7 @@ export interface Account {
   is_active: boolean
   auto_reply_enabled?: boolean
   otp_destroyer_enabled?: boolean
+  otp_forward_enabled?: boolean
   user_id: number
 }
 
@@ -385,16 +386,6 @@ export const sessionsApi = {
 
 // ─── Security ────────────────────────────────────────────────────────────────
 
-export interface SecuritySettings {
-  settings: {
-    enabled: boolean
-    user_id?: number
-  }
-  stats: {
-    destroyed_count: number
-  }
-}
-
 export interface SecurityLog {
   device?: string
   ip?: string
@@ -403,32 +394,44 @@ export interface SecurityLog {
 }
 
 export const securityApi = {
-  settings: () => get<SecuritySettings>("/api/security/settings"),
+  settings: () => get<{
+    settings: {
+      session_destroyer_enabled: boolean
+      otp_destroyer_enabled: boolean
+      allow_next: boolean
+      trusted_hashes_count: number
+    }
+    stats: { destroyed_count: number; otp_destroyed: number }
+    enabled: boolean
+  }>("/api/security/settings"),
   updateSettings: (enabled: boolean) =>
     post<{ status: string; enabled: boolean }>("/api/security/settings", { enabled }),
+  allowNextLogin: () =>
+    post<{ status: string; message: string }>("/api/security/session-destroyer/allow-next", {}),
+  syncTrustedSessions: () =>
+    post<{ status: string; trusted_count: number }>("/api/security/trusted/sync", {}),
   logs: (limit = 15) => get<SecurityLog[]>(`/api/security/logs?limit=${limit}`),
-  trustedSessions: (account_id: string) =>
-    get<number[]>(`/api/security/trusted/${account_id}`),
-  addTrusted: (account_id: string, session_hash: number) =>
-    post<{ status: string }>("/api/security/trusted/add", { account_id, session_hash }),
-  removeTrusted: (account_id: string, session_hash: number) =>
-    post<{ status: string }>("/api/security/trusted/remove", { account_id, session_hash }),
-
-  // OTP Destroyer — per-account, calls running bot immediately
+  trustedSessions: () => get<number[]>("/api/security/trusted"),
+  addTrusted: (session_hash: number) =>
+    post<{ status: string }>("/api/security/trusted/add", { session_hash }),
+  removeTrusted: (session_hash: number) =>
+    post<{ status: string }>("/api/security/trusted/remove", { session_hash }),
+  // OTP Destroyer per-account
   toggleOtpDestroyer: (account_id: string, enabled: boolean) =>
     post<{ status: string; message: string; enabled: boolean }>(
-      "/api/security/otp-destroyer/toggle",
-      { account_id, enabled },
+      "/api/security/otp-destroyer/toggle", { account_id, enabled },
+    ),
+  toggleOtpForward: (account_id: string, enabled: boolean) =>
+    post<{ status: string; message: string; enabled: boolean }>(
+      "/api/security/otp-forward/toggle", { account_id, enabled },
     ),
   tempPassthrough: (account_id: string) =>
     post<{ status: string; message: string }>(
-      "/api/security/otp-destroyer/temp-passthrough",
-      { account_id },
+      "/api/security/otp-destroyer/temp-passthrough", { account_id },
     ),
   disableDestroyerTemp: (account_id: string) =>
     post<{ status: string; message: string }>(
-      "/api/security/otp-destroyer/disable-temp",
-      { account_id },
+      "/api/security/otp-destroyer/disable-temp", { account_id },
     ),
 }
 

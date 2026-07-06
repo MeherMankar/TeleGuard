@@ -127,6 +127,23 @@ class SessionDestroyer:
                 destroyed_hashes = set(settings.get("destroyed_hashes", []))
                 allow_next = settings.get("allow_next", False)
 
+                # Auto-expire allow_next if the timestamp has passed
+                if allow_next:
+                    allow_next_until = settings.get("allow_next_until")
+                    if allow_next_until:
+                        if isinstance(allow_next_until, str):
+                            try:
+                                allow_next_until = datetime.fromisoformat(allow_next_until)
+                            except Exception:
+                                allow_next_until = None
+                        if allow_next_until and allow_next_until.tzinfo is None:
+                            allow_next_until = allow_next_until.replace(tzinfo=timezone.utc)
+                        if allow_next_until and datetime.now(timezone.utc) > allow_next_until:
+                            await ProtectionStorage.update_settings(
+                                user_id, {"allow_next": False, "allow_next_until": None}
+                            )
+                            allow_next = False
+
                 newly_detected = []
 
                 for auth in current_auths:

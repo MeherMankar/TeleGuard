@@ -183,6 +183,7 @@ async def list_accounts(user_id: int = Depends(get_current_user_id)):
                     decrypted["user_id"] = int(decrypted["user_id"])
                 # Ensure boolean fields are present for the frontend
                 decrypted.setdefault("otp_destroyer_enabled", False)
+                decrypted.setdefault("otp_forward_enabled", False)
                 decrypted.setdefault("is_active", True)
                 # Ensure name always has a usable value (falls back to phone)
                 if not decrypted.get("name"):
