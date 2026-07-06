@@ -43,8 +43,6 @@ class SessionDestroyer:
             if user_id in self.active_watchers:
                 if not self.active_watchers[user_id].done():
                     return
-            
-            # Start new task
             task = asyncio.create_task(self._watcher_loop(user_id))
             self.active_watchers[user_id] = task
             logger.info(f"Started Session Destroyer watcher for user {user_id}")
@@ -59,35 +57,37 @@ class SessionDestroyer:
 
     async def _watcher_loop(self, user_id: int):
         """Main loop that polls for new sessions every 60 seconds"""
-        # Startup grace delay to let connections stabilize
-        await asyncio.sleep(5)
-        
+        # Grace delay on startup so connections stabilize
+        await asyncio.sleep(10)
+
+        # On first run, sync ALL current sessions as trusted
+        # so we never destroy pre-existing sessions
+        first_run = True
+
         while not self.is_shutdown:
             try:
                 # 1. Check if still enabled and not paused
                 settings = await ProtectionStorage.get_settings(user_id)
                 if not settings.get("session_destroyer_enabled"):
                     break
-                
+
                 pause_until = settings.get("pause_until")
                 if pause_until and pause_until > datetime.now(timezone.utc):
                     await asyncio.sleep(60)
                     continue
 
-                # 2. Get user clients from bot_manager
-                # We need at least one active client to fetch authorizations
+                # 2. Find a connected client
                 user_clients = self.bot_manager.user_clients.get(user_id, {})
                 if not user_clients:
                     await asyncio.sleep(60)
                     continue
 
-                # Use the first available connected client
                 target_client = None
                 for client in user_clients.values():
                     if client and client.is_connected():
                         target_client = client
                         break
-                
+
                 if not target_client:
                     await asyncio.sleep(60)
                     continue
@@ -105,71 +105,90 @@ class SessionDestroyer:
                     await asyncio.sleep(60)
                     continue
 
-                # 4. Filter and destroy
+                # 4. On first run: trust ALL existing sessions so we don't destroy them
+                if first_run:
+                    first_run = False
+                    existing_trusted = set(settings.get("trusted_hashes", []))
+                    new_hashes = {auth.hash for auth in current_auths}
+                    combined = existing_trusted | new_hashes
+                    await ProtectionStorage.update_settings(
+                        user_id, {"trusted_hashes": list(combined)}
+                    )
+                    logger.info(
+                        f"Session Destroyer first run for user {user_id}: "
+                        f"trusted {len(combined)} existing sessions"
+                    )
+                    await asyncio.sleep(60)
+                    continue
+
+                # 5. Reload settings after possible first-run update
+                settings = await ProtectionStorage.get_settings(user_id)
                 trusted_hashes = set(settings.get("trusted_hashes", []))
                 destroyed_hashes = set(settings.get("destroyed_hashes", []))
                 allow_next = settings.get("allow_next", False)
-                
+
                 newly_detected = []
-                
+
                 for auth in current_auths:
-                    # Safety Rules:
-                    # - Ignore current session
+                    # Always skip current session
                     if auth.current:
                         continue
-                    
-                    # - Ignore trusted sessions
+                    # Skip trusted
                     if auth.hash in trusted_hashes:
                         continue
-                    
-                    # - Ignore already destroyed (in case they haven't disappeared yet)
+                    # Skip already destroyed (may linger briefly)
                     if auth.hash in destroyed_hashes:
                         continue
 
-                    # If 'allow next login' is active, trust this first new session
+                    # If 'allow next login' is active, trust this new session
                     if allow_next:
                         await ProtectionStorage.add_trusted_hash(user_id, auth.hash)
                         await ProtectionStorage.update_settings(user_id, {"allow_next": False})
-                        allow_next = False # Only first one
-                        logger.info(f"User {user_id}: New session {auth.hash} trusted via 'Allow Next Login'")
+                        allow_next = False
+                        logger.info(
+                            f"User {user_id}: New session {auth.hash} trusted via 'Allow Next Login'"
+                        )
                         continue
 
-                    # This is an unauthorized session!
+                    # Unauthorized session
                     newly_detected.append(auth)
 
-                # 5. Terminate unauthorized sessions
+                # 6. Terminate unauthorized sessions
                 for auth in newly_detected:
                     try:
-                        # Terminate session
-                        await target_client(functions.account.ResetAuthorizationRequest(hash=auth.hash))
-                        
-                        # Update DB and Stats
+                        await target_client(
+                            functions.account.ResetAuthorizationRequest(hash=auth.hash)
+                        )
                         await ProtectionStorage.add_destroyed_hash(user_id, auth.hash)
-                        
-                        # Notify Owner
                         await self.notifier.notify_session_destroyed(user_id, auth)
-                        
-                        logger.warning(f"🛡️ Session Destroyer: Terminated unauthorized session {auth.hash} for user {user_id}")
-                        
-                        # Small delay between destructions
+                        logger.warning(
+                            f"🛡️ Session Destroyer: Terminated unauthorized session "
+                            f"{auth.hash} for user {user_id} "
+                            f"(device: {auth.device_model}, ip: {auth.ip})"
+                        )
                         await asyncio.sleep(1)
-                        
                     except Exception as e:
-                        logger.error(f"Failed to terminate session {auth.hash} for user {user_id}: {e}")
+                        logger.error(
+                            f"Failed to terminate session {auth.hash} for user {user_id}: {e}"
+                        )
 
-                # Update last check timestamp
-                await ProtectionStorage.update_settings(user_id, {"last_check": datetime.now(timezone.utc)})
+                await ProtectionStorage.update_settings(
+                    user_id, {"last_check": datetime.now(timezone.utc)}
+                )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Unexpected error in Session Destroyer loop for {user_id}: {e}")
-            
-            # Wait for next poll
+
             await asyncio.sleep(60)
 
     async def sync_trusted_sessions(self, user_id: int, client):
-        """Fetch all current sessions and save them as trusted"""
+        """
+        Fetch all current sessions and save them as trusted.
+        Call this when first enabling Session Destroyer so existing
+        sessions are never destroyed.
+        """
         try:
             result = await client(functions.account.GetAuthorizationsRequest())
             hashes = [auth.hash for auth in result.authorizations]
