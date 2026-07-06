@@ -292,7 +292,10 @@ class BotManager:
                                 account.get("name", "Unknown"),
                                 account["session_string"],
                             ),
-                            timeout=8.0,  # Reasonable timeout for connection
+                            # Allow up to 45 s so that the AUTH_KEY_DUPLICATED retry
+                            # logic (up to 3 retries × ~15 s each) has time to complete
+                            # on cloud rolling restarts before giving up.
+                            timeout=45.0,
                         )
                         loaded_count += 1
                     except asyncio.TimeoutError:
@@ -523,10 +526,99 @@ class BotManager:
                 **client_params,
             )
 
-            # Connect with reasonable timeout and comprehensive error handling
-            try:
-                await asyncio.wait_for(client.connect(), timeout=10.0)
+            # Connect with retry logic for AUTH_KEY_DUPLICATED.
+            # On cloud platforms (Koyeb, Railway, etc.) a rolling restart briefly
+            # runs two instances simultaneously, causing Telegram to return
+            # AUTH_KEY_DUPLICATED because the same auth key is active on two IPs.
+            # This resolves on its own once the old process exits — so we retry
+            # with backoff instead of immediately declaring a "session conflict".
+            #
+            # Small initial delay: gives the old container ~3 s to release the
+            # auth key before we attempt our first connect.
+            await asyncio.sleep(3)
 
+            connect_attempts = 0
+            max_connect_attempts = 4
+
+            while True:
+                connect_attempts += 1
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10.0)
+                    break  # connected successfully
+                except Exception as conn_err:
+                    # Always clean up Telethon's internal tasks before retrying
+                    # to avoid "Task was destroyed but it is pending!" noise.
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+
+                    err_lower = str(conn_err).lower()
+                    is_duplicate = (
+                        "auth_key_duplicated" in err_lower
+                        or "two different ip" in err_lower
+                        or ("authorization key" in err_lower and "ip addresses" in err_lower)
+                        or ("authorization key" in err_lower and "simultaneously" in err_lower)
+                    )
+                    if is_duplicate and connect_attempts < max_connect_attempts:
+                        wait = connect_attempts * 5  # 5 s, 10 s, 15 s
+                        logger.warning(
+                            f"AUTH_KEY_DUPLICATED for {account_name} on startup "
+                            f"(attempt {connect_attempts}/{max_connect_attempts}) — "
+                            f"likely a rolling restart, retrying in {wait}s..."
+                        )
+                        await asyncio.sleep(wait)
+                        # Re-create a fresh client object for the next attempt
+                        client = TelegramClient(
+                            StringSession(session_string),
+                            config.telegram.api_id,
+                            config.telegram.api_hash,
+                            **client_params,
+                        )
+                        continue
+                    # Non-retryable or exhausted retries — handle below
+                    error_msg = err_lower
+                    if any(
+                        phrase in error_msg
+                        for phrase in [
+                            "auth_key_unregistered",
+                            "auth_key_duplicated",
+                            "401",
+                            "406",
+                            "authorization key",
+                            "session_revoked",
+                            "session expired",
+                            "two different ip",
+                            "simultaneously",
+                        ]
+                    ):
+                        logger.warning(f"Session conflict detected for {account_name}: {conn_err}")
+                        await self._handle_session_conflict(user_id, account_name, str(conn_err))
+                        return
+                    elif any(
+                        phrase in error_msg
+                        for phrase in [
+                            "ip addresses",
+                            "session file",
+                            "invalid session",
+                            "user_deactivated",
+                            "unauthorized",
+                            "session_password_needed",
+                        ]
+                    ):
+                        phone = await self._get_phone_for_account(user_id, account_name)
+                        asyncio.create_task(
+                            self._handle_session_invalidation(
+                                user_id, account_name, phone, str(conn_err)
+                            )
+                        )
+                        logger.warning(
+                            f"Account {account_name} invalidated and will be removed: {conn_err}"
+                        )
+                    raise conn_err
+
+            # Post-connect validation
+            try:
                 # Test authorization before proceeding
                 if not await client.is_user_authorized():
                     await client.disconnect()
@@ -571,7 +663,6 @@ class BotManager:
                         "session expired",
                     ]
                 ):
-                    # Handle session conflicts (likely caused by other bots/clients)
                     logger.warning(f"Session conflict detected for {account_name}: {e}")
                     await self._handle_session_conflict(user_id, account_name, str(e))
                     return
@@ -586,7 +677,6 @@ class BotManager:
                         "session_password_needed",
                     ]
                 ):
-                    # Handle other session issues
                     phone = await self._get_phone_for_account(user_id, account_name)
                     asyncio.create_task(
                         self._handle_session_invalidation(
@@ -599,7 +689,7 @@ class BotManager:
                 try:
                     await client.disconnect()
                 except Exception:
-                    pass  # Ignore disconnect errors
+                    pass
                 raise
 
             # Store client ONCE to avoid duplicate session references
