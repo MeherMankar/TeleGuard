@@ -447,9 +447,14 @@ class ProtectionManager:
 
     async def toggle_session_destroyer(self, user_id: int, enabled: bool):
         """Enable/Disable Session Destroyer for a user"""
-        await ProtectionStorage.update_settings(user_id, {"session_destroyer_enabled": enabled})
         if enabled:
-            # Sync existing sessions as trusted first time
+            # Record the exact moment it was enabled so the watcher can trust
+            # any session that already existed before this point.
+            await ProtectionStorage.update_settings(user_id, {
+                "session_destroyer_enabled": True,
+                "enabled_at": datetime.now(timezone.utc),
+            })
+            # Sync all currently visible sessions as trusted immediately.
             user_clients = self.bot_manager.user_clients.get(user_id, {})
             for client in user_clients.values():
                 if client and client.is_connected():
@@ -457,6 +462,7 @@ class ProtectionManager:
                     break
             await self.session_destroyer.start_watcher(user_id)
         else:
+            await ProtectionStorage.update_settings(user_id, {"session_destroyer_enabled": False})
             await self.session_destroyer.stop_watcher(user_id)
 
     async def toggle_otp_destroyer(self, user_id: int, enabled: bool):

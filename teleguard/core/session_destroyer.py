@@ -3,11 +3,12 @@
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Set, List
 
 from telethon import functions, errors
 
+from ..core.mongo_database import mongodb as _mdb
 from ..services.protection_storage import ProtectionStorage
 from ..services.protection_notifier import ProtectionNotifier
 
@@ -105,11 +106,46 @@ class SessionDestroyer:
                     await asyncio.sleep(15)
                     continue
 
-                # 4. On first run: trust ALL existing sessions so we don't destroy them
+                # 4. On first run: trust ALL existing sessions so we don't destroy them.
+                # Also trust any session that pre-dates when SD was enabled — catches
+                # sessions that were missed during the initial sync (e.g. bot restart
+                # with SD already enabled in DB, or slow client connections).
                 if first_run:
                     first_run = False
                     existing_trusted = set(settings.get("trusted_hashes", []))
-                    new_hashes = {auth.hash for auth in current_auths}
+
+                    # enabled_at tells us the earliest point from which we should
+                    # watch for NEW sessions.  Any session created before this is
+                    # pre-existing and must be trusted unconditionally.
+                    enabled_at = settings.get("enabled_at")
+                    if enabled_at and enabled_at.tzinfo is None:
+                        enabled_at = enabled_at.replace(tzinfo=timezone.utc)
+
+                    # Load pending hashes — these are post-enabled sessions awaiting
+                    # the 24-h cool-down.  Do NOT trust them; let the retry handle them.
+                    pending_on_first_run = {
+                        doc["hash"]
+                        for doc in await _mdb.db.session_destroyer_pending.find(
+                            {"user_id": user_id}
+                        ).to_list(None)
+                    }
+
+                    new_hashes = set()
+                    for auth in current_auths:
+                        # Never auto-trust a pending (deferred-kill) session
+                        if auth.hash in pending_on_first_run:
+                            continue
+                        new_hashes.add(auth.hash)
+                        # Also trust by timestamp: if the session logged in before
+                        # SD was enabled, it is a pre-existing session.
+                        if enabled_at:
+                            session_date = getattr(auth, "date_active", None) or getattr(auth, "date", None)
+                            if session_date:
+                                if session_date.tzinfo is None:
+                                    session_date = session_date.replace(tzinfo=timezone.utc)
+                                if session_date <= enabled_at:
+                                    existing_trusted.add(auth.hash)
+
                     combined = existing_trusted | new_hashes
                     await ProtectionStorage.update_settings(
                         user_id, {"trusted_hashes": list(combined)}
@@ -117,6 +153,7 @@ class SessionDestroyer:
                     logger.info(
                         f"Session Destroyer first run for user {user_id}: "
                         f"trusted {len(combined)} existing sessions"
+                        + (f", skipped {len(pending_on_first_run)} pending" if pending_on_first_run else "")
                     )
                     await asyncio.sleep(5)
                     continue
@@ -146,9 +183,6 @@ class SessionDestroyer:
 
                 # Load pending (fresh-restriction) hashes BEFORE the detection
                 # loop so they are excluded from newly_detected on every cycle.
-                from ..core.mongo_database import mongodb as _mdb
-                from datetime import timedelta
-
                 now = datetime.now(timezone.utc)
                 pending_docs = await _mdb.db.session_destroyer_pending.find(
                     {"user_id": user_id}
