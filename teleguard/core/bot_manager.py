@@ -999,6 +999,15 @@ class BotManager:
             "developer_commands", DeveloperCommands, self
         )
 
+        from ..handlers.dump_handler import DumpHandler
+
+        self.dump_handler = await self.component_manager.initialize_component(
+            "dump_handler", DumpHandler, self
+        )
+        # Register the free-text listener (wizard chat input steps)
+        if self.dump_handler:
+            self.dump_handler.register_text_listener()
+
         from ..handlers.spam_appeal_handler import SpamAppealHandler
 
         self.spam_appeal_handler = await self.component_manager.initialize_component(

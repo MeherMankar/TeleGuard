@@ -151,6 +151,17 @@ class MongoDB:
                 await self.db.session_destroyer_settings.create_index("user_id", unique=True)
             except Exception:
                 logger.debug("session_destroyer_settings collection missing or index creation failed")
+
+            # Media dump indexes
+            try:
+                await self.db.media_index.create_index(
+                    [("category", 1), ("source_chat", 1), ("_id", 1)]
+                )
+                await self.db.media_index.create_index("file_unique", unique=True)
+                await self.db.media_dump_jobs.create_index("job_id", unique=True)
+                await self.db.media_dump_jobs.create_index([("admin_id", 1), ("created_at", -1)])
+            except Exception:
+                logger.debug("media_index / media_dump_jobs index creation skipped")
             try:
                 await self.db.trusted_sessions.create_index(
                     [("user_id", 1), ("account_id", 1)], unique=True
