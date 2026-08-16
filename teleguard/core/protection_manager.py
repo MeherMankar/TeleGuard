@@ -14,6 +14,7 @@ from .mongo_database import mongodb
 from .session_destroyer import SessionDestroyer
 from ..services.protection_storage import ProtectionStorage
 from ..services.protection_notifier import ProtectionNotifier
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -544,6 +545,7 @@ class ProtectionManager:
             if not account:
                 return False, "Account not found"
 
+            account = DataEncryption.decrypt_account_data(account)
             timestamp = int(time.time())
             if enabled:
                 if account.get("otp_destroyer_enabled", False):
@@ -623,8 +625,9 @@ class ProtectionManager:
         """Clean up expired temporary passthrough"""
         try:
             await asyncio.sleep(300)
-            if self.temp_passthrough.get(user_id, {}).get(account_name) == expiry_time:
-                self.temp_passthrough[user_id].pop(account_name, None)
+            temp_key = f"{account_name}_temp_otp"
+            if self.temp_passthrough.get(user_id, {}).get(temp_key) == expiry_time:
+                self.temp_passthrough[user_id].pop(temp_key, None)
                 if not self.temp_passthrough.get(user_id):
                     self.temp_passthrough.pop(user_id, None)
         except Exception as e:
@@ -663,6 +666,9 @@ class ProtectionManager:
             )
             if not account:
                 return False, "Account not found"
+
+            account = DataEncryption.decrypt_account_data(account)
+
             if not account.get("otp_destroyer_enabled", False):
                 return False, "⚠️ OTP Destroyer is not enabled"
 
@@ -726,6 +732,8 @@ class ProtectionManager:
             )
             if not account:
                 return False, "Account not found"
+
+            account = DataEncryption.decrypt_account_data(account)
 
             if not account.get("otp_destroyer_enabled", False):
                 return (

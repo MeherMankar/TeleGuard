@@ -11,6 +11,7 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,8 @@ class SessionExportHandler:
             selected_accounts = self.bot_manager.session_selections[user_id]["accounts"]
 
             for account in accounts:
-                account_name = account.get("name") or account.get("phone", "Unknown")
+                decrypted = DataEncryption.decrypt_account_data(account)
+                account_name = decrypted.get("name") or decrypted.get("phone", "Unknown")
                 is_selected = account_name in selected_accounts
                 prefix = "✅" if is_selected else "⬜"
                 buttons.append(
@@ -138,7 +140,8 @@ class SessionExportHandler:
                 "Click accounts to select/deselect",
                 buttons=buttons,
             )
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Error in _show_account_selection for user {user_id}: {e}")
             await event.edit("❌ Error loading accounts.")
 
     async def _toggle_account_selection(self, event, user_id, account_name):
@@ -198,7 +201,8 @@ class SessionExportHandler:
                 selected_accounts.clear()
             else:
                 for account in accounts:
-                    account_name = account.get("name") or account.get(
+                    decrypted = DataEncryption.decrypt_account_data(account)
+                    account_name = decrypted.get("name") or decrypted.get(
                         "phone", "Unknown"
                     )
                     selected_accounts.add(account_name)
