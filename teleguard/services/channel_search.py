@@ -107,6 +107,7 @@ class ChannelSearch:
         """Get recommended channels based on user's current channels"""
         try:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
+            accounts = [DataEncryption.decrypt_account_data(a) for a in accounts]
             user_channels = await self._collect_user_channels(accounts, user_id)
             recommendations = self._generate_recommendations(user_channels)
             return recommendations[:10]
