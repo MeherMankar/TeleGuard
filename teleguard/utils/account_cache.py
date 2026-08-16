@@ -9,6 +9,7 @@ import time
 from typing import Dict, Optional
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +51,26 @@ class AccountCache:
             
             # Fetch from database
             try:
+                enc_name = DataEncryption.encrypt_field(account_name)
                 account = await mongodb.db.accounts.find_one({
                     "user_id": user_id,
-                    "name": account_name
+                    "name_enc": enc_name
                 })
-                
+                if not account:
+                    # fallback for legacy plain-text docs
+                    account = await mongodb.db.accounts.find_one({
+                        "user_id": user_id,
+                        "name": account_name
+                    })
+
                 if account:
+                    account = DataEncryption.decrypt_account_data(account)
                     # Store in cache
                     self._cache[key] = account
                     self._timestamps[key] = time.time()
                     logger.debug(f"Cached account {account_name}")
                     return account
-                
+
                 return None
                 
             except Exception as e:

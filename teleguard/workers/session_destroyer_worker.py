@@ -66,10 +66,12 @@ class SessionDestroyerWorker:
                 
                 # Get all active accounts for this user from DB
                 from ..utils.crypto_utils import DataEncryption
-                accounts_enc = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(length=None)
+                accounts_enc = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
                 
                 for acc_doc in accounts_enc:
                     account = DataEncryption.decrypt_account_data(acc_doc)
+                    if not account.get("is_active"):
+                        continue
                     client = self.bot_manager.get_client(user_id, account)
                     if not client or not client.is_connected():
                         continue

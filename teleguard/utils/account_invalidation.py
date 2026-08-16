@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,17 @@ class AccountInvalidationHandler:
         self, user_id: int, account_name: str, phone: str
     ) -> Optional[dict]:
         """Find account in database by user_id and name/phone."""
-        return await mongodb.db.accounts.find_one(
-            {"user_id": user_id, "$or": [{"name": account_name}, {"phone": phone}]}
+        enc_name = DataEncryption.encrypt_field(account_name)
+        enc_phone = DataEncryption.encrypt_field(phone)
+        account = await mongodb.db.accounts.find_one(
+            {"user_id": user_id, "$or": [{"name_enc": enc_name}, {"phone_enc": enc_phone}]}
         )
+        if not account:
+            # fallback for legacy plain-text docs
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "$or": [{"name": account_name}, {"phone": phone}]}
+            )
+        return account
 
     async def _cleanup_session_monitor(self, user_id: int, account_name: str) -> None:
         """Remove account from session monitoring."""

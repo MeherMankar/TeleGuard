@@ -6,6 +6,7 @@ from telethon.tl.functions.contacts import SearchRequest
 from telethon.tl.types import Channel, Chat
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 

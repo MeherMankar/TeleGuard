@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,12 @@ class OnlineMakerWorker:
         """Update online status for enabled accounts"""
         try:
             accounts = await mongodb.db.accounts.find(
-                {"online_maker_enabled": True, "is_active": True}
+                {"online_maker_enabled": True}
             ).to_list(length=None)
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
+                if not account.get("is_active"):
+                    continue
                 try:
                     if self._should_update_online(account):
                         if hasattr(self.bot_manager, "fullclient_manager"):

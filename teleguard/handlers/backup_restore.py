@@ -8,6 +8,7 @@ from datetime import datetime
 from telethon import Button, events
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class BackupRestore:
             }
 
             for acc in accounts:
+                acc = DataEncryption.decrypt_account_data(acc)
                 backup_data["accounts"].append(
                     {
                         "name": acc.get("name"),

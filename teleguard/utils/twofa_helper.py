@@ -7,6 +7,7 @@ from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from ..utils.data_encryption import decrypt_string, encrypt_string
 
 logger = logging.getLogger(__name__)
@@ -16,14 +17,26 @@ class TwoFAHelper:
     """Centralized 2FA password management"""
 
     @staticmethod
+    async def _find_by_phone(user_id: int, phone: str):
+        """Find account doc by user_id + phone, handling encryption."""
+        phone_enc = DataEncryption.encrypt_field(phone)
+        account = await mongodb.db.accounts.find_one(
+            {"user_id": user_id, "phone_enc": phone_enc}
+        )
+        if not account:
+            # fallback for legacy plain-text docs
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "phone": phone}
+            )
+        return account
+
+    @staticmethod
     async def get_stored_password(user_id: int, phone: str) -> Optional[str]:
         """Get stored 2FA password for account by phone"""
         try:
             if not mongodb.db:
                 return None
-            account = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "phone": phone}
-            )
+            account = await TwoFAHelper._find_by_phone(user_id, phone)
             if account and account.get("twofa_password"):
                 return decrypt_string(account["twofa_password"])
             return None
@@ -35,9 +48,7 @@ class TwoFAHelper:
     async def store_password(user_id: int, phone: str, password: str) -> bool:
         """Store 2FA password for account"""
         try:
-            account = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "phone": phone}
-            )
+            account = await TwoFAHelper._find_by_phone(user_id, phone)
             if not account:
                 return False
 
@@ -55,9 +66,7 @@ class TwoFAHelper:
     async def remove_password(user_id: int, phone: str) -> bool:
         """Remove stored 2FA password (when it's wrong)"""
         try:
-            account = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "phone": phone}
-            )
+            account = await TwoFAHelper._find_by_phone(user_id, phone)
             if not account:
                 return False
 

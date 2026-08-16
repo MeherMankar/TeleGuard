@@ -9,6 +9,7 @@ from telethon import events
 from telethon.errors import FloodWaitError
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import retry_async
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
+                account = DataEncryption.decrypt_account_data(account)
                 try:
                     client = self.bot_manager.get_client(user_id, account)
                     if client:
@@ -639,6 +641,7 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
+                account = DataEncryption.decrypt_account_data(account)
                 account.get("phone")
                 account.get("session_string")
                 client = await self._get_or_reconnect_client(user_id, account)
@@ -669,6 +672,7 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
+                account = DataEncryption.decrypt_account_data(account)
                 client = await self._get_or_reconnect_client(user_id, account)
 
                 if client:
@@ -692,6 +696,7 @@ class MessageHandlers:
                 {"_id": ObjectId(account_id), "user_id": user_id}
             )
             if account:
+                account = DataEncryption.decrypt_account_data(account)
                 client = await self._get_or_reconnect_client(user_id, account)
 
                 if client:
@@ -794,6 +799,7 @@ class MessageHandlers:
                 self.pending_actions.pop(user_id, None)
                 return
 
+            account = DataEncryption.decrypt_account_data(account)
             account_name = (
                 account.get("name")
                 or account.get("phone")

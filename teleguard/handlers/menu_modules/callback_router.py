@@ -992,6 +992,8 @@ class CallbackRouter:
             elif action == "stats":
                 # Aggregate channel stats across all accounts
                 accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+                from ...utils.crypto_utils import DataEncryption as _DE
+                accounts = [_DE.decrypt_account_data(a) for a in accounts]
                 total_accounts = len(accounts)
                 active = sum(1 for a in accounts if a.get("is_active"))
                 text = (
@@ -1357,6 +1359,8 @@ class CallbackRouter:
                 text = "👥 **Export Contacts**\n\n❌ No accounts found."
                 buttons = [[Button.inline("🔙 Back", "menu:contacts")]]
             else:
+                from ...utils.crypto_utils import DataEncryption as _DE
+                accounts = [_DE.decrypt_account_data(a) for a in accounts]
                 text = f"👥 **Export Contacts**\n\n📊 Select account to export contacts:\n\n📱 Available accounts: {
                     len(accounts)}"
                 buttons = []
@@ -1365,7 +1369,7 @@ class CallbackRouter:
                     buttons.append(
                         [
                             Button.inline(
-                                f"{status} {acc['name']}", f"export_acc:{acc['_id']}"
+                                f"{status} {acc.get('name', str(acc['_id']))}", f"export_acc:{acc['_id']}"
                             )
                         ]
                     )

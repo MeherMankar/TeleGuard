@@ -14,6 +14,7 @@ from telethon import errors, functions, types
 from telethon.tl.types import MessageMediaPoll
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,8 @@ class ActivitySimulator:
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)}, {"$set": {"simulation_enabled": True}}
             )
-            await self._start_account_simulation(user_id, account_id, account["name"])
+            account = DataEncryption.decrypt_account_data(account)
+            await self._start_account_simulation(user_id, account_id, account.get("name", str(account_id)))
             return True, "Human-like activity simulation enabled"
         except Exception as e:
             logger.error(f"Failed to enable simulation: {e}")
@@ -105,11 +107,14 @@ class ActivitySimulator:
         """Load and start simulation for all enabled accounts"""
         try:
             accounts = await mongodb.db.accounts.find(
-                {"simulation_enabled": True, "is_active": True}
+                {"simulation_enabled": True}
             ).to_list(length=None)
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
+                if not account.get("is_active"):
+                    continue
                 await self._start_account_simulation(
-                    account["user_id"], account["_id"], account["name"]
+                    account["user_id"], account["_id"], account.get("name", str(account["_id"]))
                 )
         except Exception as e:
             logger.error(f"Failed to load enabled accounts: {e}")
@@ -537,13 +542,14 @@ class ActivitySimulator:
                 "accounts": [],
             }
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
                 task_key = f"{user_id}_{account['_id']}"
                 is_active = task_key in self.simulation_tasks
                 if is_active:
                     stats["active_simulations"] += 1
                 stats["accounts"].append(
                     {
-                        "name": account["name"],
+                        "name": account.get("name", str(account["_id"])),
                         "active": is_active,
                         "enabled": account.get("simulation_enabled", False),
                     }
