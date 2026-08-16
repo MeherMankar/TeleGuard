@@ -6,6 +6,7 @@ import re
 import time
 
 from telethon import events
+from telethon.errors import FloodWaitError
 
 from ..core.mongo_database import mongodb
 from ..utils.network_helpers import retry_async
@@ -238,6 +239,20 @@ class MessageHandlers:
             }
             await event.reply(
                 f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n• Format 3: 1.2.3.4.5\n\nAll formats work!\n\n💡 **Tip:** If your code expires immediately, use the `Space` prefix (e.g., `1 2 3 4 5`) to bypass Telegram's security detection.\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
+            )
+        except FloodWaitError as e:
+            self.pending_actions.pop(user_id, None)
+            wait_seconds = e.seconds
+            wait_minutes = wait_seconds // 60
+            wait_hours = wait_minutes // 60
+            if wait_hours > 0:
+                time_str = f"{wait_hours}h {wait_minutes % 60}m"
+            elif wait_minutes > 0:
+                time_str = f"{wait_minutes}m"
+            else:
+                time_str = f"{wait_seconds}s"
+            await event.reply(
+                f"⏰ Rate limited! Please wait {time_str} before requesting OTP for this number again.\n\nTry using a different phone number or wait for the cooldown to expire."
             )
         except (ValueError, ConnectionError, TimeoutError) as e:
             error_msg = str(e)

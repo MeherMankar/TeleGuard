@@ -650,7 +650,7 @@ class SessionExportHandler:
         if not phone:
             return None, f"❌ No phone number found for {account_name}."
         
-        phone, error = self._validate_phone_number(phone, account_name)
+        phone, error = await self._validate_phone_number(phone, account_name)
         return phone, error
 
     async def _create_fresh_session(
