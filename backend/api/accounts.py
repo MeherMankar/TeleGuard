@@ -115,6 +115,15 @@ async def _save_and_start_account(user_id: int, phone: str, session_string: str,
                     except Exception as e:
                         logger.warning(f"Protection handler setup: {e}")
 
+                    # If Session Destroyer is already active, trust this account's
+                    # pre-existing sessions so the watcher doesn't destroy them.
+                    try:
+                        await bot_manager.protection_manager.session_destroyer.sync_trusted_for_new_client(
+                            user_id, existing_client
+                        )
+                    except Exception as sd_err:
+                        logger.warning(f"Session Destroyer pre-trust sync failed for {display_name}: {sd_err}")
+
                 if hasattr(bot_manager, "auto_reply_handler") and bot_manager.auto_reply_handler:
                     try:
                         await bot_manager.auto_reply_handler.setup_new_client_handler(

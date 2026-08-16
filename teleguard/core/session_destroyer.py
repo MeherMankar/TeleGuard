@@ -326,3 +326,47 @@ class SessionDestroyer:
         except Exception as e:
             logger.error(f"Error syncing trusted sessions for {user_id}: {e}")
             return 0
+
+    async def sync_trusted_for_new_client(self, user_id: int, client) -> int:
+        """
+        Merge all sessions visible through *client* into the trusted-hashes list.
+
+        Called whenever a new Telegram account is added to TeleGuard while
+        Session Destroyer is already active.  Unlike sync_trusted_sessions()
+        this does NOT replace the existing trusted list — it merges so that
+        sessions belonging to other accounts already in trusted_hashes are not
+        disturbed.
+
+        Returns the number of newly-trusted hashes added.
+        """
+        try:
+            settings = await ProtectionStorage.get_settings(user_id)
+            if not settings.get("session_destroyer_enabled"):
+                return 0  # SD not active — nothing to do
+
+            result = await client(functions.account.GetAuthorizationsRequest())
+            new_hashes = {auth.hash for auth in result.authorizations}
+
+            existing_trusted = set(settings.get("trusted_hashes", []))
+            to_add = new_hashes - existing_trusted
+
+            if to_add:
+                merged = list(existing_trusted | to_add)
+                await ProtectionStorage.update_settings(user_id, {"trusted_hashes": merged})
+                logger.info(
+                    f"Session Destroyer: trusted {len(to_add)} pre-existing session(s) "
+                    f"for newly-added account of user {user_id}"
+                )
+            else:
+                logger.debug(
+                    f"Session Destroyer: no new hashes to trust for user {user_id} "
+                    f"(all sessions already known)"
+                )
+
+            return len(to_add)
+        except Exception as e:
+            logger.error(
+                f"Session Destroyer: failed to sync trusted sessions for new client "
+                f"(user {user_id}): {e}"
+            )
+            return 0

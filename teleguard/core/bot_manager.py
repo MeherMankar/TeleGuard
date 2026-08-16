@@ -1218,6 +1218,17 @@ class BotManager:
                     user_id, account_name, client
                 )
                 logger.info(f"OTP handler setup completed for {account_name}")
+
+                # If Session Destroyer is already active, trust this account's
+                # pre-existing sessions so the watcher doesn't destroy them.
+                try:
+                    await self.protection_manager.session_destroyer.sync_trusted_for_new_client(
+                        user_id, client
+                    )
+                except Exception as sd_err:
+                    logger.warning(
+                        f"Session Destroyer pre-trust sync failed for {account_name}: {sd_err}"
+                    )
             else:
                 logger.warning(
                     f"Could not setup OTP handler - manager: {
