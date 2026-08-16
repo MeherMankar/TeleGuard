@@ -361,15 +361,13 @@ class MessageHandlers:
             )
             self.pending_actions.pop(user_id, None)
         except Exception as e:
-            logger.error(f"Auth error: {str(e)}")
             error_msg = str(e)
-
             if "Two-factor" in error_msg or "password" in error_msg.lower():
-                # Keep the action as 2fa_password (set by auth_handler)
-                # Don't send message here - auth_handler already sent the proper 2FA
-                # message
+                # Expected flow — 2FA required, auth_handler already sent the prompt
+                logger.info(f"2FA required for user during OTP verification: {error_msg}")
                 return
-            elif "expired" in error_msg.lower():
+            logger.error(f"Auth error: {error_msg}")
+            if "expired" in error_msg.lower():
                 await event.reply(
                     "❌ The confirmation code has expired. Please request a new OTP by adding the account again."
                 )

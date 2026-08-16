@@ -517,6 +517,10 @@ class CallbackRouter:
                 await event.answer("❌ No accounts found")
                 return
 
+            # Decrypt all accounts so name/phone/status fields are readable
+            from ...utils.crypto_utils import DataEncryption
+            accounts = [DataEncryption.decrypt_account_data(a) for a in accounts]
+
             if setting_type == "destroyer":
                 text = "🛡️ **OTP Destroyer Settings**\n\nSelect account to toggle OTP Destroyer:"
                 buttons = []
@@ -585,6 +589,10 @@ class CallbackRouter:
             )
 
         except Exception as e:
+            err_str = str(e)
+            if "not modified" in err_str.lower() or "MessageNotModified" in err_str:
+                # Message content identical — ignore silently
+                return
             logger.error(f"OTP setting callback error: {e}")
             await event.answer("❌ Error processing OTP setting")
 
