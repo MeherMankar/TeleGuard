@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { accountsApi, type Account } from "@/lib/api"
 import { authStore } from "@/store/auth"
@@ -35,14 +35,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
   })
 
   // When a new account is added via WebSocket, refresh the list
-  useWsEvent("account_added", () => {
+  const handleAccountAdded = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["accounts"] })
-  })
+  }, [queryClient])
+  useWsEvent("account_added", handleAccountAdded)
 
   // When an account is removed via WebSocket, refresh the list
-  useWsEvent("account_removed", () => {
+  const handleAccountRemoved = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["accounts"] })
-  })
+  }, [queryClient])
+  useWsEvent("account_removed", handleAccountRemoved)
 
   const activeAccount =
     accounts.find((a) => a.name === activeAccountName) ?? accounts[0] ?? null

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { ArrowLeft, Loader2, RefreshCw } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { cn } from "@/lib/utils"
 import { accountsApi } from "@/lib/api"
 import { toast } from "sonner"
@@ -96,9 +97,7 @@ export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequir
     return stopPolling
   }, [isOpen])
 
-  const qrImageUrl = qrUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrUrl)}`
-    : null
+  // qrUrl is used directly by QRCodeSVG — no external service needed
 
   return (
     <div
@@ -130,8 +129,8 @@ export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequir
         <div className="relative w-56 h-56 bg-white rounded-2xl flex items-center justify-center mb-6 shadow-lg overflow-hidden">
           {loading && <Loader2 className="h-10 w-10 text-sky-500 animate-spin" />}
 
-          {!loading && qrImageUrl && (
-            <img src={qrImageUrl} alt="QR Code" className="w-52 h-52 object-contain" />
+          {!loading && qrUrl && (
+            <QRCodeSVG value={qrUrl} size={208} bgColor="#ffffff" fgColor="#000000" level="M" />
           )}
 
           {!loading && error && (

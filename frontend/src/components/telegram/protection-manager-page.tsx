@@ -248,7 +248,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
             <ul role="list">
               {accounts.map((acc: Account, i) => {
                 const otpOn = acc.otp_destroyer_enabled ?? false
-                const fwdOn = (acc as any).otp_forward_enabled ?? false
+                const fwdOn = acc.otp_forward_enabled ?? false
 
                 return (
                   <li key={acc.id} className={cn("px-4 py-3 space-y-2.5", i < accounts.length - 1 && "border-b border-white/5")}>

@@ -66,6 +66,16 @@ const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })
 const del = <T>(path: string) => request<T>(path, { method: "DELETE" })
 
+/** Convert any API error to a user-friendly toast message.
+ *  Usage:  onError: (e) => toast.error(apiErrorMessage(e))  */
+export function apiErrorMessage(e: unknown): string {
+  const msg = (e as Error).message ?? ""
+  if (msg.includes("503") || msg.toLowerCase().includes("bot not running")) {
+    return "Bot is offline — start the bot first"
+  }
+  return msg || "Something went wrong"
+}
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export interface AuthUser {

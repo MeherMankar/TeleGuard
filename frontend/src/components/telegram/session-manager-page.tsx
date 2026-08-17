@@ -1,8 +1,8 @@
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { ArrowLeft, Loader2, Monitor, Smartphone, Globe, Trash2, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { sessionsApi, type Session } from "@/lib/api"
+import { sessionsApi, apiErrorMessage, type Session } from "@/lib/api"
 import { toast } from "sonner"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import {
@@ -33,9 +33,10 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
   })
 
   // Auto-refresh when bot destroys a session
-  useWsEvent("session_revoked", () => {
+  const handleSessionRevoked = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["sessions"] })
-  })
+  }, [queryClient])
+  useWsEvent("session_revoked", handleSessionRevoked)
 
   const revokeMutation = useMutation({
     mutationFn: ({ account_id, session_hash }: { account_id: string; session_hash: string }) =>
@@ -45,7 +46,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
       setRevokeTarget(null)
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e) => toast.error(apiErrorMessage(e)),
   })
 
   const grouped = sessions.reduce<Record<string, Session[]>>((acc, s) => {

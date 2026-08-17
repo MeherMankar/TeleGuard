@@ -23,13 +23,14 @@ export function CloudPasswordPage({
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async () => {
-    if (!password || loading) return
+    const trimmed = password.trim()
+    if (!trimmed || loading) return
     setLoading(true)
     try {
       if (mode === "qr") {
-        await accountsApi.qrPassword(sessionId, password)
+        await accountsApi.qrPassword(sessionId, trimmed)
       } else {
-        await accountsApi.verifyPassword(sessionId, password)
+        await accountsApi.verifyPassword(sessionId, trimmed)
       }
       toast.success("Account added successfully")
       onSuccess()
@@ -85,10 +86,10 @@ export function CloudPasswordPage({
 
         <button
           onClick={handleSubmit}
-          disabled={password.length === 0 || loading}
+          disabled={password.trim().length === 0 || loading}
           className={cn(
             "w-full py-4 rounded-xl font-medium text-base transition-all flex items-center justify-center gap-2",
-            password.length > 0 && !loading
+            password.trim().length > 0 && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/50 text-primary-foreground/70 cursor-not-allowed",
           )}

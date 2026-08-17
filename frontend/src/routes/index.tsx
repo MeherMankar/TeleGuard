@@ -1,23 +1,11 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, lazy, Suspense, useCallback, useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { SearchHeader } from "@/components/telegram/search-header"
 import { FabButton } from "@/components/telegram/fab-button"
 import { Sidebar } from "@/components/telegram/sidebar"
-import { ProfilePage } from "@/components/telegram/profile-page"
-import { AuthFlow } from "@/components/telegram/auth/auth-flow"
-import { SettingsPage } from "@/components/telegram/settings-page"
-import { ContactsListPage } from "@/components/telegram/contacts-list-page"
 import { BottomNav } from "@/components/telegram/bottom-nav"
 import { UserProvider, useUser } from "@/contexts/user-context"
-import { ProtectionManagerPage } from "@/components/telegram/protection-manager-page"
-import { SpamMasterPage } from "@/components/telegram/spam-master-page"
-import { CleanupPage } from "@/components/telegram/cleanup-page"
-import { AutomationPage } from "@/components/telegram/automation-page"
-import { SessionManagerPage } from "@/components/telegram/session-manager-page"
-import { DashboardPage } from "@/components/telegram/dashboard-page"
-import { ProxyManagerPage } from "@/components/telegram/proxy-manager-page"
-import { ChatFoldersPage } from "@/components/telegram/chat-folders-page"
 import { Toaster } from "@/components/ui/sonner"
 import { useAuth } from "@/hooks/use-auth"
 import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
@@ -25,6 +13,20 @@ import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder, Pin, Check, VolumeX, BadgeCheck, Bookmark } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+// Lazily-loaded panels — only bundled when first opened
+const ProfilePage          = lazy(() => import("@/components/telegram/profile-page").then(m => ({ default: m.ProfilePage })))
+const AuthFlow             = lazy(() => import("@/components/telegram/auth/auth-flow").then(m => ({ default: m.AuthFlow })))
+const SettingsPage         = lazy(() => import("@/components/telegram/settings-page").then(m => ({ default: m.SettingsPage })))
+const ContactsListPage     = lazy(() => import("@/components/telegram/contacts-list-page").then(m => ({ default: m.ContactsListPage })))
+const ProtectionManagerPage = lazy(() => import("@/components/telegram/protection-manager-page").then(m => ({ default: m.ProtectionManagerPage })))
+const SpamMasterPage       = lazy(() => import("@/components/telegram/spam-master-page").then(m => ({ default: m.SpamMasterPage })))
+const CleanupPage          = lazy(() => import("@/components/telegram/cleanup-page").then(m => ({ default: m.CleanupPage })))
+const AutomationPage       = lazy(() => import("@/components/telegram/automation-page").then(m => ({ default: m.AutomationPage })))
+const SessionManagerPage   = lazy(() => import("@/components/telegram/session-manager-page").then(m => ({ default: m.SessionManagerPage })))
+const DashboardPage        = lazy(() => import("@/components/telegram/dashboard-page").then(m => ({ default: m.DashboardPage })))
+const ProxyManagerPage     = lazy(() => import("@/components/telegram/proxy-manager-page").then(m => ({ default: m.ProxyManagerPage })))
+const ChatFoldersPage      = lazy(() => import("@/components/telegram/chat-folders-page").then(m => ({ default: m.ChatFoldersPage })))
 
 function safeText(v: unknown): string | null {
   if (v === null || v === undefined) return null
@@ -68,7 +70,7 @@ function AppShell() {
           tg.ready?.()
           tg.expand?.()
         })
-        .catch(console.error)
+        .catch((e) => { if (import.meta.env.DEV) console.error(e) })
         .finally(() => setAutoLogging(false))
     } else {
       setAutoLogging(false)
@@ -99,7 +101,7 @@ function LoginGate() {
       const res = await authApi.devLogin()
       authStore.login(res.token, res.user)
     } catch (e) {
-      console.error(e)
+      if (import.meta.env.DEV) console.error(e)
     } finally {
       setLoading(false)
     }
@@ -266,26 +268,27 @@ function TelegramChatList() {
           onChatFoldersClick={() => setIsChatFoldersOpen(true)}
         />
 
-        <SettingsPage isOpen={isSettingsOpen} onClose={() => { setIsSettingsOpen(false); setActiveNavTab("chats") }} />
-        <ProfilePage isOpen={isProfileOpen} onClose={() => { setIsProfileOpen(false); setActiveNavTab("chats") }} />
-        <ContactsListPage isOpen={isContactsOpen} onClose={() => { setIsContactsOpen(false); setActiveNavTab("chats") }} />
-        <ProtectionManagerPage isOpen={isProtectionManagerOpen} onClose={() => setIsProtectionManagerOpen(false)} />
-        <SpamMasterPage isOpen={isSpamMasterOpen} onClose={() => setIsSpamMasterOpen(false)} />
-        <CleanupPage isOpen={isCleanupOpen} onClose={() => setIsCleanupOpen(false)} />
-        <AutomationPage isOpen={isAutomationOpen} onClose={() => setIsAutomationOpen(false)} />
-        <SessionManagerPage isOpen={isSessionManagerOpen} onClose={() => setIsSessionManagerOpen(false)} />
-        <DashboardPage isOpen={isDashboardOpen} onClose={() => setIsDashboardOpen(false)} />
-        <ProxyManagerPage isOpen={isProxyManagerOpen} onClose={() => setIsProxyManagerOpen(false)} />
-        <ChatFoldersPage isOpen={isChatFoldersOpen} onClose={() => setIsChatFoldersOpen(false)} />
-
-        <AuthFlow
-          isOpen={isAuthFlowOpen}
-          onClose={() => setIsAuthFlowOpen(false)}
-          onSuccess={() => {
-            setIsAuthFlowOpen(false)
-            queryClient.invalidateQueries({ queryKey: ["accounts"] })
-          }}
-        />
+        <Suspense fallback={null}>
+          <SettingsPage isOpen={isSettingsOpen} onClose={() => { setIsSettingsOpen(false); setActiveNavTab("chats") }} />
+          <ProfilePage isOpen={isProfileOpen} onClose={() => { setIsProfileOpen(false); setActiveNavTab("chats") }} />
+          <ContactsListPage isOpen={isContactsOpen} onClose={() => { setIsContactsOpen(false); setActiveNavTab("chats") }} />
+          <ProtectionManagerPage isOpen={isProtectionManagerOpen} onClose={() => setIsProtectionManagerOpen(false)} />
+          <SpamMasterPage isOpen={isSpamMasterOpen} onClose={() => setIsSpamMasterOpen(false)} />
+          <CleanupPage isOpen={isCleanupOpen} onClose={() => setIsCleanupOpen(false)} />
+          <AutomationPage isOpen={isAutomationOpen} onClose={() => setIsAutomationOpen(false)} />
+          <SessionManagerPage isOpen={isSessionManagerOpen} onClose={() => setIsSessionManagerOpen(false)} />
+          <DashboardPage isOpen={isDashboardOpen} onClose={() => setIsDashboardOpen(false)} />
+          <ProxyManagerPage isOpen={isProxyManagerOpen} onClose={() => setIsProxyManagerOpen(false)} />
+          <ChatFoldersPage isOpen={isChatFoldersOpen} onClose={() => setIsChatFoldersOpen(false)} />
+          <AuthFlow
+            isOpen={isAuthFlowOpen}
+            onClose={() => setIsAuthFlowOpen(false)}
+            onSuccess={() => {
+              setIsAuthFlowOpen(false)
+              queryClient.invalidateQueries({ queryKey: ["accounts"] })
+            }}
+          />
+        </Suspense>
 
         <SearchHeader
           searchValue={searchValue}

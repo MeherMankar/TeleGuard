@@ -4,8 +4,9 @@ import { cn } from "@/lib/utils"
 import { accountsApi } from "@/lib/api"
 import { toast } from "sonner"
 
-// Telegram sends 5-digit codes (sometimes 6). Support both.
-const OTP_LENGTH = 5
+// Telegram sends 5-digit codes normally, but sometimes 6. Support both.
+const OTP_MIN = 5
+const OTP_MAX = 6
 
 interface OTPPageProps {
   isOpen: boolean
@@ -16,7 +17,7 @@ interface OTPPageProps {
 }
 
 export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2FA }: OTPPageProps) {
-  const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""))
+  const [otp, setOtp] = useState<string[]>(Array(OTP_MAX).fill(""))
   const [loading, setLoading] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
@@ -24,22 +25,22 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     if (isOpen) {
       setTimeout(() => inputRefs.current[0]?.focus(), 100)
     } else {
-      setOtp(Array(OTP_LENGTH).fill(""))
+      setOtp(Array(OTP_MAX).fill(""))
     }
   }, [isOpen])
 
   const handleChange = (index: number, value: string) => {
     // Handle paste of full code
     if (value.length > 1) {
-      const digits = value.replace(/\D/g, "").slice(0, OTP_LENGTH).split("")
-      const newOtp = Array(OTP_LENGTH).fill("")
-      digits.forEach((d, i) => { if (i < OTP_LENGTH) newOtp[i] = d })
+      const digits = value.replace(/\D/g, "").slice(0, OTP_MAX).split("")
+      const newOtp = Array(OTP_MAX).fill("")
+      digits.forEach((d, i) => { if (i < OTP_MAX) newOtp[i] = d })
       setOtp(newOtp)
-      const nextIndex = Math.min(digits.length, OTP_LENGTH - 1)
+      const nextIndex = Math.min(digits.length, OTP_MAX - 1)
       inputRefs.current[nextIndex]?.focus()
-      // Auto-submit if all filled
-      if (digits.length >= OTP_LENGTH) {
-        setTimeout(() => submitCode(newOtp.join("")), 100)
+      // Auto-submit if we have at least OTP_MIN digits
+      if (digits.length >= OTP_MIN) {
+        setTimeout(() => submitCode(digits.join("")), 100)
       }
       return
     }
@@ -51,13 +52,20 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     setOtp(newOtp)
 
     // Move to next
-    if (value && index < OTP_LENGTH - 1) {
+    if (value && index < OTP_MAX - 1) {
       inputRefs.current[index + 1]?.focus()
     }
 
-    // Auto-submit when all filled
-    if (value && newOtp.every((d) => d !== "")) {
+    // Auto-submit when all 6 filled, or after 1s pause at 5 digits
+    const filled = newOtp.filter((d) => d !== "")
+    if (filled.length === OTP_MAX) {
       setTimeout(() => submitCode(newOtp.join("")), 100)
+    } else if (filled.length === OTP_MIN) {
+      // Wait briefly in case a 6th digit is coming
+      setTimeout(() => {
+        const current = newOtp.filter((d) => d !== "")
+        if (current.length === OTP_MIN) submitCode(current.join(""))
+      }, 800)
     }
   }
 
@@ -67,7 +75,7 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     }
   }
 
-  const isComplete = otp.every((d) => d !== "")
+  const isComplete = otp.filter((d) => d !== "").length >= OTP_MIN
 
   const submitCode = async (code: string) => {
     if (loading) return
@@ -117,12 +125,12 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
               ref={(el) => { inputRefs.current[index] = el }}
               type="text"
               inputMode="numeric"
-              maxLength={OTP_LENGTH}
+              maxLength={1}
               value={digit}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               className={cn(
-                "w-14 h-14 text-center text-xl font-bold rounded-xl border-2 bg-transparent text-foreground transition-all focus:outline-none",
+                "w-12 h-14 text-center text-xl font-bold rounded-xl border-2 bg-transparent text-foreground transition-all focus:outline-none",
                 digit ? "border-primary bg-primary/10" : "border-border/50",
                 loading && "opacity-50",
               )}

@@ -10,7 +10,7 @@ interface DashboardPageProps {
 }
 
 export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
-  const { data: dashboard, isLoading: dashLoading } = useQuery({
+  const { data: dashboard, isLoading: dashLoading, isError: dashError } = useQuery({
     queryKey: ["dashboard"],
     queryFn: analyticsApi.dashboard,
     enabled: isOpen,
@@ -78,6 +78,12 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Error banner */}
+        {dashError && !dashLoading && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+            ⚠️ Could not load stats. Check your connection or restart the bot.
+          </div>
+        )}
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-3">
           {statCards.map(({ icon: Icon, label, value, color, bg }) => (
