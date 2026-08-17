@@ -553,12 +553,15 @@ class ProtectionManager:
                     },
                 )
                 try:
-                    self.register_handlers()
-                    logger.info(f"Re-registered OTP handlers after enabling destroyer for {account.get('name')}")
+                    # Re-register only this account's client, not all clients
+                    client_obj = self.bot_manager.user_clients.get(user_id, {}).get(account.get("name"))
+                    if client_obj:
+                        self.register_handler_for_client(user_id, account.get("name"), client_obj)
+                    logger.info(f"Re-registered OTP handler for {account.get('name')} (destroyer enabled)")
                 except Exception as handler_error:
-                    logger.error(f"Failed to re-register handlers: {handler_error}")
+                    logger.error(f"Failed to re-register handler: {handler_error}")
 
-                message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled\n✅ Handlers re-registered"
+                message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
@@ -615,11 +618,14 @@ class ProtectionManager:
                     },
                 )
                 try:
-                    self.register_handlers()
-                    logger.info(f"Re-registered OTP handlers after enabling forwarding for {account.get('name')}")
+                    # Re-register only this account's client, not all clients
+                    client_obj = self.bot_manager.user_clients.get(user_id, {}).get(account.get("name"))
+                    if client_obj:
+                        self.register_handler_for_client(user_id, account.get("name"), client_obj)
+                    logger.info(f"Re-registered OTP handler for {account.get('name')} (forward enabled)")
                 except Exception as handler_error:
-                    logger.error(f"Failed to re-register handlers: {handler_error}")
-                message = "✅ OTP Forwarding enabled\n✅ Handlers re-registered"
+                    logger.error(f"Failed to re-register handler: {handler_error}")
+                message = "✅ OTP Forwarding enabled"
             else:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},

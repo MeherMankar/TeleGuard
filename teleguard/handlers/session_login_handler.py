@@ -2734,6 +2734,7 @@ class SessionLoginHandler:
             return None
 
     async def _handle_2fa_required(self, event, client, user_id, phone, phone_code_hash, format_type, account, destroyer_was_enabled):
+        from ..core.config import config  # ensure config is in local scope
         from ..utils.twofa_helper import twofa_helper
         await event.edit(f"⏳ Creating session for {phone}...\\n\\n4️⃣ Checking for stored 2FA password...")
         success, session_str, error = await twofa_helper.try_sign_in_with_2fa(client, user_id, phone)

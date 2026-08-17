@@ -1,5 +1,6 @@
 """Message handlers for user input processing"""
 
+import asyncio
 import logging
 import os
 import re
@@ -240,8 +241,35 @@ class MessageHandlers:
                 "otp_destroyer": False,
             }
             await event.reply(
-                f"OTP sent to {phone}\n\n📱 **Enter OTP Code**\n\nReply with the verification code:\n• Format 1: 1 2 3 4 5\n• Format 2: 1-2-3-4-5\n• Format 3: 1.2.3.4.5\n\nAll formats work!\n\n💡 **Tip:** If your code expires immediately, use the `Space` prefix (e.g., `1 2 3 4 5`) to bypass Telegram's security detection.\n\n🛡️ **Note:** OTP protection enabled for 10 minutes"
+                f"📨 OTP sent to {phone}...\n\n⏳ Attempting to fetch code automatically..."
             )
+
+            # Try to auto-fetch OTP from the user's existing connected accounts
+            otp_code = None
+            session_login = getattr(self.bot_manager, "session_login_handler", None)
+            if session_login and user_id in self.bot_manager.user_clients:
+                for attempt in range(12):           # up to ~24 s
+                    await asyncio.sleep(2)
+                    otp_code = await session_login._fetch_otp_from_telegram(user_id, phone)
+                    if otp_code:
+                        break
+                if not otp_code:
+                    otp_code = await session_login._fetch_otp_fallback(user_id, phone)
+
+            if otp_code:
+                # Auto-complete — no user interaction needed
+                logger.info(f"Auto-fetched OTP {otp_code} for {phone}, completing auth")
+                await event.reply(f"✅ OTP auto-fetched. Verifying...")
+                # Reuse _process_verify_otp logic directly
+                await self._process_verify_otp(event, user_id, otp_code, None)
+            else:
+                # Could not auto-fetch — fall back to asking the user
+                await event.reply(
+                    f"� **Enter OTP Code** for {phone}\n\n"
+                    "Reply with the verification code you received.\n"
+                    "Formats: `12345`, `1 2 3 4 5`, or `1-2-3-4-5`\n\n"
+                    "💡 If your code expires immediately, add a space prefix (e.g. ` 12345`)."
+                )
         except FloodWaitError as e:
             self.pending_actions.pop(user_id, None)
             wait_seconds = e.seconds
@@ -930,8 +958,9 @@ class MessageHandlers:
         """Handle DM group configuration actions"""
         user_id = event.sender_id
         if action == "set_dm_group_id":
-            await self.bot_manager.dm_reply_commands.handle_dm_group_input(
-                event, user_id, message
+            await event.reply(
+                "❌ **This method is no longer supported.**\n\n"
+                "Use /enable_topics in your forum group instead."
             )
             self.pending_actions.pop(user_id, None)
 
