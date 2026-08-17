@@ -248,13 +248,31 @@ class MessageHandlers:
             otp_code = None
             session_login = getattr(self.bot_manager, "session_login_handler", None)
             if session_login and user_id in self.bot_manager.user_clients:
-                for attempt in range(12):           # up to ~24 s
-                    await asyncio.sleep(2)
-                    otp_code = await session_login._fetch_otp_from_telegram(user_id, phone)
-                    if otp_code:
-                        break
-                if not otp_code:
-                    otp_code = await session_login._fetch_otp_fallback(user_id, phone)
+                try:
+                    for attempt in range(12):       # up to ~24 s, 2 s per attempt
+                        await asyncio.sleep(2)
+                        try:
+                            otp_code = await asyncio.wait_for(
+                                session_login._fetch_otp_from_telegram(user_id, phone),
+                                timeout=5.0,        # cap each attempt at 5 s
+                            )
+                        except asyncio.TimeoutError:
+                            pass
+                        except Exception as fetch_err:
+                            logger.debug(f"OTP fetch attempt {attempt+1} error: {fetch_err}")
+                        if otp_code:
+                            break
+                    if not otp_code:
+                        try:
+                            otp_code = await asyncio.wait_for(
+                                session_login._fetch_otp_fallback(user_id, phone),
+                                timeout=5.0,
+                            )
+                        except Exception:
+                            pass
+                except Exception as auto_err:
+                    logger.warning(f"Auto-OTP fetch failed for {phone}: {auto_err}")
+                    # pending_actions already set — user can still type the code manually
 
             if otp_code:
                 # Auto-complete — no user interaction needed
@@ -265,7 +283,7 @@ class MessageHandlers:
             else:
                 # Could not auto-fetch — fall back to asking the user
                 await event.reply(
-                    f"� **Enter OTP Code** for {phone}\n\n"
+                    f"📲 **Enter OTP Code** for {phone}\n\n"
                     "Reply with the verification code you received.\n"
                     "Formats: `12345`, `1 2 3 4 5`, or `1-2-3-4-5`\n\n"
                     "💡 If your code expires immediately, add a space prefix (e.g. ` 12345`)."

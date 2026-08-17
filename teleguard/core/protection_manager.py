@@ -175,12 +175,28 @@ class ProtectionManager:
             from ..utils.crypto_utils import DataEncryption
             client = event.client
 
-            # Get the Telegram user ID of the client that received the message
-            try:
-                me = await client.get_me()
-                client_tg_id = me.id if me else None
-            except Exception:
-                client_tg_id = None
+            # Use the cached telegram_id (stored at connect time) to avoid
+            # a live get_me() API call on every OTP message.
+            client_tg_id = None
+            tg_id_cache = getattr(self.bot_manager, "_client_tg_ids", {})
+            for (uid, aname), tg_id in tg_id_cache.items():
+                if self.bot_manager.user_clients.get(uid, {}).get(aname) is client:
+                    client_tg_id = tg_id
+                    break
+
+            # Fallback: call get_me() only when the cache misses
+            if client_tg_id is None:
+                try:
+                    me = await client.get_me()
+                    client_tg_id = me.id if me else None
+                    # Populate cache for next time
+                    if client_tg_id:
+                        for user_id, clients in self.user_clients.items():
+                            for account_name, user_client in clients.items():
+                                if user_client is client:
+                                    tg_id_cache[(user_id, account_name)] = client_tg_id
+                except Exception:
+                    pass
 
             for user_id, clients in self.user_clients.items():
                 for account_name, user_client in clients.items():

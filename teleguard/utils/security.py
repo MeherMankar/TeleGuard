@@ -254,11 +254,10 @@ class Secure2FAHandlers:
         result_msg: str,
     ) -> None:
         """Handle successful 2FA operation"""
-        hashed_password = self.account_manager.secure_2fa.hash_password_for_storage(
-            password
-        )
+        from ..utils.crypto_utils import DataEncryption as _DE
+        encrypted_password = _DE.encrypt_field(password)
         await mongodb.db.accounts.update_one(
-            {"_id": account["_id"]}, {"$set": {"twofa_password": hashed_password}}
+            {"_id": account["_id"]}, {"$set": {"twofa_password": encrypted_password}}
         )
         await self._log_audit_event(
             account["_id"], f"{action}_2fa_password", user_id, True

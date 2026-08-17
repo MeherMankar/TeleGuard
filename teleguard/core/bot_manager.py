@@ -102,6 +102,9 @@ class BotManager:
         bot_manager = self
         self.bot: Optional[TelegramClient] = None
         self.user_clients: Dict[int, Dict[str, TelegramClient]] = {}
+        # Maps (user_id, account_name) -> telegram_id so OTP handler
+        # doesn't need to call client.get_me() on every message.
+        self._client_tg_ids: Dict[tuple, int] = {}
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
         self.pending_2fa_storage: Dict[int, Dict[str, Any]] = {}
         self.component_manager = ComponentManager(self)
@@ -718,6 +721,8 @@ class BotManager:
             if account:
                 # Get Telegram user ID and store it
                 me = await client.get_me()
+                # Cache so OTP handler can skip get_me() on hot path
+                self._client_tg_ids[(user_id, account_name)] = me.id
                 await mongodb.db.accounts.update_one(
                     {"user_id": user_id, "name": account_name},
                     {"$unset": {"needs_reauth": ""}, "$set": {"is_active": True, "telegram_id": me.id}},
@@ -854,9 +859,13 @@ class BotManager:
         if self.protection_manager and self.user_clients:
             try:
                 self.protection_manager.register_handlers()
-                # Start protection workers (Session Destroyer)
-                await self.protection_manager.start()
-                logger.info("Protection Manager initialized and workers started")
+                # Start protection workers as a background task so the 50s cloud
+                # startup delay inside start() doesn't block _initialize_core_components
+                asyncio.create_task(
+                    self.protection_manager.start(),
+                    name="protection_manager_start",
+                )
+                logger.info("Protection Manager initialized — workers starting in background")
             except Exception as e:
                 logger.warning(f"Failed to register protection handlers during init: {e}")
 
@@ -1457,6 +1466,7 @@ class BotManager:
                         # Always disconnect the client
                         await client.disconnect()
                 del self.user_clients[user_id][account_name]
+                self._client_tg_ids.pop((user_id, account_name), None)
 
             # Clean up topic mappings for this account
             if account:
