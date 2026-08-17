@@ -18,7 +18,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DevicesPage } from "./devices-page";
+import { SessionManagerPage } from "./session-manager-page";
 
 interface PrivacySecurityPageProps {
   isOpen: boolean;
@@ -315,8 +315,8 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
         </div>
       </div>
 
-      {/* Devices sub-page */}
-      <DevicesPage isOpen={isDevicesOpen} onClose={() => setIsDevicesOpen(false)} />
+      {/* Active Sessions sub-page — replaces the old hardcoded Devices page */}
+      <SessionManagerPage isOpen={isDevicesOpen} onClose={() => setIsDevicesOpen(false)} />
     </div>
   );
 }

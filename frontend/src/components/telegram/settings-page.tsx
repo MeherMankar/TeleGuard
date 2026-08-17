@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/user-context";
 import { EditProfilePage } from "./edit-profile-page";
-import { DevicesPage } from "./devices-page";
+import { SessionManagerPage } from "./session-manager-page";
 import { PrivacySecurityPage } from "./privacy-security-page";
 import { AccountSettingsPage } from "./account-settings-page";
 
@@ -295,7 +295,7 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
         isOpen={isAccountSettingsOpen}
         onClose={() => setIsAccountSettingsOpen(false)}
       />
-      <DevicesPage isOpen={isDevicesOpen} onClose={() => setIsDevicesOpen(false)} />
+      <SessionManagerPage isOpen={isDevicesOpen} onClose={() => setIsDevicesOpen(false)} />
       <PrivacySecurityPage
         isOpen={isPrivacySecurityOpen}
         onClose={() => setIsPrivacySecurityOpen(false)}
