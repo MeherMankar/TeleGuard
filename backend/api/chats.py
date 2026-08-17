@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
 from teleguard.core.mongo_database import mongodb
@@ -957,4 +958,63 @@ async def get_contacts(
         return contacts[:limit]
     except Exception as e:
         logger.error(f"Error fetching contacts for {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Account Cleanup ───────────────────────────────────────────────────────────
+
+class CleanupRequest(BaseModel):
+    type: str  # personal | bots | telegram | spambot | my_messages |
+               # channels | groups | owned_groups | owned_channels | all
+
+
+@router.post("/cleanup/{account_name}")
+async def cleanup_account(
+    account_name: str,
+    payload: CleanupRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Run account cleanup for the given type.
+    Delegates to AccountCleaner which handles all Telethon operations.
+    """
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="No active client for this account")
+
+    VALID_TYPES = {
+        "personal", "bots", "telegram", "spambot",
+        "my_messages", "channels", "groups",
+        "owned_groups", "owned_channels", "all",
+    }
+    cleanup_type = payload.type.lower().strip()
+    if cleanup_type not in VALID_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid cleanup type: {cleanup_type}")
+
+    # Build settings dict for AccountCleaner
+    if cleanup_type == "all":
+        types = {"personal", "bots", "telegram", "spambot", "my_messages",
+                 "channels", "groups", "owned_groups", "owned_channels"}
+    else:
+        types = {cleanup_type}
+
+    settings = {
+        "personal_chats":  "personal"        in types,
+        "bot_chats":       "bots"            in types,
+        "telegram_chat":   "telegram"        in types,
+        "spambot_chat":    "spambot"         in types,
+        "my_messages":     "my_messages"     in types,
+        "channels":        "channels"        in types,
+        "groups":          "groups"          in types,
+        "owned_groups":    "owned_groups"    in types,
+        "owned_channels":  "owned_channels"  in types,
+    }
+
+    try:
+        from teleguard.core.account_cleaner import AccountCleaner
+        cleaner = AccountCleaner()
+        result = await cleaner.cleanup_account(client, settings, progress_callback=None)
+        return {"status": "success", "message": result}
+    except Exception as e:
+        logger.error(f"Cleanup error for {account_name} (type={cleanup_type}): {e}")
         raise HTTPException(status_code=500, detail=str(e))

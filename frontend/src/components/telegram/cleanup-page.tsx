@@ -12,9 +12,10 @@ import {
   Radio,
   Flame,
   Loader2,
+  CheckCircle2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { messagingApi } from "@/lib/api"
+import { cleanupApi, apiErrorMessage } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
 import { toast } from "sonner"
 import {
@@ -34,39 +35,40 @@ interface CleanupPageProps {
 }
 
 const cleanupItems = [
-  { icon: MessageSquare, label: "personal", description: "Direct messages with users" },
-  { icon: Bot, label: "bots", description: "Conversations with bots" },
-  { icon: Send, label: "telegram", description: "Telegram service chats" },
-  { icon: AlertCircle, label: "spambot", description: "@spambot conversations" },
-  { icon: Mail, label: "my_messages", description: "Delete your sent messages from groups" },
-  { icon: LogOut, label: "channels", description: "Leave all channels" },
-  { icon: Users, label: "groups", description: "Leave all groups" },
-  { icon: Trash2, label: "owned_groups", description: "Delete groups you own" },
-  { icon: Radio, label: "owned_channels", description: "Delete channels you own" },
-  { icon: Flame, label: "all", description: "Everything above — full cleanup" },
+  { icon: MessageSquare, label: "personal",       description: "Delete all direct message conversations" },
+  { icon: Bot,          label: "bots",            description: "Delete all bot conversations" },
+  { icon: Send,         label: "telegram",        description: "Delete Telegram service chats" },
+  { icon: AlertCircle,  label: "spambot",         description: "Delete @spambot conversation" },
+  { icon: Mail,         label: "my_messages",     description: "Delete your sent messages from groups" },
+  { icon: LogOut,       label: "channels",        description: "Leave all channels" },
+  { icon: Users,        label: "groups",          description: "Leave all groups" },
+  { icon: Trash2,       label: "owned_groups",    description: "Delete groups you own" },
+  { icon: Radio,        label: "owned_channels",  description: "Delete channels you own" },
+  { icon: Flame,        label: "all",             description: "Everything above — full cleanup", danger: true },
 ]
 
 export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
   const { activeAccount } = useUser()
   const [confirmTarget, setConfirmTarget] = useState<string | null>(null)
   const [loading, setLoading] = useState<string | null>(null)
+  const [resultMsg, setResultMsg] = useState<string | null>(null)
 
   const handleCleanup = async (type: string) => {
     if (!activeAccount) {
       toast.error("No active account selected")
       return
     }
+    setConfirmTarget(null)
     setLoading(type)
+    setResultMsg(null)
     try {
-      // Cleanup is implemented as a bulk message to a special target
-      // The backend handles the actual cleanup via the messaging system
-      await messagingApi.send(activeAccount.name, "cleanup_bot", `cleanup:${type}`)
-      toast.success(`Cleanup started: ${type}`)
+      const res = await cleanupApi.run(activeAccount.name, type)
+      setResultMsg(res.message)
+      toast.success(`Cleanup complete`)
     } catch (e) {
-      toast.error((e as Error).message)
+      toast.error(apiErrorMessage(e))
     } finally {
       setLoading(null)
-      setConfirmTarget(null)
     }
   }
 
@@ -93,64 +95,87 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
         </header>
 
         <div className="flex-1 overflow-y-auto">
+          {/* No account warning */}
           {!activeAccount && (
             <div className="mx-4 mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-              <p className="text-yellow-400 text-sm text-center">
-                Select an active account first
+              <p className="text-yellow-400 text-sm text-center">Select an active account first</p>
+            </div>
+          )}
+
+          {/* Account label */}
+          {activeAccount && (
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-gray-400 text-xs">
+                Account: <span className="text-white font-medium">{activeAccount.name}</span>
               </p>
             </div>
           )}
 
-          <div className="px-4 py-4 border-b border-white/10">
-            <p className="text-base font-semibold text-white flex items-center gap-3">
-              <Trash2 className="h-5 w-5 text-[#2AABEE]" />
-              What would you like to clean?
-            </p>
-            {activeAccount && (
-              <p className="text-gray-400 text-xs mt-1">Account: {activeAccount.name}</p>
-            )}
-          </div>
+          {/* Result box */}
+          {resultMsg && (
+            <div className="mx-4 mb-2 bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
+              <p className="text-green-400 text-sm whitespace-pre-wrap">{resultMsg}</p>
+            </div>
+          )}
 
-          <ul role="list">
-            {cleanupItems.map(({ icon: Icon, label, description }) => (
-              <li key={label} className="border-b border-white/10">
+          {/* Cleanup items */}
+          <ul role="list" className="mt-1">
+            {cleanupItems.map(({ icon: Icon, label, description, danger }) => (
+              <li key={label} className="border-b border-white/5">
                 <button
                   onClick={() => setConfirmTarget(label)}
-                  disabled={!activeAccount || loading === label}
-                  className="w-full flex items-center gap-4 px-4 py-4 hover:bg-white/5 transition-colors group disabled:opacity-50"
+                  disabled={!activeAccount || loading !== null}
+                  className={cn(
+                    "w-full flex items-center gap-4 px-4 py-4 hover:bg-white/5 transition-colors disabled:opacity-50",
+                    danger && "hover:bg-red-500/5",
+                  )}
                 >
                   {loading === label ? (
-                    <Loader2 className="h-6 w-6 text-[#2AABEE] animate-spin flex-shrink-0" />
+                    <Loader2 className="h-5 w-5 text-[#2AABEE] animate-spin flex-shrink-0" />
                   ) : (
-                    <Icon className="h-6 w-6 text-[#2AABEE] transition-colors flex-shrink-0" />
+                    <Icon className={cn(
+                      "h-5 w-5 flex-shrink-0",
+                      danger ? "text-red-400" : "text-[#2AABEE]",
+                    )} />
                   )}
                   <div className="flex-1 text-left">
-                    <span className="text-[15px] font-semibold block text-white">{label}</span>
-                    <span className="text-[13px] text-gray-400">{description}</span>
+                    <p className={cn(
+                      "text-[15px] font-medium",
+                      danger ? "text-red-400" : "text-white",
+                    )}>
+                      {label}
+                    </p>
+                    <p className="text-[13px] text-gray-500 mt-0.5">{description}</p>
                   </div>
                 </button>
               </li>
             ))}
           </ul>
 
-          <div className="px-4 py-4 border-t border-white/10">
-            <div className="flex items-center gap-3 px-4 py-3 bg-[#2AABEE]/10 border border-[#2AABEE]/30 rounded-lg">
-              <AlertCircle className="h-5 w-5 text-[#2AABEE] flex-shrink-0" />
-              <p className="text-sm text-[#2AABEE] font-medium">
-                These actions cannot be undone!
+          {/* Warning footer */}
+          <div className="px-4 py-4">
+            <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
+              <p className="text-red-400 text-xs">
+                These actions are <strong>permanent</strong> and cannot be undone.
+                Cleanup runs on your Telegram account directly.
               </p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Confirm dialog */}
       <AlertDialog open={!!confirmTarget} onOpenChange={() => setConfirmTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Cleanup</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to clean <strong>{targetItem?.label}</strong>?{" "}
-              {targetItem?.description}. This action <strong>cannot be undone</strong>.
+              Run <strong>{targetItem?.label}</strong> cleanup on{" "}
+              <strong>{activeAccount?.name}</strong>?{" "}
+              {targetItem?.description}.{" "}
+              This action <strong>cannot be undone</strong>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -167,5 +192,3 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
     </>
   )
 }
-
-

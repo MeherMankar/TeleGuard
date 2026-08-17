@@ -492,6 +492,14 @@ export interface Proxy {
   secret?: string
 }
 
+export const cleanupApi = {
+  run: (accountName: string, type: string) =>
+    post<{ status: string; message: string }>(
+      `/api/chats/cleanup/${encodeURIComponent(accountName)}`,
+      { type },
+    ),
+}
+
 export const proxiesApi = {
   list: () => get<Proxy[]>("/api/proxies/list"),
   add: (payload: {
