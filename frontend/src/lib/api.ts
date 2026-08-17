@@ -322,6 +322,20 @@ export interface AutomationJob {
   created_at: number
 }
 
+export interface Contact {
+  id: number
+  name: string
+  username: string | null
+  phone: string | null
+  last_seen: string | null
+  has_photo: boolean
+}
+
+export const contactsApi = {
+  list: (accountName: string, limit = 200) =>
+    get<Contact[]>(`/api/chats/contacts/${encodeURIComponent(accountName)}?limit=${limit}`),
+}
+
 export const messagingApi = {
   stats: () => get<MessagingStats>("/api/messaging/stats"),
   send: (account_name: string, target: string, message: string) =>

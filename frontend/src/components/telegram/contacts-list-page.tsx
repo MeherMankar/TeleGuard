@@ -1,168 +1,189 @@
-import { useEffect, useState } from "react"
-import { ArrowLeft, Search, Users, Megaphone, User, UserPlus } from "lucide-react"
+import { useState } from "react"
+import { ArrowLeft, Search, Loader2, UserX } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-interface Contact {
-  id: string
-  name: string
-  avatar?: string
-  avatarColor: string
-  lastSeen: string
-  hasContactIcon?: boolean
-}
-
-const mockContacts: Contact[] = [
-  { id: "1", name: "Saurabh Mule", avatarColor: "bg-rose-500", lastSeen: "last seen at 3:52 PM", hasContactIcon: true },
-  { id: "2", name: "Room Kaka", avatarColor: "bg-amber-600", lastSeen: "last seen at 3:32 PM", hasContactIcon: true },
-  { id: "3", name: "Baba Bada Lundeswar", avatarColor: "bg-violet-500", lastSeen: "last seen at 3:05 PM" },
-  { id: "4", name: "Somya", avatarColor: "bg-pink-500", lastSeen: "last seen at 3:04 PM", hasContactIcon: true },
-  { id: "5", name: "Wasif Shaikh Mca", avatarColor: "bg-sky-500", lastSeen: "last seen at 3:00 PM" },
-  { id: "6", name: "Abhi Da", avatarColor: "bg-indigo-500", lastSeen: "last seen at 2:44 PM" },
-  { id: "7", name: "Pratik Dada", avatarColor: "bg-emerald-500", lastSeen: "last seen at 2:26 PM" },
-  { id: "8", name: "Bhavesh Hood", avatarColor: "bg-orange-500", lastSeen: "last seen at 2:17 PM", hasContactIcon: true },
-  { id: "9", name: "Akolkar", avatarColor: "bg-teal-500", lastSeen: "last seen at 1:54 PM", hasContactIcon: true },
-  { id: "10", name: "Abhi Da", avatarColor: "bg-rose-400", lastSeen: "last seen at 1:53 PM", hasContactIcon: true },
-]
+import { useQuery } from "@tanstack/react-query"
+import { contactsApi, chatsApi, type Contact } from "@/lib/api"
+import { useUser } from "@/contexts/user-context"
 
 interface ContactsListPageProps {
   isOpen: boolean
   onClose: () => void
 }
 
+const AVATAR_COLORS = [
+  "bg-rose-500", "bg-amber-500", "bg-violet-500", "bg-pink-500",
+  "bg-sky-500", "bg-indigo-500", "bg-emerald-500", "bg-orange-500",
+  "bg-teal-500", "bg-cyan-500", "bg-lime-600", "bg-fuchsia-500",
+]
+
+function avatarColor(id: number) {
+  return AVATAR_COLORS[Math.abs(id) % AVATAR_COLORS.length]
+}
+
+function formatLastSeen(ls: string | null): string {
+  if (!ls) return "last seen a long time ago"
+  if (ls === "online") return "online"
+  if (ls === "recently") return "last seen recently"
+  if (ls === "last week") return "last seen last week"
+  if (ls === "last month") return "last seen last month"
+  // ISO date string
+  try {
+    const d = new Date(ls)
+    const now = new Date()
+    const diffMs = now.getTime() - d.getTime()
+    const diffMins = Math.floor(diffMs / 60_000)
+    if (diffMins < 1) return "last seen just now"
+    if (diffMins < 60) return `last seen ${diffMins}m ago`
+    const diffHours = Math.floor(diffMins / 60)
+    if (diffHours < 24) return `last seen ${diffHours}h ago`
+    return `last seen ${d.toLocaleDateString()}`
+  } catch {
+    return "last seen a long time ago"
+  }
+}
+
 export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
+  const { activeAccount } = useUser()
   const [searchValue, setSearchValue] = useState("")
-  const [isVisible, setIsVisible] = useState(false)
 
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden"
-      // Small delay to trigger animation
-      requestAnimationFrame(() => {
-        setIsVisible(true)
-      })
-    } else {
-      setIsVisible(false)
-      document.body.style.overflow = ""
-    }
-    return () => {
-      document.body.style.overflow = ""
-    }
-  }, [isOpen])
+  const { data: contacts = [], isLoading, isError } = useQuery({
+    queryKey: ["contacts", activeAccount?.name],
+    queryFn: () => contactsApi.list(activeAccount!.name),
+    enabled: isOpen && !!activeAccount,
+    staleTime: 60_000,
+  })
 
-  const filteredContacts = mockContacts.filter((contact) =>
-    contact.name.toLowerCase().includes(searchValue.toLowerCase())
+  const filtered = contacts.filter((c) =>
+    c.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+    (c.username ?? "").toLowerCase().includes(searchValue.toLowerCase()) ||
+    (c.phone ?? "").includes(searchValue)
   )
-
-  if (!isOpen) return null
 
   return (
     <div
+      style={{ zIndex: 75 }}
       className={cn(
-        "fixed inset-0 z-50 bg-background transition-transform duration-300 ease-out",
-        isVisible ? "translate-x-0" : "translate-x-full"
+        "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+        isOpen ? "translate-x-0" : "translate-x-full"
       )}
     >
       {/* Header */}
-      <header className="flex items-center gap-4 px-4 py-3 bg-primary text-primary-foreground">
+      <header className="flex items-center gap-4 px-4 py-3 bg-[#17212b] border-b border-white/10">
         <button
           onClick={onClose}
-          className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors"
+          className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <h1 className="text-xl font-medium">New Message</h1>
-        <div className="flex-1" />
-        <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
-          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" />
-          </svg>
-        </button>
+        <h1 className="text-xl font-medium text-white">Contacts</h1>
+        {activeAccount && (
+          <span className="ml-auto text-gray-500 text-xs truncate max-w-[120px]">
+            {activeAccount.name}
+          </span>
+        )}
       </header>
 
-      {/* Search Bar */}
-      <div className="px-4 py-3 bg-background">
-        <div className="flex items-center gap-3 bg-secondary/50 rounded-full px-4 py-2.5">
-          <Search className="h-5 w-5 text-muted-foreground" />
+      {/* Search */}
+      <div className="px-4 py-3 border-b border-white/5">
+        <div className="flex items-center gap-3 bg-[#1e2c3a] rounded-xl px-4 py-2.5">
+          <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Search Contacts"
+            placeholder="Search contacts"
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
-            className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none text-[15px]"
+            className="flex-1 bg-transparent text-white placeholder:text-gray-500 outline-none text-sm"
           />
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="bg-card border-b border-border/30">
-        <button className="w-full flex items-center gap-4 px-5 py-4 hover:bg-secondary/30 transition-colors">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-            <Users className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <span className="text-[15px] text-foreground font-medium">New Group</span>
-        </button>
-        <button className="w-full flex items-center gap-4 px-5 py-4 hover:bg-secondary/30 transition-colors">
-          <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-            <Megaphone className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <span className="text-[15px] text-foreground font-medium">New Channel</span>
-        </button>
-      </div>
-
-      {/* Contacts List */}
+      {/* Body */}
       <div className="flex-1 overflow-y-auto">
-        {/* Sort Label */}
-        <div className="px-5 py-3">
-          <span className="text-sm text-primary font-medium">Sorted by last seen time</span>
-        </div>
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 text-[#2AABEE] animate-spin" />
+          </div>
+        )}
 
-        {/* Contact Items */}
-        <div className="divide-y divide-border/20">
-          {filteredContacts.map((contact) => (
-            <button
-              key={contact.id}
-              className="w-full flex items-center gap-4 px-5 py-3 hover:bg-secondary/30 transition-colors"
-            >
-              {/* Avatar */}
-              <div
-                className={cn(
-                  "w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg flex-shrink-0",
-                  contact.avatarColor
-                )}
-              >
-                {contact.avatar ? (
-                  <img src={contact.avatar} alt={contact.name} className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  contact.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                )}
-              </div>
+        {/* Error */}
+        {isError && !isLoading && (
+          <div className="px-4 py-8 text-center text-red-400 text-sm">
+            Failed to load contacts. Is the bot running?
+          </div>
+        )}
 
-              {/* Contact Info */}
-              <div className="flex-1 text-left">
-                <div className="flex items-center gap-2">
-                  {contact.hasContactIcon && <User className="h-4 w-4 text-primary" />}
-                  <span className="text-[15px] text-foreground font-medium">{contact.name}</span>
-                </div>
-                <p className="text-sm text-muted-foreground mt-0.5">{contact.lastSeen}</p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {/* No account selected */}
+        {!activeAccount && !isLoading && (
+          <div className="px-4 py-8 text-center text-gray-500 text-sm">
+            No account selected.
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!isLoading && !isError && activeAccount && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-500">
+            <UserX className="h-10 w-10" />
+            <p className="text-sm">
+              {searchValue ? "No contacts match your search" : "No contacts found"}
+            </p>
+          </div>
+        )}
+
+        {/* Contact count */}
+        {!isLoading && !isError && contacts.length > 0 && (
+          <div className="px-4 py-2">
+            <span className="text-xs text-[#2AABEE] font-medium">
+              {contacts.length} contact{contacts.length !== 1 ? "s" : ""}
+              {searchValue && ` · ${filtered.length} match${filtered.length !== 1 ? "es" : ""}`}
+            </span>
+          </div>
+        )}
+
+        {/* Contact rows */}
+        {filtered.map((contact) => (
+          <ContactRow key={contact.id} contact={contact} accountName={activeAccount?.name ?? ""} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ContactRow({ contact, accountName }: { contact: Contact; accountName: string }) {
+  const photoUrl = contact.has_photo && accountName
+    ? chatsApi.photoUrl(accountName, contact.id)
+    : null
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer">
+      {/* Avatar */}
+      <div className={cn(
+        "w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-base overflow-hidden",
+        !photoUrl && avatarColor(contact.id)
+      )}>
+        {photoUrl ? (
+          <img src={photoUrl} alt={contact.name} className="w-full h-full object-cover" />
+        ) : (
+          contact.name.charAt(0).toUpperCase()
+        )}
       </div>
 
-      {/* FAB - Add Contact */}
-      <button
-        className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
-        aria-label="Add new contact"
-      >
-        <UserPlus className="h-6 w-6" />
-      </button>
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-white text-[15px] font-medium truncate">{contact.name}</p>
+        <p className={cn(
+          "text-xs truncate mt-0.5",
+          contact.last_seen === "online" ? "text-[#2AABEE]" : "text-gray-500"
+        )}>
+          {formatLastSeen(contact.last_seen)}
+        </p>
+      </div>
+
+      {/* Username badge */}
+      {contact.username && (
+        <span className="text-gray-500 text-xs flex-shrink-0">@{contact.username}</span>
+      )}
     </div>
   )
 }

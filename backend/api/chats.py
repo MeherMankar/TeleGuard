@@ -888,3 +888,73 @@ async def delete_folder(
     except Exception as e:
         logger.error(f"Error deleting folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Contacts ─────────────────────────────────────────────────────────────────
+
+@router.get("/contacts/{account_name}")
+async def get_contacts(
+    account_name: str,
+    limit: int = 200,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Return the account's Telegram contact list with basic info."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="No active client")
+
+    try:
+        from telethon.tl.functions.contacts import GetContactsRequest
+        from telethon.tl.types import User
+
+        result = await client(GetContactsRequest(hash=0))
+        contacts = []
+        for user in result.users:
+            if not isinstance(user, User) or user.deleted or getattr(user, "is_self", False):
+                continue
+            first = _safe_str(getattr(user, "first_name", "")) or ""
+            last = _safe_str(getattr(user, "last_name", "")) or ""
+            name = f"{first} {last}".strip() or f"id:{user.id}"
+            username = _safe_str(getattr(user, "username", None))
+            phone = _safe_str(getattr(user, "phone", None))
+            last_seen: str | None = None
+            status = getattr(user, "status", None)
+            if status is not None:
+                from telethon.tl.types import (
+                    UserStatusOnline, UserStatusOffline,
+                    UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth,
+                )
+                if isinstance(status, UserStatusOnline):
+                    last_seen = "online"
+                elif isinstance(status, UserStatusOffline):
+                    last_seen = status.was_online.isoformat() if status.was_online else None
+                elif isinstance(status, UserStatusRecently):
+                    last_seen = "recently"
+                elif isinstance(status, UserStatusLastWeek):
+                    last_seen = "last week"
+                elif isinstance(status, UserStatusLastMonth):
+                    last_seen = "last month"
+
+            contacts.append({
+                "id": user.id,
+                "name": name,
+                "username": username,
+                "phone": phone,
+                "last_seen": last_seen,
+                "has_photo": bool(getattr(user, "photo", None)),
+            })
+
+        # Sort: online first, then by name
+        def _sort_key(c):
+            ls = c["last_seen"]
+            if ls == "online":
+                return (0, c["name"].lower())
+            if ls == "recently":
+                return (1, c["name"].lower())
+            return (2, c["name"].lower())
+
+        contacts.sort(key=_sort_key)
+        return contacts[:limit]
+    except Exception as e:
+        logger.error(f"Error fetching contacts for {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
