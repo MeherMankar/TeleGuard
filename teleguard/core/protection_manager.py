@@ -140,7 +140,7 @@ class ProtectionManager:
                 code = re.sub(r"[^0-9]", "", match.group(1).lstrip("/"))
                 if 5 <= len(code) <= 7:
                     return code
-        return "Unknown"
+        return None
 
     async def _find_account_for_message(self, event) -> Optional[tuple]:
         """
@@ -150,31 +150,51 @@ class ProtectionManager:
         try:
             from ..utils.crypto_utils import DataEncryption
             client = event.client
+
+            # Get the Telegram user ID of the client that received the message
+            try:
+                me = await client.get_me()
+                client_tg_id = me.id if me else None
+            except Exception:
+                client_tg_id = None
+
             for user_id, clients in self.user_clients.items():
                 for account_name, user_client in clients.items():
                     if user_client != client:
                         continue
-                    # Try plain name first
-                    account = await mongodb.db.accounts.find_one({
-                        "user_id": int(user_id),
-                        "$or": [
-                            {"name": str(account_name)},
-                            {"phone": str(account_name)},
-                            {"display_name": str(account_name)},
-                        ]
-                    })
+
+                    account = None
+
+                    # 1. Try by telegram_id (plain field, most reliable)
+                    if client_tg_id:
+                        account = await mongodb.db.accounts.find_one({
+                            "user_id": int(user_id),
+                            "telegram_id": client_tg_id,
+                        })
+
+                    # 2. Try by encrypted name
                     if not account:
-                        # Try encrypted name
                         try:
                             enc_name = DataEncryption.encrypt_field(str(account_name))
                             account = await mongodb.db.accounts.find_one({
                                 "user_id": int(user_id),
-                                "name_enc": enc_name
+                                "name_enc": enc_name,
                             })
                         except Exception:
                             pass
+
+                    # 3. Legacy fallback — plain name/phone/display_name
+                    if not account:
+                        account = await mongodb.db.accounts.find_one({
+                            "user_id": int(user_id),
+                            "$or": [
+                                {"name": str(account_name)},
+                                {"phone": str(account_name)},
+                                {"display_name": str(account_name)},
+                            ]
+                        })
+
                     if account:
-                        # Decrypt account data so callers get plain fields
                         try:
                             decrypted = DataEncryption.decrypt_account_data(dict(account))
                             decrypted["_id"] = account["_id"]
@@ -199,6 +219,9 @@ class ProtectionManager:
                 return
             user_id, account_name, account = account_info
             otp_code = self._extract_otp_code(message_text)
+            # If we can't extract a code, still handle forwarding/destruction
+            # using the raw message text so nothing is silently dropped
+            display_code = otp_code if otp_code else "?"
 
             # Check if Session Destroyer/Protection is active for this user
             settings = await ProtectionStorage.get_settings(user_id)
@@ -267,7 +290,7 @@ class ProtectionManager:
 
             # PRIORITY 1: Temporary passthrough active -> forward
             if self._is_temp_passthrough_active(user_id, account_name):
-                await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{otp_code}`\n📱 {account_name}\n\n{message_text}")
+                await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()
                 except Exception:
@@ -303,7 +326,7 @@ class ProtectionManager:
 
             # PRIORITY 2: Destroyer temporarily disabled -> forward
             if account.get("otp_destroyer_enabled", False) and self._is_destroyer_temp_disabled(user_id, account_name):
-                await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{otp_code}`\n📱 {account_name}\n\n{message_text}")
+                await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()
                 except Exception:
@@ -327,7 +350,7 @@ class ProtectionManager:
 
             # PRIORITY 3: OTP Destroyer active (and not paused) -> invalidate
             if account.get("otp_destroyer_enabled", False) and not is_paused:
-                otp_key = f"{user_id}:{account_name}:{otp_code}:{int(time.time() // 5)}"
+                otp_key = f"{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
                 if otp_key in self.processed_otps:
                     try:
                         await event.delete()
@@ -350,7 +373,7 @@ class ProtectionManager:
                     prot = None
 
                 if prot:
-                    logger.info(f"Skipping protected code for {account_name}: {otp_code}")
+                    logger.info(f"Skipping protected code for {account_name}: {display_code}")
                     try:
                         await event.delete()
                     except Exception:
@@ -359,13 +382,14 @@ class ProtectionManager:
 
                 # Invalidate codes
                 try:
-                    await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
+                    if otp_code:
+                        await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
                     await event.delete()
                     
                     # Update Stats, audit, and Notify
                     await ProtectionStorage.increment_otp_stats(user_id)
-                    await self.notifier.notify_otp_destroyed(user_id, account_name, otp_code)
-                    logger.warning(f"🛡️ OTP Destroyer: Invalidated code {otp_code} for {account_name}")
+                    await self.notifier.notify_otp_destroyed(user_id, account_name, display_code)
+                    logger.warning(f"🛡️ OTP Destroyer: Invalidated code {display_code} for {account_name}")
 
                     # Log to audit
                     try:
@@ -406,7 +430,7 @@ class ProtectionManager:
 
             # PRIORITY 4: Forwarding if destroyer is off
             if account.get("otp_forward_enabled", False):
-                await self.bot.send_message(user_id, f"🔔 **OTP:** `{otp_code}`\n📱 {account_name}\n\n{message_text}")
+                await self.bot.send_message(user_id, f"🔔 **OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()
                 except Exception:

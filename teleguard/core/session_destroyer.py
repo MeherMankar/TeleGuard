@@ -150,6 +150,12 @@ class SessionDestroyer:
                     await ProtectionStorage.update_settings(
                         user_id, {"trusted_hashes": list(combined)}
                     )
+                    # Remove from pending any session that is now trusted —
+                    # these were queued before the trusted-hash fix took effect.
+                    if combined:
+                        await _mdb.db.session_destroyer_pending.delete_many(
+                            {"user_id": user_id, "hash": {"$in": list(combined)}}
+                        )
                     logger.info(
                         f"Session Destroyer first run for user {user_id}: "
                         f"trusted {len(combined)} existing sessions"
