@@ -116,6 +116,7 @@ class SessionOperationsHandler:
         """Export session string"""
         try:
             from bson import ObjectId
+            from ..utils.crypto_utils import DataEncryption
 
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
@@ -125,6 +126,7 @@ class SessionOperationsHandler:
                 await event.answer("❌ Account not found")
                 return
 
+            account = DataEncryption.decrypt_account_data(account)
             session_string = account.get("session_string")
             if not session_string:
                 await event.answer("❌ Session string not available")
@@ -132,15 +134,15 @@ class SessionOperationsHandler:
 
             # Create session file
             session_file = io.BytesIO(session_string.encode("utf-8"))
-            session_file.name = f"session_{account['name']}.txt"
+            session_file.name = f"session_{account.get('name', account_id)}.txt"
 
             await self.bot.send_file(
                 user_id,
                 session_file,
                 caption=(
                     f"📝 **Session String Export**\n\n"
-                    f"Account: {account['name']}\n"
-                    f"Phone: {account['phone']}\n\n"
+                    f"Account: {account.get('name', 'Unknown')}\n"
+                    f"Phone: {account.get('phone', 'Unknown')}\n\n"
                     f"**Security Warning:**\n"
                     f"Keep this session string secure!\n"
                     f"Anyone with this string can access your account."

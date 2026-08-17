@@ -143,15 +143,28 @@ class DataEncryption:
         return decrypt_string(encrypted_data)
 
 
-# Global encryption instance
+# Global encryption instance — seeded from FERNET_KEY env var so that
+# twofa passwords encrypted in one process restart can be decrypted in the next.
 _global_encryption: Optional[DataEncryption] = None
+
+def _init_global_encryption() -> DataEncryption:
+    """Initialise global encryption, preferring FERNET_KEY from environment."""
+    import os
+    fernet_key = os.environ.get("FERNET_KEY")
+    if fernet_key:
+        try:
+            key_bytes = fernet_key.encode() if isinstance(fernet_key, str) else fernet_key
+            return DataEncryption(key_bytes)
+        except Exception:
+            pass  # fall through to random key
+    return DataEncryption()  # random key — only safe when FERNET_KEY is absent
 
 
 def get_encryption() -> DataEncryption:
     """Get global encryption instance."""
     global _global_encryption
     if _global_encryption is None:
-        _global_encryption = DataEncryption()
+        _global_encryption = _init_global_encryption()
     return _global_encryption
 
 

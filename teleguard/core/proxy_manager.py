@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from telethon import TelegramClient
 
 from .mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from .mtproto_bridge import mtproto_bridge
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,8 @@ class ProxyManager:
             )
             if not account:
                 return False, "Account not found"
+
+            account = DataEncryption.decrypt_account_data(account)
 
             # Update account with proxy in database
             await mongodb.db.accounts.update_one(

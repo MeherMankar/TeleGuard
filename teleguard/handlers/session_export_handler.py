@@ -435,7 +435,10 @@ class SessionExportHandler:
             db_account = await mongodb.db.accounts.find_one(
                 {"user_id": user_id, "phone": phone}
             )
-            if not db_account or not db_account.get("session_string"):
+            if not db_account:
+                return None
+            db_account = DataEncryption.decrypt_account_data(db_account)
+            if not db_account.get("session_string"):
                 return None
             
             from ..core.config import config

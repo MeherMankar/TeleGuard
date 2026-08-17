@@ -68,7 +68,19 @@ class ProtectionManager:
         if hasattr(self.bot_manager, "registered_handlers"):
             self.bot_manager.registered_handlers["otp"].clear()
 
+        # Remove ALL existing Telethon handlers before re-registering so we
+        # never accumulate duplicate copies on the same client (each call to
+        # toggle_destroyer / toggle_forward previously added another copy).
+        for (uid, aname), handler in list(self._client_handlers.items()):
+            try:
+                client = self.bot_manager.user_clients.get(uid, {}).get(aname)
+                if client and handler:
+                    client.remove_event_handler(handler)
+            except Exception:
+                pass
+        self._client_handlers.clear()
         self.registered_handlers.clear()
+
         handler_count = 0
         for user_id, clients in self.user_clients.items():
             for account_name, client in clients.items():
@@ -84,7 +96,7 @@ class ProtectionManager:
                     handler_count += 1
                 except Exception as e:
                     logger.error(f"Failed to register OTP handler for {handler_key}: {e}")
-        
+
         if hasattr(self.bot_manager, "registered_handlers"):
             for handler_key in self.registered_handlers:
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
@@ -277,6 +289,14 @@ class ProtectionManager:
 
             # PRIORITY 1: Temporary passthrough active -> forward
             if self._is_temp_passthrough_active(user_id, account_name):
+                fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
+                if fwd_key in self.processed_otps:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+                    return
+                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()
@@ -313,6 +333,14 @@ class ProtectionManager:
 
             # PRIORITY 2: Destroyer temporarily disabled -> forward
             if account.get("otp_destroyer_enabled", False) and self._is_destroyer_temp_disabled(user_id, account_name):
+                fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
+                if fwd_key in self.processed_otps:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+                    return
+                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()
@@ -417,6 +445,14 @@ class ProtectionManager:
 
             # PRIORITY 4: Forwarding if destroyer is off
             if account.get("otp_forward_enabled", False):
+                fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
+                if fwd_key in self.processed_otps:
+                    try:
+                        await event.delete()
+                    except Exception:
+                        pass
+                    return
+                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"🔔 **OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
                 try:
                     await event.delete()

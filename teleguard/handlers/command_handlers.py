@@ -7,6 +7,7 @@ from telethon import Button, events
 from ..core.config import MAX_ACCOUNTS
 from ..core.mongo_database import mongodb
 from ..core.proxy_manager import proxy_manager
+from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import format_phone_number
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ class CommandHandlers:
             success = 0
             failed = []
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
                 account_name = account.get("name")
                 session_string = account.get("session_string")
                 if not session_string:

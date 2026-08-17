@@ -9,6 +9,7 @@ from datetime import datetime
 from telethon import events
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from ..utils.logger import BotLogger
 
 logger = logging.getLogger(__name__)
@@ -689,6 +690,7 @@ Enhanced reply:"""
     async def _find_matching_account(self, accounts, account_id: int):
         """Find account matching the account_id"""
         for acc in accounts:
+            acc = DataEncryption.decrypt_account_data(acc)
             if acc.get("session_string"):
                 try:
                     from telethon import TelegramClient
@@ -711,6 +713,7 @@ Enhanced reply:"""
     async def _start_and_setup_account(self, event, target_account, account_id: int):
         """Start and setup account client"""
         try:
+            target_account = DataEncryption.decrypt_account_data(target_account)
             await self.bot_manager.start_user_client(
                 target_account["user_id"],
                 target_account["name"],

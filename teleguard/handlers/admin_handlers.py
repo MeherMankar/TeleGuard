@@ -155,7 +155,7 @@ class AdminHandlers:
         await event.reply("🔄 Starting data encryption migration...")
         try:
             from ..core.mongo_database import mongodb
-            from ..utils.data_encryption import DataEncryption
+            from ..utils.crypto_utils import DataEncryption
             users = await mongodb.db.users.find({}).to_list(length=None)
             user_count = 0
             for user in users:

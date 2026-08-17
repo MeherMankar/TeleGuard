@@ -11,6 +11,7 @@ from telethon import errors, functions, types
 
 from ..core.exceptions import AccountError, ValidationError
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from ..utils.validators import Validators
 
 logger = logging.getLogger(__name__)
@@ -325,6 +326,7 @@ class ChannelManager:
             ).to_list(length=None)
 
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
                 if account.get("session_string"):
                     try:
                         await self.bot_manager.start_user_client(
@@ -497,6 +499,7 @@ class ChannelManager:
 
     async def _reload_account_client(self, user_id: int, account: dict, account_phone: str):
         """Reload specific account client"""
+        account = DataEncryption.decrypt_account_data(account)
         if not account.get("session_string"):
             logger.error(f"Client not found for account {account['name']} (phone: {account_phone}). Available clients: {list(self.user_clients.get(user_id, {}).keys())}")
             return None

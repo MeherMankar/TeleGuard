@@ -22,6 +22,7 @@ from ..utils.session_protection import session_protection
 from .config import config
 from .exceptions import ConfigurationError, TeleGuardError
 from .mongo_database import init_db, mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,7 @@ class BotManager:
             loaded_count = 0
             # Load all accounts — no artificial cap
             for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
                 if account.get("session_string"):
                     try:
                         await asyncio.wait_for(
@@ -462,10 +464,12 @@ class BotManager:
                                 )
                             )
                             if converted_session:
-                                # Update database with converted session
+                                # Update database with converted session (encrypted)
                                 await mongodb.db.accounts.update_one(
                                     {"user_id": user_id, "name": account_name},
-                                    {"$set": {"session_string": converted_session}},
+                                    {"$set": DataEncryption.encrypt_account_data(
+                                        {"session_string": converted_session}
+                                    )},
                                 )
                                 # Use converted session
                                 session_string = converted_session

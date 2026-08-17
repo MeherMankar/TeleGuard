@@ -81,10 +81,10 @@ async def _save_and_start_account(user_id: int, phone: str, session_string: str,
     if tg_id:
         account_data["telegram_id"] = tg_id
 
-    # Upsert — if account already added via bot, update session only
+    # Upsert — encrypt session_string before writing
     await mongodb.db.accounts.update_one(
         {"user_id": user_id, "phone": phone},
-        {"$set": account_data},
+        {"$set": DataEncryption.encrypt_account_data(account_data)},
         upsert=True,
     )
     logger.info(f"Saved webapp account: {display_name} ({phone}) for user {user_id}")

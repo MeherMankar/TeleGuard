@@ -11,6 +11,7 @@ from telethon import events
 from telethon.tl.custom import Button
 
 from ..utils.session_protection import session_protection
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -1100,7 +1101,11 @@ Generate 4 diverse examples:"""
                 account = await mongodb.db.accounts.find_one(
                     {"user_id": user_id, "name": account_name}
                 )
-                if not account or not account.get("session_string"):
+                if not account:
+                    await event.respond("❌ Account not found or no session available.")
+                    return
+                account = DataEncryption.decrypt_account_data(account)
+                if not account.get("session_string"):
                     await event.respond("❌ Account not found or no session available.")
                     return
 

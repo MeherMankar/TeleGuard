@@ -16,8 +16,7 @@ from pathlib import Path
 
 from ..core.config import FERNET
 from ..core.mongo_database import mongodb
-from .crypto_utils import encrypt_session_string
-from .data_encryption import DataEncryption
+from .crypto_utils import DataEncryption, encrypt_session_string
 from .mongo_store import (
     get_unpersisted_sessions,
     log_audit_event,

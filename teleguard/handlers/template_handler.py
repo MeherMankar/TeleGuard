@@ -190,7 +190,7 @@ class TemplateHandler:
         """Start template usage process"""
         user_id = event.sender_id
         from ..core.mongo_database import mongodb
-        from ..utils.data_encryption import DataEncryption
+        from ..utils.crypto_utils import DataEncryption
 
         encrypted_accounts = await mongodb.db.accounts.find(
             {"user_id": user_id}
