@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Set, List
@@ -58,8 +59,17 @@ class SessionDestroyer:
 
     async def _watcher_loop(self, user_id: int):
         """Main loop that polls for new sessions every 5 seconds."""
-        # Short grace delay on startup so connections stabilise
-        await asyncio.sleep(3)
+        # On Koyeb (and other cloud platforms) a rolling restart keeps the old
+        # instance alive for ~30 s while the new one starts.  Both instances
+        # share the same Telegram auth key → AUTH_KEY_DUPLICATED if we call
+        # GetAuthorizationsRequest too early.  Wait 45 s before the first check.
+        is_cloud = (
+            os.environ.get("DYNO")
+            or os.environ.get("KOYEB_DEPLOYMENT_ID")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+        )
+        startup_delay = 45 if is_cloud else 5
+        await asyncio.sleep(startup_delay)
 
         # On first run, sync ALL current sessions as trusted
         # so we never destroy pre-existing sessions
@@ -101,7 +111,27 @@ class SessionDestroyer:
                     logger.warning(f"FloodWait in Session Destroyer for {user_id}: {e.seconds}s")
                     await asyncio.sleep(min(e.seconds, 60))
                     continue
+                except errors.AuthKeyDuplicatedError:
+                    # Old instance still running (rolling restart) — back off and retry
+                    logger.warning(
+                        f"Session Destroyer: AUTH_KEY_DUPLICATED for {user_id} — "
+                        "old instance still active, waiting 45s before retry"
+                    )
+                    await asyncio.sleep(45)
+                    continue
                 except Exception as e:
+                    err_lower = str(e).lower()
+                    if (
+                        "auth_key_duplicated" in err_lower
+                        or "two different ip" in err_lower
+                        or "simultaneously" in err_lower
+                    ):
+                        logger.warning(
+                            f"Session Destroyer: auth key conflict for {user_id} — "
+                            "waiting 45s for old instance to shut down"
+                        )
+                        await asyncio.sleep(45)
+                        continue
                     logger.error(f"Error fetching authorizations for {user_id}: {e}")
                     await asyncio.sleep(15)
                     continue

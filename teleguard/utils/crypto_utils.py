@@ -18,6 +18,18 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+# Load .env before reading FERNET_KEY so local runs pick up the key without
+# the user having to set it manually in their shell environment.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    from pathlib import Path as _Path
+    for _candidate in (_Path("config/.env"), _Path(".env")):
+        if _candidate.exists():
+            _load_dotenv(_candidate, override=False)
+            break
+except Exception:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # Fernet encryption key from environment

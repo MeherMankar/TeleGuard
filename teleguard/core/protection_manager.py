@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone, timedelta
@@ -42,6 +43,17 @@ class ProtectionManager:
 
     async def start(self):
         """Start the protection manager and its background workers"""
+        # On cloud platforms (Koyeb, Railway, Heroku) a rolling restart keeps
+        # the old instance alive for ~30 s.  Delaying watcher startup avoids
+        # AUTH_KEY_DUPLICATED errors from GetAuthorizationsRequest.
+        is_cloud = (
+            os.environ.get("DYNO")
+            or os.environ.get("KOYEB_DEPLOYMENT_ID")
+            or os.environ.get("RAILWAY_ENVIRONMENT")
+        )
+        if is_cloud:
+            logger.info("☁️ Cloud environment detected — delaying Session Destroyer start by 50s to allow rolling restart to complete")
+            await asyncio.sleep(50)
         await self.session_destroyer.start_all()
         logger.info("🛡️ Protection Manager started (OTP & Session systems active)")
 
