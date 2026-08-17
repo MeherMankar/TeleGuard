@@ -282,10 +282,10 @@ class CallbackHandlers:
         """Toggle OTP destroyer with proper integration"""
         try:
             if (
-                hasattr(self.account_manager, "otp_manager")
-                and self.account_manager.otp_manager
+                hasattr(self.account_manager, "protection_manager")
+                and self.account_manager.protection_manager
             ):
-                return await self.account_manager.otp_manager.toggle_destroyer(
+                return await self.account_manager.protection_manager.toggle_destroyer(
                     user_id, account_id, enabled
                 )
             else:
@@ -313,10 +313,10 @@ class CallbackHandlers:
         """Toggle OTP forward with proper integration"""
         try:
             if (
-                hasattr(self.account_manager, "otp_manager")
-                and self.account_manager.otp_manager
+                hasattr(self.account_manager, "protection_manager")
+                and self.account_manager.protection_manager
             ):
-                return await self.account_manager.otp_manager.toggle_forward(
+                return await self.account_manager.protection_manager.toggle_forward(
                     user_id, account_id, enabled
                 )
             else:
@@ -346,10 +346,10 @@ class CallbackHandlers:
         """Handle temp OTP with proper integration"""
         try:
             if (
-                hasattr(self.account_manager, "otp_manager")
-                and self.account_manager.otp_manager
+                hasattr(self.account_manager, "protection_manager")
+                and self.account_manager.protection_manager
             ):
-                return await self.account_manager.otp_manager.enable_temp_passthrough(
+                return await self.account_manager.protection_manager.enable_temp_passthrough(
                     user_id, account_id
                 )
             else:

@@ -849,7 +849,6 @@ class BotManager:
         self.protection_manager = await self.component_manager.initialize_component(
             "protection_manager", ProtectionManager, self
         )
-        self.otp_manager = self.protection_manager # Compatibility alias
 
         # Ensure OTP handlers are registered for existing clients
         if self.protection_manager and self.user_clients:
@@ -1237,7 +1236,7 @@ class BotManager:
                 logger.warning(
                     f"Could not setup OTP handler - manager: {
                         bool(
-                            self.otp_manager)}, client: {
+                            self.protection_manager)}, client: {
                         bool(client)}"
                 )
             # Setup DM reply handler - auto-refresh to ensure all handlers are
@@ -2029,9 +2028,8 @@ class BotManager:
             twofa_password = None
             if account.get("twofa_password"):
                 try:
-                    from ..utils.data_encryption import decrypt_string
-
-                    twofa_password = decrypt_string(account["twofa_password"])
+                    from ..utils.crypto_utils import DataEncryption as _DE
+                    twofa_password = _DE.decrypt_field(account["twofa_password"])
                 except BaseException:
                     pass
 

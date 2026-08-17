@@ -259,7 +259,7 @@ class TransferOwnershipHandler:
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
                 None
             )
-            from ..utils.data_encryption import decrypt_string
+            from ..utils.crypto_utils import DataEncryption as _DE
 
             for account in accounts:
                 await mongodb.db.accounts.update_one(
@@ -326,7 +326,7 @@ class TransferOwnershipHandler:
 
     async def _transfer_accounts(self, user_id: int, selected: list, target_user_id: int) -> list:
         """Transfer selected accounts to target user"""
-        from ..utils.data_encryption import decrypt_string
+        from ..utils.crypto_utils import DataEncryption as _DE
         transferred = []
         for account_id in selected:
             account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
@@ -335,7 +335,7 @@ class TransferOwnershipHandler:
             twofa_password = None
             if account.get("twofa_password"):
                 try:
-                    twofa_password = decrypt_string(account["twofa_password"])
+                    twofa_password = _DE.decrypt_field(account["twofa_password"])
                 except Exception:
                     pass
             
@@ -347,9 +347,9 @@ class TransferOwnershipHandler:
                 client = self.bot_manager.user_clients[user_id][account_name]
                 # Unregister OTP handler specifically for this client to avoid orphaned handlers
                 try:
-                    if hasattr(self.bot_manager, 'otp_manager') and hasattr(self.bot_manager.otp_manager, 'unregister_handler_for_client'):
+                    if hasattr(self.bot_manager, 'protection_manager') and hasattr(self.bot_manager.protection_manager, 'unregister_handler_for_client'):
                         try:
-                            self.bot_manager.otp_manager.unregister_handler_for_client(user_id, account_name, client)
+                            self.bot_manager.protection_manager.unregister_handler_for_client(user_id, account_name, client)
                         except Exception as unregister_error:
                             logger.error(f"Error unregistering OTP handler for {user_id}:{account_name}: {unregister_error}")
                 except Exception:
@@ -391,9 +391,9 @@ class TransferOwnershipHandler:
             transferred.append({"name": account.get("name", "Unknown"), "phone": account.get("phone", "Unknown"), "twofa": twofa_password})
         
         # 6. Re-register OTP handlers to update all references
-        if hasattr(self.bot_manager, 'otp_manager'):
+        if hasattr(self.bot_manager, 'protection_manager'):
             try:
-                self.bot_manager.otp_manager.register_handlers()
+                self.bot_manager.protection_manager.register_handlers()
                 logger.info("Re-registered OTP handlers after transfer")
             except Exception as e:
                 logger.error(f"Error re-registering OTP handlers: {e}")

@@ -8,7 +8,6 @@ import logging
 import time
 from typing import Dict, Any
 
-from ..sync.session_destroyer_db import SessionDestroyerDB
 from ..services.session_destroyer_service import SessionDestroyerService
 from ..core.mongo_database import mongodb
 

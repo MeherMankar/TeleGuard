@@ -7,7 +7,13 @@ from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError
 
 from ..core.mongo_database import mongodb
-from ..utils.data_encryption import decrypt_string, encrypt_string
+from ..utils.crypto_utils import DataEncryption as _DE
+
+def encrypt_string(text: str) -> str:
+    return _DE.encrypt_field(text)
+
+def decrypt_string(text: str) -> str:
+    return _DE.decrypt_field(text)
 
 logger = logging.getLogger(__name__)
 

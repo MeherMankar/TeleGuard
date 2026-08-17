@@ -888,7 +888,7 @@ class MessageHandlers:
         if action == "disable_otp_destroyer":
             account_id = self.pending_actions[user_id].get("account_id")
             if account_id:
-                success, msg = await self.bot_manager.otp_manager.toggle_destroyer(
+                success, msg = await self.bot_manager.protection_manager.toggle_destroyer(
                     user_id, account_id, False, message
                 )
                 if success:
@@ -900,7 +900,7 @@ class MessageHandlers:
         elif action == "set_otp_disable_password":
             account_id = self.pending_actions[user_id].get("account_id")
             if account_id:
-                success, msg = await self.bot_manager.otp_manager.set_disable_password(
+                success, msg = await self.bot_manager.protection_manager.set_disable_password(
                     user_id, account_id, message
                 )
                 if success:
@@ -915,7 +915,7 @@ class MessageHandlers:
                 (
                     success,
                     msg,
-                ) = await self.bot_manager.otp_manager.enable_temp_passthrough(
+                ) = await self.bot_manager.protection_manager.enable_temp_passthrough(
                     user_id, account_id, message
                 )
                 if success:

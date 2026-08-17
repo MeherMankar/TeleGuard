@@ -89,8 +89,8 @@ class OTPCommandHandlers:
     def _is_otp_manager_available(self) -> bool:
         """Check if OTP manager is available and functional"""
         return (
-            hasattr(self.bot_manager, "otp_manager")
-            and self.bot_manager.otp_manager is not None
+            hasattr(self.bot_manager, "protection_manager")
+            and self.bot_manager.protection_manager is not None
         )
 
     async def _send_response(self, event, message: str, emoji: str = "🛡️") -> None:
@@ -115,7 +115,7 @@ class OTPCommandHandlers:
                     event, self.MESSAGES["service_unavailable"], "❌"
                 )
                 return
-            success, message = await self.bot_manager.otp_manager.set_destroyer_state(
+            success, message = await self.bot_manager.protection_manager.set_destroyer_state(
                 user_id, account.get("name"), enabled
             )
             await self._send_response(event, message, "🛡️")
@@ -149,7 +149,7 @@ class OTPCommandHandlers:
                     event, self.MESSAGES["service_unavailable"], "❌"
                 )
                 return
-            success, message = await self.bot_manager.otp_manager.set_forwarding_state(
+            success, message = await self.bot_manager.protection_manager.set_forwarding_state(
                 user_id, account.get("name"), enabled
             )
             await self._send_response(event, message, "📨")
@@ -182,7 +182,7 @@ class OTPCommandHandlers:
                     event, self.MESSAGES["service_unavailable"], "❌"
                 )
                 return
-            success, message = await self.bot_manager.otp_manager.enable_temp_passthrough(
+            success, message = await self.bot_manager.protection_manager.enable_temp_passthrough(
                 user_id, str(account.get("_id"))
             )
             if success:

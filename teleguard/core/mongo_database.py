@@ -313,11 +313,9 @@ class MongoDB:
     async def store_2fa_password(self, user_id: int, account_id: str, password: str):
         """Store encrypted 2FA password for account"""
         from bson import ObjectId
+        from ..utils.crypto_utils import DataEncryption as _DE
 
-        from ..utils.data_encryption import encrypt_string
-
-        # Encrypt the password
-        encrypted_password = encrypt_string(password)
+        encrypted_password = _DE.encrypt_field(password)
         await self.db.accounts.update_one(
             {"_id": ObjectId(account_id), "user_id": user_id},
             {
@@ -332,7 +330,7 @@ class MongoDB:
         """Get decrypted 2FA password for account"""
         from bson import ObjectId
 
-        from ..utils.data_encryption import decrypt_string
+        from ..utils.crypto_utils import DataEncryption as _DE
 
         account = await self.db.accounts.find_one(
             {
@@ -343,7 +341,7 @@ class MongoDB:
         )
         if account and account.get("twofa_password"):
             try:
-                return decrypt_string(account["twofa_password"])
+                return _DE.decrypt_field(account["twofa_password"])
             except Exception:
                 return None
         return None
@@ -361,14 +359,14 @@ class MongoDB:
         self, user_id: int, phone: str
     ) -> Optional[str]:
         """Get decrypted 2FA password by phone number"""
-        from ..utils.data_encryption import decrypt_string
+        from ..utils.crypto_utils import DataEncryption as _DE
 
         account = await self.db.accounts.find_one(
             {"user_id": user_id, "phone": phone, "twofa_password": {"$exists": True}}
         )
         if account and account.get("twofa_password"):
             try:
-                return decrypt_string(account["twofa_password"])
+                return _DE.decrypt_field(account["twofa_password"])
             except Exception:
                 return None
         return None

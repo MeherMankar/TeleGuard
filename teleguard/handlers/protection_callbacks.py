@@ -13,7 +13,7 @@ class ProtectionCallbacks:
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.menu = ProtectionMenu(bot_manager)
-        self.protection_manager = bot_manager.otp_manager # We'll update the name in BotManager later
+        self.protection_manager = bot_manager.protection_manager
 
     def register_handlers(self):
         """Register callback handlers"""

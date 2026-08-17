@@ -232,7 +232,7 @@ class DeveloperCommands:
             f"**Event Handlers:** {len(self.bot.list_event_handlers())} active\n"
             f"**User Clients:** {len(self.bot_manager.user_clients)}\n\n"
             "**Component Status:**\n"
-            f"• OTP Manager: {'✅' if self.bot_manager.otp_manager else '❌'}\n"
+            f"• Protection Manager: {'✅' if self.bot_manager.protection_manager else '❌'}\n"
             f"• Menu System: {'✅' if self.bot_manager.menu_system else '❌'}\n"
             f"• Messaging: {'✅' if self.bot_manager.messaging_manager else '❌'}\n"
             f"• Automation: {'✅' if self.bot_manager.automation_engine else '❌'}"

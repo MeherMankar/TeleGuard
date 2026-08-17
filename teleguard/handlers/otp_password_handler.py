@@ -15,7 +15,7 @@ class OTPPasswordHandler:
     def __init__(self, bot, bot_manager):
         self.bot = bot
         self.bot_manager = bot_manager
-        self.otp_manager = bot_manager.otp_manager
+        self.otp_manager = bot_manager.protection_manager
         # Track password input states
         self.password_states = {}
 
