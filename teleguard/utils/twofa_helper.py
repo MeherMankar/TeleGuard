@@ -7,7 +7,6 @@ from telethon import TelegramClient
 from telethon.errors import PasswordHashInvalidError
 
 from ..core.mongo_database import mongodb
-from ..utils.crypto_utils import DataEncryption
 from ..utils.data_encryption import decrypt_string, encrypt_string
 
 logger = logging.getLogger(__name__)
@@ -18,17 +17,10 @@ class TwoFAHelper:
 
     @staticmethod
     async def _find_by_phone(user_id: int, phone: str):
-        """Find account doc by user_id + phone, handling encryption."""
-        phone_enc = DataEncryption.encrypt_field(phone)
-        account = await mongodb.db.accounts.find_one(
-            {"user_id": user_id, "phone_enc": phone_enc}
+        """Find account doc by user_id + phone."""
+        return await mongodb.db.accounts.find_one(
+            {"user_id": user_id, "phone": phone}
         )
-        if not account:
-            # fallback for legacy plain-text docs
-            account = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "phone": phone}
-            )
-        return account
 
     @staticmethod
     async def get_stored_password(user_id: int, phone: str) -> Optional[str]:

@@ -145,7 +145,7 @@ class ProtectionManager:
     async def _find_account_for_message(self, event) -> Optional[tuple]:
         """
         Find which account received this OTP message by matching the Telethon client.
-        Returns (user_id, account_name, decrypted_account_dict) or None.
+        Returns (user_id, account_name, account_dict) or None.
         """
         try:
             from ..utils.crypto_utils import DataEncryption
@@ -165,25 +165,14 @@ class ProtectionManager:
 
                     account = None
 
-                    # 1. Try by telegram_id (plain field, most reliable)
+                    # 1. Try by telegram_id (plain, most reliable)
                     if client_tg_id:
                         account = await mongodb.db.accounts.find_one({
                             "user_id": int(user_id),
                             "telegram_id": client_tg_id,
                         })
 
-                    # 2. Try by encrypted name
-                    if not account:
-                        try:
-                            enc_name = DataEncryption.encrypt_field(str(account_name))
-                            account = await mongodb.db.accounts.find_one({
-                                "user_id": int(user_id),
-                                "name_enc": enc_name,
-                            })
-                        except Exception:
-                            pass
-
-                    # 3. Legacy fallback — plain name/phone/display_name
+                    # 2. Fallback — plain name / phone / display_name
                     if not account:
                         account = await mongodb.db.accounts.find_one({
                             "user_id": int(user_id),
@@ -195,12 +184,10 @@ class ProtectionManager:
                         })
 
                     if account:
-                        try:
-                            decrypted = DataEncryption.decrypt_account_data(dict(account))
-                            decrypted["_id"] = account["_id"]
-                            return user_id, account_name, decrypted
-                        except Exception:
-                            return user_id, account_name, account
+                        decrypted = DataEncryption.decrypt_account_data(dict(account))
+                        decrypted["_id"] = account["_id"]
+                        return user_id, account_name, decrypted
+
             return None
         except Exception as e:
             logger.error(f"_find_account_for_message error: {e}")

@@ -6,6 +6,7 @@ import time
 from typing import List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +219,9 @@ class MongoDB:
             "otp_destroyer_enabled": False,
             **kwargs,
         }
-        result = await self.db.accounts.insert_one(account_data)
+        result = await self.db.accounts.insert_one(
+            DataEncryption.encrypt_account_data(account_data)
+        )
         return str(result.inserted_id)
 
     async def get_user_accounts(self, user_id: int):

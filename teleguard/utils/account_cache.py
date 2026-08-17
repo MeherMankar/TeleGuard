@@ -51,17 +51,10 @@ class AccountCache:
             
             # Fetch from database
             try:
-                enc_name = DataEncryption.encrypt_field(account_name)
                 account = await mongodb.db.accounts.find_one({
                     "user_id": user_id,
-                    "name_enc": enc_name
+                    "name": account_name
                 })
-                if not account:
-                    # fallback for legacy plain-text docs
-                    account = await mongodb.db.accounts.find_one({
-                        "user_id": user_id,
-                        "name": account_name
-                    })
 
                 if account:
                     account = DataEncryption.decrypt_account_data(account)

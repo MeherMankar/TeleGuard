@@ -24,6 +24,7 @@ from telethon.tl.types import Channel, Chat, User
 from ..core.config import config
 from ..core.device_snooper import DeviceSnooper
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import retry_async
 
 logger = logging.getLogger(__name__)
@@ -1953,7 +1954,9 @@ class SessionLoginHandler:
                 "fast_import": is_fast_import,
             }
 
-            result = await mongodb.db.accounts.insert_one(account_data)
+            result = await mongodb.db.accounts.insert_one(
+                DataEncryption.encrypt_account_data(account_data)
+            )
             str(result.inserted_id)
 
             # Start user client with converted session

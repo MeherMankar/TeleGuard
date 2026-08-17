@@ -8,7 +8,6 @@ from typing import Dict
 
 from ..core.mongo_database import mongodb
 from ..utils.account_invalidation import handle_account_error
-from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -121,17 +120,10 @@ class SessionMonitor:
     async def _get_phone_for_account(self, user_id: int, account_name: str) -> str:
         """Get phone number for an account"""
         try:
-            enc_name = DataEncryption.encrypt_field(account_name)
             account = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "name_enc": enc_name}
+                {"user_id": user_id, "name": account_name}
             )
-            if not account:
-                # fallback for unencrypted legacy docs
-                account = await mongodb.db.accounts.find_one(
-                    {"user_id": user_id, "name": account_name}
-                )
             if account:
-                account = DataEncryption.decrypt_account_data(account)
                 return account.get("phone", "Unknown")
             return "Unknown"
         except Exception:

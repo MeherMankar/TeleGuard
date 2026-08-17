@@ -219,27 +219,18 @@ class DataEncryption:
 
     @staticmethod
     def encrypt_account_data(account_data: Dict) -> Dict:
+        """Encrypt sensitive account fields before storing in MongoDB.
+
+        Only ``session_string`` is truly secret and needs encryption.
+        All other fields (name, phone, flags, etc.) are stored plain so
+        they can be used directly in MongoDB query filters without
+        encrypt/decrypt gymnastics.
+        """
         if fernet is None:
             return account_data.copy()
         encrypted_data = account_data.copy()
         sensitive_fields = [
             "session_string",
-            "name",
-            "username",
-            "bio",
-            "phone",
-            "two_fa_password",
-            "otp_destroyer_enabled",
-            "is_active",
-            "auto_reply_enabled",
-            "auto_reply_message",
-            "auto_reply_keywords",
-            "business_hours",
-            "available_message",
-            "unavailable_message",
-            "audit_log",
-            "last_activity",
-            "profile_data",
         ]
         for field in sensitive_fields:
             if field in encrypted_data:
@@ -251,6 +242,12 @@ class DataEncryption:
 
     @staticmethod
     def decrypt_account_data(encrypted_data: Dict) -> Dict:
+        """Decrypt an account document fetched from MongoDB.
+
+        Handles legacy documents that may have ``_enc``-suffixed fields
+        from an older encryption scheme, and passes plain documents
+        through unchanged.
+        """
         if not encrypted_data:
             return {}
         decrypted_data = encrypted_data.copy()
@@ -259,6 +256,10 @@ class DataEncryption:
         ]
         for enc_field in encrypted_fields:
             original_field = enc_field[:-4]
+            # Don't overwrite a plain field that already exists
+            if original_field in decrypted_data:
+                del decrypted_data[enc_field]
+                continue
             try:
                 decrypted_value = DataEncryption.decrypt_field(
                     decrypted_data[enc_field]

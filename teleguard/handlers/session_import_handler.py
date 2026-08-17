@@ -10,6 +10,7 @@ import zipfile
 from telethon import events
 
 from ..core.mongo_database import mongodb
+from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,9 @@ class SessionImportHandler:
                 "otp_destroyer_enabled": False,
                 "created_at": int(__import__("time").time()),
             }
-            result = await mongodb.db.accounts.insert_one(account_data)
+            result = await mongodb.db.accounts.insert_one(
+                DataEncryption.encrypt_account_data(account_data)
+            )
             str(result.inserted_id)
             await self.bot_manager.start_user_client(user_id, name, telethon_session)
 
