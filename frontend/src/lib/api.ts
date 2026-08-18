@@ -510,6 +510,29 @@ export interface ScrapedMember {
   phone: string | null
 }
 
+export interface PrivacySettings {
+  last_seen: string
+  phone: string
+  profile_photo: string
+  bio: string
+  forwards: string
+  groups: string
+  calls: string
+  voice_messages: string
+}
+
+export const privacyApi = {
+  get: (accountName: string) =>
+    get<{ settings: PrivacySettings; twofa_enabled: boolean }>(
+      `/api/privacy/settings/${encodeURIComponent(accountName)}`,
+    ),
+  update: (accountName: string, key: string, value: string) =>
+    patch<{ status: string; key: string; value: string }>(
+      `/api/privacy/settings/${encodeURIComponent(accountName)}`,
+      { key, value },
+    ),
+}
+
 export const spamApi = {
   scrapeMembers: (accountName: string, target: string, limit = 2000) =>
     post<{ target: string; count: number; members: ScrapedMember[] }>(
