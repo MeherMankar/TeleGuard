@@ -1,190 +1,271 @@
-import { ArrowLeft, X, MoreVertical, Phone, Bell, Video, MessageSquare, AtSign, Cake, Image as ImageIcon, Link2, PlayCircle } from "lucide-react"
+import { useState, useCallback } from "react"
+import {
+  ArrowLeft,
+  Bell,
+  BellOff,
+  MessageSquare,
+  Image as ImageIcon,
+  Link2,
+  PlayCircle,
+  Loader2,
+  CheckCircle2,
+  Bot,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Chat } from "@/lib/mock-data"
-import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { chatsApi, type Dialog, type Message } from "@/lib/api"
+import { useUser } from "@/contexts/user-context"
 
 interface ContactProfilePageProps {
   isOpen: boolean
   onClose: () => void
-  chat: Chat
+  dialog: Dialog
 }
 
-function formatBirthdayShort(date?: string) {
-  if (!date) return ""
-  const d = new Date(date)
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatLastSeen(status: string | null): string {
+  if (!status) return ""
+  if (status === "online") return "online"
+  if (status === "recently") return "last seen recently"
+  if (status === "last_week") return "last seen last week"
+  if (status === "last_month") return "last seen last month"
+  try {
+    const d = new Date(status)
+    const diffMs = Date.now() - d.getTime()
+    const mins = Math.floor(diffMs / 60_000)
+    if (mins < 1) return "last seen just now"
+    if (mins < 60) return `last seen ${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `last seen ${hours}h ago`
+    return `last seen ${d.toLocaleDateString()}`
+  } catch {
+    return ""
+  }
 }
 
-function calculateAge(date?: string) {
-  if (!date) return 0
-  const b = new Date(date)
-  const t = new Date()
-  let age = t.getFullYear() - b.getFullYear()
-  const m = t.getMonth() - b.getMonth()
-  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) age--
-  return age
-}
-
-const mediaTabs = [
-  { id: "media", label: "Media", count: 9 },
-  { id: "links", label: "Links", count: 1 },
+const AVATAR_COLORS = [
+  "bg-rose-500", "bg-amber-500", "bg-violet-500", "bg-pink-500",
+  "bg-sky-500", "bg-indigo-500", "bg-emerald-500", "bg-orange-500",
+  "bg-teal-500", "bg-cyan-500", "bg-lime-600", "bg-fuchsia-500",
 ]
+function avatarColor(id: number) {
+  return AVATAR_COLORS[Math.abs(id) % AVATAR_COLORS.length]
+}
 
-const mediaThumbs = [
-  { id: "1", color: "bg-rose-900", duration: "0:39" },
-  { id: "2", color: "bg-purple-900", duration: null },
-  { id: "3", color: "bg-indigo-900", duration: "0:09" },
-  { id: "4", color: "bg-emerald-900", duration: "0:10" },
-  { id: "5", color: "bg-slate-700", duration: null },
-  { id: "6", color: "bg-teal-900", duration: null },
-  { id: "7", color: "bg-lime-900", duration: null },
-  { id: "8", color: "bg-amber-900", duration: "1:01" },
-]
+// ── Component ─────────────────────────────────────────────────────────────────
 
-export function ContactProfilePage({ isOpen, onClose, chat }: ContactProfilePageProps) {
-  const [activeTab, setActiveTab] = useState("media")
+export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePageProps) {
+  const { activeAccount } = useUser()
+  const [activeTab, setActiveTab] = useState<"media" | "links">("media")
+
+  // Fetch recent messages to extract real media/links
+  const { data: messages = [], isLoading: loadingMsgs } = useQuery({
+    queryKey: ["history", activeAccount?.name, dialog.entity_id],
+    queryFn: () => chatsApi.history(activeAccount!.name, dialog.entity_id, 100),
+    enabled: isOpen && !!activeAccount,
+    staleTime: 60_000,
+  })
+
+  const photoUrl = dialog.has_photo && activeAccount
+    ? chatsApi.photoUrl(activeAccount.name, dialog.entity_id)
+    : null
+
+  // Extract media messages
+  const mediaMessages = messages.filter(
+    (m) => m.media && (m.media.type === "photo" || m.media.type === "video" || m.media.type === "gif"),
+  )
+  const linkMessages = messages.filter(
+    (m) => m.media?.type === "webpage" && m.media.url,
+  )
+
+  const handleClose = useCallback(() => onClose(), [onClose])
 
   return (
     <>
+      {/* Backdrop */}
       <div
-        onClick={onClose}
-        style={{ zIndex: 60 }}
+        onClick={handleClose}
+        style={{ zIndex: 74 }}
         className={cn(
           "fixed inset-0 bg-black/70 transition-opacity duration-300",
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none",
         )}
       />
+
+      {/* Panel */}
       <div
         style={{ zIndex: 75 }}
         className={cn(
-          "fixed inset-0 bg-background flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
+          isOpen ? "translate-x-0" : "translate-x-full",
         )}
       >
         {/* Top bar */}
         <div className="flex items-center justify-between px-2 pt-3 pb-2">
-          <button onClick={onClose} aria-label="Back" className="p-2 text-foreground">
+          <button onClick={handleClose} aria-label="Back" className="p-2 text-gray-400 hover:text-white">
             <ArrowLeft className="h-6 w-6" />
-          </button>
-          <button aria-label="More" className="p-2 text-foreground">
-            <MoreVertical className="h-6 w-6" />
           </button>
         </div>
 
-        {/* Avatar */}
-        <div className="flex flex-col items-center pt-2 pb-5">
-          <div className={cn("w-32 h-32 rounded-full flex items-center justify-center text-5xl font-semibold text-white overflow-hidden", chat.avatarColor ?? "bg-primary")}>
-            {chat.name.charAt(0)}
+        {/* Avatar + name */}
+        <div className="flex flex-col items-center pt-2 pb-5 px-4">
+          <div className={cn(
+            "w-32 h-32 rounded-full flex items-center justify-center text-5xl font-semibold text-white overflow-hidden flex-shrink-0",
+            !photoUrl && avatarColor(dialog.entity_id),
+          )}>
+            {photoUrl
+              ? <img src={photoUrl} alt={dialog.name} className="w-full h-full object-cover" />
+              : dialog.name.charAt(0).toUpperCase()
+            }
           </div>
-          <h1 className="text-2xl font-semibold text-foreground mt-4">{chat.name}</h1>
-          <p className="text-sm text-muted-foreground mt-1">{chat.lastSeen ?? "last seen recently"}</p>
-          {chat.userId && (
-            <p className="text-sm text-muted-foreground mt-0.5">id: {chat.userId}</p>
-          )}
+
+          <div className="flex items-center gap-1.5 mt-4">
+            <h1 className="text-2xl font-semibold text-white">{dialog.name}</h1>
+            {dialog.verified && <CheckCircle2 className="h-5 w-5 text-sky-400 flex-shrink-0" />}
+            {dialog.is_bot && <Bot className="h-4 w-4 text-gray-400 flex-shrink-0" />}
+          </div>
+
+          <p className={cn(
+            "text-sm mt-1",
+            dialog.status === "online" ? "text-sky-400" : "text-gray-500",
+          )}>
+            {dialog.is_group || dialog.is_channel
+              ? dialog.participants_count != null
+                ? `${dialog.participants_count.toLocaleString()} ${dialog.is_channel ? "subscribers" : "members"}`
+                : ""
+              : formatLastSeen(dialog.status)}
+          </p>
         </div>
 
         {/* Action buttons */}
-        <div className="grid grid-cols-4 gap-2 px-3 pb-4">
+        <div className="grid grid-cols-3 gap-2 px-4 pb-4">
           {[
             { icon: MessageSquare, label: "Message" },
-            { icon: Bell, label: "Mute" },
-            { icon: Phone, label: "Call" },
-            { icon: Video, label: "Video" },
+            { icon: dialog.muted ? BellOff : Bell, label: dialog.muted ? "Unmute" : "Mute" },
+            { icon: Link2, label: "Share" },
           ].map(({ icon: Icon, label }) => (
             <button
               key={label}
-              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-card hover:bg-secondary transition-colors"
+              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-[#242f3d] hover:bg-[#2a3847] transition-colors"
             >
-              <Icon className="h-5 w-5 text-primary" />
-              <span className="text-xs text-foreground">{label}</span>
+              <Icon className="h-5 w-5 text-sky-400" />
+              <span className="text-xs text-gray-300">{label}</span>
             </button>
           ))}
         </div>
 
-        {/* Info card */}
-        <div className="mx-3 rounded-xl bg-card overflow-hidden">
-          {chat.username && (
-            <div className="flex items-center gap-4 px-4 py-3 border-b border-border/40">
-              <div className="flex-1">
-                <p className="text-[15px] text-foreground">{chat.username}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Username</p>
-              </div>
-              <div className="grid grid-cols-2 gap-0.5 w-6 h-6">
-                <div className="bg-muted-foreground rounded-sm" />
-                <div className="bg-muted-foreground rounded-sm" />
-                <div className="bg-muted-foreground rounded-sm" />
-                <div className="bg-muted-foreground rounded-sm" />
-              </div>
-            </div>
-          )}
-          {chat.birthday && (
-            <div className="flex items-center gap-4 px-4 py-3">
-              <div className="flex-1">
-                <p className="text-[15px] text-foreground">
-                  {formatBirthdayShort(chat.birthday)}{" "}
-                  <span className="text-muted-foreground">({calculateAge(chat.birthday)} years old)</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">Birthday</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Stats card */}
-        <div className="mx-3 mt-3 rounded-xl bg-card overflow-hidden">
-          {[
-            { icon: ImageIcon, label: "Photos and videos", count: 9 },
-            { icon: ImageIcon, label: "Photos", count: 5 },
-            { icon: PlayCircle, label: "Videos", count: 4 },
-            { icon: Link2, label: "Links", count: 1 },
-          ].map(({ icon: Icon, label, count }, i, arr) => (
-            <div
-              key={label}
-              className={cn(
-                "flex items-center gap-4 px-4 py-3.5",
-                i < arr.length - 1 && "border-b border-border/40"
-              )}
-            >
-              <Icon className="h-5 w-5 text-muted-foreground" />
-              <span className="flex-1 text-[15px] text-foreground">{label}</span>
-              <span className="text-[15px] text-primary">{count}</span>
-            </div>
-          ))}
+        {/* Stats — media/links counts from real messages */}
+        <div className="mx-3 rounded-xl bg-[#242f3d] overflow-hidden mb-3">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
+            <ImageIcon className="h-5 w-5 text-gray-400" />
+            <span className="flex-1 text-[15px] text-white">Photos & Videos</span>
+            {loadingMsgs
+              ? <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
+              : <span className="text-[15px] text-sky-400">{mediaMessages.length}</span>
+            }
+          </div>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <Link2 className="h-5 w-5 text-gray-400" />
+            <span className="flex-1 text-[15px] text-white">Links</span>
+            {loadingMsgs
+              ? <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
+              : <span className="text-[15px] text-sky-400">{linkMessages.length}</span>
+            }
+          </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center justify-center gap-2 mt-5 pb-3">
-          {mediaTabs.map((t) => (
+        <div className="flex items-center gap-2 px-4 pb-3">
+          {(["media", "links"] as const).map((tab) => (
             <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
+              key={tab}
+              onClick={() => setActiveTab(tab)}
               className={cn(
                 "px-5 py-1.5 rounded-full text-sm font-medium transition-colors",
-                activeTab === t.id
-                  ? "bg-primary/20 text-primary"
-                  : "text-muted-foreground"
+                activeTab === tab ? "bg-sky-500/20 text-sky-400" : "text-gray-500",
               )}
             >
-              {t.label}
+              {tab === "media" ? "Media" : "Links"}
+              {tab === "media" && mediaMessages.length > 0 && ` (${mediaMessages.length})`}
+              {tab === "links" && linkMessages.length > 0 && ` (${linkMessages.length})`}
             </button>
           ))}
         </div>
 
+        {/* Loading */}
+        {loadingMsgs && (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 text-sky-400 animate-spin" />
+          </div>
+        )}
+
         {/* Media grid */}
-        <div className="grid grid-cols-3 gap-0.5 pb-6">
-          {mediaThumbs.map((m) => (
-            <div key={m.id} className={cn("relative aspect-square", m.color)}>
-              {m.duration && (
-                <span className="absolute bottom-1.5 left-1.5 text-[11px] text-white font-medium bg-black/50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                  <PlayCircle className="h-3 w-3" /> {m.duration}
-                </span>
-              )}
+        {!loadingMsgs && activeTab === "media" && (
+          mediaMessages.length === 0 ? (
+            <p className="text-center text-gray-500 text-sm py-8">No media found</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-0.5 pb-6">
+              {mediaMessages.slice(0, 99).map((msg) => (
+                <MediaThumb key={msg.id} msg={msg} accountName={activeAccount?.name ?? ""} />
+              ))}
             </div>
-          ))}
-        </div>
+          )
+        )}
+
+        {/* Links list */}
+        {!loadingMsgs && activeTab === "links" && (
+          linkMessages.length === 0 ? (
+            <p className="text-center text-gray-500 text-sm py-8">No links found</p>
+          ) : (
+            <ul className="divide-y divide-white/5 pb-6">
+              {linkMessages.map((msg) => (
+                <li key={msg.id} className="px-4 py-3">
+                  <a
+                    href={msg.media?.url ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    {msg.media?.title && (
+                      <p className="text-white text-sm font-medium truncate">{msg.media.title}</p>
+                    )}
+                    <p className="text-sky-400 text-xs truncate mt-0.5">{msg.media?.url}</p>
+                    {msg.media?.description && (
+                      <p className="text-gray-500 text-xs mt-0.5 line-clamp-2">{msg.media.description}</p>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
       </div>
     </>
   )
 }
 
+function MediaThumb({ msg, accountName }: { msg: Message; accountName: string }) {
+  const isVideo = msg.media?.type === "video" || msg.media?.type === "gif"
+  const thumbUrl = msg.media?.photo_id
+    ? chatsApi.mediaUrl(accountName, msg.id, msg.id)
+    : null
 
+  return (
+    <div className="relative aspect-square bg-[#1e2c3a] overflow-hidden">
+      {thumbUrl ? (
+        <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <ImageIcon className="h-6 w-6 text-gray-600" />
+        </div>
+      )}
+      {isVideo && msg.media?.duration && (
+        <span className="absolute bottom-1.5 left-1.5 text-[11px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+          <PlayCircle className="h-3 w-3" />
+          {Math.floor((msg.media.duration ?? 0) / 60)}:{String((msg.media.duration ?? 0) % 60).padStart(2, "0")}
+        </span>
+      )}
+    </div>
+  )
+}

@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Lightbulb,
   ShieldCheck,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/contexts/user-context";
@@ -26,6 +27,7 @@ import { EditProfilePage } from "./edit-profile-page";
 import { SessionManagerPage } from "./session-manager-page";
 import { PrivacySecurityPage } from "./privacy-security-page";
 import { AccountSettingsPage } from "./account-settings-page";
+import { ChatFoldersPage } from "./chat-folders-page";
 
 interface SettingsPageProps {
   isOpen: boolean;
@@ -134,8 +136,12 @@ function SettingsSubPage({
         </button>
         <h1 className="flex-1 text-[18px] font-semibold text-foreground">{title}</h1>
       </div>
-      <div className="flex-1 overflow-y-auto p-6 text-center text-muted-foreground text-sm">
-        {title} settings will appear here.
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <ExternalLink className="h-10 w-10 text-muted-foreground" />
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          <strong className="text-foreground">{title}</strong> settings are managed in the official Telegram app
+          and cannot be changed here.
+        </p>
       </div>
     </div>
   );
@@ -150,6 +156,7 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
   const [isDevicesOpen, setIsDevicesOpen] = useState(false);
   const [isPrivacySecurityOpen, setIsPrivacySecurityOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isChatFoldersOpen, setIsChatFoldersOpen] = useState(false);
 
   function openRow(label: string) {
     if (label === "Account") {
@@ -158,6 +165,8 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
       setIsDevicesOpen(true);
     } else if (label === "Privacy & Security") {
       setIsPrivacySecurityOpen(true);
+    } else if (label === "Chat Folders") {
+      setIsChatFoldersOpen(true);
     } else {
       setActiveSub(label);
     }
@@ -203,7 +212,10 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
         onScroll={(e) => setScrolled((e.target as HTMLDivElement).scrollTop > 120)}
       >
         {/* Profile hero */}
-        <div className="flex flex-col items-center pt-2 pb-6">
+        <div
+          className="flex flex-col items-center pt-2 pb-6 cursor-pointer"
+          onClick={() => setEditProfileOpen(true)}
+        >
           <div className="relative">
             <div className="w-28 h-28 rounded-full overflow-hidden bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white text-4xl font-bold">
               {profile.avatarUrl ? (
@@ -231,30 +243,6 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
           <p className="text-[15px] text-muted-foreground mt-0.5">{profile.username}</p>
         </div>
 
-        {/* Accounts */}
-        <SectionCard label="Accounts">
-          <button className="w-full flex items-center gap-3.5 px-3 py-2.5 hover:bg-secondary/30 active:bg-secondary/50 transition-colors text-left">
-            <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-rose-400 to-rose-700 shrink-0" />
-            <span className="flex-1 text-[15px] text-foreground">.</span>
-            <span className="min-w-[28px] h-[22px] rounded-full bg-sky-500 text-white text-xs font-medium flex items-center justify-center px-2">
-              61
-            </span>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </SectionCard>
-
-        {/* Plus group */}
-        <SectionCard>
-          {plusItems.map((r, i) => (
-            <SettingsRow
-              key={r.label}
-              row={r}
-              last={i === plusItems.length - 1}
-              onClick={() => openRow(r.label)}
-            />
-          ))}
-        </SectionCard>
-
         {/* Main settings */}
         <SectionCard>
           {mainItems.map((r, i) => (
@@ -281,8 +269,8 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
 
         {/* Footer */}
         <div className="text-center mt-6 px-4">
-          <p className="text-[13px] text-muted-foreground">Plus Messenger for Android</p>
-          <p className="text-[13px] text-muted-foreground">v12.6.4.1 (2218) universal arm64-v8a</p>
+          <p className="text-[13px] text-muted-foreground">TeleGuard</p>
+          <p className="text-[13px] text-muted-foreground">v2.0.0</p>
         </div>
       </div>
 
@@ -300,6 +288,7 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
         isOpen={isPrivacySecurityOpen}
         onClose={() => setIsPrivacySecurityOpen(false)}
       />
+      <ChatFoldersPage isOpen={isChatFoldersOpen} onClose={() => setIsChatFoldersOpen(false)} />
       <SettingsSubPage
         title={activeSub ?? ""}
         isOpen={activeSub !== null}
