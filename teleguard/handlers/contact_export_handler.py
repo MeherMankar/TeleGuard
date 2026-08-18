@@ -74,7 +74,7 @@ class ContactExportHandler:
             account = accounts[account_index]
             account_name = account["name"]
             cooldown_key = f"{user_id}:{account_name}"
-            current_time = asyncio.get_event_loop().time()
+            current_time = asyncio.get_running_loop().time()
             if cooldown_key in self.export_cooldowns:
                 if (
                     current_time - self.export_cooldowns[cooldown_key] < 3.0

@@ -194,9 +194,11 @@ class BotLogger:
 
             try:
                 import asyncio
-
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
                     loop.create_task(
                         cls.log_error(
                             f"{exc_type.__name__}",

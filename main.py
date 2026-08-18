@@ -244,8 +244,11 @@ def setup_signal_handlers() -> None:
         print(f"\n📶 Received {signal_name} signal, shutting down gracefully...")
 
         # Create shutdown task
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
             loop.create_task(graceful_shutdown())
 
         sys.exit(0)

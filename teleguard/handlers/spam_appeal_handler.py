@@ -1377,7 +1377,7 @@ Generate 4 diverse examples:"""
             {
                 "$set": {
                     "session_protection_disabled": True,
-                    "protection_bypass_until": int(asyncio.get_event_loop().time()) + 1800,
+                    "protection_bypass_until": int(asyncio.get_running_loop().time()) + 1800,
                 },
                 "$unset": {
                     "session_protection_active": "",

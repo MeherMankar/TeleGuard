@@ -1129,11 +1129,12 @@ class AdvancedSpamHandler:
 
     async def _raid_worker(self, client, target, duration):
         sent = 0
-        start = asyncio.get_event_loop().time()
+        loop = asyncio.get_running_loop()
+        start = loop.time()
 
         try:
             group = await client.get_entity(target)
-            while (asyncio.get_event_loop().time() - start) < duration:
+            while (loop.time() - start) < duration:
                 try:
                     await client.send_message(group, "⚔️ RAID ATTACK ⚔️")
                     sent += 1
