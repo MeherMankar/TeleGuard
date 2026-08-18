@@ -537,6 +537,64 @@ async def get_profile(account_name: str, user_id: int = Depends(get_current_user
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UpdateProfileRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    bio: Optional[str] = None
+    username: Optional[str] = None
+
+
+@router.patch("/profile/{account_name}")
+async def update_profile(
+    account_name: str,
+    payload: UpdateProfileRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Update Telegram profile fields: first_name, last_name, bio, username.
+    Only supplied (non-None) fields are changed.
+    """
+    bot_manager = _get_bot_manager()
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot not running")
+
+    user_clients = bot_manager.user_clients.get(user_id, {})
+    client = user_clients.get(account_name)
+    if not client:
+        clean = account_name.replace("+", "").replace(" ", "")
+        for key, c in user_clients.items():
+            if clean in str(key).replace("+", "").replace(" ", ""):
+                client = c
+                break
+    if not client:
+        if len(user_clients) == 1:
+            client = next(iter(user_clients.values()))
+    if not client:
+        raise HTTPException(status_code=404, detail=f"No active client for '{account_name}'")
+
+    try:
+        from telethon import functions as tl_functions
+
+        # Update name / bio
+        if payload.first_name is not None or payload.last_name is not None or payload.bio is not None:
+            me = await client.get_me()
+            await client(tl_functions.account.UpdateProfileRequest(
+                first_name=payload.first_name if payload.first_name is not None else (me.first_name or ""),
+                last_name=payload.last_name if payload.last_name is not None else (me.last_name or ""),
+                about=payload.bio if payload.bio is not None else "",
+            ))
+
+        # Update username
+        if payload.username is not None:
+            clean_username = payload.username.lstrip("@").strip()
+            await client(tl_functions.account.UpdateUsernameRequest(username=clean_username))
+
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error updating profile for {account_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/refresh-names")
 async def refresh_account_names(user_id: int = Depends(get_current_user_id)):
     """

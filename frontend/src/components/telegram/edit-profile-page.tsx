@@ -1,22 +1,19 @@
-
-import { useState, useRef, useEffect } from "react"
+import { useState, useEffect } from "react"
 import {
   ArrowLeft,
   X,
-  QrCode,
   Camera,
   User,
   Phone,
   AtSign,
-  Megaphone,
-  Palette,
-  Gift,
-  Plus,
   Check,
+  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { accountsApi, chatsApi, apiErrorMessage } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
-import { formatBirthday } from "@/lib/date-utils"
+import { toast } from "sonner"
 
 interface EditProfilePageProps {
   isOpen: boolean
@@ -27,79 +24,83 @@ interface EditProfilePageProps {
 const MAX_BIO = 70
 
 export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProps) {
-  const { profile, updateProfile, setAvatarUrl } = useUser()
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { activeAccount } = useUser()
+  const queryClient = useQueryClient()
 
-  // Local form state
-  const [name, setName] = useState(profile.name)
-  const [username, setUsername] = useState(profile.username)
-  const [bio, setBio] = useState(profile.bio)
-  const [birthday, setBirthday] = useState(profile.birthday)
-  const [nameColor, setNameColor] = useState(profile.nameColor)
+  // Fetch real profile from Telegram
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["profile", activeAccount?.name],
+    queryFn: () => accountsApi.profile(activeAccount!.name),
+    enabled: isOpen && !!activeAccount,
+    staleTime: 30_000,
+  })
 
-  // Editing state
+  // Editable local state — synced when profile loads or page opens
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName]   = useState("")
+  const [username, setUsername]   = useState("")
+  const [bio, setBio]             = useState("")
+
   const [editingField, setEditingField] = useState<string | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
 
-  // Sync local state when profile changes or panel opens
   useEffect(() => {
-    if (isOpen) {
-      setName(profile.name)
-      setUsername(profile.username)
-      setBio(profile.bio)
-      setBirthday(profile.birthday)
-      setNameColor(profile.nameColor)
+    if (profile) {
+      setFirstName(profile.first_name ?? "")
+      setLastName(profile.last_name ?? "")
+      setUsername(profile.username ?? "")
+      setBio(profile.bio ?? "")
+    }
+  }, [profile])
+
+  useEffect(() => {
+    if (!isOpen) setEditingField(null)
+  }, [isOpen])
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["profile", activeAccount?.name] })
+
+  const saveField = async (field: string) => {
+    if (!activeAccount) return
+    setSaving(field)
+    try {
+      if (field === "name") {
+        const parts = [firstName.trim(), lastName.trim()]
+        await accountsApi.updateProfile(activeAccount.name, {
+          first_name: parts[0],
+          last_name:  parts[1],
+        })
+      } else if (field === "bio") {
+        await accountsApi.updateProfile(activeAccount.name, { bio: bio.trim() })
+      } else if (field === "username") {
+        await accountsApi.updateProfile(activeAccount.name, { username: username.trim().replace(/^@/, "") })
+      }
+      toast.success("Saved")
       setEditingField(null)
-    }
-  }, [isOpen, profile])
-
-  const handleSaveField = (field: string) => {
-    switch (field) {
-      case "name":
-        updateProfile({ name })
-        break
-      case "username":
-        updateProfile({ username })
-        break
-      case "bio":
-        updateProfile({ bio })
-        break
-      case "birthday":
-        updateProfile({ birthday })
-        break
-      case "nameColor":
-        updateProfile({ nameColor })
-        break
-    }
-    setEditingField(null)
-  }
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      setAvatarUrl(url)
+      invalidate()
+    } catch (e) {
+      toast.error(apiErrorMessage(e))
+    } finally {
+      setSaving(null)
     }
   }
 
-  const colorOptions = ["#ff6b9d", "#a855f7", "#3b82f6", "#22c55e", "#f97316", "#ef4444"]
+  const displayName = profile
+    ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.username || "—"
+    : activeAccount?.name ?? "—"
+
+  const photoUrl = profile?.has_photo && activeAccount
+    ? chatsApi.photoUrl(activeAccount.name, profile.id)
+    : null
 
   return (
     <div
       style={{ zIndex: 80 }}
       className={cn(
         "fixed inset-0 bg-background flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
-        isOpen ? "translate-x-0" : "translate-x-full"
+        isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
-      {/* Hidden file input for avatar */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleAvatarChange}
-        className="hidden"
-      />
-
       {/* Header */}
       <div className="flex items-center justify-between px-2 pt-5 pb-3 bg-background sticky top-0 z-10 border-b border-border/30">
         <button
@@ -109,221 +110,170 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-base font-semibold text-foreground">Info</h1>
-        <div className="flex items-center gap-1">
-          <button aria-label="QR code" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-            <QrCode className="h-5 w-5" />
-          </button>
-          <button onClick={onClose} aria-label="Close" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Avatar + Name + Status */}
-      <div className="flex flex-col items-center pt-8 pb-6 bg-card">
-        <div className="relative mb-4">
-          <div className="w-28 h-28 rounded-full bg-gradient-to-br from-green-400 to-green-700 flex items-center justify-center text-4xl font-bold text-white overflow-hidden border-4 border-card">
-            {profile.avatarUrl ? (
-              <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              <span>{profile.name.charAt(0)}</span>
-            )}
-          </div>
-          {/* Camera button overlay */}
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Change photo"
-            className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-primary flex items-center justify-center shadow-lg hover:bg-primary/90 transition-colors"
-          >
-            <Camera className="h-4 w-4 text-primary-foreground" />
-          </button>
-        </div>
-        <h2 className="text-xl font-semibold text-foreground">{profile.name}</h2>
-        <p className="text-sm text-primary mt-1">online</p>
-      </div>
-
-      {/* Bio section */}
-      <div className="mt-2 bg-card border-y border-border/30 px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <textarea
-            value={bio}
-            onChange={(e) => {
-              if (e.target.value.length <= MAX_BIO) setBio(e.target.value)
-            }}
-            onBlur={() => handleSaveField("bio")}
-            rows={3}
-            className="flex-1 bg-transparent text-[15px] text-foreground resize-none outline-none leading-relaxed focus:ring-1 focus:ring-primary/50 rounded px-1"
-            aria-label="Bio"
-            placeholder="Enter your bio..."
-          />
-          <span className="text-sm text-muted-foreground mt-0.5 flex-shrink-0">
-            {MAX_BIO - bio.length}
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-          Any details such as age, occupation or city.{"\n"}
-          Example: 23 y.o. designer from San Francisco
-        </p>
-      </div>
-
-      {/* Info rows group 1 */}
-      <div className="mt-2 bg-card border-y border-border/30">
-        {/* Name - Editable */}
-        <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
-          <User className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-          <span className="flex-1 text-[15px] text-foreground">Name</span>
-          {editingField === "name" ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveField("name")}
-                className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary w-32"
-                autoFocus
-              />
-              <button onClick={() => handleSaveField("name")} className="text-primary">
-                <Check className="h-5 w-5" />
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => setEditingField("name")} className="text-[15px] text-primary hover:underline">
-              {profile.name}
-            </button>
-          )}
-        </div>
-
-        {/* Phone number - Display only */}
-        <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
-          <Phone className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-          <span className="flex-1 text-[15px] text-foreground">Phone number</span>
-          <span className="text-[15px] text-primary">{profile.phone}</span>
-        </div>
-
-        {/* Username - Editable */}
-        <div className="flex items-center gap-4 px-4 py-4">
-          <AtSign className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-          <span className="flex-1 text-[15px] text-foreground">Username</span>
-          {editingField === "username" ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveField("username")}
-                className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary w-32"
-                autoFocus
-              />
-              <button onClick={() => handleSaveField("username")} className="text-primary">
-                <Check className="h-5 w-5" />
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => setEditingField("username")} className="text-[15px] text-primary hover:underline">
-              {profile.username}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Username hint */}
-      <p className="px-4 pt-3 pb-1 text-sm text-muted-foreground leading-relaxed">
-        Username lets people contact you on Telegram without needing your phone number.
-      </p>
-
-      {/* Info rows group 2 */}
-      <div className="mt-2 bg-card border-y border-border/30">
-        {/* Personal channel */}
-        <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
-          <Megaphone className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-          <span className="flex-1 text-[15px] text-foreground">Personal channel</span>
-          <span className="text-[15px] text-primary truncate max-w-[140px] text-right">
-            {profile.personalChannel}
-          </span>
-        </div>
-
-        {/* Your name color - Editable */}
-        <div className="flex flex-col gap-3 px-4 py-4">
-          <div className="flex items-center gap-4">
-            <Palette className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-            <span className="flex-1 text-[15px] text-foreground">Your name color</span>
-            <span className="text-[10px] font-bold bg-primary text-primary-foreground px-1.5 py-0.5 rounded-sm">
-              NEW
-            </span>
-            <span
-              className="text-sm font-semibold px-2 py-0.5 rounded ml-2"
-              style={{ color: nameColor }}
-            >
-              {profile.name.split(" ")[0]}
-            </span>
-          </div>
-          {/* Color picker */}
-          <div className="flex items-center gap-2 ml-9">
-            {colorOptions.map((color) => (
-              <button
-                key={color}
-                onClick={() => {
-                  setNameColor(color)
-                  updateProfile({ nameColor: color })
-                }}
-                className={cn(
-                  "w-7 h-7 rounded-full transition-transform hover:scale-110",
-                  nameColor === color && "ring-2 ring-offset-2 ring-offset-background ring-primary"
-                )}
-                style={{ backgroundColor: color }}
-                aria-label={`Select color ${color}`}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Birthday section - Editable */}
-      <div className="mt-2 bg-card border-y border-border/30">
-        <div className="flex items-center gap-4 px-4 py-4">
-          <Gift className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-          <span className="flex-1 text-[15px] text-foreground">Birthday</span>
-          {editingField === "birthday" ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={birthday}
-                onChange={(e) => setBirthday(e.target.value)}
-                className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary"
-                autoFocus
-              />
-              <button onClick={() => handleSaveField("birthday")} className="text-primary">
-                <Check className="h-5 w-5" />
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => setEditingField("birthday")} className="text-[15px] text-primary hover:underline">
-              {formatBirthday(profile.birthday)}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Birthday hint */}
-      <p className="px-4 pt-3 pb-1 text-sm text-muted-foreground leading-relaxed">
-        Choose who can see your birthday in{" "}
-        <span className="text-primary cursor-pointer hover:underline">Settings</span>.
-      </p>
-
-      {/* Add Account */}
-      <div className="mt-2 bg-card border-y border-border/30">
-        <button className="w-full flex items-center gap-4 px-4 py-4 hover:bg-secondary/50 transition-colors">
-          <div className="w-5 h-5 rounded-full border-2 border-muted-foreground flex items-center justify-center flex-shrink-0">
-            <Plus className="h-3 w-3 text-muted-foreground" />
-          </div>
-          <span className="text-[15px] text-foreground">Add Account</span>
+        <h1 className="text-base font-semibold text-foreground">Edit Profile</h1>
+        <button onClick={onClose} aria-label="Close" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+          <X className="h-5 w-5" />
         </button>
       </div>
 
-      {/* Bottom safe area */}
-      <div className="h-8" />
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        </div>
+      )}
+
+      {!isLoading && (
+        <>
+          {/* Avatar + name */}
+          <div className="flex flex-col items-center pt-8 pb-6 bg-card">
+            <div className="relative mb-4">
+              <div className="w-28 h-28 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-4xl font-bold text-white overflow-hidden border-4 border-card">
+                {photoUrl ? (
+                  <img src={photoUrl} alt={displayName} className="w-full h-full object-cover" />
+                ) : (
+                  <span>{displayName.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              {/* Camera — photo change is done via bot (/start → Account Settings → Change Photo) */}
+              <div className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-primary/80 flex items-center justify-center cursor-not-allowed opacity-60"
+                   title="Change photo via the bot: Account Settings → Change Photo">
+                <Camera className="h-4 w-4 text-primary-foreground" />
+              </div>
+            </div>
+            <h2 className="text-xl font-semibold text-foreground">{displayName}</h2>
+            {profile?.username && (
+              <p className="text-sm text-primary mt-1">@{profile.username}</p>
+            )}
+          </div>
+
+          {/* Bio */}
+          <div className="mt-2 bg-card border-y border-border/30 px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <textarea
+                value={bio}
+                onChange={(e) => {
+                  if (e.target.value.length <= MAX_BIO) setBio(e.target.value)
+                }}
+                onFocus={() => setEditingField("bio")}
+                onBlur={() => {
+                  if (editingField === "bio" && bio !== (profile?.bio ?? "")) {
+                    saveField("bio")
+                  } else {
+                    setEditingField(null)
+                  }
+                }}
+                rows={3}
+                className="flex-1 bg-transparent text-[15px] text-foreground resize-none outline-none leading-relaxed focus:ring-1 focus:ring-primary/50 rounded px-1"
+                placeholder="Enter your bio…"
+              />
+              <span className="text-sm text-muted-foreground mt-0.5 flex-shrink-0">
+                {MAX_BIO - bio.length}
+              </span>
+            </div>
+            {saving === "bio" && (
+              <p className="text-xs text-primary flex items-center gap-1 mt-1">
+                <Loader2 className="h-3 w-3 animate-spin" /> Saving…
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              Any details such as age, occupation or city.
+            </p>
+          </div>
+
+          {/* Info rows */}
+          <div className="mt-2 bg-card border-y border-border/30">
+            {/* Name */}
+            <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
+              <User className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+              <span className="flex-1 text-[15px] text-foreground">Name</span>
+              {editingField === "name" ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="First"
+                    onKeyDown={(e) => e.key === "Enter" && saveField("name")}
+                    className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary w-24"
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Last"
+                    onKeyDown={(e) => e.key === "Enter" && saveField("name")}
+                    className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary w-24"
+                  />
+                  <button
+                    onClick={() => saveField("name")}
+                    disabled={saving === "name"}
+                    className="text-primary"
+                  >
+                    {saving === "name"
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Check className="h-5 w-5" />}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingField("name")}
+                  className="text-[15px] text-primary hover:underline"
+                >
+                  {displayName}
+                </button>
+              )}
+            </div>
+
+            {/* Phone — display only */}
+            <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
+              <Phone className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+              <span className="flex-1 text-[15px] text-foreground">Phone number</span>
+              <span className="text-[15px] text-primary">{profile?.phone || activeAccount?.phone || "—"}</span>
+            </div>
+
+            {/* Username */}
+            <div className="flex items-center gap-4 px-4 py-4">
+              <AtSign className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+              <span className="flex-1 text-[15px] text-foreground">Username</span>
+              {editingField === "username" ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground text-[15px]">@</span>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+                    onKeyDown={(e) => e.key === "Enter" && saveField("username")}
+                    className="bg-input text-foreground text-[15px] px-2 py-1 rounded outline-none focus:ring-1 focus:ring-primary w-32"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => saveField("username")}
+                    disabled={saving === "username"}
+                    className="text-primary"
+                  >
+                    {saving === "username"
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Check className="h-5 w-5" />}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingField("username")}
+                  className="text-[15px] text-primary hover:underline"
+                >
+                  {profile?.username ? `@${profile.username}` : "set username"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <p className="px-4 pt-3 pb-6 text-sm text-muted-foreground leading-relaxed">
+            Username lets people contact you on Telegram without needing your phone number.
+          </p>
+        </>
+      )}
     </div>
   )
 }
-

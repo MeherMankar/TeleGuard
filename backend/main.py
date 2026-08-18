@@ -29,6 +29,7 @@ from backend.api.auto_reply import router as auto_reply_router
 from backend.api.analytics import router as analytics_router
 from backend.api.proxies import router as proxies_router
 from backend.api.chats import router as chats_router
+from backend.api.spam import router as spam_router
 from backend.websocket.manager import manager as ws_manager
 from backend.auth.jwt import SECRET_KEY, ALGORITHM
 
@@ -64,6 +65,7 @@ app.include_router(auto_reply_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(proxies_router, prefix="/api")
 app.include_router(chats_router, prefix="/api")
+app.include_router(spam_router, prefix="/api")
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])

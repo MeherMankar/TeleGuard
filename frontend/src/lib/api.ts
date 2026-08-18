@@ -64,6 +64,8 @@ async function request<T>(
 const get = <T>(path: string) => request<T>(path, { method: "GET" })
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined })
+const patch = <T>(path: string, body?: unknown) =>
+  request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined })
 const del = <T>(path: string) => request<T>(path, { method: "DELETE" })
 
 /** Convert any API error to a user-friendly toast message.
@@ -157,6 +159,14 @@ export const accountsApi = {
     ),
   qrPassword: (session_id: string, password: string) =>
     post<{ status: "success" }>("/api/accounts/qr-password", { session_id, password }),
+  updateProfile: (
+    account_name: string,
+    fields: { first_name?: string; last_name?: string; bio?: string; username?: string },
+  ) =>
+    patch<{ status: string }>(
+      `/api/accounts/profile/${encodeURIComponent(account_name)}`,
+      fields,
+    ),
 }
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
@@ -492,8 +502,28 @@ export interface Proxy {
   secret?: string
 }
 
-export const cleanupApi = {
-  run: (accountName: string, type: string) =>
+export interface ScrapedMember {
+  id: number
+  username: string | null
+  first_name: string
+  last_name: string
+  phone: string | null
+}
+
+export const spamApi = {
+  scrapeMembers: (accountName: string, target: string, limit = 2000) =>
+    post<{ target: string; count: number; members: ScrapedMember[] }>(
+      "/api/spam/scrape-members",
+      { account_name: accountName, target, limit },
+    ),
+  checkUsernames: (accountName: string, base: string, count = 50) =>
+    post<{ base: string; checked: number; available_count: number; available: string[] }>(
+      "/api/spam/check-usernames",
+      { account_name: accountName, base, count },
+    ),
+}
+
+export const cleanupApi = {  run: (accountName: string, type: string) =>
     post<{ status: string; message: string }>(
       `/api/chats/cleanup/${encodeURIComponent(accountName)}`,
       { type },
