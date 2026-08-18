@@ -519,6 +519,15 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # Use uvloop on Linux/macOS for a significant asyncio speed boost.
+    # uvloop 0.21+ supports Python 3.13. Falls back to the default loop on Windows.
+    try:
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        logger.debug("uvloop event loop policy active")
+    except ImportError:
+        pass  # Windows or uvloop not installed — use default asyncio loop
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
