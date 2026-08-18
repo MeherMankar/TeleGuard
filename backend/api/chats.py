@@ -750,16 +750,9 @@ async def create_folder(
         title_str = str(payload.get("title", "New Folder"))
         emoticon = payload.get("emoji") or None
 
-        # Telethon 1.41+ uses TextWithEntities; older versions use a plain str.
-        try:
-            from telethon.tl.types import TextWithEntities as _TWE
-            title_obj = _TWE(text=title_str, entities=[])
-        except ImportError:
-            title_obj = title_str  # type: ignore[assignment]
-
         dialog_filter = DialogFilter(
             id=folder_id,
-            title=title_obj,
+            title=title_str,
             emoticon=emoticon,
             contacts=bool(payload.get("contacts", False)) or None,
             non_contacts=bool(payload.get("non_contacts", False)) or None,
@@ -798,15 +791,6 @@ async def create_preset_folders(
         from telethon.tl.functions.messages import UpdateDialogFilterRequest
         from telethon.tl.types import DialogFilter
 
-        # Telethon 1.41+ uses TextWithEntities; 1.37 uses plain str.
-        try:
-            from telethon.tl.types import TextWithEntities as _TWE
-            def _title(s: str):
-                return _TWE(text=s, entities=[])
-        except ImportError:
-            def _title(s: str):  # type: ignore[misc]
-                return s
-
         presets = [
             {"id": 2, "title": "Personal",  "contacts": True,  "non_contacts": False, "groups": False, "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
             {"id": 3, "title": "Groups",    "contacts": False, "non_contacts": False, "groups": True,  "broadcasts": False, "bots": False, "exclude_muted": False, "exclude_read": False, "exclude_archived": False},
@@ -821,7 +805,7 @@ async def create_preset_folders(
             try:
                 df = DialogFilter(
                     id=p["id"],
-                    title=_title(p["title"]),
+                    title=p["title"],
                     emoticon=None,
                     contacts=p["contacts"] or None,
                     non_contacts=p["non_contacts"] or None,
@@ -856,7 +840,7 @@ async def create_preset_folders(
             if admin_peers:
                 admin_df = DialogFilter(
                     id=7,
-                    title=_title("Admin"),
+                    title="Admin",
                     emoticon=None,
                     contacts=None,
                     non_contacts=None,
