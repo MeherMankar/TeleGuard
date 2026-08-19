@@ -96,6 +96,15 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
     onError: (e) => toast.error((e as Error).message),
   })
 
+  const createAllPresetsMutation = useMutation({
+    mutationFn: () => chatsApi.createPresetFolders(activeAccount!.name),
+    onSuccess: (res) => {
+      toast.success(`Created ${res.created.length} preset folders`)
+      qc.invalidateQueries({ queryKey: ["folders", activeAccount?.name] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   const handleSave = () => {
     if (!editingFolder?.title?.trim()) { toast.error("Name required"); return }
     createMutation.mutate({ ...editingFolder, emoji: editingFolder.iconId ?? null })
@@ -237,9 +246,21 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
         {/* Preset folders — individual toggles */}
         {activeAccount && (
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10">
-              <p className="text-sky-400 text-sm font-medium">Preset Folders</p>
-              <p className="text-gray-500 text-xs mt-0.5">Tap to add or remove each folder</p>
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <p className="text-sky-400 text-sm font-medium">Preset Folders</p>
+                <p className="text-gray-500 text-xs mt-0.5">Tap to add or remove each folder</p>
+              </div>
+              <button
+                onClick={() => createAllPresetsMutation.mutate()}
+                disabled={createAllPresetsMutation.isPending || !activeAccount}
+                className="flex items-center gap-1.5 text-xs text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {createAllPresetsMutation.isPending
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <FolderPlus className="h-3.5 w-3.5" />}
+                All
+              </button>
             </div>
             {PRESETS.map((preset, i) => {
               const iconDef = getIconDef(preset.iconId)

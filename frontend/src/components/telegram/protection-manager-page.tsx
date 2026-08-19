@@ -50,6 +50,12 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     queryClient.invalidateQueries({ queryKey: ["accounts"] })
   }, [queryClient]))
 
+  // otp_event: a code was destroyed or forwarded — refresh logs + stats
+  useWsEvent("otp_event", useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["security"] })
+    queryClient.invalidateQueries({ queryKey: ["security-logs"] })
+  }, [queryClient]))
+
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const sessionDestroyerMutation = useMutation({

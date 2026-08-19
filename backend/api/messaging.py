@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Dict, Any, List, Optional
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, Form, UploadFile
 from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
@@ -178,3 +178,38 @@ async def send_bulk(
         message=payload.message,
     )
     return {"status": "enqueued", "message": f"Bulk message queued for {len(payload.targets)} targets"}
+
+
+# ── Send file ─────────────────────────────────────────────────────────────────
+
+@router.post("/send-file")
+async def send_file_message(
+    account_name: str = Form(...),
+    target: str = Form(...),
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Send a file (image/document/video) to a target chat."""
+    bot_manager = _get_bot_manager()
+    if not bot_manager:
+        raise HTTPException(status_code=503, detail="Bot not running")
+
+    client = bot_manager.get_client(user_id, {"name": account_name})
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        import tempfile, os
+        suffix = os.path.splitext(file.filename or "file")[1] or ".bin"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+
+        entity = await client.get_entity(target)
+        await client.send_file(entity, tmp_path, caption=caption or None)
+        os.unlink(tmp_path)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"send-file error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

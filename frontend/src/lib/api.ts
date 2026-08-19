@@ -307,6 +307,11 @@ export const chatsApi = {
       `/api/chats/folders/${encodeURIComponent(accountName)}`,
       folder,
     ),
+  createPresetFolders: (accountName: string) =>
+    post<{ status: string; created: string[]; failed: { title: string; error: string }[] }>(
+      `/api/chats/folders/${encodeURIComponent(accountName)}/presets`,
+      {},
+    ),
   deleteFolder: (accountName: string, folderId: number) =>
     del<{ status: string }>(`/api/chats/folders/${encodeURIComponent(accountName)}/${folderId}`),
 }
@@ -350,6 +355,26 @@ export const messagingApi = {
   stats: () => get<MessagingStats>("/api/messaging/stats"),
   send: (account_name: string, target: string, message: string) =>
     post<{ status: string }>("/api/messaging/send", { account_name, target, message }),
+  /** Send a file (image/document). Uses multipart/form-data. */
+  sendFile: (account_name: string, target: string, file: File, caption = "") => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("tg_token") : null
+    const form = new FormData()
+    form.append("account_name", account_name)
+    form.append("target", target)
+    form.append("file", file)
+    if (caption) form.append("caption", caption)
+    return fetch(`${API_URL}/api/messaging/send-file`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(body?.detail ?? `HTTP ${res.status}`)
+      }
+      return res.json() as Promise<{ status: string }>
+    })
+  },
   jobs: () => get<AutomationJob[]>("/api/messaging/jobs"),
   createJob: (payload: {
     account_id: string

@@ -255,6 +255,10 @@ function TelegramChatList() {
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           onProfileClick={() => setIsProfileOpen(true)}
+          onSavedMessagesClick={() => {
+            // Navigate to Saved Messages (Telegram entity "me" — chat ID matches user's own ID)
+            if (activeAccount) navigate({ to: "/chat/$chatId", params: { chatId: "saved" }, search: { account: activeAccount.name } })
+          }}
           onAddAccountClick={() => setIsAuthFlowOpen(true)}
           onSettingsClick={() => setIsSettingsOpen(true)}
           onContactsClick={() => setIsContactsOpen(true)}

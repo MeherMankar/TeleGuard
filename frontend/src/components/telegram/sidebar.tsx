@@ -4,9 +4,7 @@ import {
   UserCircle2,
   Users,
   BookMarked,
-  Phone,
   Settings,
-  Megaphone,
   Plus,
   Shield,
   Skull,
@@ -39,6 +37,7 @@ interface SidebarProps {
   onAddAccountClick: () => void
   onSettingsClick: () => void
   onContactsClick: () => void
+  onSavedMessagesClick: () => void
   onProtectionManagerClick: () => void
   onSpamMasterClick: () => void
   onCleanupClick: () => void
@@ -54,8 +53,7 @@ const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", action: "dashboard" },
   { icon: UserCircle2, label: "My Profile", action: "profile" },
   { icon: Users, label: "Contacts", action: "contacts" },
-  { icon: BookMarked, label: "Saved Messages", action: null },
-  { icon: Phone, label: "Calls", action: null },
+  { icon: BookMarked, label: "Saved Messages", action: "saved" },
   { icon: Settings, label: "Settings", action: "settings" },
   { icon: Shield, label: "Protection Manager", action: "protection" },
   { icon: Skull, label: "Spam Master", action: "spam" },
@@ -64,7 +62,6 @@ const navItems = [
   { icon: KeyRound, label: "Session Manager", action: "sessions" },
   { icon: Globe, label: "Proxy Manager", action: "proxy" },
   { icon: FolderOpen, label: "Chat Folders", action: "folders" },
-  { icon: Megaphone, label: "New Channel", action: null },
 ]
 
 export function Sidebar({
@@ -82,6 +79,7 @@ export function Sidebar({
   onDashboardClick,
   onProxyManagerClick,
   onChatFoldersClick,
+  onSavedMessagesClick,
 }: SidebarProps) {
   const { profile, accounts, activeAccount, setActiveAccount } = useUser()
   const { user } = useAuth()
@@ -147,6 +145,7 @@ export function Sidebar({
         case "dashboard": onDashboardClick(); break
         case "proxy": onProxyManagerClick(); break
         case "folders": onChatFoldersClick(); break
+        case "saved": onSavedMessagesClick(); break
       }
     }, 320)
   }

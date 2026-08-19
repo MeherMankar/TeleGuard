@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import {
   ArrowLeft,
   Zap,
@@ -7,11 +7,14 @@ import {
   Trash2,
   Loader2,
   Bot,
+  Send,
+  Users,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { autoReplyApi, messagingApi } from "@/lib/api"
+import { autoReplyApi, messagingApi, apiErrorMessage } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
+import { useWsEvent } from "@/hooks/use-ws-event"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -30,12 +33,28 @@ interface AutomationPageProps {
 }
 
 export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
-  const { activeAccount } = useUser()
+  const { activeAccount, accounts } = useUser()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = useState<"keywords" | "jobs">("keywords")
+  const [activeTab, setActiveTab] = useState<"keywords" | "jobs" | "bulk">("keywords")
   const [newKeyword, setNewKeyword] = useState("")
   const [newReply, setNewReply] = useState("")
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+
+  // Create Job state
+  const [showCreateJob, setShowCreateJob] = useState(false)
+  const [jobType, setJobType] = useState("send_message")
+  const [jobInterval, setJobInterval] = useState("3600")
+  const [jobTarget, setJobTarget] = useState("")
+  const [jobMessage, setJobMessage] = useState("")
+
+  // Bulk send state
+  const [bulkTargets, setBulkTargets] = useState("")
+  const [bulkMessage, setBulkMessage] = useState("")
+
+  // WS: refresh jobs when automation_log arrives
+  useWsEvent("automation_log", useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["jobs"] })
+  }, [queryClient]))
 
   const { data: arSettings, isLoading: arLoading } = useQuery({
     queryKey: ["auto-reply"],
@@ -79,6 +98,34 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
     onError: (e) => toast.error((e as Error).message),
   })
 
+  const createJobMutation = useMutation({
+    mutationFn: () => messagingApi.createJob({
+      account_id: activeAccount?.id ?? "",
+      job_type: jobType,
+      job_config: { target: jobTarget, message: jobMessage },
+      interval_seconds: parseInt(jobInterval) || 3600,
+    }),
+    onSuccess: () => {
+      toast.success("Job created")
+      setShowCreateJob(false)
+      setJobTarget(""); setJobMessage("")
+      queryClient.invalidateQueries({ queryKey: ["jobs"] })
+    },
+    onError: (e) => toast.error(apiErrorMessage(e)),
+  })
+
+  const bulkMutation = useMutation({
+    mutationFn: () => {
+      const targets = bulkTargets.split("\n").map(t => t.trim()).filter(Boolean)
+      return messagingApi.bulk(activeAccount!.name, targets, bulkMessage.trim())
+    },
+    onSuccess: (res) => {
+      toast.success(res.message || "Bulk message queued")
+      setBulkTargets(""); setBulkMessage("")
+    },
+    onError: (e) => toast.error(apiErrorMessage(e)),
+  })
+
   const keywords = arSettings?.keywords ?? {}
 
   return (
@@ -103,7 +150,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
 
         {/* Tabs */}
         <div className="flex border-b border-white/10">
-          {(["keywords", "jobs"] as const).map((tab) => (
+          {(["keywords", "jobs", "bulk"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -114,7 +161,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                   : "text-gray-400 hover:text-white",
               )}
             >
-              {tab === "keywords" ? "Auto Reply" : "Jobs"}
+              {tab === "keywords" ? "Auto Reply" : tab === "bulk" ? "Bulk Send" : "Jobs"}
             </button>
           ))}
         </div>
@@ -206,6 +253,16 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 </div>
               )}
 
+              {/* Create Job button */}
+              {activeAccount && (
+                <button
+                  onClick={() => setShowCreateJob(true)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE]/10 border border-[#2AABEE]/30 text-[#2AABEE] rounded-xl text-sm font-medium hover:bg-[#2AABEE]/20 transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> Create Automation Job
+                </button>
+              )}
+
               {jobsLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 text-[#2AABEE] animate-spin" />
@@ -261,8 +318,120 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               )}
             </div>
           )}
+
+          {/* ── Bulk Send tab ────────────────────────────────────────── */}
+          {activeTab === "bulk" && (
+            <div className="p-4 space-y-4">
+              {!activeAccount && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                  <p className="text-yellow-400 text-sm text-center">Select an active account first</p>
+                </div>
+              )}
+              <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
+                <p className="text-sky-400 text-sm font-medium flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Bulk Message
+                </p>
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1">Targets (one per line — @username, +phone, or chat ID)</label>
+                  <textarea
+                    value={bulkTargets}
+                    onChange={e => setBulkTargets(e.target.value)}
+                    rows={4}
+                    placeholder={"@user1\n@user2\n+1234567890"}
+                    className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1">Message</label>
+                  <textarea
+                    value={bulkMessage}
+                    onChange={e => setBulkMessage(e.target.value)}
+                    rows={3}
+                    placeholder="Your message..."
+                    className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
+                  />
+                </div>
+                <button
+                  onClick={() => bulkMutation.mutate()}
+                  disabled={!activeAccount || !bulkTargets.trim() || !bulkMessage.trim() || bulkMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE] hover:bg-[#2AABEE]/90 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors"
+                >
+                  {bulkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {bulkMutation.isPending ? "Sending…" : "Send to All"}
+                </button>
+              </div>
+              <p className="text-gray-600 text-xs text-center">
+                Messages are sent in the background. Flood limits are respected automatically.
+              </p>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Create Job modal */}
+      {showCreateJob && (
+        <div className="fixed inset-0 z-[85] bg-black/70 flex items-end justify-center" onClick={() => setShowCreateJob(false)}>
+          <div className="bg-[#17212b] w-full max-w-md rounded-t-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-white font-semibold text-lg">Create Automation Job</h2>
+            <div>
+              <label className="text-gray-400 text-xs block mb-1">Job Type</label>
+              <select
+                value={jobType}
+                onChange={e => setJobType(e.target.value)}
+                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:outline-none"
+              >
+                <option value="send_message">Send Message</option>
+                <option value="forward_message">Forward Message</option>
+                <option value="bulk_invite">Bulk Invite</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs block mb-1">Target (chat / @username)</label>
+              <input
+                type="text"
+                value={jobTarget}
+                onChange={e => setJobTarget(e.target.value)}
+                placeholder="@channel or chat ID"
+                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs block mb-1">Message</label>
+              <textarea
+                value={jobMessage}
+                onChange={e => setJobMessage(e.target.value)}
+                rows={2}
+                placeholder="Message to send…"
+                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
+              />
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs block mb-1">Interval (seconds)</label>
+              <input
+                type="number"
+                value={jobInterval}
+                onChange={e => setJobInterval(e.target.value)}
+                min="60"
+                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCreateJob(false)}
+                className="flex-1 py-2.5 border border-white/20 text-gray-400 rounded-xl text-sm"
+              >Cancel</button>
+              <button
+                onClick={() => createJobMutation.mutate()}
+                disabled={!activeAccount || !jobTarget.trim() || createJobMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE] text-white rounded-xl text-sm font-medium disabled:opacity-50"
+              >
+                {createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent>

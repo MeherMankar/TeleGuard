@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft, Search, MoreVertical, Smile, Paperclip, Mic, Send,
   ArrowDown, Loader2, File, Music, Play, Image, Sticker, Globe,
-  Pin, Eye, Forward, Reply,
+  Pin, Eye, Forward, Reply, X as XIcon, ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -52,6 +52,9 @@ function ChatPage() {
 
   const [messageText, setMessageText] = useState("")
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [msgLimit, setMsgLimit] = useState(50)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -79,8 +82,8 @@ function ChatPage() {
   const isOnline = statusData?.is_online ?? userStatus === "online"
 
   const { data: messages = [], isLoading } = useQuery({
-    queryKey: ["messages", effectiveAccount, chatId],
-    queryFn: () => chatsApi.history(effectiveAccount, parseInt(chatId), 50),
+    queryKey: ["messages", effectiveAccount, chatId, msgLimit],
+    queryFn: () => chatsApi.history(effectiveAccount, parseInt(chatId), msgLimit),
     enabled: !!effectiveAccount && !!chatId,
     staleTime: 5_000,
   })
@@ -91,9 +94,22 @@ function ChatPage() {
     mutationFn: (text: string) => messagingApi.send(effectiveAccount, String(chatId), text),
     onSuccess: () => {
       setMessageText("")
+      setReplyTo(null)
       qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
       qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
       scrollToBottom()
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const sendFileMutation = useMutation({
+    mutationFn: (file: File) => messagingApi.sendFile(effectiveAccount, String(chatId), file, messageText.trim()),
+    onSuccess: () => {
+      setMessageText("")
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
+      qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
+      scrollToBottom()
+      toast.success("File sent")
     },
     onError: (e) => toast.error((e as Error).message),
   })
@@ -179,6 +195,17 @@ function ChatPage() {
           style={{ minHeight: 0 }}
         >
           {isLoading && <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-primary animate-spin" /></div>}
+          {/* Load older messages */}
+          {!isLoading && sortedMessages.length >= msgLimit && (
+            <div className="flex justify-center py-2">
+              <button
+                onClick={() => setMsgLimit(prev => prev + 50)}
+                className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-4 py-2 rounded-full transition-colors"
+              >
+                <ChevronDown className="h-3.5 w-3.5" /> Load older messages
+              </button>
+            </div>
+          )}
           {!isLoading && sortedMessages.length === 0 && (
             <p className="text-center text-sm text-muted-foreground py-10">No messages yet</p>
           )}
@@ -200,6 +227,7 @@ function ChatPage() {
                   accountName={effectiveAccount}
                   chatId={parseInt(chatId)}
                   isChannel={isChannel}
+                  onReply={!isChannel ? () => setReplyTo(m) : undefined}
                 />
               </div>
             )
@@ -218,30 +246,63 @@ function ChatPage() {
 
         {/* Input — hidden for channels */}
         {!isChannel && (
-          <div className="sticky bottom-0 z-30 bg-card border-t border-border/40 px-2 py-2 flex items-center gap-2">
-            <button className="p-2 text-muted-foreground"><Smile className="h-6 w-6" /></button>
-            <textarea
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Message"
-              rows={1}
-              className="flex-1 bg-transparent text-foreground text-[15px] outline-none placeholder:text-muted-foreground py-2 resize-none max-h-32"
-            />
-            <button className="p-2 text-muted-foreground"><Paperclip className="h-6 w-6" /></button>
-            {messageText.trim() ? (
-              <button
-                onClick={handleSend}
-                disabled={sendMutation.isPending}
-                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground disabled:opacity-70"
-              >
-                {sendMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-              </button>
-            ) : (
-              <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
-                <Mic className="h-5 w-5" />
-              </button>
+          <div className="sticky bottom-0 z-30 bg-card border-t border-border/40">
+            {/* Reply banner */}
+            {replyTo && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-border/20">
+                <Reply className="h-4 w-4 text-primary flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-primary text-xs font-medium truncate">{replyTo.sender_name ?? "Message"}</p>
+                  <p className="text-muted-foreground text-xs truncate">{replyTo.text ?? "Media"}</p>
+                </div>
+                <button onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground p-1">
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
             )}
+            <div className="px-2 py-2 flex items-center gap-2">
+              <button className="p-2 text-muted-foreground"><Smile className="h-6 w-6" /></button>
+              <textarea
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Message"
+                rows={1}
+                className="flex-1 bg-transparent text-foreground text-[15px] outline-none placeholder:text-muted-foreground py-2 resize-none max-h-32"
+              />
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) { sendFileMutation.mutate(file); e.target.value = "" }
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sendFileMutation.isPending}
+                className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {sendFileMutation.isPending
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <Paperclip className="h-6 w-6" />}
+              </button>
+              {messageText.trim() ? (
+                <button
+                  onClick={handleSend}
+                  disabled={sendMutation.isPending}
+                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground disabled:opacity-70"
+                >
+                  {sendMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                </button>
+              ) : (
+                <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
+                  <Mic className="h-5 w-5" />
+                </button>
+              )}
+            </div>
           </div>
         )}
         {isChannel && (
@@ -302,11 +363,13 @@ function MessageBubble({
   accountName,
   chatId,
   isChannel,
+  onReply,
 }: {
   message: Message
   accountName: string
   chatId: number
   isChannel: boolean
+  onReply?: () => void
 }) {
   const outgoing = m.out
   const timeStr = m.date ? format(new Date(m.date), "HH:mm") : ""
@@ -315,7 +378,23 @@ function MessageBubble({
     : null
 
   return (
-    <div className={cn("flex flex-col", outgoing ? "items-end" : "items-start")}>
+    <div
+      className={cn("flex flex-col group", outgoing ? "items-end" : "items-start")}
+    >
+      {/* Reply button on hover */}
+      {onReply && (
+        <button
+          onClick={onReply}
+          className={cn(
+            "opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-black/30 text-white/70 hover:text-white mb-0.5",
+            outgoing ? "mr-2" : "ml-2",
+          )}
+          aria-label="Reply"
+        >
+          <Reply className="h-3.5 w-3.5" />
+        </button>
+      )}
+
       {/* Sender name for groups */}
       {!outgoing && m.sender_name && typeof m.sender_name === "string" && !isChannel && (
         <p className="text-xs font-medium text-sky-400 ml-2 mb-0.5">{safeText(m.sender_name)}</p>
