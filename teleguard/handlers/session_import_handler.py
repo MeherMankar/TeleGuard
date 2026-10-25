@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import zipfile
 
-from telethon import events
+from telethon import Button, events
 
 from ..core.mongo_database import mongodb
 from ..utils.crypto_utils import DataEncryption
@@ -66,8 +66,6 @@ class SessionImportHandler:
     async def _show_import_menu(self, event, user_id):
         """Show session import menu"""
         try:
-            from telethon import Button
-
             from ..utils.session_utils import get_supported_formats
 
             get_supported_formats()
@@ -187,8 +185,6 @@ class SessionImportHandler:
     async def _show_supported_formats(self, event):
         """Show detailed list of supported session formats"""
         try:
-            from telethon import Button
-
             from ..utils.session_utils import get_supported_formats
 
             get_supported_formats()

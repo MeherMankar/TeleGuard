@@ -152,7 +152,6 @@ logs/
 temp/
 uploads/
 backups/
-tests/
 docs/
 snapshots/
 *.db

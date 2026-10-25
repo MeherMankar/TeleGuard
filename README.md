@@ -2,7 +2,7 @@
 
 > **Professional Telegram Account Manager with Military-Grade Security**
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/ContactXYZrobot)
 
@@ -53,7 +53,7 @@ Manage multiple Telegram accounts with advanced security features, automated wor
 ### Prerequisites
 
 ```bash
-Python 3.9+
+Python 3.11+
 MongoDB 4.4+
 Telegram API Credentials (api_id, api_hash)
 ```

@@ -282,7 +282,7 @@ class TransferOwnershipHandler:
                 msg += f"• {name} ({phone})\n"
                 if acc.get("twofa_password"):
                     try:
-                        twofa = decrypt_string(acc["twofa_password"])
+                        twofa = _DE.decrypt_field(acc["twofa_password"])
                         msg += f"  🔐 2FA: `{twofa}`\n"
                     except BaseException:
                         pass
