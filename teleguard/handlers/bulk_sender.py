@@ -229,14 +229,6 @@ class BulkSender:
             )
             account_phone = account.get("phone") if account else account_name
 
-            # Check rate limit
-            can_perform, error_msg = rate_limiter.can_perform(
-                account_phone, "bulk_send"
-            )
-            if not can_perform:
-                await event.reply(error_msg)
-                return None
-
             # Check session health
             is_healthy, health_msg = await session_health.check_session(
                 client, account_phone
@@ -246,9 +238,22 @@ class BulkSender:
                     f"⚠️ Session health check failed: {health_msg}\nProceed with caution."
                 )
 
+            # Check rate limits immediately before recording the accepted job.
+            can_perform, error_msg = rate_limiter.can_perform(
+                account_phone, "bulk_send"
+            )
+            if not can_perform:
+                await event.reply(error_msg)
+                return None
+            can_send_messages, error_msg = rate_limiter.can_perform(
+                account_phone, "message", count=len(targets)
+            )
+            if not can_send_messages:
+                await event.reply(error_msg)
+                return None
+
             # Record operation
             rate_limiter.record_operation(account_phone, "bulk_send")
-            rate_limiter.record_operation(account_phone, "message", len(targets))
             import time
 
             job_id = f"bulk_{account_name}_{int(time.time())}"
@@ -285,7 +290,8 @@ class BulkSender:
                 if job["status"] != "running":
                     break
                 await self._send_to_target(job, client, target, i, status_msg)
-            job["status"] = "completed"
+            if job["status"] == "running":
+                job["status"] = "completed"
             await self._send_final_status(job, status_msg)
         except Exception as e:
             job["status"] = "error"
@@ -293,7 +299,6 @@ class BulkSender:
             if status_msg:
                 await status_msg.edit(f"❌ **Campaign Failed**\n\nError: {str(e)}\nSent: {job['sent']}/{job['total']}")
         finally:
-            await asyncio.sleep(3600)
             self.active_jobs.pop(job_id, None)
 
     async def _update_job_progress(self, job: Dict, final: bool = False):
@@ -376,22 +381,30 @@ class BulkSender:
 
     async def _send_initial_status(self, job):
         return await job["event"].reply(
-            f"\ud83d\ude80 **Campaign Started**\\n\\n"
-            f"Account: {job['account_name']}\\n"
-            f"Total Users: {job['total']}\\n"
-            f"Sent: 0/{job['total']}\\n"
+            f"\ud83d\ude80 **Campaign Started**\n\n"
+            f"Account: {job['account_name']}\n"
+            f"Total Users: {job['total']}\n"
+            f"Sent: 0/{job['total']}\n"
             f"Progress: \u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591 0%"
         )
 
     async def _send_final_status(self, job, status_msg):
         if status_msg:
+            completed = job["status"] == "completed"
+            progress = (
+                int((job["sent"] / job["total"]) * 100) if job["total"] else 0
+            )
+            filled_blocks = min(10, progress // 10)
+            progress_bar = "\u25a0" * filled_blocks + "\u2591" * (10 - filled_blocks)
+            status_emoji = "\u2705" if completed else "\u23f9\ufe0f"
+            status_text = "Completed" if completed else "Stopped"
             await status_msg.edit(
-                f"\u2705 **Campaign Completed**\\n\\n"
-                f"Account: {job['account_name']}\\n"
-                f"Total Users: {job['total']}\\n"
-                f"Sent: {job['sent']}/{job['total']}\\n"
-                f"Failed: {job['failed']}\\n"
-                f"Progress: \u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0 100%"
+                f"{status_emoji} **Campaign {status_text}**\n\n"
+                f"Account: {job['account_name']}\n"
+                f"Total Users: {job['total']}\n"
+                f"Sent: {job['sent']}/{job['total']}\n"
+                f"Failed: {job['failed']}\n"
+                f"Progress: {progress_bar} {progress}%"
             )
 
     async def _send_to_target(self, job, client, target, index, status_msg):

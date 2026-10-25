@@ -14,7 +14,28 @@ def test_blocks_operation_at_rate_limit():
     allowed, reason = limiter.can_perform("account", "message")
 
     assert not allowed
-    assert "Rate limit reached" in reason
+    assert "Rate limit exceeded" in reason
+
+
+def test_blocks_request_that_would_exceed_remaining_quota():
+    limiter = RateLimiter()
+    limiter.record_operation(
+        "account", "message", count=RateLimiter.LIMITS["message"] - 1
+    )
+
+    allowed, reason = limiter.can_perform("account", "message", count=2)
+
+    assert not allowed
+    assert "Rate limit exceeded" in reason
+
+
+def test_allows_request_that_fits_remaining_quota():
+    limiter = RateLimiter()
+    limiter.record_operation(
+        "account", "message", count=RateLimiter.LIMITS["message"] - 2
+    )
+
+    assert limiter.can_perform("account", "message", count=2) == (True, None)
 
 
 def test_expires_operations_after_one_hour(monkeypatch):
