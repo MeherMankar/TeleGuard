@@ -3,6 +3,7 @@
 import logging
 from telethon import events, Button
 from .protection_menu import ProtectionMenu
+from ..core.mongo_database import mongodb
 from ..services.protection_storage import ProtectionStorage
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,18 @@ class ProtectionCallbacks:
                 await self.menu.send_main_menu(event, user_id, edit=True)
                 await event.answer("Updated ✅")
 
+            elif data == "prot_close":
+                await event.delete()
+                await event.answer("Protection dashboard closed")
+
             elif data == "prot_otp_settings":
-                settings = await ProtectionStorage.get_settings(user_id)
-                current = settings.get("otp_destroyer_enabled", False)
+                accounts = await mongodb.db.accounts.find(
+                    {"user_id": user_id}
+                ).to_list(length=None)
+                current = bool(accounts) and all(
+                    account.get("otp_destroyer_enabled", False)
+                    for account in accounts
+                )
                 await self.protection_manager.toggle_otp_destroyer(user_id, not current)
                 await self.menu.send_main_menu(event, user_id, edit=True)
                 await event.answer(f"OTP Destroyer {'Enabled' if not current else 'Disabled'}")
@@ -51,6 +61,9 @@ class ProtectionCallbacks:
 
             elif data.startswith("prot_pause_"):
                 minutes = int(data.split("_")[-1])
+                if minutes not in {5, 30, 60, 1440}:
+                    await event.answer("⚠️ Invalid pause duration")
+                    return
                 await self.protection_manager.pause_protection(user_id, minutes)
                 await self.menu.send_main_menu(event, user_id, edit=True)
                 await event.answer(f"Protection paused for {minutes}m")
@@ -64,8 +77,12 @@ class ProtectionCallbacks:
                 await self.menu.send_stats(event, user_id)
 
             elif data == "prot_logs":
-                await event.answer("Feature coming soon: Detailed protection logs", alert=True)
+                await self.menu.send_logs(event, user_id)
+                await event.answer()
 
         except Exception as e:
             logger.error(f"Error handling protection callback {data}: {e}")
-            await event.answer("⚠️ An error occurred while processing your request")
+            try:
+                await event.answer("⚠️ An error occurred while processing your request")
+            except Exception:
+                logger.debug("Protection callback was already answered")

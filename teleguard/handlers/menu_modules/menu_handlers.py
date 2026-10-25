@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Menu text handlers"""
 import logging
+import time
 
 from telethon import Button
 
@@ -102,19 +103,27 @@ class MenuHandlers:
             forward_enabled = sum(
                 1 for acc in accounts if acc.get("otp_forward_enabled", False)
             )
-            temp_active = sum(
-                1 for acc in accounts if acc.get("otp_temp_passthrough", False)
+            temp_active = 0
+            for account in accounts:
+                if not account.get("otp_temp_passthrough"):
+                    continue
+                try:
+                    expiry = float(account.get("temp_passthrough_expiry") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if expiry > time.time():
+                    temp_active += 1
+            
+            from ...services.protection_storage import ProtectionStorage
+
+            protection_settings = await ProtectionStorage.get_settings(user_id)
+            session_destroyer_enabled = protection_settings.get(
+                "session_destroyer_enabled", False
             )
-            
-            # Session Destroyer stats
-            from ..session_destroyer_handler import SessionDestroyerHandler
-            from ...sync.session_destroyer_db import SessionDestroyerDB
-            
-            sd_settings = await SessionDestroyerDB.get_settings(user_id)
-            sd_enabled = "🔥" if sd_settings.get("enabled") else "⚪"
+            sd_enabled = "🔥" if session_destroyer_enabled else "⚪"
             
             security_score = int((destroyer_enabled / len(accounts)) * 100)
-            if sd_settings.get("enabled"):
+            if session_destroyer_enabled:
                 security_score = min(100, security_score + 20)
                 
             security_emoji = (
@@ -126,9 +135,10 @@ class MenuHandlers:
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📊 **Security Dashboard:**\n"
                 f"• {security_emoji} **Security Score:** {security_score}%\n"
-                f"• {sd_enabled} **Session Destroyer:** {'Enabled' if sd_settings.get('enabled') else 'Disabled'}\n"
+                f"• {sd_enabled} **Session Destroyer:** {'Enabled' if session_destroyer_enabled else 'Disabled'}\n"
                 f"• 🛡️ **OTP Destroyer:** {destroyer_enabled}/{len(accounts)} accounts\n"
                 f"• 📩 **OTP Forward:** {forward_enabled}/{len(accounts)} accounts\n\n"
+                f"• ⏰ **Temporary Bypass:** {temp_active}/{len(accounts)} accounts\n\n"
                 f"🎛️ **Protection Controls:**\n"
                 f"Choose your security configuration below:"
             )
@@ -150,6 +160,7 @@ class MenuHandlers:
                     Button.inline("🔴 Disable All Protection", "otp:disable_all"),
                 ],
                 [Button.inline("📋 Security Audit Log", "otp:audit_all")],
+                [Button.inline("🛡 Advanced Protection Dashboard", "prot_main")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         message_id = getattr(event, "message_id", None)

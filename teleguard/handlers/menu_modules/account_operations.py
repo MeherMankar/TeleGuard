@@ -68,9 +68,11 @@ class AccountOperations:
 
         temp_active = False
         if account.get("otp_temp_passthrough", False):
-            expiry = account.get("temp_passthrough_expiry", 0)
-            if time.time() < expiry:
-                temp_active = True
+            try:
+                expiry = float(account.get("temp_passthrough_expiry") or 0)
+            except (TypeError, ValueError):
+                expiry = 0
+            temp_active = time.time() < expiry
         if temp_active:
             remaining = int(expiry - time.time())
             minutes = remaining // 60

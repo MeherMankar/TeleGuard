@@ -40,9 +40,11 @@ class ProtectionManager:
         self.last_cleanup = time.time()
         self._processed_messages = set()
         self._client_handlers = {}
+        self._temp_bypass_tasks: Dict[tuple[int, str], asyncio.Task] = {}
 
     async def start(self):
         """Start the protection manager and its background workers"""
+        await self._restore_or_schedule_temp_bypasses()
         # On cloud platforms (Koyeb, Railway, Heroku) a rolling restart keeps
         # the old instance alive for ~30 s.  Delaying watcher startup avoids
         # AUTH_KEY_DUPLICATED errors from GetAuthorizationsRequest.
@@ -60,6 +62,94 @@ class ProtectionManager:
     async def stop(self):
         """Stop all background workers"""
         await self.session_destroyer.stop_all()
+        tasks = list(self._temp_bypass_tasks.values())
+        self._temp_bypass_tasks.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _restore_or_schedule_temp_bypasses(self):
+        """Resume persisted temporary-bypass expiry handling after startup."""
+        accounts = await mongodb.db.accounts.find(
+            {"otp_temp_passthrough": True}
+        ).to_list(length=None)
+        now = time.time()
+        for account in accounts:
+            account_id = str(account["_id"])
+            try:
+                expiry = float(account.get("temp_passthrough_expiry") or 0)
+            except (TypeError, ValueError):
+                expiry = 0
+            if expiry <= now:
+                await self._restore_temp_passthrough(
+                    account["user_id"], account_id, account
+                )
+            else:
+                self._schedule_temp_bypass_expiry(
+                    account["user_id"], account_id, expiry
+                )
+
+    def _schedule_temp_bypass_expiry(
+        self, user_id: int, account_id: str, expiry: float
+    ):
+        key = (user_id, account_id)
+        existing_task = self._temp_bypass_tasks.get(key)
+        if existing_task and not existing_task.done():
+            return
+        task = asyncio.create_task(
+            self._expire_temp_bypass(user_id, account_id, expiry)
+        )
+        self._temp_bypass_tasks[key] = task
+
+    async def _expire_temp_bypass(
+        self, user_id: int, account_id: str, expiry: float
+    ):
+        key = (user_id, account_id)
+        try:
+            await asyncio.sleep(max(0, expiry - time.time()))
+            account = await mongodb.db.accounts.find_one(
+                {"_id": self._object_id(account_id), "user_id": user_id}
+            )
+            if not account or not account.get("otp_temp_passthrough"):
+                return
+            try:
+                current_expiry = float(
+                    account.get("temp_passthrough_expiry") or 0
+                )
+            except (TypeError, ValueError):
+                current_expiry = 0
+            if current_expiry == expiry:
+                await self._restore_temp_passthrough(
+                    user_id, account_id, account
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Failed to restore expired temporary OTP bypass for account %s",
+                account_id,
+            )
+            try:
+                await self.bot.send_message(
+                    user_id,
+                    "⚠️ Automatic OTP-bypass restoration failed. Please open "
+                    "Protection Manager and review this account's settings.",
+                )
+            except Exception:
+                logger.exception(
+                    "Could not notify user %s about temporary bypass restoration",
+                    user_id,
+                )
+        finally:
+            if self._temp_bypass_tasks.get(key) is asyncio.current_task():
+                self._temp_bypass_tasks.pop(key, None)
+
+    @staticmethod
+    def _object_id(account_id: str):
+        from bson import ObjectId
+
+        return ObjectId(account_id)
 
     # --- OTP Destroyer Logic (Ported from OTPManager) ---
 
@@ -259,20 +349,16 @@ class ProtectionManager:
 
             # PRIORITY 0: Session creation in progress -> allow
             if account.get("session_creation_in_progress") or account.get("pending_fresh_session"):
-                logger.debug(f"Session creation in progress for {account_name}, allowing OTP: {otp_code}")
-                try:
-                    await event.delete()
-                except Exception:
-                    pass
+                logger.debug(
+                    "Session creation in progress for %s; leaving its OTP message "
+                    "available to the authentication flow",
+                    account_name,
+                )
                 return
 
             # PRIORITY 0.5: Fresh session handling
             fresh_session_key = f"{account.get('phone')}:{otp_code}"
-            if fresh_session_key in self.fresh_session_otps:
-                try:
-                    await event.delete()
-                except Exception:
-                    pass
+            if otp_code and fresh_session_key in self.fresh_session_otps:
                 return
 
             if hasattr(self.bot_manager, "pending_fresh_sessions") and self.bot_manager.pending_fresh_sessions:
@@ -280,7 +366,13 @@ class ProtectionManager:
                 pending_sessions = dict(self.bot_manager.pending_fresh_sessions)
                 for fresh_user_id, session_data in pending_sessions.items():
                     if session_data.get("phone") == account_phone:
-                        self.fresh_session_otps.add(fresh_session_key)
+                        if not otp_code:
+                            logger.warning(
+                                "Could not extract OTP for pending session creation "
+                                "on %s; leaving message intact",
+                                account_name,
+                            )
+                            return
                         try:
                             await mongodb.db.otp_protections.update_one(
                                 {"phone": account_phone, "code": otp_code},
@@ -294,38 +386,92 @@ class ProtectionManager:
                                 upsert=True,
                             )
                         except Exception:
-                            pass
-                        
+                            logger.exception(
+                                "Could not protect pending session OTP for %s; "
+                                "leaving the message intact",
+                                account_name,
+                            )
+                            await self.bot.send_message(
+                                user_id,
+                                "⚠️ Could not protect the pending session's login "
+                                "code. The original message was left intact.",
+                            )
+                            return
+
+                        self.fresh_session_otps.add(fresh_session_key)
                         try:
-                            if hasattr(self.bot_manager, "session_export_handler"):
-                                await self.bot_manager.session_export_handler.process_fresh_session_otp(
-                                    fresh_user_id, otp_code
+                            session_export_handler = getattr(
+                                self.bot_manager, "session_export_handler", None
+                            )
+                            if not session_export_handler:
+                                logger.error(
+                                    "Fresh-session handler unavailable for user %s",
+                                    fresh_user_id,
                                 )
-                            try:
-                                await event.delete()
-                            except Exception:
-                                pass
+                                await self.bot.send_message(
+                                    fresh_user_id,
+                                    "⚠️ Could not process the login code automatically. "
+                                    "The original Telegram message was left intact.",
+                                )
+                                return
+                            processed = await session_export_handler.process_fresh_session_otp(
+                                fresh_user_id, otp_code
+                            )
+                            if processed:
+                                try:
+                                    await event.delete()
+                                except Exception:
+                                    logger.exception(
+                                        "Could not delete processed session OTP "
+                                        "message for %s",
+                                        account_name,
+                                    )
+                            else:
+                                await self.bot.send_message(
+                                    fresh_user_id,
+                                    "⚠️ Login-code processing did not complete. "
+                                    "The original Telegram message was left intact.",
+                                )
                         except Exception as fresh_error:
                             logger.error(f"Fresh session processing error: {fresh_error}")
-                            try:
-                                await event.delete()
-                            except Exception:
-                                pass
+                            await self.bot.send_message(
+                                fresh_user_id,
+                                "⚠️ Login-code processing failed. "
+                                "The original Telegram message was left intact.",
+                            )
                         finally:
                             self.fresh_session_otps.discard(fresh_session_key)
                         return
 
+            # Restore an expired temporary bypass before applying normal OTP rules.
+            try:
+                temp_expiry = float(account.get("temp_passthrough_expiry") or 0)
+            except (TypeError, ValueError):
+                temp_expiry = 0
+            if account.get("otp_temp_passthrough") and temp_expiry <= time.time():
+                await self._restore_temp_passthrough(
+                    user_id, str(account["_id"]), account
+                )
+                refreshed_account = await mongodb.db.accounts.find_one(
+                    {"_id": account["_id"], "user_id": user_id}
+                )
+                if refreshed_account:
+                    account = DataEncryption.decrypt_account_data(refreshed_account)
+
             # PRIORITY 1: Temporary passthrough active -> forward
-            if self._is_temp_passthrough_active(user_id, account_name):
+            try:
+                temp_expiry = float(account.get("temp_passthrough_expiry") or 0)
+            except (TypeError, ValueError):
+                temp_expiry = 0
+            if (
+                account.get("otp_temp_passthrough")
+                and temp_expiry > time.time()
+            ) or self._is_temp_passthrough_active(user_id, str(account["_id"])):
                 fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
                 if fwd_key in self.processed_otps:
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
                     return
-                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
+                self.processed_otps.add(fwd_key)
                 try:
                     await event.delete()
                 except Exception:
@@ -363,13 +509,9 @@ class ProtectionManager:
             if account.get("otp_destroyer_enabled", False) and self._is_destroyer_temp_disabled(user_id, account_name):
                 fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
                 if fwd_key in self.processed_otps:
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
                     return
-                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"⏰ **TEMP OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
+                self.processed_otps.add(fwd_key)
                 try:
                     await event.delete()
                 except Exception:
@@ -393,14 +535,22 @@ class ProtectionManager:
 
             # PRIORITY 3: OTP Destroyer active (and not paused) -> invalidate
             if account.get("otp_destroyer_enabled", False) and not is_paused:
+                if not otp_code:
+                    logger.warning(
+                        "Could not extract login code for %s; leaving message intact",
+                        account_name,
+                    )
+                    await self.bot.send_message(
+                        user_id,
+                        "⚠️ OTP Destroyer detected a login-code message but could "
+                        f"not safely identify the code for {account_name}. "
+                        "The original message was left intact for review.",
+                    )
+                    return
+
                 otp_key = f"{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
                 if otp_key in self.processed_otps:
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
                     return
-                self.processed_otps.add(otp_key)
 
                 # Check if protected by database records
                 try:
@@ -413,75 +563,104 @@ class ProtectionManager:
                         }
                     )
                 except Exception:
-                    prot = None
+                    logger.exception(
+                        "Could not check OTP protection allowlist for %s; "
+                        "leaving the code intact",
+                        account_name,
+                    )
+                    await self.bot.send_message(
+                        user_id,
+                        "⚠️ OTP protection could not verify the allowlist for "
+                        f"{account_name}. The original login-code message was "
+                        "left intact.",
+                    )
+                    return
 
                 if prot:
                     logger.info(f"Skipping protected code for {account_name}: {display_code}")
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
                     return
 
-                # Invalidate codes
+                # Do not delete a code unless Telegram confirms invalidation.
                 try:
-                    if otp_code:
-                        await event.client(functions.account.InvalidateSignInCodesRequest(codes=[otp_code]))
-                    await event.delete()
-                    
-                    # Update Stats, audit, and Notify
-                    await ProtectionStorage.increment_otp_stats(user_id)
-                    await self.notifier.notify_otp_destroyed(user_id, account_name, display_code)
-                    logger.warning(f"🛡️ OTP Destroyer: Invalidated code {display_code} for {account_name}")
-
-                    # Log to audit
-                    try:
-                        await mongodb.db.accounts.update_one(
-                            {"user_id": int(user_id), "name": str(account_name)},
-                            {
-                                "$push": {
-                                    "audit_log": {
-                                        "action": "otp_destroyed",
-                                        "code": otp_code,
-                                        "timestamp": int(time.time()),
-                                    }
-                                }
-                            },
+                    await event.client(
+                        functions.account.InvalidateSignInCodesRequest(
+                            codes=[otp_code]
                         )
-                    except Exception:
-                        pass
-
-                    # Record metrics
-                    try:
-                        from ..services.otp_metrics import OTPMetrics
-                        otp_metrics = OTPMetrics()
-                        await otp_metrics.record_block(
-                            str(account["_id"]),
-                            "unauthorized_login_attempt",
-                            {"code": otp_code, "account_name": account_name, "result": True},
-                        )
-                    except Exception:
-                        pass
-
+                    )
                 except Exception as e:
-                    logger.error(f"Failed to invalidate OTP: {e}")
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
+                    logger.error(f"Failed to invalidate OTP for {account_name}: {e}")
+                    await self.bot.send_message(
+                        user_id,
+                        "⚠️ OTP Destroyer could not invalidate a login code for "
+                        f"{account_name}. The original message was left intact; "
+                        "please review it.",
+                    )
+                    return
+
+                self.processed_otps.add(otp_key)
+                try:
+                    await event.delete()
+                except Exception as e:
+                    logger.warning(
+                        f"OTP was invalidated but its message could not be deleted: {e}"
+                    )
+
+                try:
+                    await ProtectionStorage.increment_otp_stats(user_id)
+                except Exception:
+                    logger.exception("Failed to update OTP destruction statistics")
+
+                try:
+                    await self.notifier.notify_otp_destroyed(
+                        user_id, account_name, display_code
+                    )
+                except Exception:
+                    logger.exception("Failed to notify user of OTP destruction")
+                logger.warning(
+                    f"🛡️ OTP Destroyer: Invalidated code {display_code} "
+                    f"for {account_name}"
+                )
+
+                try:
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"], "user_id": int(user_id)},
+                        {
+                            "$push": {
+                                "audit_log": {
+                                    "action": "otp_destroyed",
+                                    "code": otp_code,
+                                    "timestamp": int(time.time()),
+                                }
+                            }
+                        },
+                    )
+                except Exception:
+                    logger.exception("Failed to record OTP destruction audit")
+
+                try:
+                    from ..services.otp_metrics import OTPMetrics
+
+                    otp_metrics = OTPMetrics()
+                    await otp_metrics.record_block(
+                        str(account["_id"]),
+                        "unauthorized_login_attempt",
+                        {
+                            "code": otp_code,
+                            "account_name": account_name,
+                            "result": True,
+                        },
+                    )
+                except Exception:
+                    logger.exception("Failed to record OTP destruction metrics")
                 return
 
             # PRIORITY 4: Forwarding if destroyer is off
             if account.get("otp_forward_enabled", False):
                 fwd_key = f"fwd:{user_id}:{account_name}:{display_code}:{int(time.time() // 5)}"
                 if fwd_key in self.processed_otps:
-                    try:
-                        await event.delete()
-                    except Exception:
-                        pass
                     return
-                self.processed_otps.add(fwd_key)
                 await self.bot.send_message(user_id, f"🔔 **OTP:** `{display_code}`\n📱 {account_name}\n\n{message_text}")
+                self.processed_otps.add(fwd_key)
                 try:
                     await event.delete()
                 except Exception:
@@ -523,30 +702,51 @@ class ProtectionManager:
 
     async def toggle_session_destroyer(self, user_id: int, enabled: bool):
         """Enable/Disable Session Destroyer for a user"""
+        await ProtectionStorage.get_settings(user_id)
         if enabled:
             # Record the exact moment it was enabled so the watcher can trust
             # any session that already existed before this point.
             await ProtectionStorage.update_settings(user_id, {
                 "session_destroyer_enabled": True,
                 "enabled_at": datetime.now(timezone.utc),
+                "legacy_session_destroyer_migrated": True,
             })
             # Sync all currently visible sessions as trusted immediately.
             user_clients = self.bot_manager.user_clients.get(user_id, {})
             for client in user_clients.values():
                 if client and client.is_connected():
                     await self.session_destroyer.sync_trusted_sessions(user_id, client)
-                    break
             await self.session_destroyer.start_watcher(user_id)
         else:
-            await ProtectionStorage.update_settings(user_id, {"session_destroyer_enabled": False})
+            await ProtectionStorage.update_settings(
+                user_id,
+                {
+                    "session_destroyer_enabled": False,
+                    "legacy_session_destroyer_migrated": True,
+                },
+            )
             await self.session_destroyer.stop_watcher(user_id)
 
     async def toggle_otp_destroyer(self, user_id: int, enabled: bool):
         """Enable/Disable OTP Destroyer for a user (global toggle)"""
-        await ProtectionStorage.update_settings(user_id, {"otp_destroyer_enabled": enabled})
+        account_updates = {"otp_destroyer_enabled": enabled}
+        await ProtectionStorage.update_settings(
+            user_id, {"otp_destroyer_enabled": enabled}
+        )
         await mongodb.db.accounts.update_many(
             {"user_id": user_id},
-            {"$set": {"otp_destroyer_enabled": enabled}}
+            {
+                "$set": {
+                    **account_updates,
+                    "otp_forward_enabled": False,
+                },
+                "$unset": {
+                    "otp_temp_passthrough": "",
+                    "temp_passthrough_expiry": "",
+                    "otp_temp_original_destroyer_state": "",
+                    "otp_temp_original_forward_state": "",
+                },
+            },
         )
 
     async def toggle_destroyer(
@@ -563,6 +763,9 @@ class ProtectionManager:
                 return False, "Account not found"
 
             timestamp = int(time.time())
+            if account.get("otp_temp_passthrough"):
+                account = DataEncryption.decrypt_account_data(account)
+                await self._restore_temp_passthrough(user_id, account_id, account)
             if enabled:
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
@@ -624,6 +827,12 @@ class ProtectionManager:
                 return False, "Account not found"
 
             account = DataEncryption.decrypt_account_data(account)
+            if account.get("otp_temp_passthrough"):
+                await self._restore_temp_passthrough(user_id, account_id, account)
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                account = DataEncryption.decrypt_account_data(account)
             timestamp = int(time.time())
             if enabled:
                 if account.get("otp_destroyer_enabled", False):
@@ -816,6 +1025,27 @@ class ProtectionManager:
 
             account = DataEncryption.decrypt_account_data(account)
 
+            try:
+                temp_expiry = float(account.get("temp_passthrough_expiry") or 0)
+            except (TypeError, ValueError):
+                temp_expiry = 0
+            if (
+                account.get("otp_temp_passthrough")
+                and temp_expiry <= time.time()
+            ):
+                await self._restore_temp_passthrough(user_id, account_id, account)
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                if not account:
+                    return False, "Account not found"
+                account = DataEncryption.decrypt_account_data(account)
+            elif account.get("otp_temp_passthrough") and temp_expiry > time.time():
+                self._schedule_temp_bypass_expiry(
+                    user_id, account_id, temp_expiry
+                )
+                return True, "Temporary OTP bypass is already active"
+
             if not account.get("otp_destroyer_enabled", False):
                 return (
                     False,
@@ -829,14 +1059,21 @@ class ProtectionManager:
             )
             expiry_time = time.time() + 300
 
-            temp_key = f"{account_name}_temp_otp"
-            self.temp_passthrough.setdefault(user_id, {})[temp_key] = {
-                "expiry": expiry_time
-            }
-
             await mongodb.db.accounts.update_one(
-                {"_id": ObjectId(account_id)},
+                {"_id": ObjectId(account_id), "user_id": user_id},
                 {
+                    "$set": {
+                        "otp_temp_passthrough": True,
+                        "temp_passthrough_expiry": expiry_time,
+                        "otp_temp_original_destroyer_state": account.get(
+                            "otp_destroyer_enabled", False
+                        ),
+                        "otp_temp_original_forward_state": account.get(
+                            "otp_forward_enabled", False
+                        ),
+                        "otp_destroyer_enabled": False,
+                        "otp_forward_enabled": True,
+                    },
                     "$push": {
                         "audit_log": {
                             "action": "temp_otp_enabled",
@@ -846,24 +1083,9 @@ class ProtectionManager:
                     }
                 },
             )
-
-            async def cleanup_temp_otp():
-                await asyncio.sleep(300)
-                try:
-                    if (
-                        user_id in self.temp_passthrough
-                        and temp_key in self.temp_passthrough[user_id]
-                    ):
-                        del self.temp_passthrough[user_id][temp_key]
-                        if not self.temp_passthrough[user_id]:
-                            del self.temp_passthrough[user_id]
-                        logger.debug(
-                            f"Cleaned up temp OTP for user {user_id}, account {account_name}"
-                        )
-                except Exception as cleanup_error:
-                    logger.error(f"Error cleaning up temp OTP: {cleanup_error}")
-
-            asyncio.create_task(cleanup_temp_otp())
+            self._schedule_temp_bypass_expiry(
+                user_id, account_id, expiry_time
+            )
 
             return (
                 True,
@@ -872,6 +1094,72 @@ class ProtectionManager:
         except Exception as e:
             logger.error(f"Error enabling temp passthrough: {e}")
             return False, f"Error: {str(e)}"
+
+    async def disable_temp_passthrough(
+        self, user_id: int, account_id: str
+    ) -> tuple[bool, str]:
+        """End a temporary OTP bypass and restore its original account settings."""
+        try:
+            from bson import ObjectId
+
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+            if not account:
+                return False, "Account not found"
+            account = DataEncryption.decrypt_account_data(account)
+            if not account.get("otp_temp_passthrough"):
+                return False, "Temporary OTP bypass is not active"
+
+            await self._restore_temp_passthrough(user_id, account_id, account)
+            return True, "Temporary OTP bypass stopped; original settings restored"
+        except Exception as e:
+            logger.error(f"Error disabling temp passthrough: {e}")
+            return False, f"Error: {str(e)}"
+
+    async def _restore_temp_passthrough(
+        self, user_id: int, account_id: str, account: dict
+    ) -> None:
+        from bson import ObjectId
+
+        if not account.get("otp_temp_passthrough"):
+            return
+        query = {
+            "_id": ObjectId(account_id),
+            "user_id": user_id,
+            "otp_temp_passthrough": True,
+        }
+        if "temp_passthrough_expiry" in account:
+            query["temp_passthrough_expiry"] = account["temp_passthrough_expiry"]
+        result = await mongodb.db.accounts.update_one(
+            query,
+            {
+                "$set": {
+                    "otp_destroyer_enabled": account.get(
+                        "otp_temp_original_destroyer_state", True
+                    ),
+                    "otp_forward_enabled": account.get(
+                        "otp_temp_original_forward_state", False
+                    ),
+                },
+                "$unset": {
+                    "otp_temp_passthrough": "",
+                    "temp_passthrough_expiry": "",
+                    "otp_temp_original_destroyer_state": "",
+                    "otp_temp_original_forward_state": "",
+                },
+            },
+        )
+        key = (user_id, account_id)
+        task = self._temp_bypass_tasks.pop(key, None)
+        if task and task is not asyncio.current_task():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if getattr(result, "matched_count", 1) == 0:
+            logger.debug(
+                "Temporary OTP bypass for account %s changed before restoration",
+                account_id,
+            )
 
     async def set_destroyer_state(self, user_id: int, account_name: str, enabled: bool) -> tuple[bool, str]:
         """Alias for toggle_destroyer with account name support"""

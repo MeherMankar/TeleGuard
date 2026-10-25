@@ -238,22 +238,21 @@ class CallbackHandlers:
     async def _handle_otp_bulk_toggle(self, event, user_id, enabled):
         """Handle bulk protection toggle for all accounts"""
         try:
-            from ...core.mongo_database import mongodb
-            from ...sync.session_destroyer_db import SessionDestroyerDB
+            protection_manager = getattr(
+                self.account_manager, "protection_manager", None
+            )
+            if not protection_manager:
+                await event.answer("❌ Protection service unavailable", alert=True)
+                return
 
+            await protection_manager.toggle_otp_destroyer(user_id, enabled)
+            await protection_manager.toggle_session_destroyer(user_id, enabled)
             if enabled:
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id},
-                    {"$set": {"otp_destroyer_enabled": True, "otp_forward_enabled": False}}
+                await event.answer(
+                    "🛡️ All accounts secured with Protection Manager!",
+                    alert=True,
                 )
-                await SessionDestroyerDB.update_settings(user_id, True)
-                await event.answer("🛡️ All accounts secured with Protection Manager!", alert=True)
             else:
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id},
-                    {"$set": {"otp_destroyer_enabled": False, "otp_forward_enabled": False}}
-                )
-                await SessionDestroyerDB.update_settings(user_id, False)
                 await event.answer("🔴 All protections disabled.", alert=True)
 
             # Refresh the menu
@@ -280,7 +279,33 @@ class CallbackHandlers:
 
     async def _handle_otp_temp(self, event, user_id, account_id):
         """Handle temp OTP request"""
-        success, message = await self._handle_temp_otp(user_id, account_id)
+        manager = getattr(self.account_manager, "protection_manager", None)
+        if not manager:
+            success, message = False, "Protection service unavailable"
+        else:
+            from bson import ObjectId
+            import time
+
+            account = await mongodb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+            if not account:
+                success, message = False, "Account not found"
+            else:
+                try:
+                    temp_expiry = float(
+                        account.get("temp_passthrough_expiry") or 0
+                    )
+                except (TypeError, ValueError):
+                    temp_expiry = 0
+                if account.get("otp_temp_passthrough") and temp_expiry > time.time():
+                    success, message = await manager.disable_temp_passthrough(
+                        user_id, account_id
+                    )
+                else:
+                    success, message = await manager.enable_temp_passthrough(
+                        user_id, account_id
+                    )
         await event.answer(f"{'⏰' if success else '❌'} {message}")
         if success:
             await self.menu.router.handle_otp_setting_callback(event, user_id, "otp_setting:temp")

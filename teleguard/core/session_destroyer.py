@@ -15,6 +15,18 @@ from ..services.protection_notifier import ProtectionNotifier
 
 logger = logging.getLogger(__name__)
 
+
+def _as_utc(value):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 class SessionDestroyer:
     """Watch for and terminate unauthorized Telegram sessions"""
 
@@ -35,13 +47,17 @@ class SessionDestroyer:
     async def stop_all(self):
         """Stop all active watchers"""
         self.is_shutdown = True
-        for user_id, task in self.active_watchers.items():
+        tasks = list(self.active_watchers.values())
+        for task in tasks:
             task.cancel()
         self.active_watchers.clear()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def start_watcher(self, user_id: int):
         """Start a background watcher task for a specific user"""
         async with self._lock:
+            self.is_shutdown = False
             if user_id in self.active_watchers:
                 if not self.active_watchers[user_id].done():
                     return
@@ -56,6 +72,8 @@ class SessionDestroyer:
             if task:
                 task.cancel()
                 logger.info(f"Stopped Session Destroyer watcher for user {user_id}")
+        if task:
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _watcher_loop(self, user_id: int):
         """Main loop that polls for new sessions every 5 seconds."""
@@ -83,6 +101,7 @@ class SessionDestroyer:
                     break
 
                 pause_until = settings.get("pause_until")
+                pause_until = _as_utc(pause_until)
                 if pause_until and pause_until > datetime.now(timezone.utc):
                     await asyncio.sleep(15)
                     continue
@@ -93,20 +112,25 @@ class SessionDestroyer:
                     await asyncio.sleep(15)
                     continue
 
-                target_client = None
-                for client in user_clients.values():
-                    if client and client.is_connected():
-                        target_client = client
-                        break
-
-                if not target_client:
+                target_clients = [
+                    client
+                    for client in user_clients.values()
+                    if client and client.is_connected()
+                ]
+                if not target_clients:
                     await asyncio.sleep(15)
                     continue
 
                 # 3. Fetch current sessions
                 try:
-                    result = await target_client(functions.account.GetAuthorizationsRequest())
-                    current_auths = result.authorizations
+                    current_sessions = []
+                    for target_client in target_clients:
+                        result = await target_client(
+                            functions.account.GetAuthorizationsRequest()
+                        )
+                        current_sessions.extend(
+                            (target_client, auth) for auth in result.authorizations
+                        )
                 except errors.FloodWaitError as e:
                     logger.warning(f"FloodWait in Session Destroyer for {user_id}: {e.seconds}s")
                     await asyncio.sleep(min(e.seconds, 60))
@@ -147,9 +171,7 @@ class SessionDestroyer:
                     # enabled_at tells us the earliest point from which we should
                     # watch for NEW sessions.  Any session created before this is
                     # pre-existing and must be trusted unconditionally.
-                    enabled_at = settings.get("enabled_at")
-                    if enabled_at and enabled_at.tzinfo is None:
-                        enabled_at = enabled_at.replace(tzinfo=timezone.utc)
+                    enabled_at = _as_utc(settings.get("enabled_at"))
 
                     # Load pending hashes — these are post-enabled sessions awaiting
                     # the 24-h cool-down.  Do NOT trust them; let the retry handle them.
@@ -160,23 +182,25 @@ class SessionDestroyer:
                         ).to_list(None)
                     }
 
-                    new_hashes = set()
-                    for auth in current_auths:
+                    preexisting_hashes = set()
+                    for _, auth in current_sessions:
                         # Never auto-trust a pending (deferred-kill) session
                         if auth.hash in pending_on_first_run:
                             continue
-                        new_hashes.add(auth.hash)
-                        # Also trust by timestamp: if the session logged in before
-                        # SD was enabled, it is a pre-existing session.
                         if enabled_at:
-                            session_date = getattr(auth, "date_active", None) or getattr(auth, "date", None)
+                            session_date = _as_utc(
+                                getattr(auth, "date_active", None)
+                                or getattr(auth, "date", None)
+                            )
                             if session_date:
-                                if session_date.tzinfo is None:
-                                    session_date = session_date.replace(tzinfo=timezone.utc)
                                 if session_date <= enabled_at:
                                     existing_trusted.add(auth.hash)
+                            else:
+                                preexisting_hashes.add(auth.hash)
+                        else:
+                            preexisting_hashes.add(auth.hash)
 
-                    combined = existing_trusted | new_hashes
+                    combined = existing_trusted | preexisting_hashes
                     await ProtectionStorage.update_settings(
                         user_id, {"trusted_hashes": list(combined)}
                     )
@@ -202,15 +226,8 @@ class SessionDestroyer:
 
                 # Auto-expire allow_next if the timestamp has passed
                 if allow_next:
-                    allow_next_until = settings.get("allow_next_until")
+                    allow_next_until = _as_utc(settings.get("allow_next_until"))
                     if allow_next_until:
-                        if isinstance(allow_next_until, str):
-                            try:
-                                allow_next_until = datetime.fromisoformat(allow_next_until)
-                            except Exception:
-                                allow_next_until = None
-                        if allow_next_until and allow_next_until.tzinfo is None:
-                            allow_next_until = allow_next_until.replace(tzinfo=timezone.utc)
                         if allow_next_until and datetime.now(timezone.utc) > allow_next_until:
                             await ProtectionStorage.update_settings(
                                 user_id, {"allow_next": False, "allow_next_until": None}
@@ -227,7 +244,7 @@ class SessionDestroyer:
 
                 newly_detected = []
 
-                for auth in current_auths:
+                for client, auth in current_sessions:
                     # Always skip current session
                     if auth.current:
                         continue
@@ -252,21 +269,14 @@ class SessionDestroyer:
                         continue
 
                     # Unauthorized session — queue for immediate kill
-                    newly_detected.append(auth)
+                    newly_detected.append((client, auth))
 
                 # 6. Terminate all unauthorized sessions in parallel — no delay between kills
                 if newly_detected:
-                    async def _kill(auth):
+                    async def _kill(client, auth):
                         try:
-                            await target_client(
+                            await client(
                                 functions.account.ResetAuthorizationRequest(hash=auth.hash)
-                            )
-                            await ProtectionStorage.add_destroyed_hash(user_id, auth.hash)
-                            await self.notifier.notify_session_destroyed(user_id, auth)
-                            logger.warning(
-                                f"🛡️ Session Destroyer: Terminated unauthorized session "
-                                f"{auth.hash} for user {user_id} "
-                                f"(device: {auth.device_model}, ip: {auth.ip})"
                             )
                         except Exception as e:
                             error_msg = str(e)
@@ -274,66 +284,187 @@ class SessionDestroyer:
                                 "FRESH_RESET_AUTHORISATION_FORBIDDEN" in error_msg
                                 or "too new" in error_msg.lower()
                             ):
-                                # Telegram's 24-h restriction — queue and silence
                                 retry_after = now + timedelta(hours=25)
                                 await _mdb.db.session_destroyer_pending.update_one(
                                     {"user_id": user_id, "hash": auth.hash},
-                                    {"$set": {
-                                        "user_id": user_id,
-                                        "hash": auth.hash,
-                                        "retry_after": retry_after,
-                                        "device": getattr(auth, "device_model", "Unknown"),
-                                    }},
+                                    {
+                                        "$set": {
+                                            "user_id": user_id,
+                                            "hash": auth.hash,
+                                            "retry_after": retry_after,
+                                            "device": getattr(
+                                                auth, "device_model", "Unknown"
+                                            ),
+                                        }
+                                    },
                                     upsert=True,
                                 )
                                 logger.warning(
-                                    f"⚠️ Session Destroyer: Session {auth.hash} "
-                                    f"({getattr(auth, 'device_model', '?')}) for user {user_id} "
-                                    f"is too new — queued for retry after "
-                                    f"{retry_after.strftime('%Y-%m-%d %H:%M UTC')}"
+                                    f"Session {auth.hash} for user {user_id} is too "
+                                    f"new to terminate; retry after {retry_after}"
                                 )
                             else:
                                 logger.error(
                                     f"Failed to terminate session {auth.hash} "
                                     f"for user {user_id}: {e}"
                                 )
+                            return
 
-                    await asyncio.gather(*[_kill(auth) for auth in newly_detected])
-
-                # 7. Retry any pending sessions whose cool-down has elapsed
-                due_pending = [d for d in pending_docs if d.get("retry_after") and (
-                    d["retry_after"].replace(tzinfo=timezone.utc)
-                    if d["retry_after"].tzinfo is None
-                    else d["retry_after"]
-                ) <= now]
-
-                for doc in due_pending:
-                    live = next((a for a in current_auths if a.hash == doc["hash"]), None)
-                    if live:
                         try:
-                            await target_client(
-                                functions.account.ResetAuthorizationRequest(hash=live.hash)
+                            await ProtectionStorage.add_destroyed_hash(
+                                user_id, auth.hash
                             )
-                            await ProtectionStorage.add_destroyed_hash(user_id, live.hash)
-                            await self.notifier.notify_session_destroyed(user_id, live)
+                        except Exception:
+                            logger.exception(
+                                f"Failed to record destroyed session {auth.hash}"
+                            )
+                        try:
+                            from ..sync.session_destroyer_db import SessionDestroyerDB
+
+                            await SessionDestroyerDB.log_destruction(
+                                user_id,
+                                "",
+                                {
+                                    "device": getattr(auth, "device_model", "Unknown"),
+                                    "ip": getattr(auth, "ip", "Unknown"),
+                                    "platform": getattr(auth, "platform", "Unknown"),
+                                    "app_version": getattr(auth, "app_version", "Unknown"),
+                                    "country": getattr(auth, "country", "Unknown"),
+                                    "hash": auth.hash,
+                                    "success": True,
+                                },
+                            )
+                        except Exception:
+                            logger.exception(
+                                f"Failed to log destroyed session {auth.hash}"
+                            )
+                        try:
+                            await self.notifier.notify_session_destroyed(user_id, auth)
                             logger.warning(
-                                f"🛡️ Session Destroyer: Terminated deferred session "
-                                f"{live.hash} for user {user_id} "
-                                f"(device: {live.device_model})"
+                                f"🛡️ Session Destroyer: Terminated unauthorized session "
+                                f"{auth.hash} for user {user_id} "
+                                f"(device: {auth.device_model}, ip: {auth.ip})"
                             )
                         except Exception as e:
+                            logger.exception(
+                                f"Failed to notify user about destroyed session {auth.hash}"
+                            )
+
+                    await asyncio.gather(
+                        *[_kill(client, auth) for client, auth in newly_detected]
+                    )
+
+                # 7. Retry any pending sessions whose cool-down has elapsed
+                due_pending = [
+                    doc
+                    for doc in pending_docs
+                    if _as_utc(doc.get("retry_after"))
+                    and _as_utc(doc.get("retry_after")) <= now
+                ]
+
+                for doc in due_pending:
+                    live = next(
+                        (
+                            (client, auth)
+                            for client, auth in current_sessions
+                            if auth.hash == doc["hash"]
+                        ),
+                        None,
+                    )
+                    remove_pending = live is None
+                    if live:
+                        client, auth = live
+                        try:
+                            await client(
+                                functions.account.ResetAuthorizationRequest(hash=auth.hash)
+                            )
+                            remove_pending = True
+                            logger.warning(
+                                f"🛡️ Session Destroyer: Terminated deferred session "
+                                f"{auth.hash} for user {user_id} "
+                                f"(device: {auth.device_model})"
+                            )
+                            try:
+                                await ProtectionStorage.add_destroyed_hash(
+                                    user_id, auth.hash
+                                )
+                            except Exception:
+                                remove_pending = False
+                                await _mdb.db.session_destroyer_pending.update_one(
+                                    {"user_id": user_id, "hash": auth.hash},
+                                    {
+                                        "$set": {
+                                            "retry_after": now + timedelta(minutes=5)
+                                        }
+                                    },
+                                )
+                                logger.exception(
+                                    "Failed to record terminated deferred session %s",
+                                    auth.hash,
+                                )
+                            from ..sync.session_destroyer_db import SessionDestroyerDB
+
+                            try:
+                                await SessionDestroyerDB.log_destruction(
+                                    user_id,
+                                    "",
+                                    {
+                                        "device": getattr(
+                                            auth, "device_model", "Unknown"
+                                        ),
+                                        "ip": getattr(auth, "ip", "Unknown"),
+                                        "platform": getattr(
+                                            auth, "platform", "Unknown"
+                                        ),
+                                        "app_version": getattr(
+                                            auth, "app_version", "Unknown"
+                                        ),
+                                        "country": getattr(
+                                            auth, "country", "Unknown"
+                                        ),
+                                        "hash": auth.hash,
+                                        "success": True,
+                                    },
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to log terminated deferred session %s",
+                                    auth.hash,
+                                )
+                            try:
+                                await self.notifier.notify_session_destroyed(
+                                    user_id, auth
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to notify user about terminated deferred "
+                                    "session %s",
+                                    auth.hash,
+                                )
+                        except Exception as e:
+                            retry_after = now + timedelta(minutes=5)
+                            if (
+                                "FRESH_RESET_AUTHORISATION_FORBIDDEN" in str(e)
+                                or "too new" in str(e).lower()
+                            ):
+                                retry_after = now + timedelta(hours=25)
+                            await _mdb.db.session_destroyer_pending.update_one(
+                                {"user_id": user_id, "hash": auth.hash},
+                                {"$set": {"retry_after": retry_after}},
+                            )
                             logger.error(
-                                f"Deferred kill failed for {doc['hash']}, user {user_id}: {e}"
+                                f"Deferred kill failed for {doc['hash']}, user {user_id}; "
+                                f"retrying after {retry_after}: {e}"
                             )
                     else:
                         logger.info(
                             f"Pending session {doc['hash']} for user {user_id} "
                             "no longer present — removing from queue"
                         )
-                    # Remove pending record whether session was killed or disappeared
-                    await _mdb.db.session_destroyer_pending.delete_one(
-                        {"user_id": user_id, "hash": doc["hash"]}
-                    )
+                    if remove_pending:
+                        await _mdb.db.session_destroyer_pending.delete_one(
+                            {"user_id": user_id, "hash": doc["hash"]}
+                        )
 
                 await ProtectionStorage.update_settings(
                     user_id, {"last_check": datetime.now(timezone.utc)}
@@ -355,10 +486,14 @@ class SessionDestroyer:
         """
         try:
             result = await client(functions.account.GetAuthorizationsRequest())
-            hashes = [auth.hash for auth in result.authorizations]
-            await ProtectionStorage.update_settings(user_id, {"trusted_hashes": hashes})
-            logger.info(f"Synced {len(hashes)} trusted sessions for user {user_id}")
-            return len(hashes)
+            settings = await ProtectionStorage.get_settings(user_id)
+            hashes = set(settings.get("trusted_hashes", []))
+            hashes.update(auth.hash for auth in result.authorizations)
+            await ProtectionStorage.update_settings(
+                user_id, {"trusted_hashes": list(hashes)}
+            )
+            logger.info(f"Synced {len(result.authorizations)} trusted sessions for user {user_id}")
+            return len(result.authorizations)
         except Exception as e:
             logger.error(f"Error syncing trusted sessions for {user_id}: {e}")
             return 0
