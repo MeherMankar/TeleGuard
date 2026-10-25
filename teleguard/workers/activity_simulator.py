@@ -26,7 +26,7 @@ class ActivitySimulator:
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
         self.running = False
-        self.simulation_tasks: Dict[int, asyncio.Task] = {}
+        self.simulation_tasks: Dict[str, asyncio.Task] = {}
         self.stats: Dict[str, Dict] = {}  # task_key -> stats data
         self._lock = asyncio.Lock()
         # activity weights with new behaviors
@@ -93,15 +93,23 @@ class ActivitySimulator:
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id)}, {"$set": {"simulation_enabled": False}}
             )
-            task_key = f"{user_id}_{account_id}"
-            async with self._lock:
-                if task_key in self.simulation_tasks:
-                    self.simulation_tasks[task_key].cancel()
-                    del self.simulation_tasks[task_key]
+            await self.stop_account_simulation(user_id, account_id)
+
             return True, "Human-like activity simulation disabled"
         except Exception as e:
             logger.error(f"Failed to disable simulation: {e}")
             return False, f"Error: {str(e)}"
+
+    async def stop_account_simulation(
+        self, user_id: int, account_id: str | int
+    ) -> None:
+        """Cancel and await the simulation task for one account, if present."""
+        task_key = f"{user_id}_{account_id}"
+        async with self._lock:
+            task = self.simulation_tasks.pop(task_key, None)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _load_enabled_accounts(self):
         """Load and start simulation for all enabled accounts"""

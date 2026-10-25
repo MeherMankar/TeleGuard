@@ -42,6 +42,13 @@ class AccountInvalidationHandler:
             if not account:
                 return False
 
+            activity_simulator = getattr(
+                self.bot_manager, "activity_simulator", None
+            )
+            if activity_simulator:
+                await activity_simulator.stop_account_simulation(
+                    user_id, str(account["_id"])
+                )
             await self._cleanup_session_monitor(user_id, account_name)
             await self._disconnect_active_clients(user_id, account_name, phone, account)
             await self._cleanup_2fa_password(user_id, account)

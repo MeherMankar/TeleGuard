@@ -45,7 +45,7 @@ class MenuBuilders:
                 Button.inline(online_text, f"online:toggle:{account_id}"),
             ],
             [
-                Button.inline(sim_text, f"simulate:status:{account_id}"),
+                Button.inline(sim_text, f"simulate:toggle:{account_id}"),
                 Button.inline("📊 Sim Stats", f"simulate:stats:{account_id}"),
             ],
             [Button.inline("🔙 Back to Accounts", "menu:accounts")],

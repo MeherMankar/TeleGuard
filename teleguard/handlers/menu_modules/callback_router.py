@@ -154,6 +154,11 @@ class CallbackRouter:
 
             # Route to appropriate menu handler
             if menu_type == "accounts":
+                pending_actions = getattr(
+                    self.menu.account_manager, "pending_actions", None
+                )
+                if pending_actions is not None:
+                    pending_actions.pop(user_id, None)
                 await self.menu.handlers.handle_account_settings(event)
             elif menu_type in ["otp", "protection"]:
                 await self.menu.handlers.handle_otp_manager(event)
@@ -174,6 +179,11 @@ class CallbackRouter:
             elif menu_type == "import":
                 await self.handle_session_import_callback(event, user_id, "import_sessions")
             elif menu_type == "main":
+                pending_actions = getattr(
+                    self.menu.account_manager, "pending_actions", None
+                )
+                if pending_actions is not None:
+                    pending_actions.pop(user_id, None)
                 # Delete current inline message to prevent orphans
                 try:
                     await event.delete()

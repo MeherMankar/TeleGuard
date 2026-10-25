@@ -1352,6 +1352,10 @@ class BotManager:
 
             account_name = account.get("name", "Unknown")
 
+            activity_simulator = getattr(self, "activity_simulator", None)
+            if activity_simulator:
+                await activity_simulator.stop_account_simulation(user_id, account_id)
+
             # Remove stored 2FA password for security
             try:
                 from .database_manager import db_manager
@@ -1439,6 +1443,11 @@ class BotManager:
                 except Exception as e:
                     logger.warning(
                         f"Failed to remove 2FA password for {account_name}: {e}"
+                    )
+                activity_simulator = getattr(self, "activity_simulator", None)
+                if activity_simulator:
+                    await activity_simulator.stop_account_simulation(
+                        user_id, str(account["_id"])
                     )
 
             # Remove from session monitor
@@ -1532,6 +1541,15 @@ class BotManager:
     async def clear_invalid_sessions(self, user_id: int) -> int:
         """Clear all invalid sessions for a user"""
         try:
+            invalid_accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "needs_reauth": True}
+            ).to_list(length=None)
+            activity_simulator = getattr(self, "activity_simulator", None)
+            if activity_simulator:
+                for account in invalid_accounts:
+                    await activity_simulator.stop_account_simulation(
+                        user_id, str(account["_id"])
+                    )
             result = await mongodb.db.accounts.delete_many(
                 {"user_id": user_id, "needs_reauth": True}
             )
@@ -2074,4 +2092,3 @@ class BotManager:
 
         except Exception as e:
             logger.error(f"Error sharing account with co-owners: {e}")
-

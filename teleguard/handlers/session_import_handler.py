@@ -20,6 +20,7 @@ class SessionImportHandler:
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
+        self._account_import_locks = {}
 
     def register_handlers(self):
         """Register session import handlers"""
@@ -58,6 +59,15 @@ class SessionImportHandler:
         async def import_tdata_session(event):
             user_id = event.sender_id
             await self._import_tdata_session(event, user_id)
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^import_cancel_tdata$"))
+        async def cancel_tdata_import(event):
+            user_id = event.sender_id
+            pending_action = self.bot_manager.pending_actions.get(user_id, {})
+            if pending_action.get("action") == "import_tdata_session":
+                self.bot_manager.pending_actions.pop(user_id, None)
+            await event.answer("TData import cancelled")
+            await self._show_import_menu(event, user_id)
 
         @self.bot.on(events.CallbackQuery(pattern=r"^import_formats$"))
         async def show_supported_formats(event):
@@ -177,7 +187,9 @@ class SessionImportHandler:
                 "The bot will automatically detect account info.\n\n"
                 "📥 **Ready! Please send your TData ZIP file:**"
             )
-            await event.edit(text, buttons=[[Button.inline("🔙 Cancel", "import_sessions")]])
+            await event.edit(
+                text, buttons=[[Button.inline("🔙 Cancel", "import_cancel_tdata")]]
+            )
         except Exception as e:
             logger.error(f"TData import setup error: {e}")
             await event.edit("❌ Error setting up TData import.")
@@ -236,11 +248,6 @@ class SessionImportHandler:
             name = info.get("name")
             detected_type = info.get("session_type", "unknown")
             telethon_session = info.get("telethon_session", session_string)
-            existing = await mongodb.db.accounts.find_one(
-                {"user_id": user_id, "phone": phone}
-            )
-            if existing:
-                return False, f"❌ Account {phone} already exists"
             account_data = {
                 "user_id": user_id,
                 "phone": phone,
@@ -252,9 +259,26 @@ class SessionImportHandler:
                 "otp_destroyer_enabled": False,
                 "created_at": int(__import__("time").time()),
             }
-            result = await mongodb.db.accounts.insert_one(
-                DataEncryption.encrypt_account_data(account_data)
-            )
+            from ..core.config import MAX_ACCOUNTS
+
+            lock = self._account_import_locks.setdefault(user_id, asyncio.Lock())
+            async with lock:
+                account_count = await mongodb.db.accounts.count_documents(
+                    {"user_id": user_id}
+                )
+                if account_count >= MAX_ACCOUNTS:
+                    return (
+                        False,
+                        f"❌ Maximum account limit ({MAX_ACCOUNTS}) reached",
+                    )
+                existing = await mongodb.db.accounts.find_one(
+                    {"user_id": user_id, "phone": phone}
+                )
+                if existing:
+                    return False, f"❌ Account {phone} already exists"
+                result = await mongodb.db.accounts.insert_one(
+                    DataEncryption.encrypt_account_data(account_data)
+                )
             str(result.inserted_id)
             await self.bot_manager.start_user_client(user_id, name, telethon_session)
 

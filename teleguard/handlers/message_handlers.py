@@ -71,24 +71,29 @@ class MessageHandlers:
         action = self.pending_actions[user_id].get("action")
         if action in ["change_profile_photo", "change_photo"]:
             account_id = self.pending_actions[user_id].get("account_id")
-            from bson import ObjectId
+            photo_path = None
+            temporary_paths = []
+            try:
+                from bson import ObjectId
+                import tempfile
 
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                account = DataEncryption.decrypt_account_data(account)
-                try:
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                if account:
+                    account = DataEncryption.decrypt_account_data(account)
                     client = self.bot_manager.get_client(user_id, account)
                     if client:
-                        import os
-                        import tempfile
-
                         with tempfile.NamedTemporaryFile(
                             delete=False, suffix=".jpg"
                         ) as tmp:
                             photo_path = tmp.name
-                        photo_path = await event.download_media(file=photo_path)
+                            temporary_paths.append(photo_path)
+                        downloaded_path = await event.download_media(file=photo_path)
+                        if downloaded_path:
+                            photo_path = downloaded_path
+                            if photo_path not in temporary_paths:
+                                temporary_paths.append(photo_path)
                         if not photo_path or not os.path.exists(photo_path):
                             await event.reply("❌ Invalid file path")
                             return
@@ -100,19 +105,28 @@ class MessageHandlers:
                                 file=uploaded_file
                             )
                         )
-                        if os.path.exists(photo_path):
-                            os.remove(photo_path)
                         await event.reply("✅ Profile photo updated successfully!")
                     else:
                         await event.reply("❌ Account client not found")
-                except (OSError, IOError, ValueError) as e:
-                    await event.reply(f"❌ Failed to update profile photo: {e}")
-                except (OSError, IOError, ValueError) as e:
-                    logger.error(f"Unexpected error updating profile photo: {e}")
-                    await event.reply("❌ Failed to update profile photo")
-            else:
-                await event.reply("❌ Account not found")
-            self.pending_actions.pop(user_id, None)
+                else:
+                    await event.reply("❌ Account not found")
+            except Exception as e:
+                logger.exception("Failed to update profile photo")
+                await event.reply(f"❌ Failed to update profile photo: {e}")
+            finally:
+                for temporary_path in temporary_paths:
+                    try:
+                        if os.path.exists(temporary_path):
+                            os.remove(temporary_path)
+                    except OSError:
+                        logger.exception("Failed to remove temporary profile photo")
+                pending_action = self.pending_actions.get(user_id)
+                if (
+                    pending_action
+                    and pending_action.get("action") == action
+                    and pending_action.get("account_id") == account_id
+                ):
+                    self.pending_actions.pop(user_id, None)
 
     async def _handle_document_upload(self, event):
         """Handle document uploads for session file imports and ZIP bulk imports"""
@@ -676,90 +690,107 @@ class MessageHandlers:
     async def _handle_profile_actions(self, event, user, action, message):
         """Handle profile related actions"""
         user_id = event.sender_id
-        account_id = self.pending_actions[user_id].get("account_id")
-        if action in ["change_profile_name", "change_name"]:
-            names = message.split(" ", 1)
-            first_name = names[0]
-            last_name = names[1] if len(names) > 1 else ""
-            from bson import ObjectId
+        pending_action = self.pending_actions.get(user_id)
+        if not pending_action:
+            return
+        account_id = pending_action.get("account_id")
+        try:
+            if action in ["change_profile_name", "change_name"]:
+                names = message.split(" ", 1)
+                first_name = names[0]
+                last_name = names[1] if len(names) > 1 else ""
+                from bson import ObjectId
 
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                account = DataEncryption.decrypt_account_data(account)
-                account.get("phone")
-                account.get("session_string")
-                client = await self._get_or_reconnect_client(user_id, account)
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                if account:
+                    account = DataEncryption.decrypt_account_data(account)
+                    client = await self._get_or_reconnect_client(user_id, account)
 
-                if client:
-                    try:
-                        from telethon import functions
+                    if client:
+                        try:
+                            from telethon import functions
 
-                        await client(
-                            functions.account.UpdateProfileRequest(
-                                first_name=first_name, last_name=last_name
+                            await client(
+                                functions.account.UpdateProfileRequest(
+                                    first_name=first_name, last_name=last_name
+                                )
                             )
-                        )
-                        await event.reply(
-                            f"✅ Profile name updated to: {first_name} {last_name}"
-                        )
-                    except (ValueError, ConnectionError) as e:
-                        await event.reply(f"❌ Failed to update name: {e}")
+                            await event.reply(
+                                f"✅ Profile name updated to: {first_name} {last_name}"
+                            )
+                        except Exception as e:
+                            logger.exception("Failed to update profile name")
+                            await event.reply(f"❌ Failed to update name: {e}")
+                    else:
+                        await event.reply("❌ Could not connect to account")
                 else:
-                    await event.reply("❌ Could not connect to account")
-            else:
-                await event.reply("❌ Account not found")
-        elif action == "change_username":
-            username = message.replace("@", "").strip()
-            from bson import ObjectId
+                    await event.reply("❌ Account not found")
+            elif action == "change_username":
+                username = message.replace("@", "").strip()
+                from bson import ObjectId
 
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                account = DataEncryption.decrypt_account_data(account)
-                client = await self._get_or_reconnect_client(user_id, account)
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                if account:
+                    account = DataEncryption.decrypt_account_data(account)
+                    client = await self._get_or_reconnect_client(user_id, account)
 
-                if client:
-                    try:
-                        from telethon import functions
+                    if client:
+                        try:
+                            from telethon import functions
 
-                        await client(
-                            functions.account.UpdateUsernameRequest(username=username)
-                        )
-                        await event.reply(f"✅ Username updated to: @{username}")
-                    except (ValueError, ConnectionError) as e:
-                        await event.reply(f"❌ Failed to update username: {e}")
+                            await client(
+                                functions.account.UpdateUsernameRequest(
+                                    username=username
+                                )
+                            )
+                            await event.reply(f"✅ Username updated to: @{username}")
+                        except Exception as e:
+                            logger.exception("Failed to update profile username")
+                            await event.reply(f"❌ Failed to update username: {e}")
+                    else:
+                        await event.reply("❌ Could not connect to account")
                 else:
-                    await event.reply("❌ Could not connect to account")
-            else:
-                await event.reply("❌ Account not found")
-        elif action == "change_bio":
-            from bson import ObjectId
+                    await event.reply("❌ Account not found")
+            elif action == "change_bio":
+                from bson import ObjectId
 
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                account = DataEncryption.decrypt_account_data(account)
-                client = await self._get_or_reconnect_client(user_id, account)
+                account = await mongodb.db.accounts.find_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id}
+                )
+                if account:
+                    account = DataEncryption.decrypt_account_data(account)
+                    client = await self._get_or_reconnect_client(user_id, account)
 
-                if client:
-                    try:
-                        from telethon import functions
+                    if client:
+                        try:
+                            from telethon import functions
 
-                        await client(
-                            functions.account.UpdateProfileRequest(about=message)
-                        )
-                        await event.reply("✅ Bio updated successfully")
-                    except (ValueError, ConnectionError) as e:
-                        await event.reply(f"❌ Failed to update bio: {e}")
+                            await client(
+                                functions.account.UpdateProfileRequest(about=message)
+                            )
+                            await event.reply("✅ Bio updated successfully")
+                        except Exception as e:
+                            logger.exception("Failed to update profile bio")
+                            await event.reply(f"❌ Failed to update bio: {e}")
+                    else:
+                        await event.reply("❌ Could not connect to account")
                 else:
-                    await event.reply("❌ Could not connect to account")
-            else:
-                await event.reply("❌ Account not found")
-        self.pending_actions.pop(user_id, None)
+                    await event.reply("❌ Account not found")
+        except Exception as e:
+            logger.exception("Failed to process profile update")
+            await event.reply(f"❌ Failed to update profile: {e}")
+        finally:
+            current_action = self.pending_actions.get(user_id)
+            if (
+                current_action
+                and current_action.get("action") == action
+                and current_action.get("account_id") == account_id
+            ):
+                self.pending_actions.pop(user_id, None)
 
     async def _get_or_reconnect_client(self, user_id, account):
         """Get client or automatically reconnect if disconnected"""

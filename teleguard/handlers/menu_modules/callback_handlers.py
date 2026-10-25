@@ -21,6 +21,7 @@ class CallbackHandlers:
 
         try:
             if action == "manage":
+                self.account_manager.pending_actions.pop(user_id, None)
                 await self.menu.send_account_management(
                     user_id, account_id, event.message_id
                 )
@@ -32,6 +33,12 @@ class CallbackHandlers:
                 await self._refresh_account_statuses(event, user_id)
             elif action == "list":
                 await self.menu.send_accounts_list(user_id, event.message_id)
+            elif action == "cancel":
+                pending_action = self.account_manager.pending_actions.get(user_id, {})
+                if pending_action.get("action") == "add_account":
+                    self.account_manager.pending_actions.pop(user_id, None)
+                await event.answer("Account setup cancelled")
+                await self.menu.handlers.handle_account_settings(event)
         except Exception as e:
             logger.error(f"Account callback error: {e}")
             await event.answer("❌ Error processing account request")
@@ -67,7 +74,7 @@ class CallbackHandlers:
                 try:
                     from telethon import Button
                     await event.edit(text, buttons=[
-                        [Button.inline("❌ Cancel", "menu:accounts")]
+                        [Button.inline("❌ Cancel", "account:cancel")]
                     ])
                 except Exception:
                     await self.bot.send_message(user_id, text)
@@ -191,10 +198,10 @@ class CallbackHandlers:
         """Perform real-time health check on all accounts and refresh menu"""
         try:
             await event.answer("🔄 Refreshing account statuses...")
-            
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
             if not accounts:
                 await self.menu.handlers.handle_account_settings(event)
+                await event.respond("No accounts to refresh")
                 return
 
             from ...core.session_health import session_health
@@ -221,12 +228,12 @@ class CallbackHandlers:
                     )
                     updates += 1
             
-            await event.answer(f"✅ Refresh complete! ({updates} status updates)")
             await self.menu.handlers.handle_account_settings(event)
+            await event.respond(f"✅ Refresh complete! ({updates} status updates)")
             
         except Exception as e:
             logger.error(f"Failed to refresh account statuses: {e}")
-            await event.answer("⚠️ Error refreshing statuses")
+            await event.respond("⚠️ Error refreshing statuses")
 
     async def _handle_otp_bulk_toggle(self, event, user_id, enabled):
         """Handle bulk protection toggle for all accounts"""
@@ -496,16 +503,21 @@ class CallbackHandlers:
             return
 
         new_status = not account.get("simulation_enabled", False)
-        await mongodb.db.accounts.update_one({"_id": ObjectId(account_id)}, {"$set": {"simulation_enabled": new_status}})
-        
-        if hasattr(self.account_manager, "activity_simulator"):
-            if new_status:
-                await self.account_manager.activity_simulator._start_account_simulation(user_id, account_id, account["name"])
-            else:
-                task_key = f"{user_id}_{account_id}"
-                if task_key in self.account_manager.activity_simulator.simulation_tasks:
-                    self.account_manager.activity_simulator.simulation_tasks[task_key].cancel()
-                    del self.account_manager.activity_simulator.simulation_tasks[task_key]
+        simulator = getattr(self.account_manager, "activity_simulator", None)
+        if simulator is None:
+            await event.answer("❌ Activity simulator unavailable")
+            return
+        if new_status:
+            success, message = await simulator.enable_simulation(
+                user_id, account_id
+            )
+        else:
+            success, message = await simulator.disable_simulation(
+                user_id, account_id
+            )
+        if not success:
+            await event.answer(f"❌ {message}")
+            return
         
         status = "enabled" if new_status else "disabled"
         status_emoji = "🎭" if new_status else "🔴"
@@ -586,6 +598,19 @@ class CallbackHandlers:
 
         try:
             if action == "manage":
+                pending_actions = getattr(self.account_manager, "pending_actions", None)
+                pending_action = (
+                    pending_actions.get(user_id, {}) if pending_actions else {}
+                )
+                if pending_actions is not None and pending_action.get("action") in {
+                    "change_name",
+                    "change_username",
+                    "change_bio",
+                    "change_photo",
+                    "change_profile_name",
+                    "change_profile_photo",
+                }:
+                    pending_actions.pop(user_id, None)
                 if hasattr(self.menu, "profile_operations"):
                     await self.menu.profile_operations.send_profile_management(
                         user_id, account_id, event.message_id
@@ -726,15 +751,16 @@ class CallbackHandlers:
     async def _handle_session_terminate(self, event, user_id, account_id):
         """Handle session termination request"""
         try:
-            if hasattr(self.account_manager, "session_manager"):
-                success, message = (
-                    await self.account_manager.session_manager.terminate_sessions(
-                        user_id, account_id
-                    )
-                )
-                await event.answer(f"{'✅' if success else '❌'} {message}")
-            else:
+            session_manager = getattr(
+                self.account_manager, "fullclient_manager", None
+            )
+            if not session_manager:
                 await event.answer("❌ Session manager unavailable")
+                return
+            success, message = await session_manager.terminate_all_sessions(
+                user_id, account_id
+            )
+            await event.answer(f"{'✅' if success else '❌'} {message}")
         except Exception as e:
             logger.error(f"Error terminating sessions: {e}")
             await event.answer("❌ Error terminating sessions")
