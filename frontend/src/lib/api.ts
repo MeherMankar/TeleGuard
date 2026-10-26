@@ -580,6 +580,14 @@ export const cleanupApi = {  run: (accountName: string, type: string) =>
 
 export const proxiesApi = {
   list: () => get<Proxy[]>("/api/proxies/list"),
+  importWebshare: (api_key: string) =>
+    post<{
+      status: string
+      total: number
+      imported: number
+      skipped: number
+      failed: number
+    }>("/api/proxies/import-webshare", { api_key }),
   add: (payload: {
     name?: string
     type: string

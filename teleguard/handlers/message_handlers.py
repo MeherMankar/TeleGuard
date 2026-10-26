@@ -1877,6 +1877,35 @@ class MessageHandlers:
             await self._handle_dm_group_actions(event, user, action, message)
         elif action == "add_proxy":
             await self._handle_add_proxy(event, user, action, message)
+        elif action == "import_webshare_proxies":
+            if message.strip().lower() in {"/cancel", "cancel"}:
+                self.pending_actions.pop(user_id, None)
+                await event.reply("❌ Webshare import cancelled.")
+                return
+            proxy_handler = getattr(
+                getattr(self.bot_manager, "menu_system", None), "proxy_handler", None
+            )
+            if proxy_handler:
+                try:
+                    await event.delete()
+                except Exception as e:
+                    logger.warning(
+                        "Could not remove Webshare API key message for user %s: %s",
+                        user_id,
+                        type(e).__name__,
+                    )
+                    self.pending_actions.pop(user_id, None)
+                    await event.reply(
+                        "❌ I could not remove that API-key message, so it was not submitted. "
+                        "Delete the message and revoke the key if it remains visible."
+                    )
+                    return
+                await proxy_handler.process_webshare_api_key(
+                    event, user_id, message.strip()
+                )
+            else:
+                self.pending_actions.pop(user_id, None)
+                await event.reply("❌ Proxy management not available.")
         else:
             await self._handle_fallback_actions(event, user, action, message, user_id)
 

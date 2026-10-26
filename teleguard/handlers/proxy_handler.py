@@ -86,6 +86,7 @@ class ProxyHandler:
 
         buttons = [
             [Button.inline("➕ Add Proxy", "proxy:add")],
+            [Button.inline("🌐 Import from Webshare", "proxy:webshare")],
             [Button.inline("📋 View Proxies", "proxy:list")],
             [Button.inline("🔗 Assign to Account", "proxy:assign")],
             [Button.inline("👥 View Accounts", "proxy:view_accounts")],
@@ -165,6 +166,47 @@ class ProxyHandler:
         await self._safe_edit(
             event, text, buttons=[[Button.inline("❌ Cancel", "proxy:menu")]]
         )
+
+    async def _start_webshare_import(self, event, user_id):
+        """Ask for a Webshare API key without persisting it."""
+        self.bot_manager.pending_actions[user_id] = {
+            "action": "import_webshare_proxies"
+        }
+        text = (
+            "🌐 **Import Webshare Proxies**\n\n"
+            "Send your Webshare API key to import your direct proxies. "
+            "The key message is deleted before the request and the key is not stored "
+            "by TeleGuard.\n\n"
+            "Get or create a key at https://proxy.webshare.io/userapi/keys\n\n"
+            "Send /cancel to cancel."
+        )
+        await self._safe_edit(
+            event, text, buttons=[[Button.inline("❌ Cancel", "proxy:cancel_import")]]
+        )
+
+    async def process_webshare_api_key(self, event, user_id, api_key):
+        """Fetch and import Webshare proxies; never log or persist the API key."""
+        try:
+            processing_msg = await event.reply("🔄 Contacting Webshare...")
+            summary = await proxy_manager.import_webshare_proxies(user_id, api_key)
+            await processing_msg.edit(
+                "✅ **Webshare import finished**\n\n"
+                f"• Available: {summary['total']}\n"
+                f"• Imported: {summary['imported']}\n"
+                f"• Already added: {summary['skipped']}\n"
+                f"• Could not import: {summary['failed']}",
+                buttons=[
+                    [Button.inline("📋 View Proxies", "proxy:list")],
+                    [Button.inline("🔙 Proxy Manager", "proxy:menu")],
+                ],
+            )
+        except ValueError as e:
+            await event.reply(f"❌ {e}")
+        except Exception as e:
+            logger.error("Webshare import failed: %s", type(e).__name__)
+            await event.reply("❌ Webshare import failed. Please try again.")
+        finally:
+            self.bot_manager.pending_actions.pop(user_id, None)
 
     async def process_proxy_input(self, event, user_id, text):
         """Process proxy input from user"""
@@ -697,6 +739,8 @@ class ProxyHandler:
             "menu": lambda: self._show_proxy_menu(event, user_id),
             "list": lambda: self._show_proxy_list(event, user_id),
             "add": lambda: self._start_add_proxy(event, user_id),
+            "webshare": lambda: self._start_webshare_import(event, user_id),
+            "cancel_import": lambda: self._cancel_webshare_import(event, user_id),
             "test": lambda: self._test_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
             "delete": lambda: self._delete_proxy(event, user_id, parts[2] if len(parts) > 2 else None),
             "assign": lambda: self._show_account_selection(event, user_id),
@@ -710,3 +754,9 @@ class ProxyHandler:
         handler = action_map.get(action)
         if handler:
             await handler()
+
+    async def _cancel_webshare_import(self, event, user_id):
+        pending = self.bot_manager.pending_actions.get(user_id, {})
+        if pending.get("action") == "import_webshare_proxies":
+            self.bot_manager.pending_actions.pop(user_id, None)
+        await self._show_proxy_menu(event, user_id)

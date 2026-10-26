@@ -545,6 +545,7 @@ class MenuSystem:
                 )
                 buttons = [
                     [Button.inline("➕ Add Proxy", "proxy:add")],
+                    [Button.inline("🌐 Import from Webshare", "proxy:webshare")],
                     [Button.inline("📋 View Proxies", "proxy:list")],
                     [Button.inline("🔗 Assign to Account", "proxy:assign")],
                     [Button.inline("👥 View Accounts", "proxy:view_accounts")],

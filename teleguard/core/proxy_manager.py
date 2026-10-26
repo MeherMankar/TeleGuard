@@ -1,17 +1,18 @@
 """Proxy Management System for TeleGuard"""
 
 import asyncio
+import base64
+import binascii
 import logging
 import re
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
-from telethon import TelegramClient
+from telethon import TelegramClient, connection
 
 from .mongo_database import mongodb
 from ..utils.crypto_utils import DataEncryption
-from .mtproto_bridge import mtproto_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,30 @@ class ProxyManager:
 
     def __init__(self):
         self.proxy_cache = {}  # {proxy_id: last_check_time}
+
+    @staticmethod
+    def normalize_mtproto_secret(secret: str) -> str:
+        """Normalize Telegram hex/base64url MTProxy secrets for Telethon."""
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("MTProto proxy secret is required.")
+
+        value = secret.strip()
+        hex_value = value[2:] if value[:2].lower() in {"dd", "ee"} else value
+        try:
+            secret_bytes = bytes.fromhex(hex_value)
+        except ValueError:
+            encoded = value.encode("ascii")
+            encoded += b"=" * (-len(encoded) % 4)
+            try:
+                secret_bytes = base64.b64decode(
+                    encoded, altchars=b"-_", validate=True
+                )
+            except (binascii.Error, ValueError) as e:
+                raise ValueError("Invalid MTProto proxy secret format.") from e
+
+        if len(secret_bytes) < 16:
+            raise ValueError("MTProto proxy secret must contain at least 16 bytes.")
+        return secret_bytes[:16].hex()
 
     async def parse_telegram_proxy_link(self, link: str) -> Optional[Dict]:
         """Parse Telegram proxy link (t.me/proxy, t.me/socks, tg://proxy, tg://socks)"""
@@ -50,11 +75,13 @@ class ProxyManager:
                 proxy_type = "socks5" if "socks" in link else "mtproto"
 
                 if proxy_type == "mtproto":
+                    secret = params.get("secret")
+                    self.normalize_mtproto_secret(secret)
                     return {
                         "type": "mtproto",
                         "server": params.get("server"),
                         "port": int(params.get("port", 443)),
-                        "secret": params.get("secret"),
+                        "secret": secret,
                     }
                 else:
                     return {
@@ -73,11 +100,13 @@ class ProxyManager:
                 proxy_type = "socks5" if "socks" in link else "mtproto"
 
                 if proxy_type == "mtproto":
+                    secret = params.get("secret", [""])[0]
+                    self.normalize_mtproto_secret(secret)
                     return {
                         "type": "mtproto",
                         "server": params.get("server", [""])[0],
                         "port": int(params.get("port", [443])[0]),
-                        "secret": params.get("secret", [""])[0],
+                        "secret": secret,
                     }
                 else:
                     return {
@@ -133,6 +162,137 @@ class ProxyManager:
             logger.error(f"Failed to add proxy: {e}")
             return False, str(e)
 
+    async def import_webshare_proxies(
+        self, user_id: int, api_key: str
+    ) -> Dict[str, int]:
+        """Import the user's direct Webshare proxies without storing their API key."""
+        api_key = api_key.strip()
+        if not api_key:
+            raise ValueError("Webshare API key is required.")
+
+        import aiohttp
+
+        api_url = "https://proxy.webshare.io/api/v2/proxy/list/"
+        page_size = 100
+        proxies = []
+        page = 1
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                while True:
+                    params = {
+                        "mode": "direct",
+                        "page": page,
+                        "page_size": page_size,
+                    }
+                    async with session.get(
+                        api_url,
+                        params=params,
+                        headers={"Authorization": f"Token {api_key}"},
+                    ) as response:
+                        if response.status in (401, 403):
+                            raise ValueError("Webshare rejected the API key.")
+                        if response.status == 429:
+                            raise ValueError(
+                                "Webshare rate limit reached. Try again later."
+                            )
+                        if response.status >= 400:
+                            raise ValueError(
+                                f"Webshare API request failed (HTTP {response.status})."
+                            )
+
+                        payload = await response.json()
+
+                    if not isinstance(payload, dict) or not isinstance(
+                        payload.get("results"), list
+                    ):
+                        raise ValueError("Webshare returned an invalid proxy list.")
+
+                    proxies.extend(payload["results"])
+                    next_page = payload.get("next")
+                    if not next_page:
+                        break
+
+                    page += 1
+                    if page > 1000:
+                        raise ValueError(
+                            "Webshare proxy list exceeded the import limit."
+                        )
+        except ValueError:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.warning(
+                "Could not retrieve proxies from Webshare: %s", type(e).__name__
+            )
+            raise ValueError("Could not connect to the Webshare API.") from e
+
+        existing_proxies = await mongodb.db.proxies.find(
+            {"user_id": user_id}
+        ).to_list(length=None)
+        existing_keys = {
+            (
+                item.get("type"),
+                item.get("server"),
+                item.get("port"),
+                item.get("username") or "",
+            )
+            for item in existing_proxies
+        }
+
+        imported = 0
+        skipped = 0
+        failed = 0
+        for item in proxies:
+            if not isinstance(item, dict):
+                failed += 1
+                continue
+
+            server = item.get("proxy_address")
+            port = item.get("port")
+            username = item.get("username") or None
+            password = item.get("password") or None
+            if not isinstance(server, str) or not server.strip():
+                failed += 1
+                continue
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                failed += 1
+                continue
+            if not 1 <= port <= 65535:
+                failed += 1
+                continue
+
+            proxy_key = ("http", server, port, username or "")
+            if proxy_key in existing_keys:
+                skipped += 1
+                continue
+
+            success, _ = await self.add_proxy(
+                user_id,
+                {
+                    "type": "http",
+                    "server": server,
+                    "port": port,
+                    "username": username,
+                    "password": password,
+                },
+                name=f"Webshare {server}:{port}",
+            )
+            if success:
+                imported += 1
+                existing_keys.add(proxy_key)
+            else:
+                failed += 1
+
+        return {
+            "total": len(proxies),
+            "imported": imported,
+            "skipped": skipped,
+            "failed": failed,
+        }
+
     async def test_proxy(
         self, proxy_id: str, bot_manager=None
     ) -> Tuple[bool, str, Optional[float]]:
@@ -144,64 +304,71 @@ class ProxyManager:
             if not proxy:
                 return False, "Proxy not found", None
 
-            # For MTProto proxies, try to use existing account if available
+            # Test MTProto proxies using Telethon's native MTProxy connection.
             if proxy["type"] == "mtproto":
-                if not proxy.get("secret") or len(proxy["secret"]) == 0:
+                try:
+                    secret = self.normalize_mtproto_secret(proxy.get("secret"))
+                except ValueError:
                     await mongodb.db.proxies.update_one(
                         {"_id": ObjectId(proxy_id)},
                         {"$set": {"status": "failed", "last_check": int(time.time())}},
                     )
                     return False, "Invalid MTProto secret", None
 
-                # Try to test with existing account
-                if bot_manager:
-                    user_id = proxy["user_id"]
-                    user_clients = bot_manager.user_clients.get(user_id, {})
+                from telethon.sessions import StringSession
 
-                    if user_clients:
-                        # Use first available account to test
-                        for account_name, client in user_clients.items():
-                            if client and client.is_connected():
-                                try:
-                                    start_time = time.time()
-                                    # Try to get dialogs as a test
-                                    await asyncio.wait_for(
-                                        client.get_dialogs(limit=1), timeout=5
-                                    )
-                                    response_time = time.time() - start_time
+                from .config import config
 
-                                    await mongodb.db.proxies.update_one(
-                                        {"_id": ObjectId(proxy_id)},
-                                        {
-                                            "$set": {
-                                                "status": "working",
-                                                "last_check": int(time.time()),
-                                                "response_time": round(
-                                                    response_time, 2
-                                                ),
-                                            }
-                                        },
-                                    )
-                                    return (
-                                        True,
-                                        f"Tested with account ({response_time:.2f}s)",
-                                        response_time,
-                                    )
-                                except BaseException:
-                                    pass
+                test_client = TelegramClient(
+                    StringSession(),
+                    config.telegram.api_id,
+                    config.telegram.api_hash,
+                    connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                    proxy=(proxy["server"], int(proxy["port"]), secret),
+                )
+                start_time = time.time()
+                try:
+                    await asyncio.wait_for(test_client.connect(), timeout=10)
+                    response_time = time.time() - start_time
+                except asyncio.TimeoutError:
+                    await mongodb.db.proxies.update_one(
+                        {"_id": ObjectId(proxy_id)},
+                        {
+                            "$set": {
+                                "status": "timeout",
+                                "last_check": int(time.time()),
+                            }
+                        },
+                    )
+                    return False, "Connection timeout", None
+                except Exception as e:
+                    await mongodb.db.proxies.update_one(
+                        {"_id": ObjectId(proxy_id)},
+                        {
+                            "$set": {
+                                "status": "failed",
+                                "last_check": int(time.time()),
+                            }
+                        },
+                    )
+                    return False, str(e), None
+                finally:
+                    try:
+                        await test_client.disconnect()
+                    except Exception as e:
+                        logger.debug("MTProto test client disconnect failed: %s", e)
 
-                # No account available, mark as valid format
                 await mongodb.db.proxies.update_one(
                     {"_id": ObjectId(proxy_id)},
                     {
                         "$set": {
                             "status": "working",
                             "last_check": int(time.time()),
-                            "response_time": 0.5,
+                            "response_time": round(response_time, 2),
                         }
                     },
                 )
-                return True, "MTProto proxy (format valid)", 0.5
+                return True, f"Working ({response_time:.2f}s)", response_time
 
             # Test SOCKS5/HTTP proxies
             proxy_dict = {
@@ -461,47 +628,27 @@ class ProxyManager:
             if not proxy:
                 return None
 
-            # MTProto proxies: Create SOCKS5 bridge
+            # Telethon supports MTProto proxies natively using a dedicated
+            # connection mode and the (host, port, secret) proxy tuple.
             if proxy["type"] == "mtproto":
-                logger.info("Creating SOCKS5 bridge for MTProto proxy")
-
-                secret = proxy.get("secret", "")
-                if isinstance(secret, str):
-                    import base64
-
-                    try:
-                        secret = bytes.fromhex(secret)
-                    except ValueError:
-                        try:
-                            secret = base64.b64decode(secret)
-                        except BaseException:
-                            try:
-                                secret = base64.urlsafe_b64decode(
-                                    secret + "=" * (4 - len(secret) % 4)
-                                )
-                            except BaseException:
-                                secret = secret.encode("utf-8")
-
-                mtproto_config = {
-                    "addr": proxy["server"],
-                    "port": proxy["port"],
+                if (
+                    not proxy.get("server")
+                    or not proxy.get("port")
+                    or not proxy.get("secret")
+                ):
+                    logger.error("MTProto proxy is missing server, port, or secret")
+                    return None
+                try:
+                    secret = self.normalize_mtproto_secret(proxy["secret"])
+                except ValueError as e:
+                    logger.error("Invalid MTProto proxy secret: %s", e)
+                    return None
+                return {
+                    "type": "mtproto",
+                    "server": proxy["server"],
+                    "port": int(proxy["port"]),
                     "secret": secret,
                 }
-
-                # Create bridge
-                bridge_info = await mtproto_bridge.create_bridge(
-                    proxy_id or proxy["server"], mtproto_config
-                )
-
-                if bridge_info:
-                    host, port = bridge_info
-                    logger.info(f"MTProto bridge active: {host}:{port}")
-                    return {"proxy_type": "socks5", "addr": host, "port": port}
-                else:
-                    logger.warning(
-                        "MTProto bridge failed, using direct connection (may fail)"
-                    )
-                    return None
 
             # SOCKS5/HTTP proxies (native support)
             proxy_dict = {

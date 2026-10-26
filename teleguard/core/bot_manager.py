@@ -12,7 +12,7 @@ import os
 import time
 from typing import Any, Dict, Optional, Set
 
-from telethon import TelegramClient
+from telethon import TelegramClient, connection
 from telethon.sessions import StringSession
 
 from ..utils.account_invalidation import init_account_invalidation_handler
@@ -506,15 +506,6 @@ class BotManager:
             except Exception as e:
                 raise ValueError(f"Invalid session string format: {e}")
 
-            # Use Pyrogram for MTProto proxy connection, then convert to Telethon
-            if proxy_dict and proxy_dict.get("type") == "mtproto":
-                logger.warning(
-                    f"MTProto proxy detected for {account_name} - skipping proxy (Telethon incompatible)"
-                )
-                # MTProto proxies are not compatible with Telethon's Connection._parse_proxy()
-                # Skip proxy and connect directly
-                proxy_dict = None
-
             # Create Telethon client
             client_params = {
                 "connection_retries": 2,
@@ -523,7 +514,16 @@ class BotManager:
                 **device_params,
             }
 
-            if proxy_dict:
+            if proxy_dict and proxy_dict.get("type") == "mtproto":
+                client_params["connection"] = (
+                    connection.ConnectionTcpMTProxyRandomizedIntermediate
+                )
+                client_params["proxy"] = (
+                    proxy_dict["server"],
+                    proxy_dict["port"],
+                    proxy_dict["secret"],
+                )
+            elif proxy_dict:
                 client_params["proxy"] = proxy_dict
 
             client = TelegramClient(

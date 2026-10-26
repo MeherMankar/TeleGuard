@@ -25,6 +25,8 @@ interface ProxyManagerPageProps {
 export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
   const queryClient = useQueryClient()
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showWebshareForm, setShowWebshareForm] = useState(false)
+  const [webshareApiKey, setWebshareApiKey] = useState("")
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { status: string; latency: number }>>({})
   const [form, setForm] = useState({
@@ -57,6 +59,19 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
       toast.success("Proxy added")
       setShowAddForm(false)
       setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "" })
+      queryClient.invalidateQueries({ queryKey: ["proxies"] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const webshareMutation = useMutation({
+    mutationFn: () => proxiesApi.importWebshare(webshareApiKey),
+    onSuccess: (result) => {
+      toast.success(
+        `Imported ${result.imported} Webshare proxies; skipped ${result.skipped}, failed ${result.failed}`,
+      )
+      setWebshareApiKey("")
+      setShowWebshareForm(false)
       queryClient.invalidateQueries({ queryKey: ["proxies"] })
     },
     onError: (e) => toast.error((e as Error).message),
@@ -98,19 +113,73 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
       )}
     >
       <header className="flex items-center gap-4 px-4 py-3 border-b border-white/10">
-        <button onClick={onClose} className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors">
+        <button
+          onClick={() => {
+            setWebshareApiKey("")
+            setShowWebshareForm(false)
+            onClose()
+          }}
+          className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+        >
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="text-xl font-medium text-white flex-1">Proxy Manager</h1>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="p-2 text-[#2AABEE] hover:text-white transition-colors"
+          title="Add a proxy manually"
         >
           <Plus className="h-5 w-5" />
+        </button>
+        <button
+          onClick={() => {
+            if (showWebshareForm) setWebshareApiKey("")
+            setShowWebshareForm(!showWebshareForm)
+          }}
+          className="p-2 text-[#2AABEE] hover:text-white transition-colors"
+          title="Import Webshare proxies"
+        >
+          <Globe className="h-5 w-5" />
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {showWebshareForm && (
+          <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
+            <p className="text-sky-400 text-sm font-medium">Import from Webshare</p>
+            <p className="text-gray-400 text-xs">
+              The API key is used only to fetch your proxy list and is not saved.
+            </p>
+            <input
+              value={webshareApiKey}
+              onChange={(e) => setWebshareApiKey(e.target.value)}
+              placeholder="Webshare API key"
+              type="password"
+              autoComplete="off"
+              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowWebshareForm(false)
+                  setWebshareApiKey("")
+                }}
+                className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => webshareMutation.mutate()}
+                disabled={!webshareApiKey.trim() || webshareMutation.isPending}
+                className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {webshareMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Import Proxies
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Add Form */}
         {showAddForm && (
           <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">

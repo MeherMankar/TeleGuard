@@ -30,6 +30,10 @@ class AddProxyRequest(BaseModel):
     secret: Optional[str] = None
 
 
+class WebshareImportRequest(BaseModel):
+    api_key: str
+
+
 class AssignProxyRequest(BaseModel):
     account_id: str
     proxy_id: str
@@ -82,6 +86,23 @@ async def add_proxy(payload: AddProxyRequest, user_id: int = Depends(get_current
     except Exception as e:
         logger.error(f"Error adding proxy: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/import-webshare")
+async def import_webshare_proxies(
+    payload: WebshareImportRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    try:
+        summary = await proxy_manager.import_webshare_proxies(
+            user_id, payload.api_key
+        )
+        return {"status": "success", **summary}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Error importing Webshare proxies: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Webshare import failed")
 
 
 @router.delete("/delete/{proxy_id}")
