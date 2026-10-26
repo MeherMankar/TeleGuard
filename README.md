@@ -62,7 +62,7 @@ Telegram API Credentials (api_id, api_hash)
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/teleguard.git
+git clone https://github.com/mehermankar/teleguard.git
 cd teleguard
 
 # Create virtual environment
@@ -277,7 +277,7 @@ docker run -d \
 
 ```bash
 # Clone and setup
-git clone https://github.com/yourusername/teleguard.git
+git clone https://github.com/mehermankar/teleguard.git
 cd teleguard
 python -m venv venv
 source venv/bin/activate
@@ -453,7 +453,7 @@ This tool is provided for **educational and research purposes only**. Users are 
 
 <div align="center">
 
-**Made with ❤️ by the TeleGuard Team**
+**Made with ❤️ by the Meher**
 
 [⭐ Star us on GitHub](https://github.com/mehermankar/teleguard) • [🐛 Report Bug](https://github.com/mehermankar/teleguard/issues) • [💡 Request Feature](https://github.com/mehermankar/teleguard/issues)
 
