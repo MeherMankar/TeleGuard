@@ -996,6 +996,11 @@ class CallbackRouter:
             account_phone = parts[2] if len(parts) > 2 else None
 
             if action == "select" and account_phone:
+                pending_actions = getattr(
+                    self.menu.account_manager, "pending_actions", None
+                )
+                if pending_actions is not None:
+                    pending_actions.pop(user_id, None)
                 # Show per-account channel operations menu
                 text = (
                     f"📢 **Channel Management**\n"
@@ -1062,7 +1067,9 @@ class CallbackRouter:
                         buttons=[[Button.inline("❌ Cancel", f"channel:select:{account_phone}")]]
                     )
                 except Exception:
-                    pass
+                    logger.exception(
+                        "Could not check client identity for channel listing"
+                    )
 
             elif action == "leave" and account_phone:
                 if self.menu.account_manager:

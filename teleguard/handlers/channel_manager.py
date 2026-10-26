@@ -6,6 +6,7 @@ Handles all channel/group operations via button interface
 import asyncio
 import logging
 import random
+from urllib.parse import urlparse
 
 from telethon import errors, functions, types
 
@@ -29,13 +30,23 @@ class ChannelManager:
     async def join_channel(self, user_id: int, account_phone: str, channel_link: str) -> tuple[bool, str]:
         """Join a channel/group via any Telegram link format"""
         try:
-            Validators.validate_channel_link(channel_link)
+            if not channel_link or not channel_link.strip():
+                return False, "Enter a valid channel username, link, or ID."
+
+            channel_link = channel_link.strip()
+            invite_hash = self._extract_invite_hash(channel_link)
+            validation_link = channel_link.split("?", 1)[0].rstrip("/")
+            valid_username = Validators.validate_channel_link(validation_link)
+            if (
+                not invite_hash
+                and not valid_username
+                and not channel_link.lstrip("-").isdigit()
+            ):
+                return False, "Enter a valid channel username, link, or ID."
+
             client = await self._get_client(user_id, account_phone)
             if not client:
                 return await self._handle_no_client_error(user_id, account_phone)
-            
-            channel_link = channel_link.strip()
-            invite_hash = self._extract_invite_hash(channel_link)
             
             if invite_hash:
                 return await self._join_via_invite(client, invite_hash)
@@ -160,6 +171,16 @@ class ChannelManager:
     async def create_channel(self, user_id: int, account_phone: str, channel_type: str, title: str, about: str = "", privacy: str = "private") -> tuple[bool, str]:
         """Create a new channel/group"""
         try:
+            channel_type = channel_type.strip().lower()
+            privacy = privacy.strip().lower()
+            title = title.strip()
+            if channel_type not in {"channel", "group"}:
+                return False, "Channel type must be 'channel' or 'group'."
+            if privacy not in {"private", "public"}:
+                return False, "Privacy must be 'private' or 'public'."
+            if not title:
+                return False, "Channel or group title cannot be empty."
+
             client = await self._get_client(user_id, account_phone)
             if not client:
                 return await self._handle_create_no_client(user_id, account_phone)
@@ -188,13 +209,21 @@ class ChannelManager:
 
     async def _make_channel_public(self, client, channel, channel_type: str, title: str, privacy: str):
         try:
-            username = f"{title.lower().replace(' ', '_')}_{random.randint(1000, 9999)}"
-            username = "".join(c for c in username if c.isalnum() or c == "_")[:32]
+            slug = "".join(
+                character
+                for character in title.lower().replace(" ", "_")
+                if character.isascii() and (character.isalnum() or character == "_")
+            ).strip("_")
+            username = f"tg_{(slug or 'channel')[:23]}_{random.randint(1000, 9999)}"
             await client(functions.channels.UpdateUsernameRequest(channel=channel, username=username))
             return True, f"Successfully created {privacy} {channel_type}: {title} (@{username})"
         except Exception as username_error:
             logger.warning(f"Failed to set username: {username_error}")
-            return True, f"Successfully created {channel_type}: {title} (private - username setting failed)"
+            return (
+                False,
+                f"Created {channel_type} '{title}' as private, but could not make it "
+                f"public: {username_error}",
+            )
 
     async def delete_channel(self, user_id: int, account_phone: str, channel_link: str) -> tuple[bool, str]:
         """Delete a channel/group (owner only)"""
@@ -237,19 +266,24 @@ class ChannelManager:
 
     async def _check_delete_permissions(self, client, channel_entity):
         try:
-            participant = await client(functions.channels.GetParticipantRequest(channel=channel_entity, participant=client.get_me()))
+            me = await client.get_me()
+            if not me:
+                return False, "Could not identify this account to verify deletion permission."
+            participant = await client(
+                functions.channels.GetParticipantRequest(
+                    channel=channel_entity, participant=me
+                )
+            )
             if not self._has_delete_permission(participant):
                 return False, "You don't have permission to delete this channel. Only owners can delete channels."
-        except Exception as perm_error:
-            logger.warning(f"Could not check permissions: {perm_error}")
+        except Exception:
+            logger.exception("Could not verify channel deletion permission")
+            return False, "Could not verify deletion permission; the channel was not deleted."
         return True, ""
 
     def _has_delete_permission(self, participant):
-        if isinstance(participant.participant, types.ChannelParticipantCreator):
-            return True
-        if hasattr(participant.participant, "admin_rights"):
-            return getattr(participant.participant.admin_rights, "delete_messages", False)
-        return False
+        channel_participant = getattr(participant, "participant", None)
+        return isinstance(channel_participant, types.ChannelParticipantCreator)
 
     async def _verify_deletion(self, client, channel_entity, channel_name: str, channel_id):
         try:
@@ -305,15 +339,20 @@ class ChannelManager:
             if not user_clients:
                 return None
             client = user_clients.get(account_phone)
-            if client:
+            if client and client.is_connected():
                 return client
             account = await self._find_account_by_phone(user_id, account_phone)
             if not account:
                 return None
             client = await self._find_client_by_account(user_clients, account)
-            if not client:
-                client = await self._reload_account_client(user_id, account, account_phone)
-            return client
+            if client and client.is_connected():
+                return client
+            client = await self._reload_account_client(
+                user_id, account, account_phone
+            )
+            if client and client.is_connected():
+                return client
+            return None
         except Exception as e:
             logger.error(f"Get client error: {e}")
             return None
@@ -349,9 +388,28 @@ class ChannelManager:
             invite_hash = self._extract_invite_hash(channel_link)
             if invite_hash:
                 return await self._find_channel_by_invite(client, invite_hash)
-            if channel_link.startswith("https://t.me/"):
-                username = channel_link.split("/")[-1]
-                return await client.get_entity(username)
+            url_value = channel_link
+            if url_value.startswith(("t.me/", "telegram.me/")):
+                url_value = f"//{url_value}"
+            parsed = urlparse(url_value)
+            if parsed.netloc.lower() in {
+                "t.me",
+                "www.t.me",
+                "telegram.me",
+                "www.telegram.me",
+            }:
+                path_parts = [part for part in parsed.path.split("/") if part]
+                if not path_parts:
+                    return None
+                if path_parts[0] == "c" and len(path_parts) > 1:
+                    try:
+                        channel_id = int(path_parts[1])
+                    except ValueError:
+                        return None
+                    return await self._find_channel_in_dialogs(
+                        client, str(channel_id)
+                    )
+                return await client.get_entity(path_parts[0])
             elif channel_link.startswith("@"):
                 username = channel_link[1:]
                 return await client.get_entity(username)
@@ -444,10 +502,10 @@ class ChannelManager:
         # Pattern for various invite link formats
         patterns = [
             r"t\.me/\+([A-Za-z0-9_-]+)",  # https://t.me/uk_who_im
+            r"telegram\.me/\+([A-Za-z0-9_-]+)",
             r"t\.me/joinchat/([A-Za-z0-9_-]+)",  # https://t.me/joinchat/uk_who_im
             # https://telegram.me/joinchat/uk_who_im
             r"telegram\.me/joinchat/([A-Za-z0-9_-]+)",
-            r"t\.me/addlist/([A-Za-z0-9_-]+)",  # https://t.me/addlist/hash (folder)
             r"\+([A-Za-z0-9_-]+)$",  # Direct +uk_who_im
         ]
         for pattern in patterns:

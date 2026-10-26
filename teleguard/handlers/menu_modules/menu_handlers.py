@@ -236,7 +236,10 @@ class MenuHandlers:
             text = f"📢 **Channel Management Hub**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **System Overview:**\n• 📱 Active Accounts: {active_accounts}/{
                 len(accounts)}\n• 🟢 Management Tools: Ready\n\n🎛️ **Select Account for Channel Operations:**\nChoose an account to manage its channels and groups:"
             buttons = []
-            for account in accounts[:8]:
+            active_channel_accounts = [
+                account for account in accounts if account.get("is_active", False)
+            ]
+            for account in active_channel_accounts:
                 status = "🟢" if account.get("is_active", False) else "🔴"
                 display_name = format_display_name(account)
                 button_text = f"{status} {display_name}"
@@ -252,6 +255,8 @@ class MenuHandlers:
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             )
+            if not active_channel_accounts:
+                text += "\n\n⚠️ Activate an account before managing its channels."
         message_id = getattr(event, "message_id", None)
         if message_id:
             try:
