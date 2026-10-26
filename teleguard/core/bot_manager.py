@@ -1757,33 +1757,18 @@ class BotManager:
     async def _auto_cleanup_accounts(self):
         """Automatically cleanup orphaned accounts during startup"""
         try:
-            # Count accounts to cleanup with timeout
-            no_session = await asyncio.wait_for(
-                mongodb.db.accounts.count_documents(
-                    {"session_string": {"$in": [None, "", False]}}
-                ),
+            missing_session_query = self._accounts_missing_session_query()
+            total_cleanup = await asyncio.wait_for(
+                mongodb.db.accounts.count_documents(missing_session_query),
                 timeout=1.0,
             )
-            no_field = await asyncio.wait_for(
-                mongodb.db.accounts.count_documents(
-                    {"session_string": {"$exists": False}}
-                ),
-                timeout=1.0,
-            )
-
-            total_cleanup = no_session + no_field
 
             if total_cleanup > 0:
                 print(f"Cleaning up {total_cleanup} orphaned accounts (missing session data)...")
 
                 # Delete orphaned accounts with timeout
                 result = await asyncio.wait_for(
-                    mongodb.db.accounts.delete_many({
-                        "$or": [
-                            {"session_string": {"$in": [None, "", False]}},
-                            {"session_string": {"$exists": False}}
-                        ]
-                    }),
+                    mongodb.db.accounts.delete_many(missing_session_query),
                     timeout=1.0,
                 )
 
@@ -1796,6 +1781,26 @@ class BotManager:
         except Exception as e:
             logger.warning(f"Auto-cleanup failed: {e}")
 
+    @staticmethod
+    def _accounts_missing_session_query():
+        """Match accounts with neither a plain nor encrypted session string."""
+        return {
+            "$and": [
+                {
+                    "$or": [
+                        {"session_string": {"$exists": False}},
+                        {"session_string": {"$in": [None, "", False]}},
+                    ]
+                },
+                {
+                    "$or": [
+                        {"session_string_enc": {"$exists": False}},
+                        {"session_string_enc": {"$in": [None, "", False]}},
+                    ]
+                },
+            ]
+        }
+
     async def _periodic_cleanup_task(self):
         """Run cleanup every 5 minutes"""
         while self.is_running:
@@ -1805,12 +1810,9 @@ class BotManager:
                     break
 
                 # Silent cleanup of accounts completely missing session data
-                result = await mongodb.db.accounts.delete_many({
-                    "$or": [
-                        {"session_string": {"$in": [None, "", False]}},
-                        {"session_string": {"$exists": False}}
-                    ]
-                })
+                result = await mongodb.db.accounts.delete_many(
+                    self._accounts_missing_session_query()
+                )
 
                 total_deleted = result.deleted_count
                 if total_deleted > 0:
