@@ -172,7 +172,9 @@ class ProtectionMenu:
             text = "\n".join(entries)
         await event.edit(text, buttons=[[Button.inline("🔙 Back", data="prot_main")]])
 
-    async def send_trusted_sessions(self, event, user_id: int):
+    async def send_trusted_sessions(
+        self, event, user_id: int, callback_prefix: str = "prot"
+    ):
         """Display live sessions and controls to trust or untrust each session."""
         from telethon.tl.functions.account import GetAuthorizationsRequest
         from ..utils.crypto_utils import DataEncryption
@@ -218,8 +220,8 @@ class ProtectionMenu:
             await event.edit(
                 text,
                 buttons=[
-                    [Button.inline("🔄 Refresh", data="prot_trusted")],
-                    [Button.inline("🔙 Back", data="prot_main")],
+                    [Button.inline("🔄 Refresh", data=f"{callback_prefix}:trusted")],
+                    [Button.inline("🔙 Back", data=f"{callback_prefix}:main")],
                 ],
             )
             return
@@ -247,7 +249,7 @@ class ProtectionMenu:
                     [
                         Button.inline(
                             f"{label}: {device[:24]}",
-                            data=f"prot_{action}_{authorization.hash}",
+                            data=f"{callback_prefix}:{action}:{authorization.hash}",
                         )
                     ]
                 )
@@ -267,8 +269,8 @@ class ProtectionMenu:
         )
         buttons.extend(
             [
-                [Button.inline("🔄 Refresh", data="prot_trusted")],
-                [Button.inline("🔙 Back", data="prot_main")],
+                [Button.inline("🔄 Refresh", data=f"{callback_prefix}:trusted")],
+                [Button.inline("🔙 Back", data=f"{callback_prefix}:main")],
             ]
         )
         await event.edit("\n".join(lines), buttons=buttons)

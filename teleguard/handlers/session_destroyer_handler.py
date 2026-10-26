@@ -10,6 +10,7 @@ from telethon import Button, events
 from ..sync.session_destroyer_db import SessionDestroyerDB
 from ..services.protection_storage import ProtectionStorage
 from ..core.mongo_database import mongodb
+from .protection_menu import ProtectionMenu
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class SessionDestroyerHandler:
     def __init__(self, menu_system):
         self.menu = menu_system
         self.bot = menu_system.bot
+        self.protection_menu = ProtectionMenu(menu_system.account_manager)
 
     async def show_submenu(self, user_id: int, message_id: Optional[int] = None):
         """Show the Session Destroyer submenu"""
@@ -47,6 +49,9 @@ class SessionDestroyerHandler:
                     Button.inline("🟢 Enable", "sd:enable") if not is_enabled else Button.inline("🔴 Disable", "sd:disable")
                 ],
                 [
+                    Button.inline("🔐 Manage Trusted Sessions", "sd:trusted"),
+                ],
+                [
                     Button.inline("📋 View Logs", "sd:logs"),
                     Button.inline("🔙 Back", "menu:protection") # Protection Manager menu
                 ]
@@ -68,6 +73,34 @@ class SessionDestroyerHandler:
                 await self._disable_protection(event, user_id)
             elif data == "sd:logs":
                 await self._show_logs(event, user_id)
+            elif data == "sd:trusted":
+                await self.protection_menu.send_trusted_sessions(
+                    event, user_id, callback_prefix="sd"
+                )
+            elif data.startswith(("sd:trust:", "sd:untrust:")):
+                action, raw_hash = data.split(":", 2)[1:]
+                try:
+                    session_hash = int(raw_hash)
+                except ValueError:
+                    await event.answer("⚠️ Invalid session selection", alert=True)
+                    return
+                updated = await self.protection_menu.set_session_trust(
+                    user_id, session_hash, action == "trust"
+                )
+                if not updated:
+                    await event.answer(
+                        "⚠️ Session is no longer available or cannot be changed.",
+                        alert=True,
+                    )
+                else:
+                    await event.answer(
+                        "✅ Session trusted"
+                        if action == "trust"
+                        else "🔓 Session untrusted"
+                    )
+                await self.protection_menu.send_trusted_sessions(
+                    event, user_id, callback_prefix="sd"
+                )
             elif data == "sd:main":
                 await self.show_submenu(user_id, event.message_id)
         except Exception as e:

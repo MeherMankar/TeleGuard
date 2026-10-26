@@ -201,7 +201,6 @@ class MenuHandlers:
                     Button.inline("🔴 Disable All Protection", "otp:disable_all"),
                 ],
                 [Button.inline("📋 Security Audit Log", "otp:audit_all")],
-                [Button.inline("🛡 Advanced Protection Dashboard", "prot_main")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         await self._render_menu(
