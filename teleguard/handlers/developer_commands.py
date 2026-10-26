@@ -79,12 +79,11 @@ class DeveloperCommands:
             await event.reply(f"❌ Session cleanup failed: {str(e)}")
 
     async def _restart_bot_handler(self, event):
-        """Restart bot services"""
-        await event.reply("🔄 Restarting bot services...")
-        try:
-            await event.reply("⚠️ Bot restart initiated. This may cause temporary disconnection.")
-        except Exception as e:
-            await event.reply(f"❌ Restart failed: {str(e)}")
+        """Explain that restarting is handled by the deployment process."""
+        await event.reply(
+            "🔄 Bot restart is not implemented by this command. "
+            "Restart the application using its deployment or process manager."
+        )
 
     async def _startup_enable_handler(self, event):
         """Enable startup notifications"""
@@ -265,20 +264,14 @@ class DeveloperCommands:
         )
 
     def _build_logs_text(self):
-        """Build logs text"""
+        """Build a runtime diagnostics summary; this does not read log files."""
         return (
-            "📋 **System Logs**\n\n"
-            "**Recent Activity:**\n"
+            "📋 **Runtime Diagnostics**\n\n"
             f"• Bot Status: {'Running' if self.bot.is_connected() else 'Stopped'}\n"
             f"• Database: {'Connected' if mongodb.db else 'Disconnected'}\n"
             f"• Active Handlers: {len(self.bot.list_event_handlers())}\n"
-            f"• User Sessions: {sum(len(clients) for clients in self.bot_manager.user_clients.values())}\n\n"
-            "**Log Levels:**\n"
-            "• INFO: General operations\n"
-            "• WARNING: Potential issues\n"
-            "• ERROR: System errors\n"
-            "• DEBUG: Detailed debugging\n\n"
-            "Use log files for detailed history."
+            f"• Connected User Clients: {sum(len(clients) for clients in self.bot_manager.user_clients.values())}\n"
+            f"• Uptime: {self._get_uptime()}"
         )
 
     def _cleanup_inactive_sessions(self):
@@ -306,11 +299,9 @@ class DeveloperCommands:
         return (
             "🚀 **Startup Configuration**\n\n"
             "**Settings:**\n"
-            f"• Startup Notifications: {'✅ Enabled' if startup_notifications else '❌ Disabled'}\n"
-            "• Auto-load Accounts: ✅ Enabled\n"
-            "• Health Checks: ✅ Enabled\n"
-            "• Component Init: ✅ Enabled\n\n"
-            f"**Last Startup:** {self._get_uptime()} ago\n"
-            f"**Components Loaded:** {len(self.bot_manager.component_manager.initialized_components)}\n"
-            f"**Status:** {'✅ All systems operational' if self.bot_manager.is_running else '❌ System issues detected'}"
+            f"• Startup Notifications: {'✅ Enabled' if startup_notifications else '❌ Disabled'}\n\n"
+            f"**Current Process:**\n"
+            f"• Uptime: {self._get_uptime()}\n"
+            f"• Initialized Components: {len(self.bot_manager.component_manager.initialized_components)}\n"
+            f"• Bot Connection: {'✅ Connected' if self.bot.is_connected() else '❌ Disconnected'}"
         )

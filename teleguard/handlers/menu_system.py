@@ -1063,15 +1063,15 @@ class MenuSystem:
 
     async def _handle_help(self, event):
         """Handle Help menu - delegated to modular handler"""
-        await event.answer("Help menu - use /help command")
+        await self.handlers.handle_help(event)
 
     async def _handle_support(self, event):
-        """Handle Support menu"""
-        await event.answer("Support - contact @ContactXYZrobot")
+        """Handle Support menu - delegated to modular handler"""
+        await self.handlers.handle_support(event)
 
     async def _handle_developer(self, event):
-        """Handle Developer menu"""
-        await event.answer("Developer tools - use /start menu")
+        """Handle Developer menu - delegated to the admin-guarded handler."""
+        await self.handlers.handle_developer(event)
 
     async def _handle_help_callback(self, event, user_id: int, data: str):
         """Handle help-related callbacks"""
@@ -1385,6 +1385,12 @@ class MenuSystem:
 
     async def _toggle_developer_mode(self, user_id: int, message_id: int):
         """Toggle developer mode"""
+        if user_id not in ADMIN_IDS:
+            await self.bot.send_message(
+                user_id, "❌ You don't have access to Developer tools."
+            )
+            return
+
         try:
             user = await mongodb.db.users.find_one({"telegram_id": user_id})
             if user:

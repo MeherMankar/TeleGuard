@@ -43,6 +43,8 @@ class EventSetup:
                     "Support",
                     "⚙️ Developer",
                     "Developer",
+                    "⚙️ Developer Panel",
+                    "Developer Panel",
                 ]
             )
         )

@@ -4,8 +4,6 @@ import logging
 
 from telethon import events
 
-from ..core.config import ADMIN_IDS
-
 logger = logging.getLogger(__name__)
 
 
@@ -25,25 +23,25 @@ class HelpCommands:
 
     async def _help_command(self, event):
         """Main help command"""
-        if not event.is_private or event.sender_id not in ADMIN_IDS:
+        if not event.is_private:
             return
         await event.reply(self._get_help_text())
 
     async def _help2_command(self, event):
         """Extended help command"""
-        if not event.is_private or event.sender_id not in ADMIN_IDS:
+        if not event.is_private:
             return
         await event.reply(self._get_help2_text())
 
     async def _commands_list(self, event):
         """List all commands"""
-        if not event.is_private or event.sender_id not in ADMIN_IDS:
+        if not event.is_private:
             return
         await event.reply(self._get_commands_text())
 
     async def _features_overview(self, event):
         """Show features overview"""
-        if not event.is_private or event.sender_id not in ADMIN_IDS:
+        if not event.is_private:
             return
         await event.reply(self._get_features_text())
 
@@ -93,8 +91,8 @@ class HelpCommands:
             "💡 **Tips:**\n"
             "• Use menu buttons for most operations\n"
             "• Commands are case-sensitive\n"
-            "• All activities are logged for transparency\n"
-            "• Check logs for troubleshooting"
+            "• Never include credentials or session data in support requests\n"
+            "• Use the Support menu for issue reports"
         )
 
     def _get_commands_text(self):
@@ -137,13 +135,10 @@ class HelpCommands:
             "• Message templates\n"
             "• Bulk messaging with buttons\n\n"
             "**🎭 Automation:**\n"
-            "• Activity simulation (human-like behavior)\n"
+            "• Activity simulation\n"
             "• Online maker (keep accounts online)\n"
-            "• Scheduled actions\n"
             "• Auto-startup features\n\n"
             "**📊 Management:**\n"
-            "• Real-time statistics\n"
-            "• Comprehensive logging\n"
-            "• Health monitoring\n"
-            "• Cloud deployment ready"
+            "• Account and feature controls from the main menu\n"
+            "• Support and troubleshooting through the Help and Support menus"
         )

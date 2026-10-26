@@ -5,6 +5,7 @@ from typing import Callable, Dict
 from bson import ObjectId
 from telethon import Button
 
+from ...core.config import ADMIN_IDS
 from ...core.mongo_database import mongodb
 from .callback_handlers import CallbackHandlers
 from ..session_destroyer_handler import SessionDestroyerHandler
@@ -1217,21 +1218,11 @@ class CallbackRouter:
     async def handle_help_callback(self, event, user_id: int, data: str):
         """Handle help callbacks"""
         try:
-            from telethon import Button
-
-            if hasattr(self.menu, "help_callbacks"):
-                await self.menu.help_callbacks.handle_callback(event, user_id, data)
-            else:
-                text = "❓ **Help & Support**\n\n📚 **Quick Links:**\n• /start - Main menu\n• /help - Full help guide\n• /accs - Manage accounts\n• /otp - OTP protection\n\n💬 Need more help? Contact support!"
-                buttons = [
-                    [Button.inline("📖 Full Guide", "help:guide")],
-                    [Button.inline("💬 Contact Support", "support:main")],
-                    [Button.inline("🔙 Back", "menu:main")],
-                ]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-                await event.answer("❓ Help")
+            callbacks = getattr(self.menu, "help_callbacks", None)
+            if callbacks is None:
+                await event.answer("❌ Help is temporarily unavailable.", alert=True)
+                return
+            await callbacks.handle_callback(event, user_id, data)
         except Exception as e:
             logger.error(f"Help callback error: {e}")
             await event.answer("❌ Error")
@@ -1239,19 +1230,11 @@ class CallbackRouter:
     async def handle_support_callback(self, event, user_id: int, data: str):
         """Handle support callbacks"""
         try:
-            from telethon import Button
-
-            if hasattr(self.menu, "help_callbacks"):
-                await self.menu.help_callbacks.handle_support_callback(
-                    event, user_id, data
-                )
-            else:
-                text = "💬 **Support & Contact**\n\n📧 **Get Help:**\n• Telegram: @ContactXYZrobot\n• Response time: 12-24 hours\n\n🐛 **Report Issues:**\n• Bug reports welcome\n• Feature requests accepted\n\n⚡ **Priority Support:**\n• Critical issues: 1-2 hours\n• General queries: 24-48 hours"
-                buttons = [[Button.inline("🔙 Back", "help:main")]]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-                await event.answer("💬 Support")
+            callbacks = getattr(self.menu, "help_callbacks", None)
+            if callbacks is None:
+                await event.answer("❌ Support is temporarily unavailable.", alert=True)
+                return
+            await callbacks.handle_support_callback(event, user_id, data)
         except Exception as e:
             logger.error(f"Support callback error: {e}")
             await event.answer("❌ Error")
@@ -1259,19 +1242,19 @@ class CallbackRouter:
     async def handle_dev_callback(self, event, user_id: int, data: str):
         """Handle developer callbacks"""
         try:
-            from telethon import Button
+            if user_id not in ADMIN_IDS:
+                await event.answer(
+                    "❌ You don't have access to Developer tools.", alert=True
+                )
+                return
 
-            if hasattr(self.menu, "help_callbacks"):
-                await self.menu.help_callbacks.handle_developer_callback(
-                    event, user_id, data
+            callbacks = getattr(self.menu, "help_callbacks", None)
+            if callbacks is None:
+                await event.answer(
+                    "❌ Developer tools are temporarily unavailable.", alert=True
                 )
-            else:
-                text = "👨‍💻 **Developer Info**\n\n**Created by:**\n• @Meher_Mankar - Lead Developer\n• @Gutkesh - Core Developer\n\n**Tech Stack:**\n• Python 3.9+\n• Telethon\n• MongoDB\n\n**Version:** 2.0.0\n**License:** MIT"
-                buttons = [[Button.inline("🔙 Back", "help:main")]]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-                await event.answer("👨‍💻 Developer info")
+                return
+            await callbacks.handle_developer_callback(event, user_id, data)
         except Exception as e:
             logger.error(f"Dev callback error: {e}")
             await event.answer("❌ Error")

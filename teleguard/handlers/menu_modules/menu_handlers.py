@@ -314,7 +314,20 @@ class MenuHandlers:
         status_emoji = (
             "🟢" if security_score >= 80 else "🟡" if security_score >= 50 else "🔴"
         )
-        text = f"❓ **TeleGuard Help & Support Center**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **Your Dashboard:**\n• 📱 **Accounts:** {account_count} configured\n• 🛡️ **Protection:** {otp_enabled}/{account_count} secured\n• {status_emoji} **Security Score:** {security_score}%\n\n🚀 **Quick Setup (2 minutes):**\n1️⃣ **Add Account** → `📱 Account Settings` → `Add Account`\n2️⃣ **Enable Security** → `🛡️ OTP Manager` → `Enable Destroyer`\n3️⃣ **Configure Features** → Explore messaging & automation\n\n🎯 **Feature Overview:**\n• 🛡️ **Security** - OTP protection, 2FA, session monitoring\n• 💬 **Messaging** - Auto-reply, templates, bulk sending\n• 📱 **Management** - Profile updates, channel tools\n• 📊 **Analytics** - Activity logs, performance insights\n\n💡 **Pro Tips:**\n• Enable OTP Destroyer on all accounts for maximum security\n• Use DM Reply for centralized message management\n• Monitor audit logs weekly for security insights"
+        text = (
+            "❓ **TeleGuard Help & Support Center**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📊 **Your Dashboard:**\n"
+            f"• 📱 **Accounts:** {account_count} configured\n"
+            f"• 🛡️ **OTP Destroyer:** {otp_enabled}/{account_count} enabled\n"
+            f"• {status_emoji} **OTP Coverage:** {security_score}%\n\n"
+            "🚀 **Quick Setup:**\n"
+            "1️⃣ Add an account in **📱 Account Settings**.\n"
+            "2️⃣ Configure OTP and session protections in **🛡️ Protection Manager**.\n"
+            "3️⃣ Open another main-menu feature to configure it before use.\n\n"
+            "Use the guides below for setup, security, and troubleshooting. "
+            "Never share login codes, passwords, or session data with support."
+        )
         buttons = [
             [
                 Button.inline("📖 Complete Guide", "help:guide"),
@@ -334,8 +347,8 @@ class MenuHandlers:
             ],
             [Button.inline("📨 Chat Import", "menu:import")],
         ]
-        if user and user_id in ADMIN_IDS:
-            dev_mode = user.get("developer_mode", False)
+        if user_id in ADMIN_IDS:
+            dev_mode = user.get("developer_mode", False) if user else False
             dev_text = "🔴 Disable Dev Mode" if dev_mode else "⚙️ Enable Dev Mode"
             buttons.append([Button.inline(dev_text, "help:toggle_dev")])
         buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
@@ -352,7 +365,14 @@ class MenuHandlers:
     async def handle_support(self, event):
         user_id = event.sender_id
         await self.menu._cleanup_old_messages(user_id)
-        text = "🆘 **TeleGuard Support Center**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👨💻 **Development Team:**\n• **@Meher_Mankar** - Lead Developer & Founder\n• **@Gutkesh** - Core Developer & Security Expert\n\n🎯 **Get Instant Help:**\n• 💬 **Live Support:** @ContactXYZrobot\n• 🐛 **Bug Reports:** GitHub Issues Portal\n• 📚 **Documentation:** Complete Wiki Guide\n• ⚡ **Response Time:** < 6 hours (usually faster)\n\n🔧 **Self-Help Checklist:**\n✅ Check Help section for instant solutions\n✅ Try `/start` to refresh the bot\n✅ Verify accounts are properly connected\n✅ Review troubleshooting guide first\n\n🚨 **Emergency Support:** Contact developers directly for critical issues"
+        text = (
+            "🆘 **TeleGuard Support Center**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Choose a support option below or review the Help menu first.\n\n"
+            "When reporting an issue, include the feature, steps to reproduce, "
+            "and a redacted error message. Never send login codes, passwords, "
+            "API keys, session files, or session strings."
+        )
         buttons = [
             [
                 Button.inline("💬 Contact Support", "support:contact"),
@@ -380,49 +400,61 @@ class MenuHandlers:
 
     async def handle_developer(self, event):
         user_id = event.sender_id
+        if user_id not in ADMIN_IDS:
+            if hasattr(event, "answer"):
+                await event.answer(
+                    "❌ You don't have access to Developer tools.", alert=True
+                )
+            else:
+                await event.reply("❌ You don't have access to Developer tools.")
+            return
+
         await self.menu._cleanup_old_messages(user_id)
         user = await mongodb.db.users.find_one({"telegram_id": user_id})
-        if user:
-            current_mode = user.get("developer_mode", False)
-            account_count = await mongodb.db.accounts.count_documents({})
-            user_count = await mongodb.db.users.count_documents({})
-            text = f"⚙️ **Developer Control Panel**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🎛️ **Developer Mode:** {
-                '🟢 **ACTIVE**' if current_mode else '🔴 **INACTIVE**'}\n\n📊 **System Overview:**\n• 👥 Total Users: {
-                user_count:,    }\n• 📱 Total Accounts: {
-                account_count:,        }\n• 🟢 System Status: Operational\n\n🛠️ **Administrative Tools:**\n• 🔧 **System Control** - Mode toggle, restart, maintenance\n• 📊 **Monitoring** - Real-time metrics & performance\n• 🐛 **Debugging** - Error logs & diagnostic tools\n• 🗄️ **Database** - Statistics & optimization tools\n• 🚀 **Deployment** - Configuration & startup management\n\n⚠️ **Administrator Access** - Advanced system operations only"
-            mode_text = (
-                "🔴 Disable Developer Mode"
-                if current_mode
-                else "🟢 Enable Developer Mode"
-            )
-            buttons = [
-                [Button.inline(mode_text, "dev:toggle")],
-                [
-                    Button.inline("📊 System Dashboard", "dev:sysinfo"),
-                    Button.inline("📋 System Logs", "dev:logs"),
-                ],
-                [
-                    Button.inline("🗄️ Database Tools", "dev:dbstats"),
-                    Button.inline("⚡ Performance Monitor", "dev:perf"),
-                ],
-                [
-                    Button.inline("🔧 Maintenance Tools", "dev:maintenance"),
-                    Button.inline("🔄 System Restart", "dev:restart"),
-                ],
-                [
-                    Button.inline("🚀 Startup Config", "dev:startup"),
-                    Button.inline("📚 Command Reference", "dev:commands"),
-                ],
-                [Button.inline("🔙 Back to Main Menu", "menu:main")],
-            ]
-            
-            message_id = getattr(event, "message_id", None)
-            if message_id:
-                try:
-                    await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-                    return
-                except Exception:
-                    pass
-            await self.bot.send_message(user_id, text, buttons=buttons)
-        else:
-            await event.reply("❌ User not found")
+        current_mode = user.get("developer_mode", False) if user else False
+        account_count = await mongodb.db.accounts.count_documents({})
+        user_count = await mongodb.db.users.count_documents({})
+        text = (
+            "⚙️ **Developer Control Panel**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🎛️ **Developer Mode:** {'🟢 ACTIVE' if current_mode else '🔴 INACTIVE'}\n\n"
+            "📊 **System Overview:**\n"
+            f"• 👥 Total users: {user_count:,}\n"
+            f"• 📱 Total accounts: {account_count:,}\n\n"
+            "Use the controls below to inspect runtime health and settings. "
+            "Restart is not available from this panel."
+        )
+        mode_text = (
+            "🔴 Disable Developer Mode"
+            if current_mode
+            else "🟢 Enable Developer Mode"
+        )
+        buttons = [
+            [Button.inline(mode_text, "dev:toggle")],
+            [
+                Button.inline("📊 System Dashboard", "dev:sysinfo"),
+                Button.inline("📋 Runtime Diagnostics", "dev:logs"),
+            ],
+            [
+                Button.inline("🗄️ Database Statistics", "dev:dbstats"),
+                Button.inline("⚡ Performance", "dev:perf"),
+            ],
+            [
+                Button.inline("🔧 Session Maintenance", "dev:maintenance"),
+                Button.inline("🔄 Restart Status", "dev:restart"),
+            ],
+            [
+                Button.inline("🚀 Startup Config", "dev:startup"),
+                Button.inline("📚 Command Reference", "dev:commands"),
+            ],
+            [Button.inline("🔙 Back to Main Menu", "menu:main")],
+        ]
+
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+                return
+            except Exception:
+                pass
+        await self.bot.send_message(user_id, text, buttons=buttons)
