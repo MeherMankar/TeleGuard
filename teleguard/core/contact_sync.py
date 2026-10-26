@@ -2,8 +2,12 @@
 
 import logging
 
-from telethon.tl.functions.contacts import GetContactsRequest
-from telethon.tl.types import User
+from telethon.tl.functions.contacts import (
+    AddContactRequest,
+    GetContactsRequest,
+    ImportContactsRequest,
+)
+from telethon.tl.types import InputPhoneContact, User
 
 from .contact_db import ContactDB
 from .contact_models import Contact
@@ -62,16 +66,36 @@ class ContactSync:
             }
             added = 0
             errors = 0
-            for local_contact in local_contacts:
+            for index, local_contact in enumerate(local_contacts):
                 if local_contact.user_id not in telegram_ids:
                     try:
-                        # Try to add contact to Telegram
                         if local_contact.username:
-                            await client.add_contact(local_contact.username)
+                            entity = await client.get_entity(local_contact.username)
+                            await client(
+                                AddContactRequest(
+                                    id=entity,
+                                    first_name=local_contact.first_name,
+                                    last_name=local_contact.last_name or "",
+                                    phone=local_contact.phone or "",
+                                )
+                            )
                         elif local_contact.phone:
-                            await client.add_contact(local_contact.phone)
+                            result = await client(
+                                ImportContactsRequest(
+                                    [
+                                        InputPhoneContact(
+                                            client_id=index,
+                                            phone=local_contact.phone,
+                                            first_name=local_contact.first_name,
+                                            last_name=local_contact.last_name or "",
+                                        )
+                                    ]
+                                )
+                            )
+                            if not result.users:
+                                errors += 1
+                                continue
                         else:
-                            # Skip contacts without username or phone
                             continue
                         added += 1
                     except Exception as e:
@@ -125,10 +149,16 @@ class ContactSync:
                 for k, v in update_data.items()
                 if v is not None
             ):
-                await ContactDB.update_contact(
-                    tg_contact.id, managed_by_account, update_data
+                update_data = {
+                    key: value for key, value in update_data.items() if value is not None
+                }
+                return (
+                    "updated"
+                    if await ContactDB.update_contact(
+                        tg_contact.id, managed_by_account, update_data
+                    )
+                    else "error"
                 )
-                return "updated"
             return "skipped"
         else:
             contact = Contact(

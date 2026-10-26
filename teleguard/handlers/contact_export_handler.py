@@ -24,7 +24,6 @@ class ContactExportHandler:
         self.user_clients = bot_manager.user_clients
         self.pending_exports = {}
         self.export_cooldowns = {}  # Track export cooldowns
-        self.setup_handlers()
 
     def setup_handlers(self):
         """Setup contact export handlers"""
@@ -210,3 +209,27 @@ class ContactExportHandler:
         csv_content = output.getvalue().encode("utf-8")
         output.close()
         return csv_content
+
+    async def export_contacts_to_csv(self, user_id: int, account_name: str):
+        """Export one connected account's Telegram contacts to a CSV file."""
+        client = self.user_clients.get(user_id, {}).get(account_name)
+        if not client or not client.is_connected():
+            return False, "Account is not connected"
+        try:
+            contacts_data = await self.export_contacts(client, account_name)
+            if not contacts_data:
+                return False, "No contacts found"
+            csv_content = self.create_csv(contacts_data)
+            if not csv_content:
+                return False, "No contacts found"
+            csv_file = io.BytesIO(csv_content)
+            csv_file.name = f"contacts_{datetime.now():%Y%m%d_%H%M%S}.csv"
+            await self.bot.send_file(
+                user_id,
+                csv_file,
+                caption=f"📇 Contacts exported: {len(contacts_data)}",
+            )
+            return True, "Contacts exported"
+        except Exception as e:
+            logger.error(f"Contact CSV export failed for {account_name}: {e}")
+            return False, "Contact export failed"

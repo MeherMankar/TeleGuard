@@ -380,7 +380,11 @@ class CallbackRouter:
             if prefix == "contacts":
                 action = parts[1] if len(parts) > 1 else "main"
                 if action == "list":
-                    await ch._show_contacts_list(event, user_id)
+                    try:
+                        page = int(parts[2]) if len(parts) > 2 else 0
+                    except ValueError:
+                        page = 0
+                    await ch._show_contacts_list(event, user_id, page)
                 elif action == "add":
                     await ch._start_add_contact(event, user_id)
                 elif action == "search":
@@ -410,6 +414,7 @@ class CallbackRouter:
                 dispatch = {
                     "view": ch._view_contact,
                     "edit": ch._edit_contact_menu,
+                    "edit_name": ch._start_edit_name,
                     "delete": ch._delete_contact,
                     "delete_confirm": ch._confirm_delete_contact,
                     "blacklist": ch._toggle_blacklist,
@@ -434,6 +439,12 @@ class CallbackRouter:
                 elif action == "view":
                     group_name = ":".join(parts[2:]) if len(parts) > 2 else ""
                     await ch._view_group(event, user_id, group_name)
+                elif action == "add_contact":
+                    group_name = ":".join(parts[2:]) if len(parts) > 2 else ""
+                    await ch._start_group_add_contact(event, user_id, group_name)
+                elif action == "delete":
+                    group_name = ":".join(parts[2:]) if len(parts) > 2 else ""
+                    await ch._delete_group(event, user_id, group_name)
                 else:
                     await event.answer("✅ Processing...")
 
@@ -447,9 +458,9 @@ class CallbackRouter:
 
             elif prefix == "export_acc":
                 try:
-                    account_idx = int(parts[1]) if len(parts) > 1 else 0
+                    account_idx = int(parts[1]) if len(parts) > 1 else -1
                 except ValueError:
-                    account_idx = 0
+                    account_idx = -1
                 await ch._process_export(event, user_id, account_idx)
 
             else:

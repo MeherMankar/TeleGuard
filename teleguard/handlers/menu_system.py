@@ -3072,10 +3072,10 @@ class MenuSystem:
 
                 export_handler = ContactExportHandler(self.account_manager)
                 success, message = await export_handler.export_contacts_to_csv(
-                    user_id, account["phone"]
+                    user_id, account["name"]
                 )
                 if success:
-                    await event.answer("\u274c Contacts exported successfully")
+                    await event.answer("✅ Contacts exported successfully")
                 else:
                     await event.answer(f"\u274c Export failed: {message}")
             except ImportError:

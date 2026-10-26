@@ -8,7 +8,7 @@ from telethon import events
 from telethon.tl.custom import Button
 
 from ..core.contact_db import ContactDB
-from ..core.contact_models import Contact
+from ..core.contact_models import Contact, ContactGroup
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,6 @@ class ContactHandler:
     def register_handlers(self):
         """Register all contact handlers"""
         self._register_menu_handler()
-        self._register_callback_handler()
         self._register_input_handler()
 
     def _register_menu_handler(self):
@@ -52,90 +51,35 @@ class ContactHandler:
                 ],
                 [Button.inline("🔄 Sync", "contacts:sync")],
             ]
-            contacts = await ContactDB.get_all_contacts(account, limit=5)
-            count = len(contacts)
+            count = await ContactDB.count_contacts(account)
+            count_text = str(count) if count is not None else "Unavailable"
             await event.reply(
                 f"📱 **Contact Management**\n\n"
-                f"📊 Total Contacts: {count}\n"
+                f"📊 Saved Contacts: {count_text}\n"
                 f"🔧 Account: {account}\n\n"
                 f"Choose an option:",
                 buttons=buttons,
             )
 
-    def _register_callback_handler(self):
-        @self.bot.on(events.CallbackQuery(pattern=r"^contacts:"))
-        async def handle_contacts_callback(event):
-            """Handle contact button callbacks"""
-            user_id = event.sender_id
-            data = event.data.decode()
-            try:
-                if data == "contacts:list":
-                    await self._show_contacts_list(event, user_id)
-                elif data == "contacts:add":
-                    await self._start_add_contact(event, user_id)
-                elif data == "contacts:search":
-                    await self._start_search(event, user_id)
-                elif data == "contacts:groups":
-                    await self._show_groups(event, user_id)
-                elif data == "contacts:tags":
-                    await self._show_tags(event, user_id)
-                elif data == "contacts:export":
-                    await self._export_contacts(event, user_id)
-                elif data == "contacts:import":
-                    await self._start_import(event, user_id)
-                elif data == "contacts:sync":
-                    await self._show_sync_menu(event, user_id)
-                elif data.startswith("contact:view:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._view_contact(event, user_id, contact_id)
-                elif data.startswith("contact:edit:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._edit_contact_menu(event, user_id, contact_id)
-                elif data.startswith("contact:delete:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._delete_contact(event, user_id, contact_id)
-                elif data.startswith("contact:blacklist:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._toggle_blacklist(event, user_id, contact_id)
-                elif data.startswith("contact:whitelist:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._toggle_whitelist(event, user_id, contact_id)
-                elif data.startswith("contact:delete_confirm:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._confirm_delete_contact(event, user_id, contact_id)
-                elif data.startswith("contact:add_notes:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._start_add_notes(event, user_id, contact_id)
-                elif data.startswith("contact:add_tags:"):
-                    contact_id = int(data.split(":")[2])
-                    await self._start_add_tags(event, user_id, contact_id)
-                elif data.startswith("tag:view:"):
-                    tag = data.split(":", 2)[2]
-                    await self._view_tag_contacts(event, user_id, tag)
-                elif data.startswith("group:view:"):
-                    group_name = data.split(":", 2)[2]
-                    await self._view_group(event, user_id, group_name)
-                elif data == "group:create":
-                    await self._start_create_group(event, user_id)
-                elif data == "contacts:main":
-                    await self._show_main_menu(event, user_id)
-                elif data.startswith("export_acc:"):
-                    account_idx = int(data.split(":")[1])
-                    await self._process_export(event, user_id, account_idx)
-                elif data.startswith("sync:"):
-                    sync_type = data.split(":")[1]
-                    await self._handle_sync(event, user_id, sync_type)
-            except Exception as e:
-                logger.error(f"Contact callback error: {e}")
-                await event.answer("❌ Error processing request")
-
     def _register_input_handler(self):
         @self.bot.on(
             events.NewMessage(
                 func=lambda e: e.sender_id in self.pending_actions
-                and not e.message.text.startswith("/")
+                and (
+                    not (e.message.text or "").startswith("/")
+                    or (e.message.text or "").lower() == "/cancel"
+                )
                 and self.pending_actions.get(e.sender_id, {}).get("type")
-                in ["add_contact", "search", "add_notes", "add_tags", "import"]
+                in [
+                    "add_contact",
+                    "search",
+                    "add_notes",
+                    "add_tags",
+                    "import",
+                    "create_group",
+                    "edit_name",
+                    "group_add_contact",
+                ]
             )
         )
         async def handle_input(event):
@@ -148,6 +92,9 @@ class ContactHandler:
                 "add_notes",
                 "add_tags",
                 "import",
+                "create_group",
+                "edit_name",
+                "group_add_contact",
             ]:
                 return
             if action["type"] == "import" and event.message.document:
@@ -174,6 +121,12 @@ class ContactHandler:
                     await self._process_add_notes(event, user_id, text, action)
                 elif action["type"] == "add_tags":
                     await self._process_add_tags(event, user_id, text, action)
+                elif action["type"] == "create_group":
+                    await self._process_create_group(event, user_id, text)
+                elif action["type"] == "edit_name":
+                    await self._process_edit_name(event, user_id, text, action)
+                elif action["type"] == "group_add_contact":
+                    await self._process_group_add_contact(event, user_id, text, action)
             except Exception as e:
                 logger.error(f"Input error: {e}")
                 await event.reply("❌ Error processing input")
@@ -182,14 +135,17 @@ class ContactHandler:
         """Get user's active account"""
         try:
             user_clients = self.bot_manager.user_clients.get(user_id, {})
-            if user_clients:
-                return list(user_clients.keys())[0]
+            for account_name, client in user_clients.items():
+                if client and client.is_connected():
+                    return account_name
             return ""
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to get connected contact account for {user_id}: {e}")
             return ""
 
-    async def _show_contacts_list(self, event, user_id: int):
+    async def _show_contacts_list(self, event, user_id: int, page: int = 0):
         """Show paginated contacts list"""
+        self.pending_actions.pop(user_id, None)
         from ..core.mongo_database import mongodb
 
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
@@ -202,7 +158,7 @@ class ContactHandler:
             await self._show_no_contacts(event)
             return
         
-        await self._display_contacts(event, all_contacts, total_contacts)
+        await self._display_contacts(event, all_contacts, total_contacts, page)
 
     async def _show_no_accounts(self, event):
         await event.edit(
@@ -234,7 +190,7 @@ class ContactHandler:
                 from telethon.tl.types import User
 
                 result = await client(GetContactsRequest(hash=0))
-                contacts = [self._format_contact(u, account["name"]) for u in result.users[:10] if isinstance(u, User) and not u.bot]
+                contacts = [self._format_contact(u, account["name"]) for u in result.users if isinstance(u, User) and not u.bot]
                 total = len([u for u in result.users if isinstance(u, User) and not u.bot])
                 return contacts, total
         except Exception as e:
@@ -247,11 +203,31 @@ class ContactHandler:
         phone = user.phone or "No phone"
         return {"name": name, "username": username, "phone": phone, "account": account_name, "user_id": user.id}
 
-    async def _display_contacts(self, event, all_contacts, total_contacts):
-        text = f"👥 **All Contacts** (Showing {len(all_contacts)} of {total_contacts})\n\n"
-        for i, contact in enumerate(all_contacts[:8], 1):
-            text += f"{i}. **{contact['name']}**\n   {contact['username']} | {contact['phone']}\n   Account: {contact['account']}\n\n"
-        await event.edit(text, buttons=[[Button.inline("🔙 Back", "contacts:main")]])
+    async def _display_contacts(self, event, all_contacts, total_contacts, page=0):
+        page_size = 8
+        page_count = max(1, (len(all_contacts) + page_size - 1) // page_size)
+        page = max(0, min(page, page_count - 1))
+        start = page * page_size
+        page_contacts = all_contacts[start : start + page_size]
+        shown_end = start + len(page_contacts)
+        text = (
+            f"👥 **All Contacts** "
+            f"(Showing {start + 1}-{shown_end} of {total_contacts})\n\n"
+        )
+        for i, contact in enumerate(page_contacts, start + 1):
+            text += (
+                f"{i}. **{contact['name']}** (ID: `{contact['user_id']}`)\n"
+                f"   {contact['username']} | {contact['phone']}\n"
+                f"   Account: {contact['account']}\n\n"
+            )
+        buttons = []
+        if page > 0:
+            buttons.append(Button.inline("⬅️ Previous", f"contacts:list:{page - 1}"))
+        if page + 1 < page_count:
+            buttons.append(Button.inline("Next ➡️", f"contacts:list:{page + 1}"))
+        rows = [buttons] if buttons else []
+        rows.append([Button.inline("🔙 Back", "contacts:main")])
+        await event.edit(text, buttons=rows)
 
     async def _start_add_contact(self, event, user_id: int):
         """Start add contact process"""
@@ -275,7 +251,12 @@ class ContactHandler:
         try:
             forward_info = event.message.forward
             if hasattr(forward_info, "from_id") and forward_info.from_id:
-                contact_user_id = forward_info.from_id.user_id
+                contact_user_id = getattr(forward_info.from_id, "user_id", None)
+                if not contact_user_id:
+                    await event.reply(
+                        "❌ Cannot extract a user from this forwarded message"
+                    )
+                    return
                 # Try to get user info
                 client = self._get_user_client(user_id)
                 if client:
@@ -373,9 +354,9 @@ class ContactHandler:
             if result.users:
                 user_entity = result.users[0]
                 return {"user_id": user_entity.id, "first_name": user_entity.first_name or f"Contact_{phone}", "last_name": user_entity.last_name, "username": user_entity.username}
-        except Exception:
-            return await self._import_phone_contact(client, phone)
-        return None
+        except Exception as e:
+            logger.debug(f"Phone resolution failed; trying contact import: {e}")
+        return await self._import_phone_contact(client, phone)
 
     async def _import_phone_contact(self, client, phone):
         try:
@@ -386,13 +367,15 @@ class ContactHandler:
             if import_result.users:
                 user_entity = import_result.users[0]
                 return {"user_id": user_entity.id, "first_name": user_entity.first_name or f"Contact_{phone}", "last_name": user_entity.last_name, "username": user_entity.username}
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to import contact phone {phone}: {e}")
         return None
 
     def _parse_user_id(self, text):
         try:
             contact_user_id = int(text)
+            if contact_user_id <= 0:
+                return None
             return {"user_id": contact_user_id, "first_name": f"User_{contact_user_id}", "last_name": None, "username": None}
         except ValueError:
             return None
@@ -419,6 +402,7 @@ class ContactHandler:
 
     async def _view_contact(self, event, user_id: int, contact_id: int):
         """View contact details"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         contact = await ContactDB.get_contact(contact_id, account)
         if not contact:
@@ -502,7 +486,7 @@ class ContactHandler:
             return
 
         buttons = []
-        for i, account in enumerate(accounts[:8]):
+        for i, account in enumerate(accounts):
             status = "🟢" if account.get("is_active", False) else "🔴"
             buttons.append(
                 [Button.inline(f"{status} {account['name']}", f"export_acc:{i}")]
@@ -550,6 +534,7 @@ class ContactHandler:
 
     async def _show_sync_menu(self, event, user_id: int):
         """Show sync options"""
+        self.pending_actions.pop(user_id, None)
         buttons = [
             [Button.inline("📥 From Telegram", "sync:from_telegram")],
             [Button.inline("📤 To Telegram", "sync:to_telegram")],
@@ -625,6 +610,7 @@ class ContactHandler:
 
     async def _show_groups(self, event, user_id: int):
         """Show contact groups"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         groups = await ContactDB.get_all_groups(account)
         if not groups:
@@ -651,6 +637,7 @@ class ContactHandler:
 
     async def _show_tags(self, event, user_id: int):
         """Show contact tags"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         contacts = await ContactDB.get_all_contacts(account, limit=100)
         # Collect all tags
@@ -689,6 +676,43 @@ class ContactHandler:
             f"✏️ **Edit Contact: {name}**\n\nChoose what to edit:", buttons=buttons
         )
 
+    async def _start_edit_name(self, event, user_id: int, contact_id: int):
+        account = await self._get_user_account(user_id)
+        if not await ContactDB.get_contact(contact_id, account):
+            await event.answer("Contact not found")
+            return
+        self.pending_actions[user_id] = {"type": "edit_name", "contact_id": contact_id}
+        await event.edit(
+            "✏️ Send the contact's new name (first name, optionally followed by last name):",
+            buttons=[[Button.inline("❌ Cancel", f"contact:view:{contact_id}")]],
+        )
+
+    async def _process_edit_name(self, event, user_id: int, text: str, action: dict):
+        contact_id = action.get("contact_id")
+        name = text.strip()
+        if not contact_id or not name:
+            await event.reply("❌ Enter a valid name.")
+            return
+        first_name, separator, last_name = name.partition(" ")
+        success = await ContactDB.update_contact(
+            contact_id,
+            await self._get_user_account(user_id),
+            {
+                "first_name": first_name,
+                "last_name": last_name.strip() if separator else None,
+            },
+        )
+        self.pending_actions.pop(user_id, None)
+        if success:
+            await event.reply(
+                "✅ Contact name updated",
+                buttons=[
+                    [Button.inline("👤 View Contact", f"contact:view:{contact_id}")]
+                ],
+            )
+        else:
+            await event.reply("❌ Failed to update contact name")
+
     async def _delete_contact(self, event, user_id: int, contact_id: int):
         """Delete contact with confirmation"""
         account = await self._get_user_account(user_id)
@@ -715,10 +739,11 @@ class ContactHandler:
         account = await self._get_user_account(user_id)
         contact_id = action.get("contact_id")
         if not contact_id:
+            self.pending_actions.pop(user_id, None)
             await event.reply("❌ Invalid contact")
             return
         success = await ContactDB.update_contact(contact_id, account, {"notes": text})
-        del self.pending_actions[user_id]
+        self.pending_actions.pop(user_id, None)
         if success:
             await event.reply(
                 "✅ Notes added",
@@ -734,9 +759,13 @@ class ContactHandler:
         account = await self._get_user_account(user_id)
         contact_id = action.get("contact_id")
         if not contact_id:
+            self.pending_actions.pop(user_id, None)
             await event.reply("❌ Invalid contact")
             return
         tags = [tag.strip() for tag in text.split(",") if tag.strip()]
+        if not tags:
+            await event.reply("❌ Enter at least one tag.")
+            return
         contact = await ContactDB.get_contact(contact_id, account)
         if contact:
             existing_tags = set(contact.tags)
@@ -744,7 +773,7 @@ class ContactHandler:
             success = await ContactDB.update_contact(
                 contact_id, account, {"tags": list(existing_tags)}
             )
-            del self.pending_actions[user_id]
+            self.pending_actions.pop(user_id, None)
             if success:
                 await event.reply(
                     f"✅ Tags added: {', '.join(tags)}",
@@ -755,6 +784,7 @@ class ContactHandler:
             else:
                 await event.reply("❌ Failed to add tags")
         else:
+            self.pending_actions.pop(user_id, None)
             await event.reply("❌ Contact not found")
 
     async def _start_import(self, event, user_id: int):
@@ -773,6 +803,7 @@ class ContactHandler:
 
     async def _process_import_file(self, event, user_id: int):
         """Process uploaded CSV file for contact import"""
+        file_path = None
         try:
             if not await self._validate_import_file(event):
                 return
@@ -786,6 +817,17 @@ class ContactHandler:
             account = await self._get_user_account(user_id)
             if not account:
                 await event.reply("❌ No active account found")
+                self.pending_actions.pop(user_id, None)
+                import os
+
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except OSError as cleanup_error:
+                    logger.warning(
+                        f"Failed to remove contact import file {file_path}: "
+                        f"{cleanup_error}"
+                    )
                 return
             
             stats = await self._import_contacts_from_csv(file_path, account)
@@ -793,15 +835,32 @@ class ContactHandler:
         except Exception as e:
             logger.error(f"Import file error: {e}")
             await event.reply(f"❌ Error processing file: {str(e)}")
-            if user_id in self.pending_actions:
-                del self.pending_actions[user_id]
+            self.pending_actions.pop(user_id, None)
+            if file_path:
+                import os
+
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except OSError as cleanup_error:
+                    logger.warning(
+                        f"Failed to remove contact import file {file_path}: "
+                        f"{cleanup_error}"
+                    )
 
     async def _validate_import_file(self, event):
         if not event.message.document:
             await event.reply("❌ Please send a CSV file")
             return False
-        file_name = event.message.document.attributes[0].file_name if event.message.document.attributes else "file"
-        if not file_name.endswith(".csv"):
+        file_name = next(
+            (
+                attribute.file_name
+                for attribute in (event.message.document.attributes or [])
+                if getattr(attribute, "file_name", None)
+            ),
+            "",
+        )
+        if not file_name.lower().endswith(".csv"):
             await event.reply("❌ Please send a CSV file")
             return False
         return True
@@ -811,11 +870,13 @@ class ContactHandler:
         skipped_count = 0
         error_count = 0
         
-        with open(file_path, "r", encoding="utf-8") as csvfile:
+        with open(file_path, "r", encoding="utf-8-sig") as csvfile:
             csvfile.readline().strip()
             csvfile.seek(0)
             reader = csv.DictReader(csvfile)
             
+            if not reader.fieldnames:
+                return None
             if "ID" in reader.fieldnames and "First Name" in reader.fieldnames:
                 imported, skipped, errors = await self._import_export_format(reader, account)
             elif "user_id" in reader.fieldnames:
@@ -838,6 +899,9 @@ class ContactHandler:
                     continue
                 
                 user_id_val = int(row["ID"])
+                if user_id_val <= 0:
+                    errors += 1
+                    continue
                 if await ContactDB.get_contact(user_id_val, account):
                     skipped += 1
                     continue
@@ -864,6 +928,9 @@ class ContactHandler:
         for row in reader:
             try:
                 user_id_val = int(row["user_id"])
+                if user_id_val <= 0:
+                    errors += 1
+                    continue
                 if await ContactDB.get_contact(user_id_val, account):
                     skipped += 1
                     continue
@@ -893,13 +960,16 @@ class ContactHandler:
     async def _cleanup_and_show_results(self, event, user_id, file_path, stats):
         import os
         if os.path.exists(file_path):
-            os.remove(file_path)
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                logger.warning(f"Failed to remove contact import file {file_path}: {e}")
         
         if stats is None:
             await event.reply("❌ Unsupported CSV format. Please check the file headers.")
             return
         
-        del self.pending_actions[user_id]
+        self.pending_actions.pop(user_id, None)
         text = (
             f"📥 **Import Complete**\n\n"
             f"✅ Imported: {stats['imported']}\n"
@@ -950,6 +1020,7 @@ class ContactHandler:
 
     async def _view_tag_contacts(self, event, user_id: int, tag: str):
         """View contacts with specific tag"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         contacts = await ContactDB.get_contacts_by_tag(account, tag)
         if not contacts:
@@ -971,6 +1042,7 @@ class ContactHandler:
 
     async def _view_group(self, event, user_id: int, group_name: str):
         """View group details"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         group = await ContactDB.get_group(group_name, account)
         if not group:
@@ -980,6 +1052,13 @@ class ContactHandler:
         if group.description:
             text += f"{group.description}\n\n"
         text += f"👥 Members: {len(group.contact_ids)}\n\n"
+        for contact_id in group.contact_ids[:8]:
+            contact = await ContactDB.get_contact(contact_id, account)
+            if contact:
+                name = f"{contact.first_name} {contact.last_name or ''}".strip()
+                text += f"• {name} (`{contact.user_id}`)\n"
+        if len(group.contact_ids) > 8:
+            text += f"…and {len(group.contact_ids) - 8} more\n"
         buttons = [
             [Button.inline("➕ Add Contact", f"group:add_contact:{group_name}")],
             [Button.inline("🗑️ Delete Group", f"group:delete:{group_name}")],
@@ -995,8 +1074,80 @@ class ContactHandler:
             buttons=[[Button.inline("❌ Cancel", "contacts:groups")]],
         )
 
+    async def _process_create_group(self, event, user_id: int, name: str):
+        name = name.strip()
+        account = await self._get_user_account(user_id)
+        if not name or not account:
+            await event.reply("❌ Enter a group name and connect an account.")
+            return
+        if len(name.encode("utf-8")) > 40:
+            await event.reply("❌ Group names must be 40 UTF-8 bytes or fewer.")
+            return
+        success = await ContactDB.add_group(
+            ContactGroup(name=name, managed_by_account=account)
+        )
+        self.pending_actions.pop(user_id, None)
+        if success:
+            await event.reply(
+                f"✅ Group '{name}' created",
+                buttons=[[Button.inline("📁 View Groups", "contacts:groups")]],
+            )
+        else:
+            await event.reply("❌ Could not create group. Please retry.")
+
+    async def _start_group_add_contact(self, event, user_id: int, group_name: str):
+        account = await self._get_user_account(user_id)
+        group = await ContactDB.get_group(group_name, account)
+        if not group:
+            await event.answer("Group not found")
+            return
+        self.pending_actions[user_id] = {
+            "type": "group_add_contact",
+            "group_name": group_name,
+        }
+        await event.edit(
+            f"➕ Send the Telegram user ID of a saved contact to add to '{group_name}'.",
+            buttons=[[Button.inline("❌ Cancel", f"group:view:{group_name}")]],
+        )
+
+    async def _process_group_add_contact(
+        self, event, user_id: int, text: str, action: dict
+    ):
+        try:
+            contact_id = int(text.strip())
+        except ValueError:
+            await event.reply("❌ Send a numeric Telegram user ID.")
+            return
+        account = await self._get_user_account(user_id)
+        if contact_id <= 0 or not await ContactDB.get_contact(contact_id, account):
+            await event.reply("❌ Contact not found in this account.")
+            return
+        group_name = action.get("group_name")
+        if await ContactDB.add_contact_to_group(contact_id, group_name, account):
+            self.pending_actions.pop(user_id, None)
+            await event.reply(
+                "✅ Contact added to group",
+                buttons=[[Button.inline("📁 View Group", f"group:view:{group_name}")]],
+            )
+        else:
+            await event.reply(
+                "❌ Contact is already in the group or the group was not found."
+            )
+
+    async def _delete_group(self, event, user_id: int, group_name: str):
+        account = await self._get_user_account(user_id)
+        if await ContactDB.delete_group(group_name, account):
+            self.pending_actions.pop(user_id, None)
+            await event.edit(
+                "✅ Group deleted",
+                buttons=[[Button.inline("🔙 Back", "contacts:groups")]],
+            )
+        else:
+            await event.answer("❌ Failed to delete group")
+
     async def _show_main_menu(self, event, user_id: int):
         """Show main contacts menu"""
+        self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         if not account:
             await event.edit("❌ No active account found.", buttons=[])
@@ -1017,11 +1168,11 @@ class ContactHandler:
             ],
             [Button.inline("🔄 Sync", "contacts:sync")],
         ]
-        contacts = await ContactDB.get_all_contacts(account, limit=5)
-        count = len(contacts)
+        count = await ContactDB.count_contacts(account)
+        count_text = str(count) if count is not None else "Unavailable"
         await event.edit(
             f"📱 **Contact Management**\n\n"
-            f"📊 Total Contacts: {count}\n"
+            f"📊 Saved Contacts: {count_text}\n"
             f"🔧 Account: {account}\n\n"
             f"Choose an option:",
             buttons=buttons,
@@ -1038,16 +1189,27 @@ class ContactHandler:
             return
 
         accounts = action.get("accounts", [])
-        if account_idx >= len(accounts):
+        if account_idx < 0 or account_idx >= len(accounts):
+            self.pending_actions.pop(user_id, None)
             await event.edit("❌ Account not found", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
 
         account = accounts[account_idx]
-        client = self._get_user_client(user_id)
-        if not client:
+        account_name = account.get("name")
+        if not account_name:
+            self.pending_actions.pop(user_id, None)
+            await event.edit(
+                "❌ Account not found",
+                buttons=[[Button.inline("🔙 Back", "contacts:main")]],
+            )
+            return
+        client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+        if not client or not client.is_connected():
+            self.pending_actions.pop(user_id, None)
             await event.edit("❌ Account not connected", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
             return
 
+        self.pending_actions.pop(user_id, None)
         await event.edit("📤 **Exporting...**\n\n⏳ Fetching contacts...")
         try:
             result = await client(GetContactsRequest(hash=0))
@@ -1057,8 +1219,7 @@ class ContactHandler:
                 await event.edit("📤 No contacts found", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
                 return
             
-            await self._send_csv_export(user_id, account["name"], contacts_data)
-            del self.pending_actions[user_id]
+            await self._send_csv_export(user_id, account_name, contacts_data)
             await event.edit("✅ Export complete!", buttons=[[Button.inline("🔙 Back", "contacts:main")]])
         except Exception as e:
             logger.error(f"Export error: {e}")

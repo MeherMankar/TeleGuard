@@ -49,7 +49,7 @@ class ContactDB:
                 {"user_id": user_id, "managed_by_account": managed_by_account},
                 {"$set": update_data},
             )
-            return result.modified_count > 0
+            return result.matched_count > 0
         except Exception as e:
             logger.error(f"Error updating contact: {e}")
             return False
@@ -82,6 +82,17 @@ class ContactDB:
         except Exception as e:
             logger.error(f"Error getting contacts: {e}")
             return []
+
+    @staticmethod
+    async def count_contacts(managed_by_account: str) -> Optional[int]:
+        """Count saved contacts for one managed account."""
+        try:
+            return await mongodb.db.contacts.count_documents(
+                {"managed_by_account": managed_by_account}
+            )
+        except Exception as e:
+            logger.error(f"Error counting contacts: {e}")
+            return None
 
     @staticmethod
     async def search_contacts(managed_by_account: str, query: str) -> List[Contact]:
@@ -186,6 +197,18 @@ class ContactDB:
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error adding contact to group: {e}")
+            return False
+
+    @staticmethod
+    async def delete_group(name: str, managed_by_account: str) -> bool:
+        """Delete a group for one managed account"""
+        try:
+            result = await mongodb.db.contact_groups.delete_one(
+                {"name": name, "managed_by_account": managed_by_account}
+            )
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting group: {e}")
             return False
 
     @staticmethod
