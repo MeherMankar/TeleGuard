@@ -102,6 +102,7 @@ class BotManager:
         bot_manager = self
         self.bot: Optional[TelegramClient] = None
         self.user_clients: Dict[int, Dict[str, TelegramClient]] = {}
+        self._session_retry_tasks: Dict[tuple[int, str], asyncio.Task] = {}
         # Maps (user_id, account_name) -> telegram_id so OTP handler
         # doesn't need to call client.get_me() on every message.
         self._client_tg_ids: Dict[tuple, int] = {}
@@ -131,6 +132,7 @@ class BotManager:
 
         # SessionMaster functionality is integrated into existing components
         self._is_running = False
+        self._shutting_down = False
         self._startup_complete = False
         self.spam_detector = None
 
@@ -156,6 +158,7 @@ class BotManager:
             ConfigurationError: If configuration is invalid
             TeleGuardError: If startup fails
         """
+        self._shutting_down = False
         try:
             self._validate_configuration()
             await self._initialize_database()
@@ -297,12 +300,13 @@ class BotManager:
                                 account.get("name", "Unknown"),
                                 account["session_string"],
                             ),
-                            # Allow up to 45 s so that the AUTH_KEY_DUPLICATED retry
-                            # logic (up to 3 retries × ~15 s each) has time to complete
-                            # on cloud rolling restarts before giving up.
-                            timeout=45.0,
+                            timeout=20.0,
                         )
-                        loaded_count += 1
+                        client = self.user_clients.get(account["user_id"], {}).get(
+                            account.get("name", "Unknown")
+                        )
+                        if client and client.is_connected():
+                            loaded_count += 1
                     except asyncio.TimeoutError:
                         logger.warning(
                             f"Timeout loading client for {account.get('name')}"
@@ -366,7 +370,11 @@ class BotManager:
                 pass
 
     async def _start_user_client(
-        self, user_id: int, account_name: str, session_string: str
+        self,
+        user_id: int,
+        account_name: str,
+        session_string: str,
+        retry_session_conflict: bool = True,
     ) -> None:
         try:
             # Validate and clean session string format before creating client
@@ -533,22 +541,15 @@ class BotManager:
                 **client_params,
             )
 
-            # Connect with retry logic for AUTH_KEY_DUPLICATED.
-            # On cloud platforms (Koyeb, Railway, etc.) a rolling restart briefly
-            # runs two instances simultaneously, causing Telegram to return
-            # AUTH_KEY_DUPLICATED because the same auth key is active on two IPs.
-            # This resolves on its own once the old process exits — so we retry
-            # with backoff instead of immediately declaring a "session conflict".
+            # During rolling deployments, Telegram can reject the same auth key
+            # while the previous instance is still shutting down. Retry it in a
+            # background task instead of marking the account inactive.
             #
             # Small initial delay: gives the old container ~3 s to release the
             # auth key before we attempt our first connect.
             await asyncio.sleep(3)
 
-            connect_attempts = 0
-            max_connect_attempts = 4
-
             while True:
-                connect_attempts += 1
                 try:
                     await asyncio.wait_for(client.connect(), timeout=10.0)
                     break  # connected successfully
@@ -561,28 +562,14 @@ class BotManager:
                         pass
 
                     err_lower = str(conn_err).lower()
-                    is_duplicate = (
-                        "auth_key_duplicated" in err_lower
-                        or "two different ip" in err_lower
-                        or ("authorization key" in err_lower and "ip addresses" in err_lower)
-                        or ("authorization key" in err_lower and "simultaneously" in err_lower)
-                    )
-                    if is_duplicate and connect_attempts < max_connect_attempts:
-                        wait = connect_attempts * 5  # 5 s, 10 s, 15 s
+                    if self._is_duplicate_session_error(conn_err):
                         logger.warning(
-                            f"AUTH_KEY_DUPLICATED for {account_name} on startup "
-                            f"(attempt {connect_attempts}/{max_connect_attempts}) — "
-                            f"likely a rolling restart, retrying in {wait}s..."
+                            f"AUTH_KEY_DUPLICATED for {account_name}; "
+                            "this can happen during a rolling deployment"
                         )
-                        await asyncio.sleep(wait)
-                        # Re-create a fresh client object for the next attempt
-                        client = TelegramClient(
-                            StringSession(session_string),
-                            config.telegram.api_id,
-                            config.telegram.api_hash,
-                            **client_params,
-                        )
-                        continue
+                        if retry_session_conflict:
+                            self._schedule_session_retry(user_id, account_name)
+                        return
                     # Non-retryable or exhausted retries — handle below
                     error_msg = err_lower
                     if any(
@@ -735,6 +722,87 @@ class BotManager:
         except Exception as e:
             logger.error(f"Failed to start user client {account_name}: {e}")
             raise
+
+    @staticmethod
+    def _is_duplicate_session_error(error: Exception | str) -> bool:
+        error_text = str(error).lower()
+        return (
+            "auth_key_duplicated" in error_text
+            or "two different ip" in error_text
+            or (
+                "authorization key" in error_text
+                and "ip addresses" in error_text
+            )
+            or (
+                "authorization key" in error_text
+                and "simultaneously" in error_text
+            )
+        )
+
+    def _schedule_session_retry(self, user_id: int, account_name: str) -> None:
+        key = (user_id, account_name)
+        existing_task = self._session_retry_tasks.get(key)
+        if existing_task and not existing_task.done():
+            return
+
+        self._session_retry_tasks[key] = asyncio.create_task(
+            self._retry_user_client_after_conflict(user_id, account_name)
+        )
+
+    async def _retry_user_client_after_conflict(
+        self, user_id: int, account_name: str
+    ) -> None:
+        key = (user_id, account_name)
+        retry_delay = 15
+        current_task = asyncio.current_task()
+        try:
+            while not self._shutting_down:
+                await asyncio.sleep(retry_delay)
+
+                existing_client = self.user_clients.get(user_id, {}).get(account_name)
+                if existing_client and existing_client.is_connected():
+                    return
+
+                account = await mongodb.db.accounts.find_one(
+                    {
+                        "user_id": user_id,
+                        "name": account_name,
+                        "is_active": True,
+                    }
+                )
+                if not account:
+                    return
+
+                account = DataEncryption.decrypt_account_data(account)
+                session_string = account.get("session_string")
+                if not session_string:
+                    logger.warning(
+                        f"Cannot retry session for {account_name}: session is missing"
+                    )
+                    return
+
+                logger.info(
+                    f"Retrying Telegram session for {account_name} after deployment overlap"
+                )
+                await self._start_user_client(
+                    user_id,
+                    account_name,
+                    session_string,
+                    retry_session_conflict=False,
+                )
+
+                existing_client = self.user_clients.get(user_id, {}).get(account_name)
+                if existing_client and existing_client.is_connected():
+                    return
+
+                retry_delay = min(retry_delay * 2, 300)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.warning(f"Session retry failed for {account_name}: {error}")
+        finally:
+            if self._session_retry_tasks.get(key) is current_task:
+                self._session_retry_tasks.pop(key, None)
 
     def get_client(self, user_id: int, account) -> Optional[TelegramClient]:
         """
@@ -1627,6 +1695,14 @@ class BotManager:
         try:
             logger.info("Starting cleanup...")
             self._is_running = False
+            self._shutting_down = True
+
+            retry_tasks = list(self._session_retry_tasks.values())
+            for task in retry_tasks:
+                task.cancel()
+            if retry_tasks:
+                await asyncio.gather(*retry_tasks, return_exceptions=True)
+            self._session_retry_tasks.clear()
 
             # Stop MTProto bridges
             try:
