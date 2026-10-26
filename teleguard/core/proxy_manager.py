@@ -76,7 +76,7 @@ class ProxyManager:
 
                 if proxy_type == "mtproto":
                     secret = params.get("secret")
-                    self.normalize_mtproto_secret(secret)
+                    secret = self.normalize_mtproto_secret(secret)
                     return {
                         "type": "mtproto",
                         "server": params.get("server"),
@@ -101,7 +101,7 @@ class ProxyManager:
 
                 if proxy_type == "mtproto":
                     secret = params.get("secret", [""])[0]
-                    self.normalize_mtproto_secret(secret)
+                    secret = self.normalize_mtproto_secret(secret)
                     return {
                         "type": "mtproto",
                         "server": params.get("server", [""])[0],

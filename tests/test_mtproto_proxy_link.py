@@ -26,7 +26,7 @@ def test_parses_mtproto_t_me_link_with_optional_bot_and_channel():
         "type": "mtproto",
         "server": "65.21.235.107",
         "port": 4455,
-        "secret": "dd104462821249bd7ac519130220c25d09",
+        "secret": "104462821249bd7ac519130220c25d09",
     }
 
 
@@ -41,7 +41,10 @@ def test_builds_native_telethon_mtproto_proxy_configuration():
 
     result = asyncio.run(manager.build_telethon_proxy(proxy))
 
-    assert result == proxy
+    assert result == {
+        **proxy,
+        "secret": "104462821249bd7ac519130220c25d09",
+    }
 
 
 def test_rejects_mtproto_link_without_secret():
@@ -73,5 +76,4 @@ def test_parses_and_normalizes_urlsafe_mtproto_secret():
     assert parsed["type"] == "mtproto"
     assert parsed["server"] == "imtproxy.ir.hosting.server.qodrati.www.imtproxy-ir.info"
     assert parsed["port"] == 53556
-    assert parsed["secret"] == LONG_URLSAFE_SECRET
-    assert manager.normalize_mtproto_secret(parsed["secret"]) == decoded_secret[:16].hex()
+    assert parsed["secret"] == decoded_secret[:16].hex()

@@ -211,17 +211,16 @@ class ProxyHandler:
     async def process_proxy_input(self, event, user_id, text):
         """Process proxy input from user"""
         try:
-            logger.info(f"Processing proxy input from user {user_id}: {text[:100]}...")
+            logger.info("Processing proxy input for user %s", user_id)
 
             # Send immediate processing feedback
             processing_msg = await event.reply("🔄 Processing proxy...")
 
             # Parse proxy
             proxy_data = await proxy_manager.parse_telegram_proxy_link(text)
-            logger.info(f"Parsed proxy data: {proxy_data}")
 
             if not proxy_data:
-                logger.warning(f"Failed to parse proxy link: {text[:100]}")
+                logger.warning("Failed to parse proxy input for user %s", user_id)
                 await processing_msg.edit(
                     "❌ **Invalid Proxy Format**\n\n"
                     "Could not parse the proxy link you provided.\n\n"
