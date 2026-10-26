@@ -84,7 +84,9 @@ class TopicDMHandler:
                 target_user_id = mapping["user_id"]
                 managed_account_id = mapping["account_id"]
                 # Find the managed client
-                managed_client = await self._get_client_by_id(managed_account_id)
+                managed_client = await self.bot_manager.get_client_by_telegram_id(
+                    managed_account_id
+                )
                 if managed_client:
                     await managed_client.send_message(target_user_id, event.text)
             except Exception as e:
@@ -202,19 +204,6 @@ class TopicDMHandler:
         except Exception as e:
             logger.error(f"Failed to get topic mapping: {e}")
             return None
-
-    async def _get_client_by_id(self, account_id: int):
-        """Get managed client by account ID"""
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if client and client.is_connected():
-                    try:
-                        me = await client.get_me()
-                        if me.id == account_id:
-                            return client
-                    except Exception:
-                        continue
-        return None
 
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up topic handler for newly added client"""

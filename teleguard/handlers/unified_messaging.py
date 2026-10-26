@@ -787,25 +787,12 @@ class UnifiedMessagingSystem:
 
     async def _get_client_by_id(self, account_id):
         """Get managed client by Telegram user ID"""
-        logger.debug(f"Looking for client with account_id={account_id}")
-        
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if not client:
-                    continue
-                try:
-                    if not client.is_connected():
-                        continue
-                    me = await client.get_me()
-                    if me.id == account_id:
-                        logger.debug(f"✅ Found client for account {account_id}: {account_name}")
-                        return client
-                except Exception as e:
-                    logger.debug(f"Error checking client {account_name}: {e}")
-                    continue
-        
-        logger.error(f"❌ No connected client found for account_id={account_id}")
-        return None
+        client = await self.bot_manager.get_client_by_telegram_id(account_id)
+        if client:
+            logger.debug(f"Found client for account {account_id}")
+        else:
+            logger.error(f"No connected client found for account_id={account_id}")
+        return client
 
     async def _send_bot_message_directly(
         self, user_id: int, sender, managed_account, event

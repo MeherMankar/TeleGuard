@@ -310,16 +310,3 @@ class TopicActionsHandler:
 
         except Exception as e:
             logger.error(f"Failed to handle general topic broadcast: {e}")
-
-    async def _get_client_by_account_id(self, account_id: int):
-        """Get managed client by account Telegram ID"""
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if client and client.is_connected():
-                    try:
-                        me = await client.get_me()
-                        if me.id == account_id:
-                            return client
-                    except Exception:
-                        continue
-        return None

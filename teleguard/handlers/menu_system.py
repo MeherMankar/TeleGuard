@@ -2096,77 +2096,12 @@ class MenuSystem:
         ops = MessagingOperations(self)
         await ops.start_bulk_list_flow(user_id, event)
 
-    async def _start_bulk_list_flow_legacy(self, user_id: int, event):
-        """Legacy bulk list flow"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            if not accounts:
-                await event.answer("\u274c No accounts found")
-                return
-            text = (
-                "\ud83d\udd19 **Bulk Send to List**\n\n"
-                "Step 1: Select account to send from:\n\n"
-            )
-            buttons = []
-            for account in accounts:
-                status = "\u2705" if account.get("is_active", False) else "\u274c"
-                button_text = f"{status} {account['name']}"
-                buttons.append(
-                    [Button.inline(button_text, f"bulk_list_account:{account['_id']}")]
-                )
-            buttons.append(
-                [Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]
-            )
-            await self.bot.edit_message(
-                user_id, event.message_id, text, buttons=buttons
-            )
-            await event.answer("\ud83d\udd19 Select account")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to start bulk list flow: {e}")
-
     async def _start_bulk_contacts_flow(self, user_id: int, event):
         """Start bulk contacts flow - delegated to MessagingOperations"""
         from .menu_modules import MessagingOperations
 
         ops = MessagingOperations(self)
         await ops.start_bulk_contacts_flow(user_id, event)
-
-    async def _start_bulk_contacts_flow_legacy(self, user_id: int, event):
-        """Legacy bulk contacts flow"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            if not accounts:
-                await event.answer("\u274c No accounts found")
-                return
-            text = (
-                "\ud83d\udd19 **Bulk Send to Contacts**\n\n"
-                "Step 1: Select account to send from:\n\n"
-                "This will send to ALL contacts of the selected account."
-            )
-            buttons = []
-            for account in accounts:
-                status = "\u2705" if account.get("is_active", False) else "\u274c"
-                button_text = f"{status} {account['name']}"
-                buttons.append(
-                    [
-                        Button.inline(
-                            button_text, f"bulk_contacts_account:{account['_id']}"
-                        )
-                    ]
-                )
-            buttons.append(
-                [Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]
-            )
-            await self.bot.edit_message(
-                user_id, event.message_id, text, buttons=buttons
-            )
-            await event.answer("\ud83d\udd19 Select account")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to start bulk contacts flow: {e}")
 
     async def _start_bulk_all_flow(self, user_id: int, event):
         """Start bulk all flow - delegated to MessagingOperations"""
@@ -2175,33 +2110,6 @@ class MenuSystem:
         ops = MessagingOperations(self)
         await ops.start_bulk_all_flow(user_id, event)
 
-    async def _start_bulk_all_flow_legacy(self, user_id: int, event):
-        """Legacy bulk all flow"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            if not accounts:
-                await event.answer("\u274c No accounts found")
-                return
-            if self.account_manager:
-                self.account_manager.pending_actions[user_id] = {
-                    "action": "bulk_all_targets"
-                }
-            text = (
-                f"\ud83d\udd19 **Bulk Send from All Accounts**\n\n"
-                f"This will send from ALL {len(accounts)} accounts.\n\n"
-                "Step 1: Reply with target usernames/IDs (comma-separated):\n\n"
-                "**Examples:**\n"
-                "• @username1,@username2,@username3\n"
-                "• +1234567890,@username,123456789\n\n"
-                "Reply with the targets:"
-            )
-            await self.bot.edit_message(user_id, event.message_id, text)
-            await event.answer("\ud83d\udd19 Reply with targets")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to start bulk all flow: {e}")
-
     async def _show_bulk_jobs(self, user_id: int, message_id: int):
         """Show bulk jobs - delegated to MessagingOperations"""
         from .menu_modules import MessagingOperations
@@ -2209,96 +2117,12 @@ class MenuSystem:
         ops = MessagingOperations(self)
         await ops.show_bulk_jobs(user_id, message_id)
 
-    async def _show_bulk_jobs_legacy(self, user_id: int, message_id: int):
-        """Legacy bulk jobs display"""
-        try:
-            if not hasattr(self.account_manager, "bulk_sender"):
-                text = "\u274c Bulk sender not available"
-                buttons = [
-                    [Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]
-                ]
-            else:
-                user_jobs = [
-                    job
-                    for job in self.account_manager.bulk_sender.active_jobs.values()
-                    if job["user_id"] == user_id
-                ]
-                if not user_jobs:
-                    text = (
-                        "\ud83d\udd19 **Active Bulk Jobs**\n\n💭 No active jobs found."
-                    )
-                    buttons = [
-                        [Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]
-                    ]
-                else:
-                    text = f"\ud83d\udd19 **Active Bulk Jobs** ({len(user_jobs)})\n\n"
-                    buttons = []
-                    for job in user_jobs:
-                        progress = f"{job['sent']}/{job['total']}"
-                        status_emoji = (
-                            "\u2705" if job["status"] == "running" else "\u2705"
-                        )
-                        account_info = (
-                            f" [{job['account_name']}]"
-                            if job.get("multi_account")
-                            else ""
-                        )
-                        text += (
-                            f"{status_emoji} **Job {job['id'][:8]}**{account_info}\n"
-                        )
-                        text += f"   Progress: {progress} ({job['status']})\n"
-                        if job["failed"] > 0:
-                            text += f"   Failed: {job['failed']}\n"
-                        text += "\n"
-                        if job["status"] == "running":
-                            buttons.append(
-                                [
-                                    Button.inline(
-                                        f"⏹️ Stop {job['id'][:8]}",
-                                        f"bulk:stop:{job['id']}",
-                                    )
-                                ]
-                            )
-                    buttons.append([Button.inline("🔄 Refresh", "bulk:jobs")])
-                    buttons.append(
-                        [Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]
-                    )
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to show bulk jobs: {e}")
-
     async def _show_bulk_help(self, user_id: int, message_id: int):
         """Show bulk help - delegated to MessagingOperations"""
         from .menu_modules import MessagingOperations
 
         ops = MessagingOperations(self)
         await ops.show_bulk_help(user_id, message_id)
-
-    async def _show_bulk_help_legacy(self, user_id: int, message_id: int):
-        """Legacy bulk help display"""
-        text = (
-            "❓ **Bulk Sender Help**\n\n"
-            "**Available Commands:**\n"
-            "• `/bulk_send` - Show bulk sender help\n"
-            "• `/bulk_send_list account_name` - Send to specific users\n"
-            "• `/bulk_send_contacts account_name` - Send to all contacts\n"
-            "• `/bulk_send_all` - Send from ALL accounts\n"
-            "• `/bulk_jobs` - View active jobs\n"
-            "• `/bulk_stop <job_id>` - Stop a job\n\n"
-            "**Format for list sending:**\n"
-            "`/bulk_send_list account_name\n"
-            "username1,username2,user_id3\n"
-            "Your message here`\n\n"
-            "**Button Format:**\n"
-            "Add buttons using: `[Button Text](url)` or `[Button Text](callback_data)`\n"
-            "Example: `Check this out [Visit Site](https://example.com) [More Info](info_callback)`\n\n"
-            "**Tips:**\n"
-            "• Use the menu buttons for easier setup\n"
-            "• Commands provide more advanced options\n"
-            "• Jobs run in background with progress updates"
-        )
-        buttons = [[Button.inline("\ud83d\udd19 Back to Bulk Sender", "msg:bulk")]]
-        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _handle_simulate_callback(self, event, user_id: int, data: str):
         await self.callback_handlers.handle_simulate_callback(event, user_id, data)

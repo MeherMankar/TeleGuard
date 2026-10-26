@@ -277,7 +277,9 @@ class DMReplyHandler:
                     return
                 sender_id = topic_mapping["sender_id"]
                 account_id = topic_mapping["account_id"]
-                managed_client = await self._get_client_by_account_id(account_id)
+                managed_client = await self.bot_manager.get_client_by_telegram_id(
+                    account_id
+                )
                 if not managed_client:
                     managed_client = await self._load_account_client(event, account_id)
                     if not managed_client:
@@ -294,19 +296,6 @@ class DMReplyHandler:
                     await BotLogger.log_error("Topic Reply Error", str(e)[:500], event.sender_id, "Topic reply handler")
                 except BaseException:
                     pass
-
-    async def _get_client_by_account_id(self, account_id: int):
-        """Get managed client by account Telegram ID"""
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if client and client.is_connected():
-                    try:
-                        me = await client.get_me()
-                        if me.id == account_id:
-                            return client
-                    except Exception:
-                        continue
-        return None
 
     async def _get_or_create_topic(
         self, group_id: int, topic_title: str, sender_id: int, account_id: int
@@ -719,7 +708,9 @@ Enhanced reply:"""
                 target_account["name"],
                 target_account["session_string"],
             )
-            managed_client = await self._get_client_by_account_id(account_id)
+            managed_client = await self.bot_manager.get_client_by_telegram_id(
+                account_id
+            )
             if managed_client:
                 await self.setup_new_client_handler(
                     target_account["user_id"],

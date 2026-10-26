@@ -1754,6 +1754,22 @@ class BotManager:
         except Exception:
             return "Unknown"
 
+    async def get_client_by_telegram_id(
+        self, telegram_id: int
+    ) -> Optional[TelegramClient]:
+        """Find a connected managed client by its Telegram user ID."""
+        for clients in self.user_clients.values():
+            for client in clients.values():
+                if not client or not client.is_connected():
+                    continue
+                try:
+                    me = await client.get_me()
+                except Exception:
+                    continue
+                if me.id == telegram_id:
+                    return client
+        return None
+
     async def _auto_cleanup_accounts(self):
         """Automatically cleanup orphaned accounts during startup"""
         try:
@@ -1921,75 +1937,21 @@ class BotManager:
         self, user_id: int, account_name: str, phone: str, error_reason: str = ""
     ):
         """Notify user about session conflicts caused by other bots/clients"""
-        try:
-            error_type = (
-                "AUTH_KEY_UNREGISTERED (401)"
-                if "401" in error_reason or "unregistered" in error_reason.lower()
-                else (
-                    "AUTH_KEY_DUPLICATED (406)"
-                    if "406" in error_reason or "duplicated" in error_reason.lower()
-                    else "Session Conflict"
-                )
-            )
+        from ..utils.session_common import SessionUtils
 
-            message = (
-                f"⚠️ **Session Conflict Detected**\n\n"
-                f"📱 **Account:** {account_name} ({phone})\n"
-                f"🔴 **Error:** {error_type}\n\n"
-                f"**🤖 Likely Cause: Another Bot/Client**\n"
-                f"• This account is being used by another bot or Telegram client\n"
-                f"• Telegram only allows one active session per account\n"
-                f"• When multiple bots use the same account, sessions get invalidated\n\n"
-                f"**🔧 Solutions:**\n"
-                f"1. **Stop other bots** using this account\n"
-                f"2. **Use different accounts** for different bots\n"
-                f"3. **Re-add account** after stopping conflicts\n"
-                f"4. **Check for duplicate logins** on other devices\n\n"
-                f"🚨 **Important:** Multiple bots on same account = constant session conflicts\n\n"
-                f"💡 **Tip:** Use /start → Account Settings to manage accounts"
-            )
-            await self.bot.send_message(user_id, message)
-            logger.info(
-                f"Notified user {user_id} about session conflict for {account_name}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify user about session conflict: {e}")
+        await SessionUtils.notify_session_conflict(
+            self.bot, user_id, account_name, phone, error_reason
+        )
 
     async def _notify_user_reauth_needed(
         self, user_id: int, account_name: str, phone: str, error_reason: str = ""
     ):
         """Notify user that account needs re-authentication"""
-        try:
-            error_type = (
-                "AUTH_KEY_UNREGISTERED"
-                if "401" in error_reason or "unregistered" in error_reason.lower()
-                else (
-                    "AUTH_KEY_DUPLICATED"
-                    if "406" in error_reason or "duplicated" in error_reason.lower()
-                    else "Session Error"
-                )
-            )
+        from ..utils.session_common import SessionUtils
 
-            message = (
-                f"🔄 **Account Re-authentication Required**\n\n"
-                f"📱 **Account:** {account_name} ({phone})\n"
-                f"❌ **Error:** {error_type}\n\n"
-                f"**What happened:**\n"
-                f"• Your session has been invalidated by Telegram\n"
-                f"• This can happen due to security checks, session expiry, or duplicate logins\n\n"
-                f"**To fix this:**\n"
-                f"1. Go to Account Settings\n"
-                f"2. Remove the affected account\n"
-                f"3. Add it again using phone number login\n"
-                f"4. Or import a fresh session string\n\n"
-                f"💡 **Tip:** Use /start → Account Settings to manage accounts"
-            )
-            await self.bot.send_message(user_id, message)
-            logger.info(
-                f"Notified user {user_id} about reauth needed for {account_name}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify user about reauth: {e}")
+        await SessionUtils.notify_reauth_needed(
+            self.bot, user_id, account_name, phone, error_reason
+        )
 
     async def _handle_session_invalidation(
         self, user_id: int, account_name: str, phone: str, error_message: str
