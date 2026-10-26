@@ -242,10 +242,40 @@ class AutoReplyHandler:
             settings = await mongodb.db.auto_reply_settings.find_one(
                 {"user_id": int(user_id)}
             )
-            return settings.get("keywords", {}) if settings else {}
+            stored_keywords = settings.get("keywords", {}) if settings else {}
+            return self._normalize_keyword_map(stored_keywords)
         except Exception as e:
             logger.error(f"Error loading keywords for user {user_id}: {e}")
             return {}
+
+    @staticmethod
+    def _normalize_keyword_tokens(stored_keyword: str) -> list:
+        return [
+            keyword
+            for keyword in (
+                part.strip().strip("'\"").strip().lower()
+                for part in stored_keyword.split(",")
+            )
+            if len(keyword) >= MIN_KEYWORD_LENGTH
+        ]
+
+    @classmethod
+    def _normalize_keyword_map(cls, stored_keywords: dict) -> dict:
+        """Expand legacy comma-separated keyword entries into individual triggers."""
+        if not isinstance(stored_keywords, dict):
+            return {}
+
+        normalized = {}
+        entries = sorted(
+            stored_keywords.items(),
+            key=lambda item: ("," not in str(item[0]), str(item[0]).lower()),
+        )
+        for stored_keyword, reply in entries:
+            if not isinstance(stored_keyword, str) or not isinstance(reply, str):
+                continue
+            for keyword in cls._normalize_keyword_tokens(stored_keyword):
+                normalized[keyword] = reply
+        return normalized
 
     async def _add_user_keyword(self, user_id: int, keyword: str, message: str):
         """Add keyword for specific user"""
@@ -270,8 +300,21 @@ class AutoReplyHandler:
             safe_keyword = keyword.strip().lower()
             if not isinstance(user_id, int):
                 raise ValueError("Invalid user_id")
+            settings = await mongodb.db.auto_reply_settings.find_one(
+                {"user_id": user_id}
+            ) or {}
+            stored_keywords = settings.get("keywords", {})
+            matching_paths = [
+                f"keywords.{stored_keyword}"
+                for stored_keyword in stored_keywords
+                if isinstance(stored_keyword, str)
+                and safe_keyword in self._normalize_keyword_tokens(stored_keyword)
+            ]
+            if not matching_paths:
+                matching_paths = [f"keywords.{safe_keyword}"]
             await mongodb.db.auto_reply_settings.update_one(
-                {"user_id": user_id}, {"$unset": {f"keywords.{safe_keyword}": ""}}
+                {"user_id": user_id},
+                {"$unset": {path: "" for path in matching_paths}},
             )
         except Exception as e:
             logger.error(f"Error removing keyword for user {user_id}: {e}")
@@ -674,16 +717,42 @@ class AutoReplyHandler:
 
     async def _handle_keywords_menu(self, event, user_id):
         user_keywords = await self._get_user_keywords(user_id)
+        settings = await mongodb.db.auto_reply_settings.find_one(
+            {"user_id": user_id}
+        ) or {}
+        status = (
+            "🟢 Enabled"
+            if settings.get("keyword_replies_enabled", False)
+            else "🔴 Disabled"
+        )
         if user_keywords:
-            keyword_list = "\n".join([f"• {k}: {v[:50]}..." for k, v in user_keywords.items()])
+            keyword_list = "\n".join(
+                f"• {keyword}: {reply[:50]}{'...' if len(reply) > 50 else ''}"
+                for keyword, reply in user_keywords.items()
+            )
         else:
             keyword_list = "No keywords configured."
         buttons = [
+            [
+                Button.inline(
+                    "🔴 Disable Keyword Replies"
+                    if settings.get("keyword_replies_enabled", False)
+                    else "🟢 Enable Keyword Replies",
+                    "auto_reply:toggle_keywords",
+                )
+            ],
+            [Button.inline("📱 Toggle Per-Account Auto-Reply", "auto_reply:toggle")],
             [Button.inline("➕ Add Keyword", "auto_reply:add_keyword")],
             [Button.inline("➖ Remove Keyword", "auto_reply:remove_keyword")],
             [Button.inline("🔙 Back", "auto_reply:main")],
         ]
-        await event.edit(f"🔑 **Active Keywords:**\n\n{keyword_list}", buttons=buttons)
+        await event.edit(
+            f"🔑 **Keyword Replies:** {status}\n\n"
+            "Auto-replies also need to be enabled for at least one account "
+            "in **Toggle Per Account**.\n\n"
+            f"**Configured keywords:**\n{keyword_list}",
+            buttons=buttons,
+        )
 
     async def _handle_remove_keyword_menu(self, event, user_id):
         user_keywords = await self._get_user_keywords(user_id)

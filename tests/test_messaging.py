@@ -54,7 +54,7 @@ def test_invalid_phone_error_is_reported_once_and_clears_pending_action():
     )
     event = SimpleNamespace(reply=AsyncMock())
 
-    asyncio.run(handlers._process_add_account(event, user_id, "+988974834865"))
+    asyncio.run(handlers._process_add_account(event, user_id, "+988974834xxx"))
 
     event.reply.assert_awaited_once()
     assert "Invalid Phone Number" in event.reply.await_args.args[0]
@@ -65,10 +65,10 @@ def test_phone_number_error_is_not_retried():
     request = AsyncMock(side_effect=PhoneNumberInvalidError(request=None))
 
     try:
-        asyncio.run(retry_async(request, "+988974834865", base_delay=0))
+        asyncio.run(retry_async(request, "+988974834xxx", base_delay=0))
     except PhoneNumberInvalidError:
         pass
     else:
         raise AssertionError("PhoneNumberInvalidError should propagate immediately")
 
-    request.assert_awaited_once_with("+988974834865")
+    request.assert_awaited_once_with("+")
