@@ -843,6 +843,10 @@ class MessageHandlers:
     async def _handle_messaging_actions(self, event, user, action, message):
         """Handle messaging related actions"""
         user_id = event.sender_id
+        if action.startswith("bulk_"):
+            await self._handle_bulk_messaging_action(event, user_id, action, message)
+            return
+
         if action == "compose_message_target":
             account_id = self.pending_actions[user_id].get("account_id")
             self.pending_actions[user_id] = {
@@ -923,6 +927,130 @@ class MessageHandlers:
             else:
                 await event.reply("❌ Account not found.")
             self.pending_actions.pop(user_id, None)
+
+    async def _handle_bulk_messaging_action(self, event, user_id, action, message):
+        """Handle the menu's multi-step bulk-message flow."""
+        pending = self.pending_actions.get(user_id, {})
+
+        if action in {"bulk_list_targets", "bulk_all_targets"}:
+            targets = list(
+                dict.fromkeys(
+                    target.strip()
+                    for target in message.split(",")
+                    if target.strip()
+                )
+            )
+            if not targets:
+                await event.reply("❌ Enter at least one username or ID.")
+                return
+
+            if action == "bulk_list_targets":
+                next_action = "bulk_list_message"
+                next_pending = {
+                    "action": next_action,
+                    "account_id": pending.get("account_id"),
+                    "targets": targets,
+                }
+            else:
+                next_action = "bulk_all_message"
+                next_pending = {"action": next_action, "targets": targets}
+
+            self.pending_actions[user_id] = next_pending
+            await event.reply("📝 Reply with the message to send:")
+            return
+
+        if action not in {
+            "bulk_list_message",
+            "bulk_contacts_message",
+            "bulk_all_message",
+        }:
+            await event.reply("❌ Unknown messaging action.")
+            self.pending_actions.pop(user_id, None)
+            return
+
+        message_text = message.strip()
+        if not message_text:
+            await event.reply(
+                "❌ Message cannot be empty. Reply with the message to send:"
+            )
+            return
+
+        bulk_sender = getattr(self.bot_manager, "bulk_sender", None)
+        if not bulk_sender:
+            await event.reply("❌ Bulk messaging is currently unavailable.")
+            self.pending_actions.pop(user_id, None)
+            return
+
+        from bson import ObjectId
+
+        account_name = None
+        targets = pending.get("targets", [])
+        if action in {"bulk_list_message", "bulk_contacts_message"}:
+            try:
+                account_id = ObjectId(pending.get("account_id"))
+            except (TypeError, ValueError):
+                await event.reply("❌ Invalid account selection.")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            account = await mongodb.db.accounts.find_one(
+                {"_id": account_id, "user_id": user_id}
+            )
+            if not account:
+                await event.reply("❌ Account not found.")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            account = DataEncryption.decrypt_account_data(account)
+            account_name = account.get("name")
+            if not account_name:
+                await event.reply("❌ Account name is unavailable.")
+                self.pending_actions.pop(user_id, None)
+                return
+
+            if action == "bulk_contacts_message":
+                targets = await bulk_sender._get_account_contacts(
+                    user_id, account_name
+                )
+                if not targets:
+                    await event.reply("❌ No contacts found for this account.")
+                    self.pending_actions.pop(user_id, None)
+                    return
+        else:
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "is_active": True}
+            ).to_list(length=None)
+            account_names = []
+            for account in accounts:
+                name = DataEncryption.decrypt_account_data(account).get("name")
+                if name:
+                    account_names.append(name)
+
+        started_jobs = []
+        if action == "bulk_all_message":
+            for name in account_names:
+                job_id = await bulk_sender._start_bulk_job(
+                    user_id,
+                    name,
+                    targets,
+                    message_text,
+                    event,
+                    multi_account=True,
+                )
+                if job_id:
+                    started_jobs.append(job_id)
+        else:
+            job_id = await bulk_sender._start_bulk_job(
+                user_id, account_name, targets, message_text, event
+            )
+            if job_id:
+                started_jobs.append(job_id)
+
+        if started_jobs:
+            await event.reply(f"✅ Started {len(started_jobs)} bulk message job(s).")
+        else:
+            await event.reply("❌ No bulk message job could be started.")
+        self.pending_actions.pop(user_id, None)
 
     async def _handle_misc_actions(self, event, user, action, message):
         """Handle miscellaneous actions"""
@@ -1763,8 +1891,22 @@ class MessageHandlers:
             await self._handle_2fa_update(event, user_id, message)
         elif action.startswith("profile_") or action in ["change_profile_name", "change_name", "change_username", "change_bio", "change_photo", "change_profile_photo"]:
             await self._handle_profile_actions(event, user, action, message)
-        elif action.startswith(("message_", "set_autoreply", "compose_message")):
-            await self._handle_messaging_actions(event, user, action, message)
+        elif action.startswith(
+            ("message_", "set_autoreply", "compose_message", "bulk_", "schedule_")
+        ):
+            if action.startswith("schedule_"):
+                scheduled_messaging = getattr(
+                    self.bot_manager, "scheduled_messaging", None
+                )
+                if scheduled_messaging:
+                    await scheduled_messaging.handle_pending_action(
+                        event, user_id, action, message
+                    )
+                else:
+                    await event.reply("❌ Scheduled messaging is unavailable.")
+                    self.pending_actions.pop(user_id, None)
+            else:
+                await self._handle_messaging_actions(event, user, action, message)
         elif action.startswith("template_"):
             await self._handle_template_action(event, user_id, message)
         elif action.startswith(("otp_", "disable_otp", "set_otp", "enable_temp")):

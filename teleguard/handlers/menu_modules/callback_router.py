@@ -916,6 +916,23 @@ class CallbackRouter:
                     await self.menu.messaging_operations.show_bulk_help(
                         user_id, event.message_id
                     )
+                elif action == "stop":
+                    job_id = ":".join(parts[2:])
+                    bulk_sender = getattr(
+                        self.menu.account_manager, "bulk_sender", None
+                    )
+                    job = (
+                        bulk_sender.active_jobs.get(job_id)
+                        if bulk_sender and job_id
+                        else None
+                    )
+                    if not job or job["user_id"] != user_id:
+                        await event.answer("❌ Job not found")
+                    elif job["status"] != "running":
+                        await event.answer("ℹ️ Job is no longer running")
+                    else:
+                        job["status"] = "stopped"
+                        await event.answer("⏹️ Bulk job stopped")
                 else:
                     await event.answer("❌ Unknown bulk action")
             else:

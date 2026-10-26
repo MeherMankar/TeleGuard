@@ -208,6 +208,11 @@ class AutoReplyHandler:
                     response = "Hi, " + response
                 await event.reply(response)
                 self.analytics["auto_replies_sent"] += 1
+                from ..services.messaging_stats import MessagingStats
+
+                await MessagingStats().record_auto_reply(
+                    user_id, str(account_doc["_id"]), str(sender_id)
+                )
                 logger.info(f"Auto-reply sent from {account_name} to {sender_id}")
             except Exception as e:
                 logger.error(f"Auto-reply error for {account_name}: {e}")

@@ -199,6 +199,7 @@ class MenuHandlers:
                     Button.inline("🤖 Auto-Reply System", "auto_reply:main"),
                     Button.inline("📝 Message Templates", "msg:templates"),
                 ],
+                [Button.inline("⏰ Scheduled Messages", "schedule_msg")],
                 [
                     Button.inline("📨 Unified DM Manager", "dm_reply:main"),
                     Button.inline("📊 Analytics", "msg:stats"),

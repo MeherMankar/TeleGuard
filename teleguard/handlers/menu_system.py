@@ -370,6 +370,7 @@ class MenuSystem:
             "appeal_account_id", "appeal_cancel", "captcha_",
             # scheduled messaging
             "schedule_msg", "schedule_list", "schedule_cancel",
+            "schedule_new", "schedule_account",
             # contact export
             "export_contacts",
             # session export toggles (handled inline in catch-all below)
@@ -428,9 +429,7 @@ class MenuSystem:
 
     async def _handle_messaging(self, event):
         """Handle Messaging menu"""
-        await self.messaging_operations.show_messaging_menu(
-            event.sender_id, event.message_id
-        )
+        await self.handlers.handle_messaging(event)
 
     async def _handle_channels(self, event):
         """Handle Channels menu"""
@@ -3526,18 +3525,18 @@ class MenuSystem:
         """Show messaging analytics dashboard"""
         try:
             from telethon import Button
-            import time
 
             accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
             total_accounts = len(accounts)
             active_accounts = sum(1 for a in accounts if a.get("is_active"))
             auto_reply_on = sum(1 for a in accounts if a.get("auto_reply_enabled"))
 
-            # Pull stats from DB if available
-            stats_doc = await mongodb.db.messaging_stats.find_one({"user_id": user_id}) or {}
-            total_sent = stats_doc.get("total_sent", 0)
-            auto_replies = stats_doc.get("auto_replies_sent", 0)
-            bulk_sent = stats_doc.get("bulk_sent", 0)
+            from ..services.messaging_stats import MessagingStats
+
+            stats = await MessagingStats().get_user_stats(user_id)
+            total_sent = stats["total_messages"]
+            auto_replies = stats["total_auto_replies"]
+            bulk_sent = stats["total_bulk_messages"]
             dm_topics = await mongodb.db.dm_topics.count_documents({"user_id": user_id})
 
             text = (
@@ -3545,10 +3544,10 @@ class MenuSystem:
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📱 **Accounts:** {active_accounts}/{total_accounts} active\n"
                 f"🤖 **Auto-Reply:** {auto_reply_on} accounts enabled\n\n"
-                "📤 **Message Activity:**\n"
+                "📤 **Message Activity (last 7 days):**\n"
                 f"• Total Sent: {total_sent:,}\n"
                 f"• Auto-Replies: {auto_replies:,}\n"
-                f"• Bulk Campaigns: {bulk_sent:,}\n"
+                f"• Bulk Messages: {bulk_sent:,}\n"
                 f"• DM Topics: {dm_topics}\n\n"
                 "💡 Messages are tracked as you use the bot."
             )
@@ -3573,9 +3572,9 @@ class MenuSystem:
             from telethon import Button
 
             # Fetch last 15 sent messages from DB
-            records = await mongodb.db.message_history.find(
-                {"user_id": user_id}
-            ).sort("timestamp", -1).limit(15).to_list(None)
+            from ..services.messaging_stats import MessagingStats
+
+            records = await MessagingStats().get_recent_messages(user_id, limit=15)
 
             if not records:
                 text = (
@@ -3596,9 +3595,17 @@ class MenuSystem:
                     ts = time.strftime("%m-%d %H:%M", time.localtime(rec.get("timestamp", 0)))
                     target = rec.get("target", "Unknown")
                     msg_type = rec.get("type", "msg")
-                    type_emoji = {"auto_reply": "🤖", "bulk": "📨", "manual": "📤"}.get(msg_type, "📤")
-                    account = rec.get("account_name", "?")
-                    text += f"{type_emoji} `{ts}` → **{target}** via {account}\n"
+                    type_emoji = {
+                        "auto_reply": "🤖",
+                        "bulk": "📨",
+                        "manual": "📤",
+                        "scheduled": "⏰",
+                    }.get(msg_type, "📤")
+                    account_id = str(rec.get("account_id", "?"))
+                    text += (
+                        f"{type_emoji} `{ts}` → **{target}** via "
+                        f"account `{account_id[:8]}`\n"
+                    )
 
             buttons = [
                 [Button.inline("🔄 Refresh", "msg:history")],

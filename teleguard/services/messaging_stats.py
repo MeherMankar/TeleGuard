@@ -26,6 +26,7 @@ class MessagingStats:
                 {"user_id": user_id, "account_id": account_id, "date": today},
                 {
                     "$inc": {"messages_sent": 1},
+                    **({"bulk_sent": 1} if message_type == "bulk" else {}),
                     "$addToSet": {"targets": target},
                     "$set": {"last_updated": datetime.utcnow()},
                 },
@@ -97,6 +98,7 @@ class MessagingStats:
 
             total_messages = sum(s.get("messages_sent", 0) for s in stats)
             total_auto_replies = sum(s.get("auto_replies", 0) for s in stats)
+            total_bulk_messages = sum(s.get("bulk_sent", 0) for s in stats)
             total_templates = sum(s.get("templates_used", 0) for s in stats)
             unique_targets = set()
             for s in stats:
@@ -105,6 +107,7 @@ class MessagingStats:
             return {
                 "total_messages": total_messages,
                 "total_auto_replies": total_auto_replies,
+                "total_bulk_messages": total_bulk_messages,
                 "total_templates": total_templates,
                 "unique_conversations": len(unique_targets),
                 "days_active": len(stats),
@@ -116,6 +119,7 @@ class MessagingStats:
             return {
                 "total_messages": 0,
                 "total_auto_replies": 0,
+                "total_bulk_messages": 0,
                 "total_templates": 0,
                 "unique_conversations": 0,
                 "days_active": 0,

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from typing import Dict, List
 
 from telethon import events
@@ -254,9 +255,7 @@ class BulkSender:
 
             # Record operation
             rate_limiter.record_operation(account_phone, "bulk_send")
-            import time
-
-            job_id = f"bulk_{account_name}_{int(time.time())}"
+            job_id = f"bulk_{uuid.uuid4().hex}"
             job = {
                 "id": job_id,
                 "user_id": user_id,
@@ -352,7 +351,7 @@ class BulkSender:
                     if hasattr(entity, "access_hash") and entity.access_hash:
                         logger.info(f"Found access_hash from {account_name}")
                         return entity.access_hash
-                except BaseException:
+                except Exception:
                     continue
 
             return None
@@ -430,7 +429,7 @@ class BulkSender:
                 user_id = int(target)
                 try:
                     return await client.get_entity(user_id)
-                except BaseException:
+                except Exception:
                     access_hash = await self._get_access_hash_from_any_account(job["user_id"], user_id)
                     if access_hash:
                         from telethon.tl.types import InputPeerUser
@@ -463,24 +462,39 @@ class BulkSender:
             await client.send_message(entity, job["message"])
 
     async def _record_and_update_progress(self, job, index, status_msg):
-        account = await mongodb.db.accounts.find_one({"user_id": job["user_id"], "name": job["account_name"]})
-        if account:
-            rate_limiter.record_operation(account.get("phone", job["account_name"]), "message")
+        try:
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": job["user_id"], "name": job["account_name"]}
+            )
+            if account:
+                rate_limiter.record_operation(
+                    account.get("phone", job["account_name"]), "message"
+                )
+                from ..services.messaging_stats import MessagingStats
+
+                await MessagingStats().record_message_sent(
+                    job["user_id"],
+                    str(account["_id"]),
+                    job["targets"][index],
+                    "bulk",
+                )
+        except Exception:
+            logger.exception("Bulk message sent but metrics could not be recorded")
         if (index + 1) % 5 == 0 or (index + 1) == job["total"]:
             progress_pct = int((job["sent"] / job["total"]) * 100)
             progress_bar = "\u25a0" * (progress_pct // 10) + "\u2591" * (10 - progress_pct // 10)
             if status_msg:
                 try:
                     await status_msg.edit(
-                        f"\ud83d\udce4 **Campaign Running**\\n\\n"
-                        f"Account: {job['account_name']}\\n"
-                        f"Total Users: {job['total']}\\n"
-                        f"Sent: {job['sent']}/{job['total']}\\n"
-                        f"Failed: {job['failed']}\\n"
+                        f"📤 **Campaign Running**\n\n"
+                        f"Account: {job['account_name']}\n"
+                        f"Total Users: {job['total']}\n"
+                        f"Sent: {job['sent']}/{job['total']}\n"
+                        f"Failed: {job['failed']}\n"
                         f"Progress: {progress_bar} {progress_pct}%"
                     )
-                except BaseException:
-                    pass
+                except Exception:
+                    logger.exception("Failed to update bulk job progress message")
 
     async def _handle_send_error(self, job, target, error, status_msg):
         job["failed"] += 1
@@ -488,9 +502,12 @@ class BulkSender:
         logger.error(f"\u274c Failed to send to {target}: {error_msg}")
         if "FloodWaitError" in error_msg or "FLOOD_WAIT" in error_msg:
             import re
-            wait_match = re.search(r"(\\d+)", error_msg)
+            wait_match = re.search(r"(\d+)", error_msg)
             if wait_match:
                 wait_time = int(wait_match.group(1))
                 if status_msg:
-                    await status_msg.edit(f"\u23f8\ufe0f **Rate Limited**\\n\\nWaiting {wait_time} seconds...\\nSent: {job['sent']}/{job['total']}")
+                    await status_msg.edit(
+                        f"⏸️ **Rate Limited**\n\nWaiting {wait_time} seconds...\n"
+                        f"Sent: {job['sent']}/{job['total']}"
+                    )
                 await asyncio.sleep(wait_time)

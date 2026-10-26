@@ -130,8 +130,10 @@ class MessagingManager:
         if random.random() < 0.6:  # 60% chance to review
             await asyncio.sleep(random.uniform(0.3, 2.0))
 
-    async def send_message(self, user_id: int, account_name: str, target: str, message: str) -> bool:
-        """Send a message with smart routing and human-like behavior"""
+    async def send_message(
+        self, user_id: int, account_name: str, target: str, message: str
+    ) -> bool:
+        """Send a message from the selected account."""
         try:
             client = await self._get_best_client(user_id, account_name, target)
             if not client:
@@ -144,6 +146,18 @@ class MessagingManager:
             if not isinstance(target_entity, InputPeerUser):
                 await self._simulate_typing(client, target_entity, message)
             await client.send_message(target_entity, message)
+            try:
+                account = await mongodb.db.accounts.find_one(
+                    {"user_id": user_id, "name": account_name}
+                )
+                if account:
+                    from ..services.messaging_stats import MessagingStats
+
+                    await MessagingStats().record_message_sent(
+                        user_id, str(account["_id"]), target, "manual"
+                    )
+            except Exception:
+                logger.exception("Message sent but its statistics could not be recorded")
             logger.info(f"Message sent from {account_name} to {target}")
             return True
         except Exception as e:
@@ -151,29 +165,12 @@ class MessagingManager:
             return False
 
     async def _get_best_client(self, user_id: int, account_name: str, target: str):
-        """Smart routing: get the best client to send message from"""
+        """Get the requested account's client without changing the sender."""
         try:
-            # First try specified account
-            if (
-                user_id in self.user_clients
-                and account_name in self.user_clients[user_id]
-            ):
-                client = self.user_clients[user_id][account_name]
-                if client and client.is_connected():
-                    return client
-
-            # Fallback: try any connected account
-            if user_id in self.user_clients:
-                for name, client in self.user_clients[user_id].items():
-                    if client and client.is_connected():
-                        logger.info(
-                            f"Smart routing: using {name} instead of {account_name}"
-                        )
-                        return client
-
-            return None
+            client = self.user_clients.get(user_id, {}).get(account_name)
+            return client if client and client.is_connected() else None
         except Exception as e:
-            logger.error(f"Smart routing failed: {e}")
+            logger.error(f"Failed to get client for account {account_name}: {e}")
             return None
 
     async def _get_user_admin_group(self, user_id: int) -> Optional[int]:
@@ -215,7 +212,7 @@ class MessagingManager:
             if target.startswith("@"):
                 try:
                     return await client.get_entity(target)
-                except BaseException:
+                except Exception:
                     from telethon import functions
                     result = await client(functions.contacts.ResolveUsernameRequest(username=target[1:]))
                     if result.users:
@@ -228,12 +225,8 @@ class MessagingManager:
                     return await client.get_entity(user_id)
                 except ValueError:
                     async for dialog in client.iter_dialogs():
-                        if dialog.entity.id == user_id:
+                        if dialog.id == user_id or dialog.entity.id == abs(user_id):
                             return dialog.entity
-                    from telethon.tl.types import User
-                    async for participant in client.iter_participants(client.get_dialogs()):
-                        if isinstance(participant, User) and participant.id == user_id:
-                            return participant
                     raise ValueError(f"User {user_id} not found")
             else:
                 return await client.get_entity(target)
