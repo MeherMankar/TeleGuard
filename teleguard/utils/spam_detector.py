@@ -42,7 +42,11 @@ class SpamDetector:
     """Detects spam limitation types and selects appropriate appeal messages"""
 
     def __init__(self, appeal_messages: List[str]):
-        self.appeal_messages = appeal_messages
+        self.appeal_messages = [
+            message.strip()
+            for message in appeal_messages
+            if isinstance(message, str) and message.strip()
+        ]
         self.categorized_messages = self._categorize_messages()
         self.ai_model = None
         if AI_AVAILABLE:
@@ -66,6 +70,7 @@ class SpamDetector:
 
     def _detect_message_category(self, message_lower: str) -> SpamLimitType:
         """Detect category for a single message"""
+        message_lower = message_lower.lower()
         if self._is_two_way_restriction(message_lower):
             return SpamLimitType.TWO_WAY_RESTRICTION
         elif self._is_spamblock(message_lower):
@@ -142,7 +147,7 @@ Respond with only the type name (e.g., "spamblock"):"""
 
     def detect_spam_limit_type(self, context: str) -> SpamLimitType:
         """Detect the type of spam limitation from spambot context"""
-        context_lower = context.lower()
+        context_lower = (context or "").lower()
 
         if self._is_two_way_restriction(context_lower):
             return SpamLimitType.TWO_WAY_RESTRICTION
@@ -159,6 +164,7 @@ Respond with only the type name (e.g., "spamblock"):"""
 
     def get_account_age_category(self, account_age_days: int) -> str:
         """Categorize account by age"""
+        account_age_days = max(0, account_age_days)
         if account_age_days < 7:
             return "very_new"
         elif account_age_days < 30:
@@ -174,8 +180,13 @@ Respond with only the type name (e.g., "spamblock"):"""
         account_age_days: int = 365,
         context: str = "",
         user_preferences: Dict = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Select the most appropriate appeal message"""
+        if not self.appeal_messages:
+            return None
+
+        if not isinstance(spam_limit_type, SpamLimitType):
+            spam_limit_type = SpamLimitType.GENERAL_RESTRICTION
 
         # Get messages for the detected spam limit type
         candidate_messages = self.categorized_messages.get(spam_limit_type, [])
@@ -216,19 +227,20 @@ Respond with only the type name (e.g., "spamblock"):"""
                 candidate_messages = preference_filtered_messages
 
         # Select random message from candidates
-        return (
-            random.choice(candidate_messages)
-            if candidate_messages
-            else random.choice(self.appeal_messages)
-        )
+        return random.choice(candidate_messages or self.appeal_messages)
 
     def select_from_messages(
         self,
         messages: List[str],
         spam_limit_type: SpamLimitType,
         account_age_days: int = 365,
-    ) -> str:
+    ) -> Optional[str]:
         """Select message from provided list using spam detector logic"""
+        messages = [
+            message.strip()
+            for message in messages
+            if isinstance(message, str) and message.strip()
+        ]
         if not messages:
             return None
 
@@ -351,6 +363,7 @@ Respond with only the type name (e.g., "spamblock"):"""
 
     def analyze_spambot_response(self, response_text: str) -> Dict:
         """Analyze spambot response to extract useful information"""
+        response_text = response_text or ""
         response_lower = response_text.lower()
 
         analysis = {
@@ -550,7 +563,7 @@ Respond with JSON format:
 
     async def auto_detect_and_select_message(
         self, context: str = "", account_age_days: int = 365
-    ) -> Tuple[str, SpamLimitType, Dict]:
+    ) -> Tuple[Optional[str], SpamLimitType, Dict]:
         """Auto-detect spam type and select optimal message with AI"""
 
         # Try AI detection first

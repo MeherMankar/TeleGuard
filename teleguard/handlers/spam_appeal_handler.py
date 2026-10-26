@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import re
+import time
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -101,6 +102,7 @@ class SpamAppealHandler:
                 await self._notify_user(
                     user_id, f"❌ Account '{account_name}' not connected."
                 )
+                await self._restore_session_protection(user_id)
                 self.active_appeals.pop(user_id, None)
                 return
 
@@ -108,6 +110,7 @@ class SpamAppealHandler:
                 await self._notify_user(
                     user_id, f"❌ Account '{account_name}' not connected."
                 )
+                await self._restore_session_protection(user_id)
                 self.active_appeals.pop(user_id, None)
                 return
 
@@ -154,6 +157,7 @@ class SpamAppealHandler:
         except Exception as e:
             logger.error(f"Appeal process error: {e}")
             await self._notify_user(user_id, f"❌ Appeal process failed: {str(e)}")
+            await self._restore_session_protection(user_id)
             self.active_appeals.pop(user_id, None)
 
     async def _process_spambot_response(self, user_id: int, event):
@@ -191,6 +195,7 @@ class SpamAppealHandler:
                 user_id,
                 f"🎉 **{account_name}: No Restrictions**\n\nYour account is clean! No action needed.",
             )
+            await self._restore_session_protection(user_id)
             self.active_appeals.pop(user_id, None)
             return
 
@@ -205,6 +210,7 @@ class SpamAppealHandler:
                 f"• Avoid triggering actions\n"
                 f"• Premium users get shorter times",
             )
+            await self._restore_session_protection(user_id)
             self.active_appeals.pop(user_id, None)
             return
 
@@ -217,6 +223,7 @@ class SpamAppealHandler:
                 f"**Contact:** abuse@telegram.org\n"
                 f"Include phone number and details",
             )
+            await self._restore_session_protection(user_id)
             self.active_appeals.pop(user_id, None)
             return
 
@@ -839,20 +846,7 @@ Generate 4 diverse examples:"""
         mode = state.get("mode", "auto")
 
         # Re-enable session protection after appeal completion
-        try:
-            from ..core.mongo_database import mongodb
-
-            await mongodb.db.accounts.update_many(
-                {"user_id": user_id},
-                {
-                    "$unset": {
-                        "session_protection_disabled": "",
-                        "protection_bypass_until": "",
-                    }
-                },
-            )
-        except Exception as e:
-            logger.error(f"Error re-enabling session protection: {e}")
+        await self._restore_session_protection(user_id)
 
         if success:
             mode_text = "🤖 Automatic" if mode == "auto" else "👤 Manual"
@@ -896,6 +890,7 @@ Generate 4 diverse examples:"""
                 "• Check @spambot manually\n"
                 "• Use /appeal_help for guidance",
             )
+            await self._restore_session_protection(user_id)
             self.active_appeals.pop(user_id, None)
 
     async def _get_account_age_days(
@@ -1103,10 +1098,14 @@ Generate 4 diverse examples:"""
                 )
                 if not account:
                     await event.respond("❌ Account not found or no session available.")
+                    await self._restore_session_protection(user_id)
+                    self.active_appeals.pop(user_id, None)
                     return
                 account = DataEncryption.decrypt_account_data(account)
                 if not account.get("session_string"):
                     await event.respond("❌ Account not found or no session available.")
+                    await self._restore_session_protection(user_id)
+                    self.active_appeals.pop(user_id, None)
                     return
 
                 # Load the client
@@ -1119,6 +1118,8 @@ Generate 4 diverse examples:"""
                     client = await self._get_user_client(user_id, account_name)
                     if not client:
                         await event.respond("❌ Failed to get loaded client.")
+                        await self._restore_session_protection(user_id)
+                        self.active_appeals.pop(user_id, None)
                         return
                 except Exception as e:
                     error_str = str(e)
@@ -1133,6 +1134,8 @@ Generate 4 diverse examples:"""
                             await event.respond(
                                 "❌ Account exists but client not found."
                             )
+                            await self._restore_session_protection(user_id)
+                            self.active_appeals.pop(user_id, None)
                             return
                     else:
                         logger.error(f"Failed to load account {account_name}: {e}")
@@ -1141,6 +1144,8 @@ Generate 4 diverse examples:"""
                             "The account may need re-authentication.\n"
                             "Please remove and re-add it in Account Settings."
                         )
+                        await self._restore_session_protection(user_id)
+                        self.active_appeals.pop(user_id, None)
                         return
 
             # Start the appeal process directly
@@ -1149,6 +1154,8 @@ Generate 4 diverse examples:"""
         except Exception as e:
             logger.error(f"Start appeal for account error: {e}")
             await event.respond("❌ Error starting appeal process.")
+            await self._restore_session_protection(user_id)
+            self.active_appeals.pop(user_id, None)
 
     async def _simulate_human_message_composition(self, client, target, message: str):
         """Simulate realistic human message composition with word complexity analysis"""
@@ -1351,13 +1358,13 @@ Generate 4 diverse examples:"""
         user_id = event.sender_id
         try:
             from ..core.mongo_database import mongodb
-            await self._disable_session_protection(user_id)
             accounts = await mongodb.db.accounts.find(
                 {"user_id": user_id, "is_active": True}
             ).to_list(length=None)
             if not accounts:
                 await event.reply("❌ No accounts found. Add an account first using /start")
                 return
+            await self._disable_session_protection(user_id)
             context = event.pattern_match.group(1) if event.pattern_match.group(1) else ""
             if len(accounts) > 1:
                 await self._show_account_selection(event, accounts)
@@ -1367,6 +1374,7 @@ Generate 4 diverse examples:"""
                 await self._start_appeal_for_account(user_id, display_name, context, event)
         except Exception as e:
             logger.error(f"Appeal command error: {e}")
+            await self._restore_session_protection(user_id)
             await event.reply("❌ Error sending smart appeal. Please try again.")
 
     async def _disable_session_protection(self, user_id: int):
@@ -1377,7 +1385,7 @@ Generate 4 diverse examples:"""
             {
                 "$set": {
                     "session_protection_disabled": True,
-                    "protection_bypass_until": int(asyncio.get_running_loop().time()) + 1800,
+                    "protection_bypass_until": time.time() + 1800,
                 },
                 "$unset": {
                     "session_protection_active": "",
@@ -1386,6 +1394,23 @@ Generate 4 diverse examples:"""
                 },
             },
         )
+
+    async def _restore_session_protection(self, user_id: int):
+        """Remove the temporary appeal bypass from the user's accounts."""
+        try:
+            from ..core.mongo_database import mongodb
+
+            await mongodb.db.accounts.update_many(
+                {"user_id": user_id},
+                {
+                    "$unset": {
+                        "session_protection_disabled": "",
+                        "protection_bypass_until": "",
+                    }
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error re-enabling session protection: {e}")
 
     async def _show_account_selection(self, event, accounts):
         """Show account selection buttons"""
@@ -1428,11 +1453,15 @@ Generate 4 diverse examples:"""
             await self._start_appeal_for_account(user_id, account_name, "", event)
         except Exception as e:
             logger.error(f"Appeal account callback error: {e}")
+            await self._restore_session_protection(user_id)
+            self.active_appeals.pop(user_id, None)
             await event.respond("❌ Error starting appeal process.")
 
     async def _appeal_cancel_handler(self, event):
         """Handle appeal cancellation"""
         try:
+            await self._restore_session_protection(event.sender_id)
+            self.active_appeals.pop(event.sender_id, None)
             await event.answer()
             try:
                 try:
@@ -1469,6 +1498,7 @@ Generate 4 diverse examples:"""
                 return
             state = self.active_appeals[user_id]
             if action == "cancel":
+                await self._restore_session_protection(user_id)
                 self.active_appeals.pop(user_id, None)
                 await event.respond("❌ Appeal process cancelled.")
             elif action == "done":
