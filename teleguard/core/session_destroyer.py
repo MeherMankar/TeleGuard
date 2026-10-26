@@ -27,6 +27,19 @@ def _as_utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def _session_existed_when_protection_enabled(auth, enabled_at) -> bool:
+    """Use session creation time, never last activity, to identify old sessions."""
+    if enabled_at is None:
+        return True
+
+    created_at = _as_utc(getattr(auth, "date_created", None))
+    if created_at is None:
+        created_at = _as_utc(getattr(auth, "date", None))
+    if created_at is None:
+        return True
+    return created_at <= enabled_at
+
+
 class SessionDestroyer:
     """Watch for and terminate unauthorized Telegram sessions"""
 
@@ -188,14 +201,9 @@ class SessionDestroyer:
                         if auth.hash in pending_on_first_run:
                             continue
                         if enabled_at:
-                            session_date = _as_utc(
-                                getattr(auth, "date_active", None)
-                                or getattr(auth, "date", None)
-                            )
-                            if session_date:
-                                if session_date <= enabled_at:
-                                    existing_trusted.add(auth.hash)
-                            else:
+                            if _session_existed_when_protection_enabled(
+                                auth, enabled_at
+                            ):
                                 preexisting_hashes.add(auth.hash)
                         else:
                             preexisting_hashes.add(auth.hash)
