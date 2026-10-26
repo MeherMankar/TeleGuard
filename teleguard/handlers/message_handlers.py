@@ -7,7 +7,7 @@ import re
 import time
 
 from telethon import events
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, PhoneNumberInvalidError
 
 from ..core.cleanup_types import parse_cleanup_types
 from ..core.mongo_database import mongodb
@@ -303,6 +303,12 @@ class MessageHandlers:
                     "Formats: `12345`, `1 2 3 4 5`, or `1-2-3-4-5`\n\n"
                     "💡 If your code expires immediately, add a space prefix (e.g. ` 12345`)."
                 )
+        except PhoneNumberInvalidError as e:
+            self.pending_actions.pop(user_id, None)
+            from ..utils.error_handler import ErrorHandler
+
+            logger.info("Telegram rejected the phone number for user %s", user_id)
+            await event.reply(ErrorHandler.get_user_friendly_error(e))
         except FloodWaitError as e:
             self.pending_actions.pop(user_id, None)
             wait_seconds = e.seconds
@@ -2212,6 +2218,14 @@ class MessageHandlers:
         """Handle user reply with error handling"""
         try:
             await self._handle_user_reply(event)
+        except PhoneNumberInvalidError as e:
+            self.pending_actions.pop(event.sender_id, None)
+            from ..utils.error_handler import ErrorHandler
+
+            logger.info(
+                "Telegram rejected the phone number for user %s", event.sender_id
+            )
+            await event.reply(ErrorHandler.get_user_friendly_error(e))
         except Exception as e:
             logger.error(f"Unhandled exception in reply_handler: {e}")
             await self._log_and_notify_error(event, e)

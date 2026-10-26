@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any, Callable
 
+from telethon.errors import PhoneNumberInvalidError
+
 logger = logging.getLogger(__name__)
 
 
@@ -15,6 +17,8 @@ async def retry_async(
     while True:
         try:
             return await fn(*args, **kwargs)
+        except PhoneNumberInvalidError:
+            raise
         except Exception as e:
             attempt += 1
             logger.warning(

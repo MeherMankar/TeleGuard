@@ -17,6 +17,7 @@ from telethon import TelegramClient
 from telethon.errors import (
     PhoneCodeExpiredError,
     PhoneCodeInvalidError,
+    PhoneNumberInvalidError,
     SessionPasswordNeededError,
 )
 from telethon.errors.rpcerrorlist import PasswordHashInvalidError
@@ -194,14 +195,12 @@ class AuthManager:
             return True
         except Exception as e:
             self._pending_auths.pop(user_id, None)
-            logger.error(f"Failed to start auth for {phone}: {e}")
-            # Send user-friendly error message
-            if self.bot_manager and self.bot_manager.bot:
-                from ..utils.error_handler import ErrorHandler
-
-                await ErrorHandler.handle_account_error(
-                    self.bot_manager.bot, user_id, e, phone, "authentication start"
-                )
+            if self.bot_manager:
+                self.bot_manager.pending_actions.pop(user_id, None)
+            if isinstance(e, PhoneNumberInvalidError):
+                logger.info("Telegram rejected the phone number for user %s", user_id)
+            else:
+                logger.error(f"Failed to start auth for {phone}: {e}")
             raise
 
     def _get_device_type(self, device: Dict) -> str:
