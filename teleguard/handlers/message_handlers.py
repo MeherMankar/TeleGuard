@@ -9,6 +9,7 @@ import time
 from telethon import events
 from telethon.errors import FloodWaitError
 
+from ..core.cleanup_types import parse_cleanup_types
 from ..core.mongo_database import mongodb
 from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import retry_async
@@ -1395,35 +1396,16 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
             return
 
-        # Validate cleanup types
-        cleanup_types = message.strip().lower()
-        valid_types = [
-            "personal",
-            "bots",
-            "telegram",
-            "spambot",
-            "my_messages",
-            "channels",
-            "groups",
-            "owned_groups",
-            "owned_channels",
-            "all",
-        ]
-
-        if cleanup_types == "all":
-            selected_types = "all"
-        else:
-            selected_list = [t.strip() for t in cleanup_types.split(",")]
-            invalid_types = [t for t in selected_list if t not in valid_types]
-
-            if invalid_types:
-                await event.reply(
-                    f"❌ Invalid cleanup types: {', '.join(invalid_types)}\n\n"
-                    f"Valid options: {', '.join(valid_types)}"
-                )
-                return
-
-            selected_types = ",".join(selected_list)
+        try:
+            parsed_types, _ = parse_cleanup_types(message)
+        except ValueError as e:
+            await event.reply(f"❌ {e}")
+            return
+        selected_types = (
+            "all"
+            if "all" in [item.strip().lower() for item in message.split(",")]
+            else ",".join(parsed_types)
+        )
 
         logger.info(
             f"Validated cleanup types: {selected_types} for account {account_id}"
@@ -1468,34 +1450,12 @@ class MessageHandlers:
     async def _handle_bulk_cleanup_selection(self, event, user, action, message):
         """Handle bulk cleanup selection input"""
         user_id = event.sender_id
-        cleanup_types = message.strip().lower()
-        valid_types = [
-            "personal",
-            "bots",
-            "telegram",
-            "spambot",
-            "my_messages",
-            "channels",
-            "groups",
-            "owned_groups",
-            "owned_channels",
-            "all",
-        ]
-
-        if cleanup_types == "all":
-            selected_types = "all"
-        else:
-            selected_list = [t.strip() for t in cleanup_types.split(",")]
-            invalid_types = [t for t in selected_list if t not in valid_types]
-
-            if invalid_types:
-                await event.reply(
-                    f"❌ Invalid cleanup types: {', '.join(invalid_types)}\n\n"
-                    f"Valid options: {', '.join(valid_types)}"
-                )
-                return
-
-            selected_types = ",".join(selected_list)
+        try:
+            selected_types, _ = parse_cleanup_types(message)
+        except ValueError as e:
+            await event.reply(f"❌ {e}")
+            return
+        selected_types = ",".join(selected_types)
 
         self.pending_actions.pop(user_id, None)
 

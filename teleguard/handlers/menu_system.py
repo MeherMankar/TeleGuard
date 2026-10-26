@@ -785,19 +785,9 @@ class MenuSystem:
 
             display_name = format_display_name(account)
 
-            # Parse cleanup types
-            cleanup_list = [t.strip().lower() for t in cleanup_types.split(",")]
-            if "all" in cleanup_list:
-                cleanup_list = [
-                    "personal",
-                    "bots",
-                    "telegram",
-                    "spambot",
-                    "channels",
-                    "groups",
-                    "owned_groups",
-                    "owned_channels",
-                ]
+            from ..core.cleanup_types import parse_cleanup_types
+
+            cleanup_list, _ = parse_cleanup_types(cleanup_types)
 
             # Create display text for selected options
             selected_options = []
@@ -809,6 +799,8 @@ class MenuSystem:
                 selected_options.append("✅ 🔵 Telegram official chats")
             if "spambot" in cleanup_list:
                 selected_options.append("✅ 🔵 Spambot chats")
+            if "my_messages" in cleanup_list:
+                selected_options.append("✅ 🗑️ Your messages from groups")
             if "channels" in cleanup_list:
                 selected_options.append("✅ 🔵 Exit from channels")
             if "groups" in cleanup_list:
@@ -821,7 +813,7 @@ class MenuSystem:
             if not selected_options:
                 await self.bot.send_message(
                     user_id,
-                    "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all",
+                    "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, my_messages, channels, groups, owned_groups, owned_channels, all",
                 )
                 return
 
@@ -878,19 +870,9 @@ class MenuSystem:
 
             display_name = format_display_name(account)
 
-            # Parse cleanup types
-            cleanup_list = [t.strip().lower() for t in cleanup_types.split(",")]
-            if "all" in cleanup_list:
-                cleanup_list = [
-                    "personal",
-                    "bots",
-                    "telegram",
-                    "spambot",
-                    "channels",
-                    "groups",
-                    "owned_groups",
-                    "owned_channels",
-                ]
+            from ..core.cleanup_types import parse_cleanup_types
+
+            cleanup_list, _ = parse_cleanup_types(cleanup_types)
 
             # Create display text for selected options
             selected_options = []
@@ -902,6 +884,8 @@ class MenuSystem:
                 selected_options.append("✅ 🔵 Telegram official chats")
             if "spambot" in cleanup_list:
                 selected_options.append("✅ 🔵 Spambot chats")
+            if "my_messages" in cleanup_list:
+                selected_options.append("✅ 🗑️ Your messages from groups")
             if "channels" in cleanup_list:
                 selected_options.append("✅ 🔵 Exit from channels")
             if "groups" in cleanup_list:
@@ -912,7 +896,7 @@ class MenuSystem:
                 selected_options.append("✅ 🔵 Delete owned channels")
 
             if not selected_options:
-                error_msg = "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, channels, groups, owned_groups, owned_channels, all"
+                error_msg = "❌ No valid cleanup options selected. Please try again with valid options: personal, bots, telegram, spambot, my_messages, channels, groups, owned_groups, owned_channels, all"
                 if message_id:
                     await self.bot.edit_message(
                         user_id,

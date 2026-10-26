@@ -1,9 +1,11 @@
 """Cleanup operations module"""
 
 import logging
+import time
 
 from telethon import Button
 
+from ...core.cleanup_types import parse_cleanup_types
 from ...core.mongo_database import mongodb
 from ...utils.network_helpers import format_display_name
 
@@ -74,31 +76,11 @@ class CleanupOperations:
             await self.bot.send_message(user_id, "❌ No active accounts found")
             return
 
-        # Parse cleanup settings
-        cleanup_list = [t.strip().lower() for t in cleanup_types.split(",")]
-        if "all" in cleanup_list:
-            cleanup_list = [
-                "personal",
-                "bots",
-                "telegram",
-                "spambot",
-                "channels",
-                "groups",
-                "owned_groups",
-                "owned_channels",
-            ]
-
-        cleanup_settings = {
-            "personal_chats": "personal" in cleanup_list,
-            "bot_chats": "bots" in cleanup_list,
-            "telegram_chat": "telegram" in cleanup_list,
-            "spambot_chat": "spambot" in cleanup_list,
-            "channels": "channels" in cleanup_list,
-            "groups": "groups" in cleanup_list,
-            "owned_groups": "owned_groups" in cleanup_list,
-            "owned_channels": "owned_channels" in cleanup_list,
-            "my_messages": "my_messages" in cleanup_list,
-        }
+        try:
+            selected_types, cleanup_settings = parse_cleanup_types(cleanup_types)
+        except ValueError as e:
+            await self.bot.send_message(user_id, f"❌ {e}")
+            return
 
         status_msg = await self.bot.send_message(
             user_id,
@@ -133,25 +115,31 @@ class CleanupOperations:
                         len(active_accounts)}\n🧹 Cleaning: {display_name}\n⏳ Please wait..."
                 )
 
-                await cleaner.cleanup_account(client, cleanup_settings, None)
-                results.append(f"✅ {display_name}: Completed")
+                result = await cleaner.cleanup_account(client, cleanup_settings, None)
+                succeeded = self._cleanup_result_succeeded(result)
+                result_status = "success" if succeeded else "partial_failure"
+                marker = "✅" if succeeded else "⚠️"
+                results.append(f"{marker} {display_name}: {result_status}")
 
                 # Log cleanup
-                import time
-
-                await mongodb.db.accounts.update_one(
-                    {"_id": account["_id"]},
-                    {
-                        "$push": {
-                            "audit_log": {
-                                "action": "bulk_cleanup_completed",
-                                "cleanup_types": cleanup_types,
-                                "timestamp": int(time.time()),
-                                "result": "success",
+                try:
+                    await mongodb.db.accounts.update_one(
+                        {"_id": account["_id"]},
+                        {
+                            "$push": {
+                                "audit_log": {
+                                    "action": "bulk_cleanup_completed",
+                                    "cleanup_types": selected_types,
+                                    "timestamp": int(time.time()),
+                                    "result": result_status,
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to add cleanup audit entry for {display_name}: {e}"
+                    )
             except Exception as e:
                 logger.error(f"Cleanup failed for {display_name}: {e}")
                 results.append(f"❌ {display_name}: {str(e)[:50]}")
@@ -161,8 +149,8 @@ class CleanupOperations:
             f"✅ **Bulk Cleanup Completed!**\n\n"
             f"📊 **Summary:**\n"
             f"• Total: {len(active_accounts)} accounts\n"
-            f"• Success: {sum(1 for r in results if r.startswith('✅'))}\n"
-            f"• Failed: {sum(1 for r in results if r.startswith('❌'))}\n\n"
+            f"• Completed: {sum(1 for r in results if r.startswith('✅'))}\n"
+            f"• Partial/failed: {sum(1 for r in results if not r.startswith('✅'))}\n\n"
             f"**Results:**\n" + "\n".join(results[:10])
         )
 
@@ -171,6 +159,13 @@ class CleanupOperations:
 
         buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
         await status_msg.edit(result_text, buttons=buttons)
+
+    @staticmethod
+    def _cleanup_result_succeeded(result):
+        return (
+            "📊 Cleanup Summary:" in result
+            and "⚠️ Errors: 0" in result
+        )
 
     async def send_cleanup_selection(self, user_id, message_id, account_id):
         from bson import ObjectId
@@ -255,30 +250,11 @@ class CleanupOperations:
             return
 
         display_name = format_display_name(account)
-        cleanup_list = [t.strip().lower() for t in cleanup_types.split(",")]
-        if "all" in cleanup_list:
-            cleanup_list = [
-                "personal",
-                "bots",
-                "telegram",
-                "spambot",
-                "channels",
-                "groups",
-                "owned_groups",
-                "owned_channels",
-            ]
-
-        cleanup_settings = {
-            "personal_chats": "personal" in cleanup_list,
-            "bot_chats": "bots" in cleanup_list,
-            "telegram_chat": "telegram" in cleanup_list,
-            "spambot_chat": "spambot" in cleanup_list,
-            "channels": "channels" in cleanup_list,
-            "groups": "groups" in cleanup_list,
-            "owned_groups": "owned_groups" in cleanup_list,
-            "owned_channels": "owned_channels" in cleanup_list,
-            "my_messages": "my_messages" in cleanup_list,
-        }
+        try:
+            selected_types, cleanup_settings = parse_cleanup_types(cleanup_types)
+        except ValueError as e:
+            await self.bot.send_message(user_id, f"❌ {e}")
+            return
 
         logger.info(f"Cleanup settings: {cleanup_settings}")
 
@@ -291,7 +267,6 @@ class CleanupOperations:
         from ...core.account_cleaner import AccountCleaner
 
         cleaner = AccountCleaner()
-        import time
 
         last_update_time = time.time()
 
@@ -312,7 +287,15 @@ class CleanupOperations:
         )
         logger.info(f"Cleanup completed with result: {result[:100]}...")
 
-        result_text = f"✅ **Cleanup completed!**\n\n📱 Account: {display_name}\n\n📊 **Results:**\n{result}\n\n🔒 All operations completed securely"
+        succeeded = self._cleanup_result_succeeded(result)
+        status = (
+            "✅ Cleanup completed"
+            if succeeded
+            else "⚠️ Cleanup completed with errors"
+        )
+        result_text = (
+            f"{status}\n\n📱 Account: {display_name}\n\n📊 **Results:**\n{result}"
+        )
         buttons = [[Button.inline("🔙 Back to Main Menu", "menu:main")]]
 
         try:
@@ -333,9 +316,9 @@ class CleanupOperations:
                     "$push": {
                         "audit_log": {
                             "action": "cleanup_completed",
-                            "cleanup_types": cleanup_types,
+                            "cleanup_types": selected_types,
                             "timestamp": int(time.time()),
-                            "result": "success",
+                            "result": "success" if succeeded else "partial_failure",
                         }
                     }
                 },

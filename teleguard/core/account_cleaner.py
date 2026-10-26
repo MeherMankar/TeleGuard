@@ -68,7 +68,6 @@ class AccountCleaner:
             if progress_callback:
                 await progress_callback("✅ Connection established\n⏳ Analyzing account...")
             dialogs = await self._collect_dialogs(client, progress_callback)
-            progress.total_items = len(dialogs)
             progress.current_operation = f"Found {len(dialogs)} dialogs"
             if progress_callback:
                 await progress_callback(progress.get_progress_text())
@@ -95,6 +94,7 @@ class AccountCleaner:
         ]
 
         progress.current_operation = f"Cleaning {len(personal_dialogs)} personal chats"
+        progress.total_items += len(personal_dialogs)
 
         if progress_callback:
             await progress_callback(progress.get_progress_text())
@@ -105,8 +105,6 @@ class AccountCleaner:
             if success:
                 count += 1
 
-            progress.processed_items = i + 1
-            progress.deleted_items = count
             progress.current_operation = (
                 f"Personal chats: {i + 1}/{len(personal_dialogs)}"
             )
@@ -127,6 +125,7 @@ class AccountCleaner:
         ]
 
         progress.current_operation = f"Cleaning {len(bot_dialogs)} bot chats"
+        progress.total_items += len(bot_dialogs)
 
         count = 0
         for i, dialog in enumerate(bot_dialogs):
@@ -134,10 +133,6 @@ class AccountCleaner:
             if success:
                 count += 1
 
-            progress.processed_items += 1
-            progress.deleted_items = (
-                progress.deleted_items - count + count
-            )  # Update count
             progress.current_operation = f"Bot chats: {i + 1}/{len(bot_dialogs)}"
 
             if progress_callback and (i + 1) % 5 == 0:
@@ -162,6 +157,7 @@ class AccountCleaner:
         all_groups = group_dialogs + supergroup_dialogs
 
         progress.current_operation = f"Leaving {len(all_groups)} groups"
+        progress.total_items += len(all_groups)
 
         count = 0
         for i, dialog in enumerate(all_groups):
@@ -175,6 +171,7 @@ class AccountCleaner:
 
                 count += 1
 
+                progress.deleted_items += 1
             except (
                 ChatAdminRequiredError,
                 UserNotParticipantError,
@@ -185,10 +182,12 @@ class AccountCleaner:
                 progress.add_error(
                     f"Rate limited leaving group {dialog.name}: wait {e.seconds}s"
                 )
+                progress.processed_items += 1
                 await asyncio.sleep(e.seconds)
                 continue
             except Exception as e:
                 progress.add_error(f"Error leaving group {dialog.name}: {e}")
+                progress.processed_items += 1
                 continue
 
             progress.processed_items += 1
@@ -218,12 +217,14 @@ class AccountCleaner:
         progress.current_operation = (
             f"Unsubscribing from {len(channel_dialogs)} channels"
         )
+        progress.total_items += len(channel_dialogs)
 
         count = 0
         for i, dialog in enumerate(channel_dialogs):
             try:
                 await client(LeaveChannelRequest(dialog.entity))
                 count += 1
+                progress.deleted_items += 1
 
             except (UserNotParticipantError, ChatIdInvalidError):
                 pass  # Already unsubscribed
@@ -231,10 +232,12 @@ class AccountCleaner:
                 progress.add_error(
                     f"Rate limited leaving channel {dialog.name}: wait {e.seconds}s"
                 )
+                progress.processed_items += 1
                 await asyncio.sleep(e.seconds)
                 continue
             except Exception as e:
                 progress.add_error(f"Error leaving channel {dialog.name}: {e}")
+                progress.processed_items += 1
                 continue
 
             progress.processed_items += 1
@@ -264,6 +267,7 @@ class AccountCleaner:
 
             contacts = result.contacts
             progress.current_operation = f"Deleting {len(contacts)} contacts"
+            progress.total_items += len(contacts)
 
             # Delete contacts in batches
             contact_ids = [contact.user_id for contact in contacts]
@@ -277,6 +281,7 @@ class AccountCleaner:
                     deleted_count += len(batch)
 
                     progress.processed_items += len(batch)
+                    progress.deleted_items += len(batch)
                     progress.current_operation = f"Contacts: {
                         min(
                             i + batch_size,
@@ -294,10 +299,12 @@ class AccountCleaner:
                     progress.add_error(
                         f"Rate limited deleting contacts: wait {e.seconds}s"
                     )
+                    progress.processed_items += len(batch)
                     await asyncio.sleep(e.seconds)
                     continue
                 except Exception as e:
                     progress.add_error(f"Error deleting contact batch: {e}")
+                    progress.processed_items += len(batch)
                     continue
 
             return deleted_count
@@ -333,6 +340,7 @@ class AccountCleaner:
                 )
 
                 if is_telegram:
+                    progress.total_items += 1
                     success = await self._delete_dialog_with_retry(
                         client, dialog, progress
                     )
@@ -355,6 +363,7 @@ class AccountCleaner:
                     and (dialog.entity.username or "").lower() == "spambot"
                 ):
 
+                    progress.total_items += 1
                     success = await self._delete_dialog_with_retry(
                         client, dialog, progress
                     )
@@ -403,6 +412,7 @@ class AccountCleaner:
                 continue
 
         progress.current_operation = f"Deleting {len(owned_groups)} owned groups"
+        progress.total_items += len(owned_groups)
 
         count = 0
         for i, dialog in enumerate(owned_groups):
@@ -416,6 +426,7 @@ class AccountCleaner:
 
                 count += 1
                 progress.processed_items += 1
+                progress.deleted_items += 1
                 progress.current_operation = f"Owned groups: {
                     i + 1}/{
                     len(owned_groups)}"
@@ -427,6 +438,7 @@ class AccountCleaner:
 
             except Exception as e:
                 progress.add_error(f"Error deleting owned group {dialog.name}: {e}")
+                progress.processed_items += 1
                 continue
 
         return count
@@ -462,6 +474,7 @@ class AccountCleaner:
                 continue
 
         progress.current_operation = f"Deleting {len(owned_channels)} owned channels"
+        progress.total_items += len(owned_channels)
 
         count = 0
         for i, dialog in enumerate(owned_channels):
@@ -469,6 +482,7 @@ class AccountCleaner:
                 await client(DeleteChannelRequest(channel=dialog.entity))
                 count += 1
                 progress.processed_items += 1
+                progress.deleted_items += 1
                 progress.current_operation = (
                     f"Owned channels: {i + 1}/{len(owned_channels)}"
                 )
@@ -480,6 +494,7 @@ class AccountCleaner:
 
             except Exception as e:
                 progress.add_error(f"Error deleting owned channel {dialog.name}: {e}")
+                progress.processed_items += 1
                 continue
 
         return count
@@ -497,6 +512,7 @@ class AccountCleaner:
 
         group_dialogs = [d for d in dialogs if isinstance(d.entity, (Chat, Channel))]
         progress.current_operation = f"Scanning {len(group_dialogs)} groups/channels for messages"
+        progress.total_items += len(group_dialogs)
 
         total_deleted = 0
         for i, dialog in enumerate(group_dialogs):
@@ -528,10 +544,12 @@ class AccountCleaner:
 
             except FloodWaitError as e:
                 progress.add_error(f"Rate limited in {dialog.name}: wait {e.seconds}s")
+                progress.processed_items += 1
                 await asyncio.sleep(e.seconds)
                 continue
             except Exception as e:
                 progress.add_error(f"Error processing {dialog.name}: {e}")
+                progress.processed_items += 1
                 continue
 
         return total_deleted
@@ -553,28 +571,27 @@ class AccountCleaner:
             async for dialog in client.iter_dialogs():
                 remaining_dialogs.append(dialog)
 
-            for dialog in remaining_dialogs:
-                should_delete = False
-
+            dialogs_to_check = [
+                dialog
+                for dialog in remaining_dialogs
                 if (
                     cleanup_settings.get("personal_chats", False)
                     and dialog.is_user
                     and not dialog.entity.bot
-                ):
-                    should_delete = True
-                elif (
+                )
+                or (
                     cleanup_settings.get("bot_chats", False)
                     and dialog.is_user
                     and dialog.entity.bot
-                ):
-                    should_delete = True
-
-                if should_delete:
-                    success = await self._delete_dialog_with_retry(
-                        client, dialog, progress
-                    )
-                    if success:
-                        count += 1
+                )
+            ]
+            progress.total_items += len(dialogs_to_check)
+            for dialog in dialogs_to_check:
+                success = await self._delete_dialog_with_retry(
+                    client, dialog, progress
+                )
+                if success:
+                    count += 1
 
         except Exception as e:
             progress.add_error(f"Error in final check: {e}")
@@ -592,6 +609,8 @@ class AccountCleaner:
                         peer=dialog.entity, max_id=0, just_clear=False, revoke=True
                     )
                 )
+                progress.processed_items += 1
+                progress.deleted_items += 1
                 return True
 
             except FloodWaitError as e:
@@ -611,6 +630,7 @@ class AccountCleaner:
                 await asyncio.sleep(0.5 * (attempt + 1))
                 continue
 
+        progress.processed_items += 1
         return False
 
     async def get_cleanup_preview(
