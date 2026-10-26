@@ -103,6 +103,7 @@ class ProtectionMenu:
                 Button.inline("📊 Statistics", data="prot_stats"),
                 Button.inline("📝 Logs", data="prot_logs")
             ],
+            [Button.inline("🔐 Manage Trusted Sessions", data="prot_trusted")],
             [
                 Button.inline("🔄 Refresh", data="prot_refresh"),
                 Button.inline("🔙 Protection Manager", data="menu:protection"),
@@ -170,3 +171,160 @@ class ProtectionMenu:
                 )
             text = "\n".join(entries)
         await event.edit(text, buttons=[[Button.inline("🔙 Back", data="prot_main")]])
+
+    async def send_trusted_sessions(self, event, user_id: int):
+        """Display live sessions and controls to trust or untrust each session."""
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+        from ..utils.crypto_utils import DataEncryption
+
+        settings = await ProtectionStorage.get_settings(user_id)
+        trusted_hashes = set(settings.get("trusted_hashes", []))
+        accounts = await mongodb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(length=None)
+        session_rows = []
+        failed_accounts = 0
+
+        for account_doc in accounts:
+            account = DataEncryption.decrypt_account_data(account_doc)
+            client = self.bot_manager.get_client(user_id, account)
+            if not client or not client.is_connected():
+                continue
+            try:
+                result = await client(GetAuthorizationsRequest())
+            except Exception:
+                failed_accounts += 1
+                logger.exception(
+                    "Failed to load sessions for protection settings (user %s)",
+                    user_id,
+                )
+                continue
+
+            account_name = account.get("name") or account.get("phone") or "Account"
+            session_rows.extend(
+                (account_name, authorization)
+                for authorization in result.authorizations
+            )
+
+        if not session_rows:
+            text = "🔐 **Trusted Sessions**\n\n"
+            if failed_accounts:
+                text += (
+                    f"Could not load sessions for {failed_accounts} account(s). "
+                    "Reconnect those accounts and try again."
+                )
+            else:
+                text += "No sessions are currently available from connected accounts."
+            await event.edit(
+                text,
+                buttons=[
+                    [Button.inline("🔄 Refresh", data="prot_trusted")],
+                    [Button.inline("🔙 Back", data="prot_main")],
+                ],
+            )
+            return
+
+        lines = ["🔐 **Trusted Sessions**", ""]
+        buttons = []
+        for account_name, authorization in session_rows[:20]:
+            is_current = bool(authorization.current)
+            is_trusted = is_current or authorization.hash in trusted_hashes
+            if is_current:
+                state = "🛡 Current session (always kept)"
+            elif is_trusted:
+                state = "🛡 Trusted"
+            else:
+                state = "⚠️ Untrusted"
+            device = getattr(authorization, "device_model", None) or "Unknown device"
+            platform = getattr(authorization, "platform", None) or "Unknown platform"
+            lines.append(
+                f"• **{account_name}** — {device} ({platform})\n  {state}"
+            )
+            if not is_current:
+                action = "untrust" if is_trusted else "trust"
+                label = "🔓 Untrust" if is_trusted else "🛡 Trust"
+                buttons.append(
+                    [
+                        Button.inline(
+                            f"{label}: {device[:24]}",
+                            data=f"prot_{action}_{authorization.hash}",
+                        )
+                    ]
+                )
+
+        if len(session_rows) > 20:
+            lines.extend(["", f"Showing 20 of {len(session_rows)} sessions."])
+        if failed_accounts:
+            lines.extend(
+                ["", f"⚠️ Session lookup failed for {failed_accounts} account(s)."]
+            )
+        lines.extend(
+            [
+                "",
+                "Trust sessions you recognize. Untrusted sessions may be "
+                "terminated when Session Destroyer is enabled.",
+            ]
+        )
+        buttons.extend(
+            [
+                [Button.inline("🔄 Refresh", data="prot_trusted")],
+                [Button.inline("🔙 Back", data="prot_main")],
+            ]
+        )
+        await event.edit("\n".join(lines), buttons=buttons)
+
+    async def set_session_trust(self, user_id: int, session_hash: int, trusted: bool):
+        """Change trust only for a live session belonging to this user."""
+        from telethon.tl.functions.account import GetAuthorizationsRequest
+        from ..utils.crypto_utils import DataEncryption
+
+        accounts = await mongodb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(length=None)
+        lookup_failed = False
+        found = False
+        target_is_current = False
+
+        for account_doc in accounts:
+            account = DataEncryption.decrypt_account_data(account_doc)
+            client = self.bot_manager.get_client(user_id, account)
+            if not client or not client.is_connected():
+                continue
+            try:
+                result = await client(GetAuthorizationsRequest())
+            except Exception:
+                lookup_failed = True
+                logger.exception(
+                    "Failed to verify session trust action (user %s)", user_id
+                )
+                continue
+
+            for authorization in result.authorizations:
+                if authorization.hash == session_hash:
+                    found = True
+                    target_is_current = bool(authorization.current)
+                    break
+            else:
+                continue
+            break
+
+        if lookup_failed and not found:
+            raise RuntimeError("Could not verify the requested session.")
+        if not found:
+            return False
+        if target_is_current and not trusted:
+            return False
+
+        if trusted:
+            await ProtectionStorage.add_trusted_hash(user_id, session_hash)
+            await mongodb.db.session_destroyer_pending.delete_many(
+                {"user_id": user_id, "hash": session_hash}
+            )
+        else:
+            settings = await ProtectionStorage.get_settings(user_id)
+            trusted_hashes = set(settings.get("trusted_hashes", []))
+            trusted_hashes.discard(session_hash)
+            await ProtectionStorage.update_settings(
+                user_id, {"trusted_hashes": list(trusted_hashes)}
+            )
+        return True

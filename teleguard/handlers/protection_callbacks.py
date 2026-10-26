@@ -80,6 +80,32 @@ class ProtectionCallbacks:
                 await self.menu.send_logs(event, user_id)
                 await event.answer()
 
+            elif data == "prot_trusted":
+                await self.menu.send_trusted_sessions(event, user_id)
+                await event.answer()
+
+            elif data.startswith(("prot_trust_", "prot_untrust_")):
+                is_trusted = data.startswith("prot_trust_")
+                prefix = "prot_trust_" if is_trusted else "prot_untrust_"
+                try:
+                    session_hash = int(data.removeprefix(prefix))
+                except ValueError:
+                    await event.answer("⚠️ Invalid session selection", alert=True)
+                    return
+                updated = await self.menu.set_session_trust(
+                    user_id, session_hash, is_trusted
+                )
+                if not updated:
+                    await event.answer(
+                        "⚠️ Session is no longer available or cannot be changed.",
+                        alert=True,
+                    )
+                else:
+                    await event.answer(
+                        "✅ Session trusted" if is_trusted else "🔓 Session untrusted"
+                    )
+                await self.menu.send_trusted_sessions(event, user_id)
+
         except Exception as e:
             logger.error(f"Error handling protection callback {data}: {e}")
             try:
