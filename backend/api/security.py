@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
+from teleguard.core.mongo_database import mongodb
 from teleguard.services.protection_storage import ProtectionStorage
 
 router = APIRouter(prefix="/security", tags=["Security"])
@@ -205,15 +206,13 @@ async def remove_trusted_session(
     payload: TrustedHashRequest,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Remove a session hash from trusted list."""
+    """Mark a session hash untrusted so Session Destroyer can act on it."""
     try:
-        settings = await ProtectionStorage.get_settings(user_id)
-        trusted = list(set(settings.get("trusted_hashes", [])))
-        if payload.session_hash in trusted:
-            trusted.remove(payload.session_hash)
-            await ProtectionStorage.update_settings(user_id, {"trusted_hashes": trusted})
-            return {"status": "success"}
-        return {"status": "not_found"}
+        await ProtectionStorage.add_untrusted_hash(user_id, payload.session_hash)
+        await mongodb.db.session_destroyer_pending.delete_many(
+            {"user_id": user_id, "hash": payload.session_hash}
+        )
+        return {"status": "success"}
     except Exception as e:
         logger.error(f"Error removing trusted session: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

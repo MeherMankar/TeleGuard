@@ -24,6 +24,7 @@ class ProtectionStorage:
                             "otp_destroyer_enabled": False,
                             "session_destroyer_enabled": False,
                             "trusted_hashes": [],
+                            "untrusted_hashes": [],
                             "destroyed_hashes": [],
                             "allow_next": False,
                             "pause_until": None,
@@ -92,10 +93,28 @@ class ProtectionStorage:
         try:
             await mongodb.db.protection_settings.update_one(
                 {"user_id": user_id},
-                {"$addToSet": {"trusted_hashes": session_hash}}
+                {
+                    "$addToSet": {"trusted_hashes": session_hash},
+                    "$pull": {"untrusted_hashes": session_hash},
+                },
             )
         except Exception as e:
             logger.error(f"Error adding trusted hash for {user_id}: {e}")
+            raise
+
+    @staticmethod
+    async def add_untrusted_hash(user_id: int, session_hash: int):
+        """Explicitly mark a session as untrusted across watcher restarts."""
+        try:
+            await mongodb.db.protection_settings.update_one(
+                {"user_id": user_id},
+                {
+                    "$pull": {"trusted_hashes": session_hash},
+                    "$addToSet": {"untrusted_hashes": session_hash},
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error adding untrusted hash for {user_id}: {e}")
             raise
 
     @staticmethod
@@ -110,7 +129,11 @@ class ProtectionStorage:
                 {
                     "$addToSet": {"destroyed_hashes": session_hash},
                     "$inc": {"stats.sessions_destroyed": 1},
-                    "$set": {"stats.last_threat": datetime.now(timezone.utc)}
+                    "$set": {"stats.last_threat": datetime.now(timezone.utc)},
+                    "$pull": {
+                        "trusted_hashes": session_hash,
+                        "untrusted_hashes": session_hash,
+                    },
                 }
             )
         except Exception as e:

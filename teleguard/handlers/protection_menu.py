@@ -323,10 +323,8 @@ class ProtectionMenu:
                 {"user_id": user_id, "hash": session_hash}
             )
         else:
-            settings = await ProtectionStorage.get_settings(user_id)
-            trusted_hashes = set(settings.get("trusted_hashes", []))
-            trusted_hashes.discard(session_hash)
-            await ProtectionStorage.update_settings(
-                user_id, {"trusted_hashes": list(trusted_hashes)}
+            await ProtectionStorage.add_untrusted_hash(user_id, session_hash)
+            await mongodb.db.session_destroyer_pending.delete_many(
+                {"user_id": user_id, "hash": session_hash}
             )
         return True

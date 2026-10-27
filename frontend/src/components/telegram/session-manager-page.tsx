@@ -125,7 +125,11 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     mutationFn: ({ hash, trusted }: { hash: number; trusted: boolean }) =>
       trusted ? securityApi.addTrusted(hash) : securityApi.removeTrusted(hash),
     onSuccess: (_, { trusted }) => {
-      toast.success(trusted ? "Session marked trusted" : "Session removed from trusted list")
+      toast.success(
+        trusted
+          ? "Session marked trusted"
+          : "Session marked untrusted; it will be terminated if Session Destroyer is enabled",
+      )
       queryClient.invalidateQueries({ queryKey: ["trusted-sessions"] })
       queryClient.invalidateQueries({ queryKey: ["security"] })
     },

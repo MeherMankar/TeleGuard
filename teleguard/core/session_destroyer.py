@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Set, List
+from typing import Any, Dict, Iterable, Set
 
 from telethon import functions, errors
 
@@ -38,6 +38,24 @@ def _session_existed_when_protection_enabled(auth, enabled_at) -> bool:
     if created_at is None:
         return True
     return created_at <= enabled_at
+
+
+def _initial_trusted_hashes(
+    authorizations: Iterable[Any],
+    enabled_at: datetime | None,
+    pending_hashes: Set[int],
+    trusted_hashes: Set[int],
+    untrusted_hashes: Set[int],
+) -> Set[int]:
+    trusted = trusted_hashes - untrusted_hashes
+    for auth in authorizations:
+        if auth.hash in pending_hashes or auth.hash in untrusted_hashes:
+            continue
+        if enabled_at is None or _session_existed_when_protection_enabled(
+            auth, enabled_at
+        ):
+            trusted.add(auth.hash)
+    return trusted
 
 
 class SessionDestroyer:
@@ -173,12 +191,13 @@ class SessionDestroyer:
                     await asyncio.sleep(15)
                     continue
 
-                # 4. On first run: trust ALL existing sessions so we don't destroy them.
-                # Also trust any session that pre-dates when SD was enabled — catches
-                # sessions that were missed during the initial sync (e.g. bot restart
-                # with SD already enabled in DB, or slow client connections).
+                # 4. Trust pre-existing sessions on startup unless the user
+                # explicitly marked one untrusted.
                 if first_run:
                     first_run = False
+                    explicitly_untrusted = set(
+                        settings.get("untrusted_hashes", [])
+                    )
                     existing_trusted = set(settings.get("trusted_hashes", []))
 
                     # enabled_at tells us the earliest point from which we should
@@ -195,20 +214,13 @@ class SessionDestroyer:
                         ).to_list(None)
                     }
 
-                    preexisting_hashes = set()
-                    for _, auth in current_sessions:
-                        # Never auto-trust a pending (deferred-kill) session
-                        if auth.hash in pending_on_first_run:
-                            continue
-                        if enabled_at:
-                            if _session_existed_when_protection_enabled(
-                                auth, enabled_at
-                            ):
-                                preexisting_hashes.add(auth.hash)
-                        else:
-                            preexisting_hashes.add(auth.hash)
-
-                    combined = existing_trusted | preexisting_hashes
+                    combined = _initial_trusted_hashes(
+                        (auth for _, auth in current_sessions),
+                        enabled_at,
+                        pending_on_first_run,
+                        existing_trusted,
+                        explicitly_untrusted,
+                    )
                     await ProtectionStorage.update_settings(
                         user_id, {"trusted_hashes": list(combined)}
                     )
@@ -229,6 +241,7 @@ class SessionDestroyer:
                 # 5. Reload settings after possible first-run update
                 settings = await ProtectionStorage.get_settings(user_id)
                 trusted_hashes = set(settings.get("trusted_hashes", []))
+                untrusted_hashes = set(settings.get("untrusted_hashes", []))
                 destroyed_hashes = set(settings.get("destroyed_hashes", []))
                 allow_next = settings.get("allow_next", False)
 
@@ -256,11 +269,17 @@ class SessionDestroyer:
                     # Always skip current session
                     if auth.current:
                         continue
+                    # Skip already destroyed sessions even if a stale explicit
+                    # untrusted marker remains.
+                    if auth.hash in destroyed_hashes:
+                        continue
+                    # Explicit user decisions override auto-trust, allow-next,
+                    # and deferred-kill records.
+                    if auth.hash in untrusted_hashes:
+                        newly_detected.append((client, auth))
+                        continue
                     # Skip trusted
                     if auth.hash in trusted_hashes:
-                        continue
-                    # Skip already destroyed (may linger briefly)
-                    if auth.hash in destroyed_hashes:
                         continue
                     # Skip sessions waiting out the 24-h fresh restriction
                     if auth.hash in pending_hashes:
@@ -495,13 +514,23 @@ class SessionDestroyer:
         try:
             result = await client(functions.account.GetAuthorizationsRequest())
             settings = await ProtectionStorage.get_settings(user_id)
-            hashes = set(settings.get("trusted_hashes", []))
-            hashes.update(auth.hash for auth in result.authorizations)
+            explicitly_untrusted = set(settings.get("untrusted_hashes", []))
+            hashes = set(settings.get("trusted_hashes", [])) - explicitly_untrusted
+            hashes.update(
+                auth.hash
+                for auth in result.authorizations
+                if auth.hash not in explicitly_untrusted
+            )
+            trusted_count = sum(
+                auth.hash in hashes for auth in result.authorizations
+            )
             await ProtectionStorage.update_settings(
                 user_id, {"trusted_hashes": list(hashes)}
             )
-            logger.info(f"Synced {len(result.authorizations)} trusted sessions for user {user_id}")
-            return len(result.authorizations)
+            logger.info(
+                f"Synced {trusted_count} trusted sessions for user {user_id}"
+            )
+            return trusted_count
         except Exception as e:
             logger.error(f"Error syncing trusted sessions for {user_id}: {e}")
             return 0
@@ -524,9 +553,14 @@ class SessionDestroyer:
                 return 0  # SD not active — nothing to do
 
             result = await client(functions.account.GetAuthorizationsRequest())
-            new_hashes = {auth.hash for auth in result.authorizations}
+            explicitly_untrusted = set(settings.get("untrusted_hashes", []))
+            new_hashes = {
+                auth.hash
+                for auth in result.authorizations
+                if auth.hash not in explicitly_untrusted
+            }
 
-            existing_trusted = set(settings.get("trusted_hashes", []))
+            existing_trusted = set(settings.get("trusted_hashes", [])) - explicitly_untrusted
             to_add = new_hashes - existing_trusted
 
             if to_add:
