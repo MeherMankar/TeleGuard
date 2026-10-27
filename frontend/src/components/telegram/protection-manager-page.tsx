@@ -155,7 +155,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
 
   return (
     <div style={{ zIndex: 75 }} className={cn(
-      "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+      "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
       isOpen ? "translate-x-0" : "translate-x-full",
     )}>
       <header className="flex items-center gap-4 px-4 py-3 bg-[#17212b] border-b border-white/10">

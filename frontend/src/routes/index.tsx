@@ -250,7 +250,7 @@ function TelegramChatList() {
 
   return (
     <div className="dark">
-      <div className="min-h-screen bg-[#17212b] text-foreground max-w-md mx-auto relative pb-20">
+      <div className="min-h-screen bg-[#17212b] text-foreground md:flex md:h-screen md:overflow-hidden">
         <Sidebar
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
@@ -294,6 +294,7 @@ function TelegramChatList() {
           />
         </Suspense>
 
+        <main className="relative min-h-screen w-full pb-20 md:flex md:h-screen md:min-h-0 md:w-[420px] md:shrink-0 md:flex-col md:border-r md:border-white/[0.08] md:pb-0">
         <SearchHeader
           searchValue={searchValue}
           onSearchChange={setSearchValue}
@@ -303,7 +304,7 @@ function TelegramChatList() {
 
         {/* Dynamic folder tabs — from real Telegram API */}
         {folders.length > 0 && (
-          <div className="flex gap-1 px-2 py-2 overflow-x-auto scrollbar-hide border-b border-[#242f3d]">
+          <div className="flex gap-1 overflow-x-auto border-b border-white/[0.06] px-3 py-2.5 scrollbar-hide">
             {folders.map((folder) => {
               const unread = folder.id === 0
                 ? totalUnread
@@ -333,10 +334,10 @@ function TelegramChatList() {
                   key={folder.id}
                   onClick={() => setActiveFolder(folder.id)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0",
+                    "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
-                      ? "bg-[#2AABEE] text-white"
-                      : "bg-[#242f3d] text-gray-400 hover:text-white",
+                      ? "bg-[#2AABEE]/15 text-[#70c5f3]"
+                      : "text-gray-400 hover:bg-white/[0.05] hover:text-white",
                   )}
                 >
                   <FolderTabIcon className="h-3.5 w-3.5 flex-shrink-0" />
@@ -355,10 +356,11 @@ function TelegramChatList() {
             {/* Edit folders */}
             <button
               onClick={() => setIsChatFoldersOpen(true)}
-              className="p-2 rounded-full text-gray-500 hover:text-[#2AABEE] bg-[#242f3d] transition-colors flex-shrink-0"
+              className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-white/[0.05] hover:text-white"
               title="Manage folders"
             >
               <FolderOpen className="h-4 w-4" />
+              <span>Manage</span>
             </button>
           </div>
         )}
@@ -397,7 +399,7 @@ function TelegramChatList() {
         )}
 
         {activeAccount && !dialogsLoading && (
-          <div className="divide-y divide-[#242f3d]">
+          <div className="divide-y divide-white/[0.06] md:min-h-0 md:flex-1 md:overflow-y-auto">
             {filteredDialogs.length === 0 && (
               <div className="text-center py-16 text-gray-400 text-sm">
                 {searchValue ? "No chats match your search" : "No chats yet"}
@@ -422,6 +424,17 @@ function TelegramChatList() {
 
         <FabButton onClick={() => setIsContactsOpen(true)} />
         <BottomNav activeTab={activeNavTab} onTabChange={handleNavTabChange} unreadCount={totalUnread} />
+        </main>
+
+        <aside className="hidden min-w-0 flex-1 flex-col items-center justify-center bg-[#101820] px-8 text-center md:flex">
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#2AABEE]/10 text-[#55b8ee]">
+            <MessageSquare className="h-7 w-7" />
+          </div>
+          <h2 className="text-lg font-medium text-white">Your messages, in one place</h2>
+          <p className="mt-2 max-w-sm text-sm leading-relaxed text-gray-400">
+            Choose a conversation to view messages, or use the menu to manage your Telegram accounts.
+          </p>
+        </aside>
       </div>
     </div>
   )

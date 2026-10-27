@@ -104,7 +104,7 @@
   --card-foreground: oklch(0.984 0.003 247.858);
   --popover: oklch(0.208 0.042 265.755);
   --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.65 0.2 280);
+  --primary: oklch(0.72 0.14 230);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.25 0.01 285);
   --secondary-foreground: oklch(0.98 0 0);
@@ -116,7 +116,7 @@
   --destructive-foreground: oklch(0.984 0.003 247.858);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
+  --ring: oklch(0.72 0.14 230);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -137,8 +137,98 @@
     border-color: var(--color-border);
   }
 
+  html {
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    min-width: 320px;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: oklch(0.72 0.14 230 / 30%);
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @media (min-width: 768px) {
+    body {
+      background:
+        radial-gradient(ellipse at 50% -20%, rgb(42 171 238 / 8%), transparent 48%),
+        #101820;
+    }
+  }
+
+  :focus-visible {
+    outline: 2px solid oklch(0.72 0.14 230 / 85%);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .tg-screen {
+    background: #17212b;
+    color: #f5f7fa;
+  }
+
+  .tg-screen > header {
+    min-height: 60px;
+    border-color: rgb(255 255 255 / 8%);
+    background: rgb(23 33 43 / 94%);
+    backdrop-filter: blur(14px);
+  }
+
+  .tg-screen [class~="bg-[#242f3d]"] {
+    border: 1px solid rgb(255 255 255 / 7%);
+    background-color: #1d2935;
+    border-radius: 0.75rem;
+  }
+
+  .tg-screen :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]) {
+    min-height: 42px;
+  }
+}
+
+@media (min-width: 768px) {
+  .tg-screen {
+    inset: 24px 0;
+    width: min(calc(100% - 48px), 920px);
+    height: calc(100vh - 48px);
+    margin-inline: auto;
+    overflow: hidden;
+    border: 1px solid rgb(255 255 255 / 9%);
+    border-radius: 14px;
+    box-shadow: 0 24px 80px rgb(0 0 0 / 40%);
+  }
+
+  .tg-screen > header {
+    padding-inline: 20px;
+  }
+
+  .tg-screen.tg-screen-narrow {
+    width: min(calc(100% - 48px), 520px);
+  }
+}
+
+@media (max-width: 767px) {
+  .tg-screen {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
   }
 }

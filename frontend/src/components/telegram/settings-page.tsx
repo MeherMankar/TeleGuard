@@ -126,7 +126,7 @@ function SettingsSubPage({
     <div
       style={{ zIndex: 90 }}
       className={cn(
-        "fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
+        "tg-screen fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
@@ -182,7 +182,7 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
     <div
       style={{ zIndex: 80 }}
       className={cn(
-        "fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
+        "tg-screen fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >

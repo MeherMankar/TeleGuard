@@ -159,7 +159,7 @@ function ChatPage() {
 
   return (
     <div className="dark">
-      <div className="min-h-screen bg-background text-foreground max-w-md mx-auto relative flex flex-col">
+      <div className="relative flex min-h-screen max-w-md flex-col bg-background text-foreground md:h-screen md:max-w-none md:overflow-hidden">
         {/* Header */}
         <div className="sticky top-0 z-30 flex items-center gap-3 px-2 py-2 bg-card/95 backdrop-blur border-b border-border/40">
           <button onClick={() => navigate({ to: "/" })} aria-label="Back" className="p-1.5 text-foreground flex-shrink-0">

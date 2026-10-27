@@ -127,7 +127,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
       <div
         style={{ zIndex: 75 }}
         className={cn(
-          "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+          "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "translate-x-full",
         )}
       >
@@ -351,5 +351,4 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     </>
   )
 }
-
 

@@ -48,7 +48,7 @@ function PrivacyPicker({ label, current, onSave, onBack, loading }: PickerProps)
   const [selected, setSelected] = useState(current)
 
   return (
-    <div className="fixed inset-0 z-[95] bg-background flex flex-col">
+    <div className="tg-screen fixed inset-0 z-[95] bg-background flex flex-col">
       <div className="flex items-center gap-3 px-2 py-3 bg-card/95 backdrop-blur border-b border-border/40 sticky top-0">
         <button onClick={onBack} className="p-2 text-foreground">
           <ArrowLeft className="h-6 w-6" />
@@ -151,7 +151,7 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
       <div
         style={{ zIndex: 85 }}
         className={cn(
-          "fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
+          "tg-screen fixed inset-0 flex flex-col bg-background transition-transform duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "translate-x-full",
         )}
       >

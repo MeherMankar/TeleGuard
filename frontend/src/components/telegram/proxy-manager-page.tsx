@@ -10,7 +10,6 @@ import {
   XCircle,
   Globe,
   AlertTriangle,
-  X,
   Link2,
   Star,
 } from "lucide-react"
@@ -84,6 +83,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
   const [webshareApiKey, setWebshareApiKey] = useState("")
   const [proxyLink, setProxyLink] = useState("")
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [testingProxyId, setTestingProxyId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { status: string; latency: number }>>({})
   const [form, setForm] = useState({
     name: "",
@@ -216,6 +216,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
   })
 
   const testProxy = async (proxy: Proxy) => {
+    setTestingProxyId(proxy.id)
     try {
       const res = await proxiesApi.test(proxy.id)
       setTestResults((prev) => ({
@@ -225,6 +226,8 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
       toast.success(`${res.status === "working" ? "✓" : "✗"} ${res.message}`)
     } catch (e) {
       toast.error((e as Error).message)
+    } finally {
+      setTestingProxyId(null)
     }
   }
 
@@ -233,54 +236,96 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
     <div
       style={{ zIndex: 75 }}
       className={cn(
-        "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+        "tg-screen fixed inset-0 flex flex-col bg-[#17212b] text-white transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
-      <header className="flex items-center gap-4 px-4 py-3 border-b border-white/10">
-        <button
-          onClick={() => {
-            setWebshareApiKey("")
-            setShowWebshareForm(false)
-            onClose()
-          }}
-          className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <h1 className="text-xl font-medium text-white flex-1">Proxy Manager</h1>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="p-2 text-[#2AABEE] hover:text-white transition-colors"
-          title="Add a proxy manually"
-        >
-          <Plus className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => setShowLinkForm(!showLinkForm)}
-          className="p-2 text-[#2AABEE] hover:text-white transition-colors"
-          title="Add a Telegram proxy link"
-          aria-label="Add a Telegram proxy link"
-        >
-          <Link2 className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => {
-            if (showWebshareForm) setWebshareApiKey("")
-            setShowWebshareForm(!showWebshareForm)
-          }}
-          className="p-2 text-[#2AABEE] hover:text-white transition-colors"
-          title="Import Webshare proxies"
-        >
-          <Globe className="h-5 w-5" />
-        </button>
+      <header className="border-b border-white/[0.08]">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3">
+          <button
+            onClick={() => {
+              setWebshareApiKey("")
+              setShowWebshareForm(false)
+              onClose()
+            }}
+            className="-ml-2 rounded-full p-2 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[17px] font-semibold tracking-tight">Proxy settings</h1>
+            <p className="mt-0.5 text-xs text-gray-400">Manage how your accounts connect</p>
+          </div>
+        </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        <main className="mx-auto w-full max-w-3xl space-y-7 px-4 py-5 pb-10 sm:px-6">
+          <section aria-label="Add a proxy">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-[13px] font-semibold text-white">Add proxy</h2>
+              <span className="text-xs text-gray-500">Choose a setup method</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                onClick={() => {
+                  setShowAddForm((value) => !value)
+                  setShowLinkForm(false)
+                  setShowWebshareForm(false)
+                }}
+                aria-expanded={showAddForm}
+                className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                  <Plus className="h-[18px] w-[18px]" />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-medium">Enter details</span>
+                  <span className="mt-0.5 block text-[11px] text-gray-400">SOCKS, HTTP, MTProto</span>
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowLinkForm((value) => !value)
+                  setShowAddForm(false)
+                  setShowWebshareForm(false)
+                }}
+                aria-expanded={showLinkForm}
+                className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                  <Link2 className="h-[18px] w-[18px]" />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-medium">Paste a link</span>
+                  <span className="mt-0.5 block text-[11px] text-gray-400">Telegram proxy link</span>
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowWebshareForm((value) => !value)
+                  setShowAddForm(false)
+                  setShowLinkForm(false)
+                }}
+                aria-expanded={showWebshareForm}
+                className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                  <Globe className="h-[18px] w-[18px]" />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-medium">Import list</span>
+                  <span className="mt-0.5 block text-[11px] text-gray-400">From Webshare</span>
+                </span>
+              </button>
+            </div>
+          </section>
+
         {showLinkForm && (
-          <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
-            <p className="text-sky-400 text-sm font-medium">Add Telegram proxy link</p>
-            <p className="text-gray-400 text-xs">
+          <div className="space-y-3 rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
+            <h3 className="text-sm font-semibold">Telegram proxy link</h3>
+            <p className="mb-3 mt-1 text-xs leading-relaxed text-gray-400">
               Paste a t.me/proxy, tg://proxy, SOCKS, or MTProto link.
             </p>
             <input
@@ -289,22 +334,22 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
               placeholder="Telegram proxy link"
               type="url"
               autoComplete="off"
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-[#2AABEE]"
             />
-            <div className="flex gap-2">
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 onClick={() => {
                   setShowLinkForm(false)
                   setProxyLink("")
                 }}
-                className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
+                className="rounded-md px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/[0.06]"
               >
                 Cancel
               </button>
               <button
                 onClick={() => importLinkMutation.mutate()}
                 disabled={!proxyLink.trim() || importLinkMutation.isPending}
-                className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex items-center justify-center gap-2 rounded-md bg-[#2AABEE] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#229ed9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {importLinkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Add Proxy
@@ -314,9 +359,9 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
         )}
 
         {showWebshareForm && (
-          <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
-            <p className="text-sky-400 text-sm font-medium">Import from Webshare</p>
-            <p className="text-gray-400 text-xs">
+          <div className="rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
+            <h3 className="text-sm font-semibold">Import from Webshare</h3>
+            <p className="mb-3 mt-1 text-xs leading-relaxed text-gray-400">
               The API key is used only to fetch your proxy list and is not saved.
             </p>
             <input
@@ -325,22 +370,22 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
               placeholder="Webshare API key"
               type="password"
               autoComplete="off"
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-[#2AABEE]"
             />
-            <div className="flex gap-2">
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 onClick={() => {
                   setShowWebshareForm(false)
                   setWebshareApiKey("")
                 }}
-                className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
+                className="rounded-md px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/[0.06]"
               >
                 Cancel
               </button>
               <button
                 onClick={() => webshareMutation.mutate()}
                 disabled={!webshareApiKey.trim() || webshareMutation.isPending}
-                className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex items-center justify-center gap-2 rounded-md bg-[#2AABEE] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#229ed9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {webshareMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Import Proxies
@@ -351,18 +396,18 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
 
         {/* Add Form */}
         {showAddForm && (
-          <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
-            <p className="text-sky-400 text-sm font-medium">Add New Proxy</p>
+          <div className="rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
+            <h3 className="mb-3 text-sm font-semibold">Proxy details</h3>
             <input
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="Name (optional)"
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-[#2AABEE]"
             />
             <select
               value={form.type}
               onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none focus:border-[#2AABEE]"
             >
               <option value="socks5">SOCKS5</option>
               <option value="http">HTTP</option>
@@ -373,21 +418,21 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 value={form.server}
                 onChange={(e) => setForm((f) => ({ ...f, server: e.target.value }))}
                 placeholder="Server / Host"
-                className="flex-1 bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+                className="min-w-0 flex-1 rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
               <input
                 value={form.port}
                 onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
                 placeholder="Port"
                 type="number"
-                className="w-24 bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+                className="w-24 rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
             </div>
             <input
               value={form.username}
               onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
               placeholder="Username (optional)"
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
             />
             {form.type === "mtproto" ? (
               <input
@@ -396,7 +441,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 placeholder="MTProto secret"
                 type="password"
                 autoComplete="off"
-                className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+                className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
             ) : (
               <input
@@ -405,20 +450,20 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 placeholder="Password (optional)"
                 type="password"
                 autoComplete="new-password"
-                className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+                className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
             )}
-            <div className="flex gap-2">
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 onClick={() => { setShowAddForm(false); setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "", secret: "" }) }}
-                className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
+                className="rounded-md px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/[0.06]"
               >
                 Cancel
               </button>
               <button
                 onClick={() => addMutation.mutate()}
                 disabled={!form.server || !form.port || (form.type === "mtproto" && !form.secret.trim()) || addMutation.isPending}
-                className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex items-center justify-center gap-2 rounded-md bg-[#2AABEE] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#229ed9] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {addMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Add Proxy
@@ -429,65 +474,60 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
 
         {/* States */}
         {isLoading && (
-          <div className="flex justify-center py-8">
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-400">
             <Loader2 className="h-6 w-6 text-[#2AABEE] animate-spin" />
+            Loading proxies
           </div>
         )}
 
         {isError && !isLoading && (
-          <div className="text-center py-12">
-            <Globe className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">Could not load proxies</p>
-            <p className="text-gray-600 text-xs mt-1">Check your backend connection</p>
-            <button onClick={() => setShowAddForm(true)} className="mt-3 text-[#2AABEE] text-sm">
-              Add a proxy anyway
-            </button>
+          <div className="rounded-lg border border-red-400/20 bg-red-400/[0.06] px-4 py-4">
+            <p className="text-sm font-medium text-red-200">Couldn’t load proxies</p>
+            <p className="mt-1 text-xs text-gray-400">Check your connection and try again.</p>
           </div>
         )}
 
         {!isLoading && !isError && proxies.length === 0 && (
-          <div className="text-center py-12">
-            <Globe className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No proxies configured</p>
-            <button onClick={() => setShowAddForm(true)} className="mt-3 text-[#2AABEE] text-sm">
-              Add your first proxy
-            </button>
+          <div className="border-y border-white/[0.08] py-6">
+            <p className="text-sm font-medium">No proxies added</p>
+            <p className="mt-1 text-xs text-gray-400">
+              Add a proxy above to route one or more accounts through it.
+            </p>
           </div>
         )}
 
         {!isLoading && !isError && proxies.length > 0 && (
           <>
           {accounts.length > 0 && (
-            <section className="bg-[#242f3d] rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/10">
-                <span className="text-sky-400 text-sm font-medium">Account routing</span>
+            <section>
+              <div className="mb-3">
+                <h2 className="text-[13px] font-semibold">Account routing</h2>
+                <p className="mt-1 text-xs text-gray-400">
+                  Choose a specific proxy, or use the default for this account.
+                </p>
               </div>
-              <ul>
+              <ul className="divide-y divide-white/[0.07] border-y border-white/[0.07]">
                 {accounts.map((account) => (
-                  <li key={account.id} className="px-4 py-3 border-b border-white/5 last:border-0">
-                    <label className="block text-white text-sm mb-2" htmlFor={`proxy-${account.id}`}>
-                      {account.name}
-                    </label>
+                  <li key={account.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="min-w-0 truncate text-sm font-medium">{account.name}</span>
                     <select
                       id={`proxy-${account.id}`}
                       value={account.proxy_id ?? ""}
+                      aria-label={`Proxy for ${account.name}`}
                       onChange={(event) => {
                         if (event.target.value) {
-                          assignProxyMutation.mutate({
-                            accountId: account.id,
-                            proxyId: event.target.value,
-                          })
+                          assignProxyMutation.mutate({ accountId: account.id, proxyId: event.target.value })
                         } else if (account.proxy_id) {
                           removeProxyMutation.mutate(account.id)
                         }
                       }}
                       disabled={assignProxyMutation.isPending || removeProxyMutation.isPending}
-                      className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none disabled:opacity-50"
+                      className="w-full rounded-md border border-white/[0.12] bg-[#1d2935] px-3 py-2 text-sm text-white outline-none focus:border-[#2AABEE] disabled:opacity-50 sm:w-64"
                     >
-                      <option value="">Use default / no account proxy</option>
+                      <option value="">{defaultProxyId ? "Use default proxy" : "No proxy"}</option>
                       {proxies.map((proxy) => (
                         <option key={proxy.id} value={proxy.id}>
-                          {proxy.name ?? `${proxy.type.toUpperCase()} ${proxy.server}:${proxy.port}`}
+                          {proxy.name ?? `${proxy.type.toUpperCase()} · ${proxy.server}:${proxy.port}`}
                         </option>
                       ))}
                     </select>
@@ -496,26 +536,39 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
               </ul>
             </section>
           )}
-          <div className="bg-[#242f3d] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10">
-              <span className="text-sky-400 text-sm font-medium">Proxies ({proxies.length})</span>
+          <section>
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <h2 className="text-[13px] font-semibold">Saved proxies</h2>
+                <p className="mt-1 text-xs text-gray-400">
+                  {proxies.length} {proxies.length === 1 ? "proxy" : "proxies"}
+                  {defaultProxyId ? " · Default selected" : ""}
+                </p>
+              </div>
             </div>
-            <ul role="list">
+            <ul role="list" className="divide-y divide-white/[0.07] border-y border-white/[0.07]">
               {proxies.map((proxy, i) => {
                 const result = testResults[proxy.id]
                 const isDeleteConfirm = deleteTarget === proxy.id
                 return (
-                  <li key={proxy.id} className={cn("px-4 py-3", i < proxies.length - 1 && "border-b border-white/5")}>
+                  <li key={proxy.id} className={cn("py-3", i < proxies.length - 1 && "border-b border-white/[0.07]")}>
                     {/* Normal row */}
                     {!isDeleteConfirm && (
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
+                        <div className={cn(
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                          result?.status === "working"
+                            ? "bg-emerald-400/10 text-emerald-300"
+                            : result?.status === "failed"
+                              ? "bg-red-400/10 text-red-300"
+                              : "bg-white/[0.06] text-gray-300",
+                        )}>
                           {result?.status === "working" ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-400" />
+                            <CheckCircle2 className="h-[18px] w-[18px]" />
                           ) : result?.status === "failed" ? (
-                            <XCircle className="h-4 w-4 text-red-400" />
+                            <XCircle className="h-[18px] w-[18px]" />
                           ) : (
-                            <Wifi className="h-4 w-4 text-[#2AABEE]" />
+                            <Wifi className="h-[18px] w-[18px]" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -527,10 +580,10 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                               </span>
                             )}
                           </p>
-                          <p className="text-gray-400 text-xs truncate">
+                          <p className="mt-0.5 truncate text-xs text-gray-400">
                             {proxy.server}:{proxy.port}
                             {result?.latency != null && (
-                              <span className="ml-2 text-green-400">{result.latency}ms</span>
+                              <span className="ml-2 text-emerald-300">{result.latency} ms</span>
                             )}
                           </p>
                         </div>
@@ -539,7 +592,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                             <button
                               onClick={() => setDefaultMutation.mutate(proxy.id)}
                               disabled={setDefaultMutation.isPending}
-                              className="p-1.5 text-amber-300 hover:text-white transition-colors disabled:opacity-50"
+                              className="rounded-full p-2 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-amber-200 disabled:opacity-50"
                               title="Set as default proxy"
                               aria-label={`Set ${proxy.name ?? proxy.type} as default proxy`}
                             >
@@ -548,14 +601,18 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                           )}
                           <button
                             onClick={() => testProxy(proxy)}
-                            className="p-1.5 text-[#2AABEE] hover:text-white transition-colors"
+                            disabled={testingProxyId === proxy.id}
+                            className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs text-gray-300 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
                             title="Test proxy"
                           >
-                            <WifiOff className="h-4 w-4" />
+                            {testingProxyId === proxy.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <WifiOff className="h-3.5 w-3.5" />}
+                            <span className="hidden sm:inline">Test</span>
                           </button>
                           <button
                             onClick={() => setDeleteTarget(proxy.id)}
-                            className="p-1.5 text-red-400 hover:text-red-300 transition-colors"
+                            className="rounded-full p-2 text-gray-500 transition-colors hover:bg-red-400/10 hover:text-red-300"
                             title="Delete proxy"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -566,19 +623,19 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
 
                     {/* Inline delete confirmation — no portal, stays inside panel */}
                     {isDeleteConfirm && (
-                      <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-3 rounded-md border border-red-400/20 bg-red-400/[0.06] px-3 py-2">
                         <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0" />
                         <p className="text-red-300 text-xs flex-1">Delete this proxy?</p>
                         <button
                           onClick={() => setDeleteTarget(null)}
-                          className="px-2 py-1 text-gray-400 hover:text-white text-xs border border-white/20 rounded"
+                          className="rounded px-2 py-1 text-xs text-gray-300 hover:bg-white/[0.06]"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={() => deleteMutation.mutate(proxy.id)}
                           disabled={deleteMutation.isPending}
-                          className="px-2 py-1 bg-red-500 text-white text-xs rounded flex items-center gap-1"
+                          className="flex items-center gap-1 rounded bg-red-500 px-2 py-1 text-xs text-white"
                         >
                           {deleteMutation.isPending ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -592,9 +649,10 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 )
               })}
             </ul>
-          </div>
+          </section>
           </>
         )}
+        </main>
       </div>
     </div>
   )

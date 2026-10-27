@@ -12,7 +12,7 @@ export function FabButton({ onClick, className }: FabButtonProps) {
     <button
       onClick={onClick}
       className={cn(
-        "fixed bottom-20 right-4 h-14 w-14 rounded-full bg-[#2AABEE] text-white shadow-xl flex items-center justify-center hover:bg-[#2AABEE]/90 transition-colors z-20",
+        "fixed bottom-20 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#2AABEE] text-white shadow-lg shadow-black/20 transition-colors hover:bg-[#229ed9] md:absolute md:bottom-6 md:right-6",
         className
       )}
     >

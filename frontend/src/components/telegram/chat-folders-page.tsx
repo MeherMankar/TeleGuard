@@ -137,7 +137,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
   if (editingFolder !== null) {
     return (
       <div style={{ zIndex: 80 }} className={cn(
-        "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+        "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}>
         <header className="flex items-center gap-4 px-4 py-3 border-b border-white/10">
@@ -229,7 +229,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
   // ── List view ─────────────────────────────────────────────────────────────
   return (
     <div style={{ zIndex: 75 }} className={cn(
-      "fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+      "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
       isOpen ? "translate-x-0" : "translate-x-full",
     )}>
       <header className="flex items-center gap-4 px-4 py-3 border-b border-white/10">

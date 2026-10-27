@@ -97,7 +97,7 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
     <div
       style={{ zIndex: 80 }}
       className={cn(
-        "fixed inset-0 bg-background flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
+        "tg-screen fixed inset-0 bg-background flex flex-col transition-transform duration-300 ease-in-out overflow-y-auto",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
