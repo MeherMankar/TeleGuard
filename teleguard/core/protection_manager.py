@@ -69,6 +69,20 @@ class ProtectionManager:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def _notify_webapp_otp_event(
+        self, user_id: int, account_name: str, action: str
+    ) -> None:
+        try:
+            from backend.notifier import notify
+
+            await notify(user_id, {
+                "type": "otp_event",
+                "account_name": account_name,
+                "action": action,
+            })
+        except Exception:
+            logger.exception("Could not notify webapp about OTP event")
+
     async def _restore_or_schedule_temp_bypasses(self):
         """Resume persisted temporary-bypass expiry handling after startup."""
         accounts = await mongodb.db.accounts.find(
@@ -476,6 +490,9 @@ class ProtectionManager:
                     await event.delete()
                 except Exception:
                     pass
+                await self._notify_webapp_otp_event(
+                    user_id, account_name, "temp_forwarded"
+                )
 
                 # Record metrics and audit
                 try:
@@ -616,6 +633,9 @@ class ProtectionManager:
                     )
                 except Exception:
                     logger.exception("Failed to notify user of OTP destruction")
+                await self._notify_webapp_otp_event(
+                    user_id, account_name, "destroyed"
+                )
                 logger.warning(
                     f"🛡️ OTP Destroyer: Invalidated code {display_code} "
                     f"for {account_name}"
@@ -665,6 +685,9 @@ class ProtectionManager:
                     await event.delete()
                 except Exception:
                     pass
+                await self._notify_webapp_otp_event(
+                    user_id, account_name, "forwarded"
+                )
                 
                 # Log forward in background
                 try:

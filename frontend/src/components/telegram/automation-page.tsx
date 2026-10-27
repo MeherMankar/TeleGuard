@@ -12,10 +12,17 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { autoReplyApi, messagingApi, apiErrorMessage } from "@/lib/api"
+import {
+  autoReplyApi,
+  messagingApi,
+  accountsApi,
+  apiErrorMessage,
+  type AutomationJobType,
+} from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import { toast } from "sonner"
+import { Switch } from "@/components/ui/switch"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +39,13 @@ interface AutomationPageProps {
   onClose: () => void
 }
 
+function formatJobTime(value: number | string): string {
+  const timestamp = typeof value === "number" ? value * 1000 : Date.parse(value)
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp).toLocaleString()
+    : "not scheduled"
+}
+
 export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
   const { activeAccount, accounts } = useUser()
   const queryClient = useQueryClient()
@@ -42,7 +56,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
 
   // Create Job state
   const [showCreateJob, setShowCreateJob] = useState(false)
-  const [jobType, setJobType] = useState("send_message")
+  const [jobType, setJobType] = useState<AutomationJobType>("scheduled_post")
   const [jobInterval, setJobInterval] = useState("3600")
   const [jobTarget, setJobTarget] = useState("")
   const [jobMessage, setJobMessage] = useState("")
@@ -102,8 +116,11 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
     mutationFn: () => messagingApi.createJob({
       account_id: activeAccount?.id ?? "",
       job_type: jobType,
-      job_config: { target: jobTarget, message: jobMessage },
-      interval_seconds: parseInt(jobInterval) || 3600,
+      job_config:
+        jobType === "scheduled_post"
+          ? { channel: jobTarget, message: jobMessage }
+          : { channel_link: jobTarget },
+      interval_seconds: jobType === "auto_join" ? 60 : Math.max(60, parseInt(jobInterval) || 3600),
     }),
     onSuccess: () => {
       toast.success("Job created")
@@ -124,6 +141,15 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
       setBulkTargets(""); setBulkMessage("")
     },
     onError: (e) => toast.error(apiErrorMessage(e)),
+  })
+
+  const toggleAccountReplyMutation = useMutation({
+    mutationFn: () => accountsApi.toggleReply(activeAccount!.name),
+    onSuccess: (result) => {
+      toast.success(`Auto-reply ${result.auto_reply_enabled ? "enabled" : "disabled"} for ${activeAccount?.name}`)
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+    },
+    onError: (error) => toast.error(apiErrorMessage(error)),
   })
 
   const keywords = arSettings?.keywords ?? {}
@@ -169,6 +195,21 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
         <div className="flex-1 overflow-y-auto">
           {activeTab === "keywords" && (
             <div className="p-4 space-y-4">
+              <div className="flex items-center gap-3 rounded-xl bg-[#242f3d] p-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white">Auto-reply for this account</p>
+                  <p className="mt-0.5 truncate text-xs text-gray-400">
+                    {activeAccount?.name ?? "Select an account to configure"}
+                  </p>
+                </div>
+                <Switch
+                  checked={activeAccount?.auto_reply_enabled ?? false}
+                  onCheckedChange={() => toggleAccountReplyMutation.mutate()}
+                  disabled={!activeAccount || toggleAccountReplyMutation.isPending}
+                  aria-label="Toggle auto-reply for active account"
+                />
+              </div>
+
               {/* Add keyword form */}
               <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
                 <p className="text-sky-400 text-sm font-medium flex items-center gap-2">
@@ -296,7 +337,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                             {job.job_type.replace(/_/g, " ")}
                           </p>
                           <p className="text-gray-400 text-xs">
-                            Every {job.interval_seconds}s ·{" "}
+                            {job.job_type === "auto_join"
+                              ? "One-time action"
+                              : `Repeats every ${job.interval_seconds}s`}
+                            {job.next_run != null && job.enabled
+                              ? ` · Next ${formatJobTime(job.next_run)}`
+                              : " · "}
                             {job.enabled ? (
                               <span className="text-green-400">Active</span>
                             ) : (
@@ -377,44 +423,51 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               <label className="text-gray-400 text-xs block mb-1">Job Type</label>
               <select
                 value={jobType}
-                onChange={e => setJobType(e.target.value)}
+                onChange={e =>
+                  setJobType(e.target.value === "auto_join" ? "auto_join" : "scheduled_post")
+                }
                 className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:outline-none"
               >
-                <option value="send_message">Send Message</option>
-                <option value="forward_message">Forward Message</option>
-                <option value="bulk_invite">Bulk Invite</option>
+                <option value="scheduled_post">Scheduled Channel Message</option>
+                <option value="auto_join">Join Channel or Group</option>
               </select>
             </div>
             <div>
-              <label className="text-gray-400 text-xs block mb-1">Target (chat / @username)</label>
+              <label className="text-gray-400 text-xs block mb-1">
+                {jobType === "scheduled_post" ? "Channel or chat" : "Channel or group invite"}
+              </label>
               <input
                 type="text"
                 value={jobTarget}
                 onChange={e => setJobTarget(e.target.value)}
-                placeholder="@channel or chat ID"
+                placeholder={jobType === "scheduled_post" ? "@channel or chat ID" : "https://t.me/..."}
                 className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
               />
             </div>
-            <div>
-              <label className="text-gray-400 text-xs block mb-1">Message</label>
-              <textarea
-                value={jobMessage}
-                onChange={e => setJobMessage(e.target.value)}
-                rows={2}
-                placeholder="Message to send…"
-                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-gray-400 text-xs block mb-1">Interval (seconds)</label>
-              <input
-                type="number"
-                value={jobInterval}
-                onChange={e => setJobInterval(e.target.value)}
-                min="60"
-                className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
-              />
-            </div>
+            {jobType === "scheduled_post" && (
+              <div>
+                <label className="text-gray-400 text-xs block mb-1">Message</label>
+                <textarea
+                  value={jobMessage}
+                  onChange={e => setJobMessage(e.target.value)}
+                  rows={2}
+                  placeholder="Message to send…"
+                  className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
+                />
+              </div>
+            )}
+            {jobType === "scheduled_post" && (
+              <div>
+                <label className="text-gray-400 text-xs block mb-1">Repeat interval (seconds)</label>
+                <input
+                  type="number"
+                  value={jobInterval}
+                  onChange={e => setJobInterval(e.target.value)}
+                  min="60"
+                  className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+                />
+              </div>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCreateJob(false)}
@@ -422,7 +475,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               >Cancel</button>
               <button
                 onClick={() => createJobMutation.mutate()}
-                disabled={!activeAccount || !jobTarget.trim() || createJobMutation.isPending}
+                disabled={
+                  !activeAccount ||
+                  !jobTarget.trim() ||
+                  (jobType === "scheduled_post" && !jobMessage.trim()) ||
+                  createJobMutation.isPending
+                }
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE] text-white rounded-xl text-sm font-medium disabled:opacity-50"
               >
                 {createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -455,4 +513,3 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
     </>
   )
 }
-

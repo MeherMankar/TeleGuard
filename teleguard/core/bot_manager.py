@@ -12,7 +12,7 @@ import os
 import time
 from typing import Any, Dict, Optional, Set
 
-from telethon import TelegramClient, connection
+from telethon import TelegramClient, connection, events
 from telethon.sessions import StringSession
 
 from ..utils.account_invalidation import init_account_invalidation_handler
@@ -135,6 +135,27 @@ class BotManager:
         self._shutting_down = False
         self._startup_complete = False
         self.spam_detector = None
+
+    def register_webapp_event_handlers(
+        self, user_id: int, account_name: str, client: TelegramClient
+    ) -> None:
+        if getattr(client, "_teleguard_webapp_events_registered", False):
+            return
+
+        from backend.notifier import notify
+
+        async def notify_webapp_new_message(event):
+            await notify(user_id, {
+                "type": "new_message",
+                "account_name": account_name,
+                "chat_id": event.chat_id,
+                "message_id": event.message.id,
+            })
+
+        client.add_event_handler(
+            notify_webapp_new_message, events.NewMessage(incoming=True)
+        )
+        setattr(client, "_teleguard_webapp_events_registered", True)
 
     async def __aenter__(self):
         await self.start_bot()
@@ -698,6 +719,15 @@ class BotManager:
             if user_id not in self.user_clients:
                 self.user_clients[user_id] = {}
             self.user_clients[user_id][account_name] = client
+
+            try:
+                self.register_webapp_event_handlers(user_id, account_name, client)
+            except Exception as e:
+                logger.warning(
+                    "Could not register webapp message notifications for %s: %s",
+                    account_name,
+                    e,
+                )
 
             # Register session for protection
             session_id = f"{user_id}_{account_name}"

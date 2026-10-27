@@ -106,7 +106,8 @@ async def websocket_events(websocket: WebSocket, token: Optional[str] = Query(No
     """
     Authenticated WebSocket for real-time dashboard events.
     Events pushed by the bot: account_added, account_removed, session_revoked,
-    new_message, security_alert, automation_log, otp_event.
+    new_message, security_alert, automation_log, otp_event,
+    otp_destroyer_toggled, otp_forward_toggled, otp_temp_passthrough.
     """
     user_id = None
     if token:

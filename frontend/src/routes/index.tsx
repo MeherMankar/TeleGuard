@@ -209,7 +209,9 @@ function TelegramChatList() {
 
   useWsEvent(
     "new_message",
-    useCallback(() => {
+    useCallback((event) => {
+      const eventAccountName = typeof event.account_name === "string" ? event.account_name : null
+      if (eventAccountName && eventAccountName !== activeAccount?.name) return
       queryClient.invalidateQueries({ queryKey: ["dialogs", activeAccount?.name] })
     }, [activeAccount?.name, queryClient]),
   )

@@ -20,6 +20,7 @@ import {
   WifiOff,
   Loader2,
   FolderOpen,
+  RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/contexts/user-context"
@@ -114,6 +115,19 @@ export function Sidebar({
       queryClient.invalidateQueries({ queryKey: ["accounts-status"] })
     },
     onError: (e) => toast.error((e as Error).message),
+  })
+
+  const refreshNamesMutation = useMutation({
+    mutationFn: accountsApi.refreshNames,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+      toast.success(
+        result.updated.length
+          ? `Refreshed ${result.updated.length} account name${result.updated.length === 1 ? "" : "s"}`
+          : "Account names are up to date",
+      )
+    },
+    onError: (error) => toast.error((error as Error).message),
   })
 
   useEffect(() => {
@@ -268,6 +282,18 @@ export function Sidebar({
                   </div>
                 )
               })}
+              <button
+                onClick={() => refreshNamesMutation.mutate()}
+                disabled={refreshNamesMutation.isPending}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-primary-foreground/70 transition-colors hover:bg-white/10 hover:text-primary-foreground disabled:opacity-50"
+              >
+                {refreshNamesMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refresh account names
+              </button>
             </div>
           )}
         </div>

@@ -98,6 +98,26 @@ export const authApi = {
   devLogin: () => get<LoginResponse>("/api/auth/dev-login"),
 }
 
+export interface BackendHealth {
+  status: string
+  service: string
+  timestamp: number
+}
+
+export type SessionNetworkStatus =
+  | {
+      current_ip: string | null
+      ip_changes: number
+      stability: "high" | "medium" | "low"
+      last_check: number | null
+    }
+  | { status: "guardian_not_initialized" }
+
+export const systemApi = {
+  health: () => get<BackendHealth>("/health"),
+  sessionNetwork: () => get<SessionNetworkStatus>("/ip"),
+}
+
 // ─── Accounts ────────────────────────────────────────────────────────────────
 
 export interface Account {
@@ -358,10 +378,12 @@ export interface AutomationJob {
   job_config: string
   enabled: boolean
   interval_seconds: number
-  last_run: number
-  next_run: number
+  last_run?: number | string
+  next_run?: number | string
   created_at: number
 }
+
+export type AutomationJobType = "scheduled_post" | "auto_join"
 
 export interface Contact {
   id: number
@@ -421,7 +443,7 @@ export const messagingApi = {
   jobs: () => get<AutomationJob[]>("/api/messaging/jobs"),
   createJob: (payload: {
     account_id: string
-    job_type: string
+    job_type: AutomationJobType
     job_config: Record<string, unknown>
     interval_seconds: number
   }) => post<{ status: string; job_id: string }>("/api/messaging/jobs", payload),

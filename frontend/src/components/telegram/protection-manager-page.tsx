@@ -56,6 +56,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     queryClient.invalidateQueries({ queryKey: ["security-logs"] })
   }, [queryClient]))
 
+  useWsEvent("otp_temp_passthrough", useCallback((event) => {
+    const accountId = typeof event.account_id === "string" ? ` for account ${event.account_id}` : ""
+    toast.info(`Temporary OTP passthrough enabled${accountId}`)
+  }, []))
+
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const sessionDestroyerMutation = useMutation({

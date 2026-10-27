@@ -170,7 +170,9 @@ function ChatPage() {
     onError: (e) => toast.error((e as Error).message),
   })
 
-  useWsEvent("new_message", useCallback(() => {
+  useWsEvent("new_message", useCallback((event) => {
+    if (typeof event.account_name === "string" && event.account_name !== effectiveAccount) return
+    if (typeof event.chat_id === "number" && event.chat_id !== chatEntityId) return
     qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
   }, [effectiveAccount, chatEntityId, qc]))
 

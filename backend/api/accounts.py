@@ -105,6 +105,9 @@ async def _save_and_start_account(user_id: int, phone: str, session_string: str,
                 if user_id not in bot_manager.user_clients:
                     bot_manager.user_clients[user_id] = {}
                 bot_manager.user_clients[user_id][display_name] = existing_client
+                bot_manager.register_webapp_event_handlers(
+                    user_id, display_name, existing_client
+                )
 
                 # Set up all handlers the same way add_user_account() does
                 if hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:

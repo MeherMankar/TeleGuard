@@ -1,7 +1,7 @@
-import { ArrowLeft, Users, Activity, MessageSquare, Shield, TrendingUp, Clock } from "lucide-react"
+import { ArrowLeft, Users, Activity, MessageSquare, Shield, TrendingUp, Clock, Globe, Server } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
-import { analyticsApi, messagingApi } from "@/lib/api"
+import { analyticsApi, messagingApi, systemApi } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 
 interface DashboardPageProps {
@@ -20,6 +20,20 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
   const { data: msgStats, isLoading: msgLoading } = useQuery({
     queryKey: ["messaging-stats"],
     queryFn: messagingApi.stats,
+    enabled: isOpen,
+    refetchInterval: isOpen ? 30_000 : false,
+  })
+
+  const { data: backendHealth, isError: backendError } = useQuery({
+    queryKey: ["backend-health"],
+    queryFn: systemApi.health,
+    enabled: isOpen,
+    refetchInterval: isOpen ? 30_000 : false,
+  })
+
+  const { data: sessionNetwork } = useQuery({
+    queryKey: ["session-network"],
+    queryFn: systemApi.sessionNetwork,
     enabled: isOpen,
     refetchInterval: isOpen ? 30_000 : false,
   })
@@ -103,6 +117,37 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
           ))}
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-xl bg-[#242f3d] p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
+              <Server className="h-5 w-5 text-green-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Backend service</p>
+              <p className={cn("text-xs", backendError ? "text-red-400" : "text-gray-400")}>
+                {backendError ? "Unavailable" : backendHealth?.status === "healthy" ? "Connected" : "Checking…"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl bg-[#242f3d] p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/10">
+              <Globe className="h-5 w-5 text-sky-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white">Session network</p>
+              {sessionNetwork && "current_ip" in sessionNetwork ? (
+                <p className="truncate text-xs text-gray-400">
+                  {sessionNetwork.stability} stability · {sessionNetwork.ip_changes} IP changes
+                </p>
+              ) : sessionNetwork?.status === "guardian_not_initialized" ? (
+                <p className="text-xs text-gray-400">Network monitor not initialized</p>
+              ) : (
+                <p className="text-xs text-gray-400">Checking…</p>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Messaging Stats */}
         {msgStats && (
           <div className="bg-[#242f3d] rounded-xl p-4">
@@ -166,4 +211,3 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
     </div>
   )
 }
-

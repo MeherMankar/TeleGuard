@@ -14,6 +14,7 @@ export type WsEventType =
   | "automation_log"
   | "otp_destroyer_toggled"
   | "otp_forward_toggled"
+  | "otp_temp_passthrough"
   | "otp_event"
 
 export interface WsEvent {

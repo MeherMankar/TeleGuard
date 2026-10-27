@@ -11,7 +11,7 @@ import json
 import logging
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from telethon import events
@@ -83,16 +83,63 @@ class AutomationEngine:
     async def _process_scheduled_jobs(self):
         """Process scheduled automation jobs"""
         try:
+            now = time.time()
             jobs = await mongodb.db.automation_jobs.find({"enabled": True}).to_list(
                 length=None
             )
             for job in jobs:
+                if not self._job_is_due(job, now):
+                    continue
                 await self._execute_job(job)
+                try:
+                    config = json.loads(job.get("job_config", "{}"))
+                except (TypeError, json.JSONDecodeError):
+                    config = {}
+                await self._update_job_schedule(job, config)
 
             # Process AI-powered human-like activities
             await self._process_ai_activities()
         except Exception as e:
             logger.error(f"Process scheduled jobs error: {e}")
+
+    @staticmethod
+    def _job_is_due(job: dict, now: float) -> bool:
+        next_run = job.get("next_run", 0)
+        if isinstance(next_run, str):
+            try:
+                next_run = float(next_run)
+            except ValueError:
+                try:
+                    parsed_next_run = datetime.fromisoformat(
+                        next_run.replace("Z", "+00:00")
+                    )
+                    if parsed_next_run.tzinfo is None:
+                        parsed_next_run = parsed_next_run.replace(tzinfo=timezone.utc)
+                    next_run = parsed_next_run.timestamp()
+                except ValueError:
+                    return True
+        try:
+            return float(next_run or 0) <= now
+        except (TypeError, ValueError):
+            logger.warning("Invalid next_run for automation job %s", job.get("_id"))
+            return False
+
+    async def _update_job_schedule(self, job: dict, config: dict) -> None:
+        interval = job.get("interval_seconds") or config.get("interval")
+        update_data = {"last_run": time.time()}
+        if job.get("job_type") == "auto_join":
+            update_data["enabled"] = False
+        elif interval:
+            try:
+                update_data["next_run"] = time.time() + max(int(interval), 60)
+            except (TypeError, ValueError):
+                logger.warning("Invalid interval for automation job %s", job.get("_id"))
+                update_data["enabled"] = False
+        else:
+            update_data["enabled"] = False
+        await mongodb.db.automation_jobs.update_one(
+            {"_id": job["_id"]}, {"$set": update_data}
+        )
 
     async def _execute_job(self, job):
         """Execute a specific automation job"""
@@ -112,21 +159,20 @@ class AutomationEngine:
             handler = job_handlers.get(job_type)
             if handler:
                 await handler(account_id, config)
+                if job.get("user_id"):
+                    from backend.notifier import notify
+
+                    await notify(job["user_id"], {
+                        "type": "automation_log",
+                        "job_id": str(job.get("_id", "")),
+                        "account_id": account_id,
+                        "job_type": job_type,
+                        "message": f"Automation job processed: {job_type}",
+                    })
+            else:
+                logger.warning("Unsupported automation job type: %s", job_type)
         except Exception as e:
             logger.error(f"Execute job error: {e}")
-
-    def _calculate_next_run(self, job) -> str:
-        """Calculate next run time for job"""
-        try:
-            config = json.loads(job.job_config)
-            interval = config.get("interval", 3600)  # Default 1 hour
-            next_time = time.time() + interval
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_time))
-        except Exception as e:
-            logger.error(f"Error calculating next run time: {e}")
-            # Default to 1 hour from now
-            next_time = time.time() + 3600
-            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(next_time))
 
     async def _execute_auto_reply(self, account_id: int, config: Dict):
         """Execute auto-reply job"""

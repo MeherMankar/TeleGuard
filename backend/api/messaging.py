@@ -1,9 +1,9 @@
 import logging
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.auth.jwt import get_current_user_id
 from teleguard.core.mongo_database import mongodb
@@ -29,9 +29,9 @@ class SendMessageRequest(BaseModel):
 
 class CreateJobRequest(BaseModel):
     account_id: str
-    job_type: str
+    job_type: Literal["scheduled_post", "auto_join"]
     job_config: Dict[str, Any]
-    interval_seconds: int
+    interval_seconds: int = Field(ge=60)
 
 
 class BulkMessageRequest(BaseModel):

@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react"
-import { ArrowLeft, Loader2, Monitor, Smartphone, Globe, Trash2, ShieldCheck, Plus, X, Phone } from "lucide-react"
+import { ArrowLeft, Loader2, Monitor, Smartphone, Globe, Trash2, ShieldCheck, Shield, Plus, X, Phone } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { sessionsApi, accountsApi, apiErrorMessage, type Session } from "@/lib/api"
+import { sessionsApi, securityApi, apiErrorMessage, type Session } from "@/lib/api"
 import { toast } from "sonner"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import {
@@ -98,6 +98,12 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     refetchInterval: isOpen ? 30_000 : false,
   })
 
+  const { data: trustedHashes = [] } = useQuery({
+    queryKey: ["trusted-sessions"],
+    queryFn: securityApi.trustedSessions,
+    enabled: isOpen,
+  })
+
   // Auto-refresh when bot destroys a session
   const handleSessionRevoked = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["sessions"] })
@@ -111,6 +117,17 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
       toast.success("Session revoked")
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
       setRevokeTarget(null)
+    },
+    onError: (e) => toast.error(apiErrorMessage(e)),
+  })
+
+  const trustMutation = useMutation({
+    mutationFn: ({ hash, trusted }: { hash: number; trusted: boolean }) =>
+      trusted ? securityApi.addTrusted(hash) : securityApi.removeTrusted(hash),
+    onSuccess: (_, { trusted }) => {
+      toast.success(trusted ? "Session marked trusted" : "Session removed from trusted list")
+      queryClient.invalidateQueries({ queryKey: ["trusted-sessions"] })
+      queryClient.invalidateQueries({ queryKey: ["security"] })
     },
     onError: (e) => toast.error(apiErrorMessage(e)),
   })
@@ -209,13 +226,38 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                         )}
                       </div>
                       {session.hash != null && (
-                        <button
-                          onClick={() => setRevokeTarget(session)}
-                          className="p-2 text-red-400 hover:text-red-300 transition-colors flex-shrink-0"
-                          aria-label="Revoke session"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
+                        <div className="flex flex-shrink-0 items-center gap-1">
+                          <button
+                            onClick={() =>
+                              trustMutation.mutate({
+                                hash: session.hash!,
+                                trusted: !trustedHashes.includes(session.hash!),
+                              })
+                            }
+                            disabled={trustMutation.isPending}
+                            className={cn(
+                              "p-2 transition-colors",
+                              trustedHashes.includes(session.hash)
+                                ? "text-emerald-400 hover:text-emerald-300"
+                                : "text-gray-400 hover:text-emerald-300",
+                            )}
+                            aria-label={trustedHashes.includes(session.hash) ? "Remove trusted status" : "Mark session trusted"}
+                            title={trustedHashes.includes(session.hash) ? "Trusted session" : "Mark as trusted"}
+                          >
+                            {trustedHashes.includes(session.hash) ? (
+                              <ShieldCheck className="h-5 w-5" />
+                            ) : (
+                              <Shield className="h-5 w-5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setRevokeTarget(session)}
+                            className="p-2 text-red-400 transition-colors hover:text-red-300"
+                            aria-label="Revoke session"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </li>
@@ -351,4 +393,3 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     </>
   )
 }
-
