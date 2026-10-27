@@ -106,6 +106,7 @@ export interface Account {
   phone: string
   username?: string
   is_active: boolean
+  proxy_id?: string
   auto_reply_enabled?: boolean
   otp_destroyer_enabled?: boolean
   otp_forward_enabled?: boolean

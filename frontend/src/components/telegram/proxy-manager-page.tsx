@@ -11,10 +11,12 @@ import {
   Globe,
   AlertTriangle,
   X,
+  Link2,
+  Star,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { proxiesApi, type Proxy } from "@/lib/api"
+import { accountsApi, proxiesApi, type Proxy } from "@/lib/api"
 import { toast } from "sonner"
 
 interface ProxyManagerPageProps {
@@ -22,11 +24,65 @@ interface ProxyManagerPageProps {
   onClose: () => void
 }
 
+function parseProxyLink(link: string) {
+  const value = link.trim()
+  let type: string
+  let server: string
+  let port: number
+  let secret: string | undefined
+  let username: string | undefined
+  let password: string | undefined
+
+  if (value.toLowerCase().startsWith("mtproto://")) {
+    const [authority, query = ""] = value.slice("mtproto://".length).split("?")
+    const parts = authority.split(":")
+    if (parts.length === 3) {
+      server = parts[0]
+      port = Number(parts[1])
+      secret = parts[2]
+    } else if (parts.length === 2) {
+      server = parts[0]
+      port = Number(parts[1])
+      secret = new URLSearchParams(query).get("secret") ?? undefined
+    } else {
+      throw new Error("Use an MTProto link in host:port:secret format")
+    }
+    type = "mtproto"
+  } else {
+    const normalized = /^t\.me\//i.test(value) ? `https://${value}` : value
+    const parsed = new URL(normalized)
+    const route = parsed.pathname.toLowerCase().replace(/\/+$/, "").split("/").pop()
+    const tgRoute = parsed.protocol === "tg:" ? parsed.hostname : ""
+    if (parsed.protocol === "tg:" && !["proxy", "socks"].includes(tgRoute)) {
+      throw new Error("Unsupported Telegram proxy link")
+    }
+    if (route !== "proxy" && route !== "socks" && parsed.protocol !== "tg:") {
+      throw new Error("Paste a Telegram proxy or SOCKS link")
+    }
+    type = route === "socks" || tgRoute === "socks" ? "socks5" : "mtproto"
+    server = parsed.searchParams.get("server") ?? ""
+    port = Number(parsed.searchParams.get("port") ?? (type === "mtproto" ? "443" : "1080"))
+    secret = parsed.searchParams.get("secret") ?? undefined
+    username = parsed.searchParams.get("user") ?? undefined
+    password = parsed.searchParams.get("pass") ?? undefined
+  }
+
+  if (!server || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("The proxy link must include a valid server and port")
+  }
+  if (type === "mtproto" && !secret) {
+    throw new Error("The MTProto link is missing its secret")
+  }
+  return { type, server, port, secret, username, password }
+}
+
 export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
   const queryClient = useQueryClient()
   const [showAddForm, setShowAddForm] = useState(false)
   const [showWebshareForm, setShowWebshareForm] = useState(false)
+  const [showLinkForm, setShowLinkForm] = useState(false)
   const [webshareApiKey, setWebshareApiKey] = useState("")
+  const [proxyLink, setProxyLink] = useState("")
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { status: string; latency: number }>>({})
   const [form, setForm] = useState({
@@ -45,6 +101,19 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
     enabled: isOpen,
     retry: 1,
   })
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: accountsApi.list,
+    enabled: isOpen,
+  })
+
+  const { data: defaultProxy } = useQuery({
+    queryKey: ["proxies", "default"],
+    queryFn: proxiesApi.getDefault,
+    enabled: isOpen,
+  })
+  const defaultProxyId = defaultProxy && "id" in defaultProxy ? defaultProxy.id : null
 
   const addMutation = useMutation({
     mutationFn: () =>
@@ -79,12 +148,66 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
     onError: (e) => toast.error((e as Error).message),
   })
 
+  const importLinkMutation = useMutation({
+    mutationFn: () => proxiesApi.add(parseProxyLink(proxyLink)),
+    onSuccess: () => {
+      toast.success("Telegram proxy added")
+      setProxyLink("")
+      setShowLinkForm(false)
+      queryClient.invalidateQueries({ queryKey: ["proxies"] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const setDefaultMutation = useMutation({
+    mutationFn: (proxyId: string) => proxiesApi.setDefault(proxyId),
+    onSuccess: () => {
+      toast.success("Default proxy updated")
+      queryClient.invalidateQueries({ queryKey: ["proxies", "default"] })
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const assignProxyMutation = useMutation({
+    mutationFn: ({ accountId, proxyId }: { accountId: string; proxyId: string }) =>
+      proxiesApi.assign(accountId, proxyId),
+    onSuccess: (_, variables) => {
+      toast.success("Proxy assigned to account")
+      queryClient.setQueryData(
+        ["accounts"],
+        (current: typeof accounts | undefined) =>
+          current?.map((account) =>
+            account.id === variables.accountId
+              ? { ...account, proxy_id: variables.proxyId }
+              : account,
+          ),
+      )
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const removeProxyMutation = useMutation({
+    mutationFn: (accountId: string) => proxiesApi.remove(accountId),
+    onSuccess: (_, accountId) => {
+      toast.success("Proxy removed from account")
+      queryClient.setQueryData(
+        ["accounts"],
+        (current: typeof accounts | undefined) =>
+          current?.map((account) =>
+            account.id === accountId ? { ...account, proxy_id: undefined } : account,
+          ),
+      )
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => proxiesApi.delete(id),
     onSuccess: () => {
       toast.success("Proxy deleted")
       setDeleteTarget(null)
       queryClient.invalidateQueries({ queryKey: ["proxies"] })
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
     },
     onError: (e) => {
       toast.error((e as Error).message)
@@ -134,6 +257,14 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
           <Plus className="h-5 w-5" />
         </button>
         <button
+          onClick={() => setShowLinkForm(!showLinkForm)}
+          className="p-2 text-[#2AABEE] hover:text-white transition-colors"
+          title="Add a Telegram proxy link"
+          aria-label="Add a Telegram proxy link"
+        >
+          <Link2 className="h-5 w-5" />
+        </button>
+        <button
           onClick={() => {
             if (showWebshareForm) setWebshareApiKey("")
             setShowWebshareForm(!showWebshareForm)
@@ -146,6 +277,42 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {showLinkForm && (
+          <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
+            <p className="text-sky-400 text-sm font-medium">Add Telegram proxy link</p>
+            <p className="text-gray-400 text-xs">
+              Paste a t.me/proxy, tg://proxy, SOCKS, or MTProto link.
+            </p>
+            <input
+              value={proxyLink}
+              onChange={(e) => setProxyLink(e.target.value)}
+              placeholder="Telegram proxy link"
+              type="url"
+              autoComplete="off"
+              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowLinkForm(false)
+                  setProxyLink("")
+                }}
+                className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => importLinkMutation.mutate()}
+                disabled={!proxyLink.trim() || importLinkMutation.isPending}
+                className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {importLinkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Add Proxy
+              </button>
+            </div>
+          </div>
+        )}
+
         {showWebshareForm && (
           <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
             <p className="text-sky-400 text-sm font-medium">Import from Webshare</p>
@@ -289,6 +456,46 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
         )}
 
         {!isLoading && !isError && proxies.length > 0 && (
+          <>
+          {accounts.length > 0 && (
+            <section className="bg-[#242f3d] rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/10">
+                <span className="text-sky-400 text-sm font-medium">Account routing</span>
+              </div>
+              <ul>
+                {accounts.map((account) => (
+                  <li key={account.id} className="px-4 py-3 border-b border-white/5 last:border-0">
+                    <label className="block text-white text-sm mb-2" htmlFor={`proxy-${account.id}`}>
+                      {account.name}
+                    </label>
+                    <select
+                      id={`proxy-${account.id}`}
+                      value={account.proxy_id ?? ""}
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          assignProxyMutation.mutate({
+                            accountId: account.id,
+                            proxyId: event.target.value,
+                          })
+                        } else if (account.proxy_id) {
+                          removeProxyMutation.mutate(account.id)
+                        }
+                      }}
+                      disabled={assignProxyMutation.isPending || removeProxyMutation.isPending}
+                      className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none disabled:opacity-50"
+                    >
+                      <option value="">Use default / no account proxy</option>
+                      {proxies.map((proxy) => (
+                        <option key={proxy.id} value={proxy.id}>
+                          {proxy.name ?? `${proxy.type.toUpperCase()} ${proxy.server}:${proxy.port}`}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
               <span className="text-sky-400 text-sm font-medium">Proxies ({proxies.length})</span>
@@ -314,6 +521,11 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                         <div className="flex-1 min-w-0">
                           <p className="text-white text-sm font-medium truncate">
                             {proxy.name ?? `${proxy.type.toUpperCase()} Proxy`}
+                            {defaultProxyId === proxy.id && (
+                              <span className="ml-2 inline-flex items-center gap-1 text-amber-300 text-xs">
+                                <Star className="h-3 w-3 fill-current" /> Default
+                              </span>
+                            )}
                           </p>
                           <p className="text-gray-400 text-xs truncate">
                             {proxy.server}:{proxy.port}
@@ -323,6 +535,17 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                           </p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          {defaultProxyId !== proxy.id && (
+                            <button
+                              onClick={() => setDefaultMutation.mutate(proxy.id)}
+                              disabled={setDefaultMutation.isPending}
+                              className="p-1.5 text-amber-300 hover:text-white transition-colors disabled:opacity-50"
+                              title="Set as default proxy"
+                              aria-label={`Set ${proxy.name ?? proxy.type} as default proxy`}
+                            >
+                              <Star className="h-4 w-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => testProxy(proxy)}
                             className="p-1.5 text-[#2AABEE] hover:text-white transition-colors"
@@ -370,6 +593,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
               })}
             </ul>
           </div>
+          </>
         )}
       </div>
     </div>
