@@ -270,6 +270,48 @@ class ProtectionManager:
                     return code
         return None
 
+    @staticmethod
+    def _normalize_phone(phone: Any) -> str:
+        return re.sub(r"\D", "", str(phone or ""))
+
+    def _has_active_otp_auth_flow(self, user_id: int, phone: Any) -> bool:
+        normalized_phone = self._normalize_phone(phone)
+        if not normalized_phone:
+            return False
+
+        pending_actions = getattr(self.bot_manager, "pending_actions", {})
+        action = pending_actions.get(user_id) or pending_actions.get(str(user_id))
+        if (
+            isinstance(action, dict)
+            and action.get("action")
+            in {
+                "verify_otp",
+                "phone_login",
+                "2fa_password",
+                "session_creation",
+                "session_creation_2fa_password",
+            }
+            and self._normalize_phone(action.get("phone")) == normalized_phone
+        ):
+            return True
+
+        pending_sessions = getattr(self.bot_manager, "pending_fresh_sessions", {})
+        session = pending_sessions.get(user_id) or pending_sessions.get(str(user_id))
+        return (
+            isinstance(session, dict)
+            and self._normalize_phone(session.get("phone")) == normalized_phone
+        )
+
+    def _has_pending_fresh_session(self, user_id: int, phone: Any) -> bool:
+        pending_sessions = getattr(self.bot_manager, "pending_fresh_sessions", {})
+        session = pending_sessions.get(user_id) or pending_sessions.get(str(user_id))
+        return (
+            isinstance(session, dict)
+            and self._normalize_phone(session.get("phone"))
+            == self._normalize_phone(phone)
+            and bool(self._normalize_phone(phone))
+        )
+
     async def _find_account_for_message(self, event) -> Optional[tuple]:
         """
         Find which account received this OTP message by matching the Telethon client.
@@ -361,14 +403,34 @@ class ProtectionManager:
             pause_until = settings.get("pause_until")
             is_paused = pause_until and pause_until > datetime.now(timezone.utc)
 
-            # PRIORITY 0: Session creation in progress -> allow
-            if account.get("session_creation_in_progress") or account.get("pending_fresh_session"):
+            has_pending_fresh_session = self._has_pending_fresh_session(
+                user_id, account.get("phone")
+            )
+            has_active_auth_flow = self._has_active_otp_auth_flow(
+                user_id, account.get("phone")
+            )
+
+            # Keep active login flows available, but don't trust persisted flags
+            # after their in-memory authentication flow has ended.
+            if (
+                account.get("session_creation_in_progress")
+                or account.get("pending_fresh_session")
+            ) and has_active_auth_flow and not has_pending_fresh_session:
                 logger.debug(
                     "Session creation in progress for %s; leaving its OTP message "
                     "available to the authentication flow",
                     account_name,
                 )
                 return
+            if (
+                account.get("session_creation_in_progress")
+                or account.get("pending_fresh_session")
+            ) and not has_active_auth_flow:
+                logger.warning(
+                    "Ignoring stale OTP bypass flags for %s; applying current "
+                    "OTP protection settings",
+                    account_name,
+                )
 
             # PRIORITY 0.5: Fresh session handling
             fresh_session_key = f"{account.get('phone')}:{otp_code}"
@@ -593,9 +655,19 @@ class ProtectionManager:
                     )
                     return
 
-                if prot:
-                    logger.info(f"Skipping protected code for {account_name}: {display_code}")
+                if prot and has_active_auth_flow:
+                    logger.info(
+                        "Leaving an allowlisted OTP available for active login flow "
+                        "on %s",
+                        account_name,
+                    )
                     return
+                if prot:
+                    logger.warning(
+                        "Ignoring stale OTP allowlist entry for %s; applying current "
+                        "OTP protection settings",
+                        account_name,
+                    )
 
                 # Do not delete a code unless Telegram confirms invalidation.
                 try:

@@ -50,7 +50,10 @@ def make_manager(monkeypatch, message_text, client, *, account_overrides=None):
 
     manager = object.__new__(ProtectionManager)
     manager.bot = Bot()
-    manager.bot_manager = SimpleNamespace(pending_fresh_sessions={})
+    manager.bot_manager = SimpleNamespace(
+        pending_fresh_sessions={},
+        pending_actions={},
+    )
     manager.processed_otps = set()
     manager.sent_notifications = set()
     manager.fresh_session_otps = set()
@@ -118,7 +121,61 @@ def test_allowlisted_otp_is_not_invalidated_or_deleted(monkeypatch):
     manager, event = make_manager(
         monkeypatch, "Login code: 12345", client
     )
+    manager.bot_manager.pending_actions[123] = {
+        "action": "verify_otp",
+        "phone": "+15551234567",
+    }
     mongodb.db.otp_protections.find_one.return_value = {"reason": "account_addition"}
+
+    asyncio.run(manager._handle_otp_message(event))
+
+    assert not event.deleted
+    assert not client.requests
+
+
+def test_stale_allowlist_does_not_bypass_otp_destroyer(monkeypatch):
+    client = Client()
+    manager, event = make_manager(
+        monkeypatch, "Login code: 12345", client
+    )
+    mongodb.db.otp_protections.find_one.return_value = {"reason": "account_addition"}
+
+    asyncio.run(manager._handle_otp_message(event))
+
+    assert event.deleted
+    assert len(client.requests) == 1
+
+
+def test_stale_session_creation_flags_do_not_bypass_otp_destroyer(monkeypatch):
+    client = Client()
+    manager, event = make_manager(
+        monkeypatch,
+        "Login code: 12345",
+        client,
+        account_overrides={
+            "session_creation_in_progress": True,
+            "pending_fresh_session": True,
+        },
+    )
+
+    asyncio.run(manager._handle_otp_message(event))
+
+    assert event.deleted
+    assert len(client.requests) == 1
+
+
+def test_active_session_creation_keeps_otp_available(monkeypatch):
+    client = Client()
+    manager, event = make_manager(
+        monkeypatch,
+        "Login code: 12345",
+        client,
+        account_overrides={"session_creation_in_progress": True},
+    )
+    manager.bot_manager.pending_actions[123] = {
+        "action": "session_creation",
+        "phone": "+15551234567",
+    }
 
     asyncio.run(manager._handle_otp_message(event))
 
