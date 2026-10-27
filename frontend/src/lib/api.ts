@@ -206,6 +206,8 @@ export interface Dialog {
   is_group: boolean
   is_channel: boolean
   is_user: boolean
+  is_contact: boolean
+  is_archived: boolean
   unread_count: number
   unread_mentions: number
   last_message: {
@@ -283,6 +285,29 @@ export const chatsApi = {
     get<Message[]>(
       `/api/chats/history/${encodeURIComponent(accountName)}/${chatId}?limit=${limit}`,
     ),
+  historyPage: (
+    accountName: string,
+    chatId: number,
+    limit = 50,
+    offsetId?: number,
+    search?: string,
+  ) =>
+    get<Message[]>(
+      `/api/chats/history/${encodeURIComponent(accountName)}/${chatId}?limit=${limit}${
+        offsetId ? `&offset_id=${offsetId}` : ""
+      }${search ? `&search=${encodeURIComponent(search)}` : ""}`,
+    ),
+  clickButton: (
+    accountName: string,
+    chatId: number,
+    messageId: number,
+    rowIndex: number,
+    buttonIndex: number,
+  ) =>
+    post<{ status: string; message: string | null; alert: boolean }>(
+      `/api/chats/button/${encodeURIComponent(accountName)}/${chatId}/${messageId}/${rowIndex}/${buttonIndex}`,
+      {},
+    ),
   /** Returns a URL to proxy the entity's profile photo — includes JWT so <img> works */
   photoUrl: (accountName: string, entityId: number): string => {
     const token = getPhotoToken()
@@ -354,16 +379,33 @@ export const contactsApi = {
 
 export const messagingApi = {
   stats: () => get<MessagingStats>("/api/messaging/stats"),
-  send: (account_name: string, target: string, message: string) =>
-    post<{ status: string }>("/api/messaging/send", { account_name, target, message }),
+  send: (
+    account_name: string,
+    target: string,
+    message: string,
+    reply_to_message_id?: number,
+  ) =>
+    post<{ status: string }>("/api/messaging/send", {
+      account_name,
+      target,
+      message,
+      reply_to_message_id,
+    }),
   /** Send a file (image/document). Uses multipart/form-data. */
-  sendFile: (account_name: string, target: string, file: File, caption = "") => {
+  sendFile: (
+    account_name: string,
+    target: string,
+    file: File,
+    caption = "",
+    reply_to_message_id?: number,
+  ) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("tg_token") : null
     const form = new FormData()
     form.append("account_name", account_name)
     form.append("target", target)
     form.append("file", file)
     if (caption) form.append("caption", caption)
+    if (reply_to_message_id) form.append("reply_to_message_id", String(reply_to_message_id))
     return fetch(`${API_URL}/api/messaging/send-file`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},

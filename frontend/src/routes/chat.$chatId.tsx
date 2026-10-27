@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import {
   ArrowLeft, Search, MoreVertical, Smile, Paperclip, Mic, Send,
@@ -6,7 +6,7 @@ import {
   Pin, Eye, Forward, Reply, X as XIcon, ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { chatsApi, messagingApi, type Message, type Dialog, type InlineButton } from "@/lib/api"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import { useUser, UserProvider } from "@/contexts/user-context"
@@ -54,10 +54,14 @@ function ChatPage() {
   const [messageText, setMessageText] = useState("")
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
-  const [msgLimit, setMsgLimit] = useState(50)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const previousScrollRef = useRef<{ height: number; top: number; pageCount: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const didInitialScrollRef = useRef(false)
 
   const { data: dialogs = [] } = useQuery({
     queryKey: ["dialogs", effectiveAccount],
@@ -66,13 +70,17 @@ function ChatPage() {
     staleTime: 30_000,
   })
 
-  const dialog = dialogs.find((d) => String(d.id) === chatId) as Dialog | undefined
+  const resolvedChatId = chatId === "saved" ? 0 : Number(chatId)
+  const dialog = dialogs.find((d) =>
+    chatId === "saved" ? d.is_saved_messages : String(d.id) === chatId,
+  ) as Dialog | undefined
+  const chatEntityId = dialog?.id ?? resolvedChatId
   const isPrivate = dialog?.is_user ?? false
 
   // Poll status every 30s for private chats
   const { data: statusData } = useQuery({
     queryKey: ["user-status", effectiveAccount, chatId],
-    queryFn: () => chatsApi.userStatus(effectiveAccount, parseInt(chatId)),
+    queryFn: () => chatsApi.userStatus(effectiveAccount, chatEntityId),
     enabled: !!effectiveAccount && isPrivate,
     refetchInterval: 30_000,
     staleTime: 15_000,
@@ -82,21 +90,60 @@ function ChatPage() {
   const userStatus = statusData?.status ?? dialog?.status ?? null
   const isOnline = statusData?.is_online ?? userStatus === "online"
 
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: ["messages", effectiveAccount, chatId, msgLimit],
-    queryFn: () => chatsApi.history(effectiveAccount, parseInt(chatId), msgLimit),
-    enabled: !!effectiveAccount && !!chatId,
+  const {
+    data: messagePages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["messages", effectiveAccount, chatEntityId, searchTerm.trim()],
+    queryFn: ({ pageParam }) =>
+      chatsApi.historyPage(effectiveAccount, chatEntityId, 50, pageParam, searchTerm.trim()),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.length === 50 ? lastPage[lastPage.length - 1]?.id : undefined,
+    enabled:
+      !!effectiveAccount &&
+      Number.isFinite(chatEntityId) &&
+      (chatId !== "saved" || !!dialog),
     staleTime: 5_000,
   })
 
+  const messages = messagePages?.pages.flat() ?? []
   const sortedMessages = [...messages].reverse()
 
+  useLayoutEffect(() => {
+    const previousScroll = previousScrollRef.current
+    if (
+      !previousScroll ||
+      !scrollContainerRef.current ||
+      (messagePages?.pages.length ?? 0) <= previousScroll.pageCount
+    ) return
+    const element = scrollContainerRef.current
+    element.scrollTop = element.scrollHeight - previousScroll.height + previousScroll.top
+    previousScrollRef.current = null
+  }, [messagePages?.pages.length])
+
+  useEffect(() => {
+    didInitialScrollRef.current = false
+    previousScrollRef.current = null
+    setReplyTo(null)
+    setMessageText("")
+  }, [effectiveAccount, chatId])
+
+  useEffect(() => {
+    didInitialScrollRef.current = false
+    previousScrollRef.current = null
+  }, [searchTerm])
+
   const sendMutation = useMutation({
-    mutationFn: (text: string) => messagingApi.send(effectiveAccount, String(chatId), text),
+    mutationFn: (text: string) =>
+      messagingApi.send(effectiveAccount, String(chatEntityId), text, replyTo?.id),
     onSuccess: () => {
       setMessageText("")
       setReplyTo(null)
-      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
       qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
       scrollToBottom()
     },
@@ -104,10 +151,18 @@ function ChatPage() {
   })
 
   const sendFileMutation = useMutation({
-    mutationFn: (file: File) => messagingApi.sendFile(effectiveAccount, String(chatId), file, messageText.trim()),
+    mutationFn: (file: File) =>
+      messagingApi.sendFile(
+        effectiveAccount,
+        String(chatEntityId),
+        file,
+        messageText.trim(),
+        replyTo?.id,
+      ),
     onSuccess: () => {
       setMessageText("")
-      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
+      setReplyTo(null)
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
       qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
       scrollToBottom()
       toast.success("File sent")
@@ -116,12 +171,17 @@ function ChatPage() {
   })
 
   useWsEvent("new_message", useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatId] })
-  }, [effectiveAccount, chatId, qc]))
+    qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+  }, [effectiveAccount, chatEntityId, qc]))
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
 
-  useEffect(() => { scrollToBottom() }, [sortedMessages.length])
+  useEffect(() => {
+    if (!isLoading && sortedMessages.length > 0 && !didInitialScrollRef.current) {
+      scrollToBottom()
+      didInitialScrollRef.current = true
+    }
+  }, [isLoading, sortedMessages.length])
 
   const handleScroll = () => {
     const el = scrollContainerRef.current
@@ -165,6 +225,16 @@ function ChatPage() {
           <button onClick={() => navigate({ to: "/" })} aria-label="Back" className="p-1.5 text-foreground flex-shrink-0">
             <ArrowLeft className="h-6 w-6" />
           </button>
+          {searchOpen ? (
+            <input
+              autoFocus
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search messages"
+              aria-label="Search messages in this chat"
+              className="min-w-0 flex-1 rounded-lg bg-background px-3 py-2 text-sm text-foreground outline-none"
+            />
+          ) : (
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {/* Avatar with live online indicator */}
             <div className="relative flex-shrink-0">
@@ -184,8 +254,28 @@ function ChatPage() {
               </p>
             </div>
           </div>
-          <button aria-label="Search" className="p-2 text-foreground flex-shrink-0"><Search className="h-5 w-5" /></button>
-          <button aria-label="More" className="p-2 text-foreground flex-shrink-0"><MoreVertical className="h-5 w-5" /></button>
+          )}
+          <button
+            aria-label={searchOpen ? "Close search" : "Search messages"}
+            onClick={() => {
+              if (searchOpen) setSearchTerm("")
+              setSearchOpen((open) => !open)
+            }}
+            className="p-2 text-foreground flex-shrink-0"
+          >
+            {searchOpen ? <XIcon className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+          </button>
+          <button
+            aria-label="Chat details"
+            onClick={() =>
+              toast.info(`${displayName} · ${isChannel ? "Channel" : isGroup ? "Group" : "Private chat"}`, {
+                description: `Chat ID: ${chatEntityId}`,
+              })
+            }
+            className="p-2 text-foreground flex-shrink-0"
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Messages */}
@@ -197,18 +287,35 @@ function ChatPage() {
         >
           {isLoading && <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-primary animate-spin" /></div>}
           {/* Load older messages */}
-          {!isLoading && sortedMessages.length >= msgLimit && (
+          {!isLoading && hasNextPage && (
             <div className="flex justify-center py-2">
               <button
-                onClick={() => setMsgLimit(prev => prev + 50)}
+                onClick={() => {
+                  const element = scrollContainerRef.current
+                  if (element && messagePages) {
+                    previousScrollRef.current = {
+                      height: element.scrollHeight,
+                      top: element.scrollTop,
+                      pageCount: messagePages.pages.length,
+                    }
+                  }
+                  void fetchNextPage()
+                }}
+                disabled={isFetchingNextPage}
                 className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-4 py-2 rounded-full transition-colors"
               >
-                <ChevronDown className="h-3.5 w-3.5" /> Load older messages
+                {isFetchingNextPage ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading</>
+                ) : (
+                  <><ChevronDown className="h-3.5 w-3.5" /> Load older messages</>
+                )}
               </button>
             </div>
           )}
           {!isLoading && sortedMessages.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-10">No messages yet</p>
+            <p className="text-center text-sm text-muted-foreground py-10">
+              {searchTerm.trim() ? "No matching messages" : "No messages yet"}
+            </p>
           )}
           {sortedMessages.map((m, i) => {
             const prev = sortedMessages[i - 1]
@@ -226,7 +333,7 @@ function ChatPage() {
                 <MessageBubble
                   message={m}
                   accountName={effectiveAccount}
-                  chatId={parseInt(chatId)}
+                  chatId={chatEntityId}
                   isChannel={isChannel}
                   onReply={!isChannel ? () => setReplyTo(m) : undefined}
                 />
@@ -262,7 +369,14 @@ function ChatPage() {
               </div>
             )}
             <div className="px-2 py-2 flex items-center gap-2">
-              <button className="p-2 text-muted-foreground"><Smile className="h-6 w-6" /></button>
+              <button
+                onClick={() => setShowEmojiPicker((shown) => !shown)}
+                aria-label="Choose emoji"
+                aria-expanded={showEmojiPicker}
+                className="p-2 text-muted-foreground"
+              >
+                <Smile className="h-6 w-6" />
+              </button>
               <textarea
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
@@ -304,6 +418,23 @@ function ChatPage() {
                 </button>
               )}
             </div>
+            {showEmojiPicker && (
+              <div className="grid grid-cols-8 gap-1 border-t border-border/30 px-3 py-2" aria-label="Emoji picker">
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => {
+                      setMessageText((text) => `${text}${emoji}`)
+                      setShowEmojiPicker(false)
+                    }}
+                    aria-label={`Insert ${emoji}`}
+                    className="rounded p-1 text-xl hover:bg-muted"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {isChannel && (
@@ -315,6 +446,8 @@ function ChatPage() {
     </div>
   )
 }
+
+const QUICK_EMOJIS = ["😀", "😂", "🥰", "😍", "😊", "😉", "😭", "😎", "👍", "👎", "❤️", "🔥", "🎉", "🙏", "👏", "🤔", "👋", "💯", "✨", "✅", "🤝", "💙", "😢", "😡"]
 
 // ── Entity Avatar ────────────────────────────────────────────────────────────
 
@@ -475,7 +608,13 @@ function MessageBubble({
 
       {/* Inline buttons */}
       {m.buttons && m.buttons.length > 0 && (
-        <InlineKeyboard buttons={m.buttons} outgoing={outgoing} />
+        <InlineKeyboard
+          buttons={m.buttons}
+          outgoing={outgoing}
+          accountName={accountName}
+          chatId={chatId}
+          messageId={m.id}
+        />
       )}
     </div>
   )
@@ -646,7 +785,19 @@ function WebPagePreview({ media, outgoing }: { media: NonNullable<Message["media
 
 // ── Inline keyboard ───────────────────────────────────────────────────────────
 
-function InlineKeyboard({ buttons, outgoing }: { buttons: InlineButton[][]; outgoing: boolean }) {
+function InlineKeyboard({
+  buttons,
+  outgoing,
+  accountName,
+  chatId,
+  messageId,
+}: {
+  buttons: InlineButton[][]
+  outgoing: boolean
+  accountName: string
+  chatId: number
+  messageId: number
+}) {
   return (
     <div className={cn("mt-1 space-y-1 w-full max-w-[85%]", outgoing ? "self-end" : "self-start")}>
       {buttons.map((row, ri) => (
@@ -654,10 +805,28 @@ function InlineKeyboard({ buttons, outgoing }: { buttons: InlineButton[][]; outg
           {row.map((btn, bi) => (
             <button
               key={bi}
-              onClick={() => btn.url && window.open(btn.url, "_blank")}
+              disabled={btn.type !== "url" && btn.type !== "callback"}
+              onClick={async () => {
+                if (btn.type === "url" && btn.url) {
+                  window.open(btn.url, "_blank", "noopener,noreferrer")
+                  return
+                }
+                if (btn.type !== "callback") return
+                try {
+                  const result = await chatsApi.clickButton(accountName, chatId, messageId, ri, bi)
+                  if (result.message) {
+                    if (result.alert) toast.info(result.message)
+                    else toast.success(result.message)
+                  } else {
+                    toast.success("Button activated")
+                  }
+                } catch (error) {
+                  toast.error((error as Error).message)
+                }
+              }}
               className={cn(
                 "flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors text-center",
-                btn.url
+                btn.type === "url"
                   ? "bg-sky-600/30 text-sky-300 hover:bg-sky-600/50 border border-sky-600/40"
                   : "bg-white/10 text-foreground hover:bg-white/15 border border-white/10",
               )}

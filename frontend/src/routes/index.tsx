@@ -223,27 +223,31 @@ function TelegramChatList() {
 
   const [activeFolder, setActiveFolder] = useState<number>(0) // 0 = All Chats
 
+  const matchesFolder = (dialog: Dialog, folder: ChatFolder) => {
+    const peerId = dialog.id
+    if (folder.excluded_peers.includes(peerId)) return false
+    if (folder.exclude_muted && dialog.muted) return false
+    if (folder.exclude_read && dialog.unread_count === 0) return false
+    if (folder.exclude_archived && dialog.is_archived) return false
+
+    const categoryMatches =
+      (folder.contacts && dialog.is_user && dialog.is_contact && !dialog.is_bot) ||
+      (folder.non_contacts && dialog.is_user && !dialog.is_contact && !dialog.is_bot) ||
+      (folder.groups && dialog.is_group) ||
+      (folder.broadcasts && dialog.is_channel) ||
+      (folder.bots && dialog.is_bot)
+    return categoryMatches || folder.included_peers.includes(peerId)
+  }
+
   const filteredDialogs = dialogs.filter((d) => {
     const matchesSearch = !searchValue || d.name?.toLowerCase().includes(searchValue.toLowerCase())
     if (!matchesSearch) return false
 
-    if (activeFolder === 0) return true // All Chats
+    if (activeFolder === 0) return true
 
     const folder = folders.find((f) => f.id === activeFolder)
     if (!folder) return true
-
-    // Filter by folder rules
-    if (folder.contacts && d.is_user) return true
-    if (folder.non_contacts && d.is_user) return true
-    if (folder.groups && d.is_group) return true
-    if (folder.broadcasts && d.is_channel) return true
-    if (folder.bots && d.is_user) return true // bots are users too
-    if (folder.included_peers.includes(Math.abs(d.id))) return true
-
-    // If folder has type rules, exclude non-matching
-    const hasTypeRules = folder.contacts || folder.non_contacts || folder.groups || folder.broadcasts || folder.bots
-    if (hasTypeRules || folder.included_peers.length > 0) return false
-    return true
+    return matchesFolder(d, folder)
   })
 
   const totalUnread = dialogs.reduce((sum, d) => sum + (d.unread_count ?? 0), 0)
@@ -309,12 +313,7 @@ function TelegramChatList() {
               const unread = folder.id === 0
                 ? totalUnread
                 : dialogs.filter((d) =>
-                    d.unread_count > 0 && (
-                      (folder.groups && d.is_group) ||
-                      (folder.broadcasts && d.is_channel) ||
-                      (folder.contacts && d.is_user) ||
-                      folder.included_peers.includes(Math.abs(d.id))
-                    )
+                    d.unread_count > 0 && matchesFolder(d, folder)
                   ).reduce((s, d) => s + d.unread_count, 0)
 
               // Pick icon based on folder type or stored icon id

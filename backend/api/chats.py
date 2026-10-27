@@ -511,6 +511,8 @@ async def get_dialogs(
                 "is_group": dialog.is_group or getattr(entity, "megagroup", False),
                 "is_channel": dialog.is_channel and not getattr(entity, "megagroup", False),
                 "is_user": dialog.is_user,
+                "is_contact": bool(getattr(entity, "contact", False)) if dialog.is_user else False,
+                "is_archived": getattr(dialog, "folder_id", None) == 1,
                 "is_saved_messages": is_saved_messages,
                 "unread_count": dialog.unread_count,
                 "unread_mentions": getattr(dialog, "unread_mentions_count", 0) or 0,
@@ -537,6 +539,8 @@ async def get_chat_history(
     account_name: str,
     chat_id: int,
     limit: int = 50,
+    offset_id: int = 0,
+    search: Optional[str] = None,
     user_id: int = Depends(get_current_user_id),
 ):
     """
@@ -549,7 +553,12 @@ async def get_chat_history(
 
     try:
         messages = []
-        async for message in client.iter_messages(chat_id, limit=limit):
+        async for message in client.iter_messages(
+            chat_id,
+            limit=min(max(limit, 1), 100),
+            offset_id=offset_id,
+            search=search.strip() if search and search.strip() else None,
+        ):
             # Reply context
             reply = None
             if message.reply_to_msg_id:
@@ -598,6 +607,47 @@ async def get_chat_history(
     except Exception as e:
         logger.error(f"Error fetching history for {chat_id} on {account_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/button/{account_name}/{chat_id}/{message_id}/{row_index}/{button_index}")
+async def click_inline_button(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    row_index: int,
+    button_index: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Activate a callback button on a message in the selected account."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message or not message.buttons:
+            raise HTTPException(status_code=404, detail="Message has no inline buttons")
+        if (
+            row_index < 0
+            or button_index < 0
+            or row_index >= len(message.buttons)
+            or button_index >= len(message.buttons[row_index])
+        ):
+            raise HTTPException(status_code=400, detail="Invalid inline button")
+
+        result = await message.click(i=row_index, j=button_index)
+        return {
+            "status": "success",
+            "message": getattr(result, "message", None),
+            "alert": bool(getattr(result, "alert", False)),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clicking inline button in {chat_id}/{message_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── User status ───────────────────────────────────────────────────────────────
 
 @router.get("/status/{account_name}/{entity_id}")
@@ -657,6 +707,7 @@ async def get_folders(
         return []
 
     try:
+        from telethon import utils
         from telethon.tl.functions.messages import GetDialogFiltersRequest
         from telethon.tl.types import DialogFilter, DialogFilterDefault
 
@@ -683,22 +734,14 @@ async def get_folders(
                     "excluded_peers": [],
                 })
             if isinstance(f, DialogFilter):
-                # Build list of included peer IDs
-                included = []
-                for peer in getattr(f, "include_peers", []):
-                    pid = getattr(peer, "channel_id", None) or \
-                          getattr(peer, "chat_id", None) or \
-                          getattr(peer, "user_id", None)
-                    if pid:
-                        included.append(int(pid))
-
-                excluded = []
-                for peer in getattr(f, "exclude_peers", []):
-                    pid = getattr(peer, "channel_id", None) or \
-                          getattr(peer, "chat_id", None) or \
-                          getattr(peer, "user_id", None)
-                    if pid:
-                        excluded.append(int(pid))
+                included = [
+                    utils.get_peer_id(peer)
+                    for peer in getattr(f, "include_peers", [])
+                ]
+                excluded = [
+                    utils.get_peer_id(peer)
+                    for peer in getattr(f, "exclude_peers", [])
+                ]
 
                 # title can be a TextWithEntities object — extract plain text
                 raw_title = f.title

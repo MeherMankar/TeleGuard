@@ -24,6 +24,7 @@ class SendMessageRequest(BaseModel):
     account_name: str
     target: str
     message: str
+    reply_to_message_id: Optional[int] = None
 
 
 class CreateJobRequest(BaseModel):
@@ -68,6 +69,7 @@ async def send_message(payload: SendMessageRequest, user_id: int = Depends(get_c
             account_name=payload.account_name,
             target=payload.target,
             message=payload.message,
+            reply_to_message_id=payload.reply_to_message_id,
         )
         if success:
             await mongodb.db.users.update_one(
@@ -188,6 +190,7 @@ async def send_file_message(
     target: str = Form(...),
     file: UploadFile = File(...),
     caption: str = Form(""),
+    reply_to_message_id: Optional[int] = Form(None),
     user_id: int = Depends(get_current_user_id),
 ):
     """Send a file (image/document/video) to a target chat."""
@@ -207,7 +210,12 @@ async def send_file_message(
             tmp_path = tmp.name
 
         entity = await client.get_entity(target)
-        await client.send_file(entity, tmp_path, caption=caption or None)
+        await client.send_file(
+            entity,
+            tmp_path,
+            caption=caption or None,
+            reply_to=reply_to_message_id,
+        )
         os.unlink(tmp_path)
         return {"status": "success"}
     except Exception as e:

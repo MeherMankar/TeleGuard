@@ -131,7 +131,12 @@ class MessagingManager:
             await asyncio.sleep(random.uniform(0.3, 2.0))
 
     async def send_message(
-        self, user_id: int, account_name: str, target: str, message: str
+        self,
+        user_id: int,
+        account_name: str,
+        target: str,
+        message: str,
+        reply_to_message_id: Optional[int] = None,
     ) -> bool:
         """Send a message from the selected account."""
         try:
@@ -145,7 +150,9 @@ class MessagingManager:
             from telethon.tl.types import InputPeerUser
             if not isinstance(target_entity, InputPeerUser):
                 await self._simulate_typing(client, target_entity, message)
-            await client.send_message(target_entity, message)
+            await client.send_message(
+                target_entity, message, reply_to=reply_to_message_id
+            )
             try:
                 account = await mongodb.db.accounts.find_one(
                     {"user_id": user_id, "name": account_name}
