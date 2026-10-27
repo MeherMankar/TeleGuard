@@ -15,6 +15,7 @@ export interface UserProfile {
 
 interface UserContextType {
   profile: UserProfile
+  setAvatarUrl: (url: string | null) => void
   accounts: Account[]
   activeAccount: Account | null
   setActiveAccount: (account: Account) => void
@@ -26,6 +27,13 @@ const UserContext = createContext<UserContextType | undefined>(undefined)
 export function UserProvider({ children }: { children: ReactNode }) {
   const { user, activeAccountName, authenticated } = useAuth()
   const queryClient = useQueryClient()
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (avatarUrl?.startsWith("blob:")) URL.revokeObjectURL(avatarUrl)
+    }
+  }, [avatarUrl])
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
@@ -61,13 +69,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     username: activeAccount?.username ? `@${activeAccount.username}` : user?.username ? `@${user.username}` : "",
     phone: activeAccount?.phone ?? "",
     bio: "",
-    avatarUrl: null,
+    avatarUrl,
   }
 
   return (
     <UserContext.Provider
       value={{
         profile,
+        setAvatarUrl,
         accounts,
         activeAccount,
         setActiveAccount: (acc) => authStore.setActiveAccount(acc.name),

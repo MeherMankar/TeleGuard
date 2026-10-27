@@ -36,6 +36,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
     port: "",
     username: "",
     password: "",
+    secret: "",
   })
 
   const { data: proxies = [], isLoading, isError } = useQuery({
@@ -54,11 +55,12 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
         port: parseInt(form.port),
         username: form.username || undefined,
         password: form.password || undefined,
+        secret: form.type === "mtproto" ? form.secret.trim() || undefined : undefined,
       }),
     onSuccess: () => {
       toast.success("Proxy added")
       setShowAddForm(false)
-      setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "" })
+      setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "", secret: "" })
       queryClient.invalidateQueries({ queryKey: ["proxies"] })
     },
     onError: (e) => toast.error((e as Error).message),
@@ -220,23 +222,35 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
               placeholder="Username (optional)"
               className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
             />
-            <input
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              placeholder="Password (optional)"
-              type="password"
-              className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
-            />
+            {form.type === "mtproto" ? (
+              <input
+                value={form.secret}
+                onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+                placeholder="MTProto secret"
+                type="password"
+                autoComplete="off"
+                className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              />
+            ) : (
+              <input
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Password (optional)"
+                type="password"
+                autoComplete="new-password"
+                className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
+              />
+            )}
             <div className="flex gap-2">
               <button
-                onClick={() => { setShowAddForm(false); setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "" }) }}
+                onClick={() => { setShowAddForm(false); setForm({ name: "", type: "socks5", server: "", port: "", username: "", password: "", secret: "" }) }}
                 className="flex-1 py-2 border border-white/20 text-gray-300 rounded-lg text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={() => addMutation.mutate()}
-                disabled={!form.server || !form.port || addMutation.isPending}
+                disabled={!form.server || !form.port || (form.type === "mtproto" && !form.secret.trim()) || addMutation.isPending}
                 className="flex-1 py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {addMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

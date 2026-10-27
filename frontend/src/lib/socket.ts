@@ -12,6 +12,8 @@ export type WsEventType =
   | "new_message"
   | "security_alert"
   | "automation_log"
+  | "otp_destroyer_toggled"
+  | "otp_forward_toggled"
   | "otp_event"
 
 export interface WsEvent {

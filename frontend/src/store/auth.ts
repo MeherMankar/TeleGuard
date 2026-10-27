@@ -43,7 +43,9 @@ export const authStore = {
 
   subscribe: (listener: Listener) => {
     listeners.add(listener)
-    return () => listeners.delete(listener)
+    return () => {
+      listeners.delete(listener)
+    }
   },
 
   login(token: string, user: AuthUser) {

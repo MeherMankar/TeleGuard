@@ -20,6 +20,7 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
   const [otp, setOtp] = useState<string[]>(Array(OTP_MAX).fill(""))
   const [loading, setLoading] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const submitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -27,9 +28,15 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     } else {
       setOtp(Array(OTP_MAX).fill(""))
     }
+
+    return () => {
+      if (submitTimer.current) clearTimeout(submitTimer.current)
+    }
   }, [isOpen])
 
   const handleChange = (index: number, value: string) => {
+    if (submitTimer.current) clearTimeout(submitTimer.current)
+
     // Handle paste of full code
     if (value.length > 1) {
       const digits = value.replace(/\D/g, "").slice(0, OTP_MAX).split("")
@@ -40,7 +47,10 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
       inputRefs.current[nextIndex]?.focus()
       // Auto-submit if we have at least OTP_MIN digits
       if (digits.length >= OTP_MIN) {
-        setTimeout(() => submitCode(digits.join("")), 100)
+        submitTimer.current = setTimeout(() => {
+          submitTimer.current = null
+          submitCode(digits.join(""))
+        }, 100)
       }
       return
     }
@@ -59,13 +69,16 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     // Auto-submit when all 6 filled, or after 1s pause at 5 digits
     const filled = newOtp.filter((d) => d !== "")
     if (filled.length === OTP_MAX) {
-      setTimeout(() => submitCode(newOtp.join("")), 100)
+    submitTimer.current = setTimeout(() => {
+      submitTimer.current = null
+      submitCode(newOtp.join(""))
+    }, 100)
     } else if (filled.length === OTP_MIN) {
-      // Wait briefly in case a 6th digit is coming
-      setTimeout(() => {
-        const current = newOtp.filter((d) => d !== "")
-        if (current.length === OTP_MIN) submitCode(current.join(""))
-      }, 800)
+    // Wait briefly in case a 6th digit is coming
+    submitTimer.current = setTimeout(() => {
+      submitTimer.current = null
+      submitCode(newOtp.join(""))
+    }, 800)
     }
   }
 
@@ -90,7 +103,7 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
       }
     } catch (e) {
       toast.error((e as Error).message)
-      setOtp(Array(OTP_LENGTH).fill(""))
+      setOtp(Array(OTP_MAX).fill(""))
       inputRefs.current[0]?.focus()
     } finally {
       setLoading(false)

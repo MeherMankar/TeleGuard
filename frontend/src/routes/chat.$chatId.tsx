@@ -26,9 +26,10 @@ function safeText(v: unknown): string | null {
 }
 
 export const Route = createFileRoute("/chat/$chatId")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    account: (search.account as string) ?? "",
-  }),
+  validateSearch: (search: Record<string, unknown>): { account?: string } => {
+    if (typeof search.account !== "string") return {}
+    return { account: search.account }
+  },
   component: ChatPageWrapper,
 })
 

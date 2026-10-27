@@ -13,6 +13,7 @@ interface PhoneLoginPageProps {
 
 const countries = [
   { code: "+91", name: "India", flag: "🇮🇳" },
+  { code: "+998", name: "Uzbekistan", flag: "🇺🇿" },
   { code: "+1", name: "United States", flag: "🇺🇸" },
   { code: "+44", name: "United Kingdom", flag: "🇬🇧" },
   { code: "+86", name: "China", flag: "🇨🇳" },
@@ -34,10 +35,13 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
   const [phoneNumber, setPhoneNumber] = useState("")
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const maxPhoneDigits = 15 - selectedCountry.code.replace(/\D/g, "").length
+  const isPhoneValid =
+    phoneNumber.length + selectedCountry.code.replace(/\D/g, "").length >= 7
 
   const handleNext = async () => {
-    if (phoneNumber.length < 7) return
-    const fullPhone = `${selectedCountry.code}${phoneNumber.replace(/\D/g, "")}`
+    if (!isPhoneValid) return
+    const fullPhone = `${selectedCountry.code}${phoneNumber}`
     setLoading(true)
     try {
       const res = await accountsApi.sendCode(fullPhone)
@@ -50,7 +54,7 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
   }
 
   const formatPhoneDisplay = (value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 10)
+    const digits = value.replace(/\D/g, "").slice(0, maxPhoneDigits)
     if (digits.length <= 5) return digits
     return `${digits.slice(0, 5)} ${digits.slice(5)}`
   }
@@ -105,6 +109,9 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
                   key={country.code}
                   onClick={() => {
                     setSelectedCountry(country)
+                    setPhoneNumber((current) =>
+                      current.slice(0, 15 - country.code.replace(/\D/g, "").length),
+                    )
                     setIsCountryDropdownOpen(false)
                   }}
                   className={cn(
@@ -130,7 +137,9 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
             <input
               type="tel"
               value={formatPhoneDisplay(phoneNumber)}
-              onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) =>
+                setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, maxPhoneDigits))
+              }
               placeholder="— — — — —   — — — — —"
               className="w-full bg-transparent text-foreground text-lg border-b border-border/50 pb-2 focus:border-primary focus:outline-none transition-colors placeholder:text-muted-foreground/50 placeholder:tracking-widest"
             />
@@ -139,10 +148,10 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
 
         <button
           onClick={handleNext}
-          disabled={phoneNumber.length < 7 || loading}
+          disabled={!isPhoneValid || loading}
           className={cn(
             "w-full py-4 rounded-lg font-medium text-base transition-all flex items-center justify-center gap-2",
-            phoneNumber.length >= 7 && !loading
+            isPhoneValid && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/50 text-primary-foreground/70 cursor-not-allowed",
           )}
