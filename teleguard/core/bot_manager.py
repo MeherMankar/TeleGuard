@@ -432,20 +432,28 @@ class BotManager:
                 # Load proxy if assigned
                 if account and account.get("proxy_id"):
                     proxy = await proxy_manager.get_account_proxy(str(account["_id"]))
-                    if proxy:
-                        proxy_dict = await proxy_manager.build_telethon_proxy(
-                            proxy, str(account["_id"])
+                    if not proxy:
+                        raise ValueError(
+                            f"Assigned proxy {account['proxy_id']} could not be loaded"
                         )
-                        if proxy_dict:
-                            logger.debug(
-                                f"Using proxy {
-                                    proxy['server']}:{
-                                    proxy['port']} for {account_name}"
-                            )
-                        else:
-                            logger.warning(f"Failed to build proxy for {account_name}")
+                    proxy_dict = await proxy_manager.build_telethon_proxy(
+                        proxy, str(account["_id"])
+                    )
+                    if not proxy_dict:
+                        raise ValueError(
+                            f"Assigned proxy for {account_name} has invalid settings"
+                        )
+                    logger.debug(
+                        f"Using proxy {proxy['server']}:{proxy['port']} "
+                        f"for {account_name}"
+                    )
             except Exception as e:
-                logger.warning(f"Failed to load/assign proxy for {account_name}: {e}")
+                logger.error(
+                    f"Cannot start {account_name} without its configured proxy: {e}"
+                )
+                raise RuntimeError(
+                    f"Could not configure the assigned proxy for {account_name}"
+                ) from e
 
             # Create client with session string and device spoofing
             from .device_snooper import DeviceSnooper

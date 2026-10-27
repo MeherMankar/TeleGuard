@@ -79,7 +79,7 @@ class ProxyHandler:
             f"**Supported Formats:**\n"
             f"✅ SOCKS5 proxies (Recommended)\n"
             f"✅ HTTP proxies (Recommended)\n"
-            f"⚠️ MTProto proxies (May not work on cloud)\n"
+            f"✅ MTProto proxies (native Telethon support)\n"
             f"• Telegram proxy links (t.me/proxy, t.me/socks)\n\n"
             f"Select an option below:"
         )
@@ -149,17 +149,17 @@ class ProxyHandler:
 
         text = (
             "➕ **Add New Proxy**\n\n"
-            "⚠️ **RECOMMENDED: Use SOCKS5 or HTTP proxies**\n"
-            "MTProto proxies may not work reliably on cloud platforms.\n\n"
+            "✅ MTProto proxies are supported through Telethon's native connection.\n"
+            "Cloud firewalls or an unavailable proxy server can still block a connection.\n\n"
             "Send me a proxy in any of these formats:\n\n"
             "**Telegram Links:**\n"
             "• `t.me/socks?server=1.2.3.4&port=1080&user=admin&pass=123` ✅\n"
-            "• `t.me/proxy?server=1.2.3.4&port=443&secret=abc123` ⚠️\n"
+            "• `t.me/proxy?server=1.2.3.4&port=443&secret=0123456789abcdef0123456789abcdef` ✅\n"
             "• `tg://socks?server=1.2.3.4&port=1080&user=admin&pass=123` ✅\n\n"
             "**Manual Format:**\n"
             "• `socks5://user:pass@1.2.3.4:1080` ✅ Recommended\n"
             "• `http://user:pass@1.2.3.4:8080` ✅ Recommended\n"
-            "• `mtproto://1.2.3.4:443:secret` ⚠️ May not work\n\n"
+            "• `mtproto://1.2.3.4:443:0123456789abcdef0123456789abcdef` ✅\n\n"
             "Or send /cancel to cancel"
         )
 
@@ -225,7 +225,7 @@ class ProxyHandler:
                     "❌ **Invalid Proxy Format**\n\n"
                     "Could not parse the proxy link you provided.\n\n"
                     "**Supported Formats:**\n"
-                    "• `t.me/proxy?server=1.2.3.4&port=443&secret=abc123`\n"
+                    "• `t.me/proxy?server=1.2.3.4&port=443&secret=0123456789abcdef0123456789abcdef`\n"
                     "• `t.me/socks?server=1.2.3.4&port=1080&user=admin&pass=123`\n"
                     "• `socks5://user:pass@1.2.3.4:1080`\n\n"
                     "Please try again or send /cancel"
@@ -557,67 +557,15 @@ class ProxyHandler:
 
     async def _assign_proxy(self, event, user_id, account_id, proxy_id):
         """Assign proxy to account"""
-        from bson import ObjectId
-
-        # Get account and proxy details for better feedback
-        account = await mongodb.db.accounts.find_one(
-            {"_id": ObjectId(account_id), "user_id": user_id}
-        )
-        (
-            await proxy_manager.get_account_proxy(account_id)
-            if account and account.get("proxy_id")
-            else None
-        )
-        new_proxy = await mongodb.db.proxies.find_one(
-            {"_id": ObjectId(proxy_id), "user_id": user_id}
-        )
-
         success, message = await proxy_manager.assign_proxy_to_account(
-            user_id, account_id, proxy_id
+            user_id,
+            account_id,
+            proxy_id,
+            bot_manager=self.bot_manager,
         )
 
         if success:
-            # Restart account to apply proxy
-            phone = account.get("phone")
-            if phone and phone in self.bot_manager.user_clients:
-                try:
-                    await event.answer("🔄 Restarting account...", alert=False)
-                    client = self.bot_manager.user_clients[phone]
-                    await client.disconnect()
-                    await self.bot_manager._start_user_client(account)
-
-                    if account and new_proxy:
-                        account_name = account.get("name", "Unknown")
-                        proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
-                        await event.answer(
-                            f"✅ Proxy Applied!\n\n"
-                            f"Account: {account_name}\n"
-                            f"Proxy: {proxy_info}\n"
-                            f"Status: ✅ Active",
-                            alert=True,
-                        )
-                    else:
-                        await event.answer("✅ Proxy assigned and applied!", alert=True)
-                except Exception as e:
-                    logger.error(f"Restart error: {e}")
-                    await event.answer(
-                        "✅ Proxy assigned! Restart account manually.", alert=True
-                    )
-            else:
-                if account and new_proxy:
-                    account_name = account.get("name", "Unknown")
-                    proxy_info = f"{new_proxy['server']}:{new_proxy['port']}"
-                    await event.answer(
-                        f"✅ Proxy Assigned!\n\n"
-                        f"Account: {account_name}\n"
-                        f"Proxy: {proxy_info}\n\n"
-                        f"⚠️ Start account to apply",
-                        alert=True,
-                    )
-                else:
-                    await event.answer(
-                        "✅ Proxy assigned! Start account to apply.", alert=True
-                    )
+            await event.answer(message, alert=True)
         else:
             try:
                 await event.answer(f"❌ {message}", alert=True)

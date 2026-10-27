@@ -533,8 +533,8 @@ class MenuSystem:
                     f"• Total Proxies: {len(proxies)}\n"
                     f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n"
                     f"• Default: {default_info}\n\n"
-                    f"✅ SOCKS5 / HTTP proxies recommended\n"
-                    f"⚠️ MTProto may not work on cloud\n\n"
+                    f"✅ SOCKS5, HTTP, and native MTProto proxies supported\n"
+                    f"⚠️ Connectivity depends on the proxy and cloud network\n\n"
                     f"Select an option:"
                 )
                 buttons = [

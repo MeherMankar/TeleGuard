@@ -3,8 +3,8 @@
 import asyncio
 import base64
 import binascii
+import html
 import logging
-import re
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -22,6 +22,18 @@ class ProxyManager:
 
     def __init__(self):
         self.proxy_cache = {}  # {proxy_id: last_check_time}
+
+    @staticmethod
+    def _normalize_proxy_endpoint(server: str, port: str | int) -> tuple[str, int]:
+        if not isinstance(server, str) or not server.strip():
+            raise ValueError("Proxy server is required.")
+        try:
+            port_number = int(port)
+        except (TypeError, ValueError) as e:
+            raise ValueError("Proxy port must be a number.") from e
+        if not 1 <= port_number <= 65535:
+            raise ValueError("Proxy port must be between 1 and 65535.")
+        return server.strip(), port_number
 
     @staticmethod
     def normalize_mtproto_secret(secret: str) -> str:
@@ -50,50 +62,66 @@ class ProxyManager:
     async def parse_telegram_proxy_link(self, link: str) -> Optional[Dict]:
         """Parse Telegram proxy link (t.me/proxy, t.me/socks, tg://proxy, tg://socks)"""
         try:
-            # Decode HTML entities (&amp; -> &)
-            import html
-
             link = html.unescape(link.strip())
-
-            # Remove https:// or http:// prefix if present
-            link = re.sub(r"^https?://", "", link)
-
-            # Handle t.me links
-            if "t.me/proxy" in link or "t.me/socks" in link:
-                # Extract query parameters
-                if "?" in link:
-                    query_part = link.split("?")[1]
-                else:
+            telegram_link = link.lower().startswith(
+                (
+                    "t.me/",
+                    "https://t.me/",
+                    "http://t.me/",
+                    "https://www.t.me/",
+                    "http://www.t.me/",
+                )
+            )
+            if telegram_link:
+                parsed = urlparse(
+                    f"https://{link}" if link.lower().startswith("t.me/") else link
+                )
+                path = parsed.path.lower().rstrip("/")
+                if path.rsplit("/", 1)[-1] not in {"proxy", "socks"}:
                     return None
-
-                params = {}
-                for param in query_part.split("&"):
-                    if "=" in param:
-                        key, value = param.split("=", 1)
-                        params[key] = value
-
-                proxy_type = "socks5" if "socks" in link else "mtproto"
-
+                params = parse_qs(parsed.query)
+                proxy_type = "mtproto" if path.endswith("/proxy") else "socks5"
+                default_port = "443" if proxy_type == "mtproto" else "1080"
+                server, port = self._normalize_proxy_endpoint(
+                    params.get("server", [""])[0],
+                    params.get("port", [default_port])[0],
+                )
                 if proxy_type == "mtproto":
-                    secret = params.get("secret")
-                    secret = self.normalize_mtproto_secret(secret)
                     return {
-                        "type": "mtproto",
-                        "server": params.get("server"),
-                        "port": int(params.get("port", 443)),
-                        "secret": secret,
+                        "type": proxy_type,
+                        "server": server,
+                        "port": port,
+                        "secret": self.normalize_mtproto_secret(
+                            params.get("secret", [""])[0]
+                        ),
                     }
-                else:
-                    return {
-                        "type": "socks5",
-                        "server": params.get("server"),
-                        "port": int(params.get("port", 1080)),
-                        "username": params.get("user"),
-                        "password": params.get("pass"),
-                    }
+                return {
+                    "type": proxy_type,
+                    "server": server,
+                    "port": port,
+                    "username": params.get("user", [None])[0],
+                    "password": params.get("pass", [None])[0],
+                }
 
-            # Handle tg:// links
-            elif link.startswith("tg://"):
+            if link.lower().startswith("mtproto://"):
+                authority = urlparse(link).netloc
+                parts = authority.rsplit(":", 2)
+                if len(parts) == 3:
+                    server, port_text, secret = parts
+                elif len(parts) == 2:
+                    server, port_text = parts
+                    secret = parse_qs(urlparse(link).query).get("secret", [""])[0]
+                else:
+                    raise ValueError("Use mtproto://host:port:secret.")
+                server, port = self._normalize_proxy_endpoint(server, port_text)
+                return {
+                    "type": "mtproto",
+                    "server": server,
+                    "port": port,
+                    "secret": self.normalize_mtproto_secret(secret),
+                }
+
+            if link.startswith("tg://"):
                 parsed = urlparse(link)
                 params = parse_qs(parsed.query)
 
@@ -121,7 +149,7 @@ class ProxyManager:
             elif "://" in link:
                 parsed = urlparse(link)
                 return {
-                    "type": parsed.scheme,
+                    "type": "http" if parsed.scheme == "https" else parsed.scheme,
                     "server": parsed.hostname,
                     "port": parsed.port or 1080,
                     "username": parsed.username,
@@ -138,18 +166,25 @@ class ProxyManager:
     ) -> Tuple[bool, str]:
         """Add proxy to database"""
         try:
-            if not proxy_data.get("server") or not proxy_data.get("port"):
-                return False, "Invalid proxy data: missing server or port"
+            proxy_type = proxy_data.get("type", "socks5")
+            if proxy_type not in {"mtproto", "socks5", "http"}:
+                return False, "Unsupported proxy type"
+            server, port = self._normalize_proxy_endpoint(
+                proxy_data.get("server"), proxy_data.get("port")
+            )
+            secret = None
+            if proxy_type == "mtproto":
+                secret = self.normalize_mtproto_secret(proxy_data.get("secret"))
 
             proxy_doc = {
                 "user_id": user_id,
-                "name": name or f"{proxy_data['server']}:{proxy_data['port']}",
-                "type": proxy_data.get("type", "socks5"),
-                "server": proxy_data["server"],
-                "port": proxy_data["port"],
+                "name": name or f"{server}:{port}",
+                "type": proxy_type,
+                "server": server,
+                "port": port,
                 "username": proxy_data.get("username"),
                 "password": proxy_data.get("password"),
-                "secret": proxy_data.get("secret"),
+                "secret": secret,
                 "status": "untested",
                 "last_check": None,
                 "response_time": None,
@@ -484,6 +519,15 @@ class ProxyManager:
                     await bot_manager.start_user_client(
                         user_id, account_name, session_string
                     )
+                    client = bot_manager.user_clients.get(user_id, {}).get(
+                        account_name
+                    )
+                    if not client or not client.is_connected():
+                        return (
+                            True,
+                            "Proxy assigned, but the account has not connected yet. "
+                            "Check the proxy endpoint and network access.",
+                        )
                     return (
                         True,
                         "✅ Proxy assigned and applied! Account reconnected with new proxy.",
@@ -623,38 +667,31 @@ class ProxyManager:
     async def build_telethon_proxy(
         self, proxy: Dict, proxy_id: str = None
     ) -> Optional[Dict]:
-        """Build proxy dict for Telethon client (with MTProto bridge support)"""
+        """Build Telethon settings for supported proxy types."""
         try:
             if not proxy:
                 return None
 
-            # Telethon supports MTProto proxies natively using a dedicated
-            # connection mode and the (host, port, secret) proxy tuple.
-            if proxy["type"] == "mtproto":
-                if (
-                    not proxy.get("server")
-                    or not proxy.get("port")
-                    or not proxy.get("secret")
-                ):
-                    logger.error("MTProto proxy is missing server, port, or secret")
-                    return None
-                try:
-                    secret = self.normalize_mtproto_secret(proxy["secret"])
-                except ValueError as e:
-                    logger.error("Invalid MTProto proxy secret: %s", e)
-                    return None
+            proxy_type = proxy.get("type")
+            server, port = self._normalize_proxy_endpoint(
+                proxy.get("server"), proxy.get("port")
+            )
+            if proxy_type == "mtproto":
+                secret = self.normalize_mtproto_secret(proxy.get("secret"))
                 return {
                     "type": "mtproto",
-                    "server": proxy["server"],
-                    "port": int(proxy["port"]),
+                    "server": server,
+                    "port": port,
                     "secret": secret,
                 }
 
-            # SOCKS5/HTTP proxies (native support)
+            if proxy_type not in {"socks5", "http"}:
+                raise ValueError(f"Unsupported proxy type: {proxy_type}")
+
             proxy_dict = {
-                "proxy_type": proxy["type"],
-                "addr": proxy["server"],
-                "port": proxy["port"],
+                "proxy_type": proxy_type,
+                "addr": server,
+                "port": port,
             }
 
             if proxy.get("username"):
@@ -664,7 +701,7 @@ class ProxyManager:
 
             return proxy_dict
         except Exception as e:
-            logger.error(f"Failed to build proxy dict: {e}")
+            logger.error("Failed to build proxy configuration: %s", e)
             return None
 
 
