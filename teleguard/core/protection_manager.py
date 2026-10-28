@@ -675,7 +675,7 @@ class ProtectionManager:
 
                 # Do not delete a code unless Telegram confirms invalidation.
                 try:
-                    await event.client(
+                    invalidated = await event.client(
                         functions.account.InvalidateSignInCodesRequest(
                             codes=[otp_code]
                         )
@@ -687,6 +687,17 @@ class ProtectionManager:
                         "⚠️ OTP Destroyer could not invalidate a login code for "
                         f"{account_name}. The original message was left intact; "
                         "please review it.",
+                    )
+                    return
+                if invalidated is not True:
+                    logger.warning(
+                        "Telegram did not confirm OTP invalidation for %s",
+                        account_name,
+                    )
+                    await self.bot.send_message(
+                        user_id,
+                        "⚠️ Telegram did not confirm invalidation of the login code "
+                        f"for {account_name}. The original message was left intact.",
                     )
                     return
 
@@ -705,7 +716,7 @@ class ProtectionManager:
 
                 try:
                     await self.notifier.notify_otp_destroyed(
-                        user_id, account_name, display_code
+                        user_id, account_name
                     )
                 except Exception:
                     logger.exception("Failed to notify user of OTP destruction")
@@ -713,8 +724,8 @@ class ProtectionManager:
                     user_id, account_name, "destroyed"
                 )
                 logger.warning(
-                    f"🛡️ OTP Destroyer: Invalidated code {display_code} "
-                    f"for {account_name}"
+                    "OTP Destroyer: invalidated a login code for %s",
+                    account_name,
                 )
 
                 try:

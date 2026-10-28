@@ -88,13 +88,12 @@ class ProtectionNotifier:
         except Exception as e:
             logger.error(f"Error sending session destruction alert to {user_id}: {e}")
 
-    async def notify_otp_destroyed(self, user_id: int, account_name: str, code: str):
+    async def notify_otp_destroyed(self, user_id: int, account_name: str):
         """Send notification when an OTP is destroyed"""
         try:
             message = (
                 "🛡 **OTP Destroyer Active**\n\n"
                 f"📱 **Account:** {account_name}\n"
-                f"🔑 **Code:** `{code}`\n"
                 "✅ **Status:** Invalidated successfully."
             )
             await self.bot.send_message(user_id, message)

@@ -80,6 +80,14 @@ class UnifiedMessagingSystem:
                 logger.debug(f"📨 Private message received on {account_name}: from={sender.id}, is_bot={is_bot}, is_official={is_telegram_official}")
 
                 if is_telegram_official:
+                    if not await self._should_forward_telegram_service_message(
+                        user_id, account_name, event.raw_text or ""
+                    ):
+                        logger.info(
+                            "Suppressing duplicate Telegram OTP forwarding for %s",
+                            account_name,
+                        )
+                        return
                     await self._send_bot_message_directly(user_id, sender, me, event)
                     return
                 elif is_bot:
@@ -101,6 +109,57 @@ class UnifiedMessagingSystem:
                     f"Private message handler error for {account_name}: {e}",
                     exc_info=True,
                 )
+
+    async def _should_forward_telegram_service_message(
+        self, user_id: int, account_name: str, message_text: str
+    ) -> bool:
+        protection_manager = getattr(
+            self.bot_manager, "protection_manager", None
+        )
+        if (
+            not protection_manager
+            or not protection_manager._is_login_code(message_text)
+        ):
+            return True
+
+        try:
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "name": account_name},
+                {
+                    "phone": 1,
+                    "otp_destroyer_enabled": 1,
+                    "otp_forward_enabled": 1,
+                    "otp_temp_passthrough": 1,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Could not check OTP settings before forwarding Telegram service "
+                "message for %s; suppressing the message",
+                account_name,
+            )
+            return False
+
+        if not account:
+            return True
+
+        protection_active = any(
+            account.get(setting)
+            for setting in (
+                "otp_destroyer_enabled",
+                "otp_forward_enabled",
+                "otp_temp_passthrough",
+            )
+        )
+        if not protection_active:
+            return True
+
+        if protection_manager._has_active_otp_auth_flow(
+            user_id, account.get("phone")
+        ):
+            return True
+
+        return False
 
     def _setup_admin_reply_handler(self):
         """Set up handler for admin replies in topics"""

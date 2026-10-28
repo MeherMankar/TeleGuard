@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from bson import ObjectId
+import pytest
 
 from teleguard.core.bot_manager import BotManager
 from teleguard.core.protection_manager import ProtectionManager
@@ -22,14 +23,16 @@ class Event:
 
 
 class Client:
-    def __init__(self, error=None):
+    def __init__(self, error=None, result=True):
         self.error = error
+        self.result = result
         self.requests = []
 
     async def __call__(self, request):
         self.requests.append(request)
         if self.error:
             raise self.error
+        return self.result
 
 
 class Bot:
@@ -275,6 +278,35 @@ def test_successful_invalidation_deletes_and_records_otp(monkeypatch):
     assert len(client.requests) == 1
     ProtectionStorage.increment_otp_stats.assert_awaited_once_with(123)
     manager.notifier.notify_otp_destroyed.assert_awaited_once()
+
+
+def test_telegram_login_code_format_is_extractable():
+    manager = object.__new__(ProtectionManager)
+    message = (
+        "Login code: 54268. Do not give this code to anyone, even if they say "
+        "they are from Telegram!"
+    )
+
+    assert manager._is_login_code(message)
+    assert manager._extract_otp_code(message) == "54268"
+
+
+def test_false_invalidation_result_keeps_message_and_does_not_claim_success(
+    monkeypatch,
+):
+    client = Client(result=False)
+    manager, event = make_manager(
+        monkeypatch, "Login code: 54268. Do not share it.", client
+    )
+    coroutine = manager._handle_otp_message(event)
+    with pytest.raises(StopIteration):
+        coroutine.send(None)
+
+    assert not event.deleted
+    assert len(client.requests) == 1
+    manager.notifier.notify_otp_destroyed.assert_not_awaited()
+    assert any("did not confirm invalidation" in text for _, text in manager.bot.messages)
+    assert all("54268" not in text for _, text in manager.bot.messages)
 
 
 def test_expired_temp_bypass_restores_saved_account_settings(monkeypatch):
