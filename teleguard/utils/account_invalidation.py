@@ -11,6 +11,18 @@ from ..core.mongo_database import mongodb
 logger = logging.getLogger(__name__)
 
 
+def is_duplicate_auth_key_error(error_message: str) -> bool:
+    error_lower = str(error_message).lower()
+    return (
+        "auth_key_duplicated" in error_lower
+        or "two different ip" in error_lower
+        or (
+            "authorization key" in error_lower
+            and ("ip addresses" in error_lower or "simultaneously" in error_lower)
+        )
+    )
+
+
 class AccountInvalidationHandler:
     """Handles automatic removal of invalidated accounts with user notifications"""
 
@@ -23,6 +35,18 @@ class AccountInvalidationHandler:
     ) -> None:
         """Handle account invalidation with removal and user notification."""
         try:
+            if is_duplicate_auth_key_error(error_message):
+                logger.warning(
+                    "Retaining account %s after duplicate authorization-key error",
+                    account_name,
+                )
+                if self.bot_manager:
+                    self.bot_manager._schedule_session_retry(user_id, account_name)
+                    await self.bot_manager._notify_user_session_conflict(
+                        user_id, account_name, phone, error_message
+                    )
+                return
+
             success = await self._remove_invalidated_account(
                 user_id, account_name, phone
             )
@@ -166,7 +190,7 @@ class AccountInvalidationHandler:
         # Common error patterns and their user-friendly messages
         if "auth_key_unregistered" in error_lower:
             return '[401 AUTH_KEY_UNREGISTERED] - The key is not registered in the system. Delete your session file and login again (caused by "updates.GetState")'
-        elif "auth_key_duplicated" in error_lower:
+        elif is_duplicate_auth_key_error(error_message):
             return "[406 AUTH_KEY_DUPLICATED] - The authorization key (session) was used under two different IP addresses simultaneously"
         elif "session_revoked" in error_lower:
             return "[401 SESSION_REVOKED] - The authorization has been invalidated, because of the user logging out"

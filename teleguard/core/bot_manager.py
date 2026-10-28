@@ -15,7 +15,10 @@ from typing import Any, Dict, Optional, Set
 from telethon import TelegramClient, connection, events
 from telethon.sessions import StringSession
 
-from ..utils.account_invalidation import init_account_invalidation_handler
+from ..utils.account_invalidation import (
+    init_account_invalidation_handler,
+    is_duplicate_auth_key_error,
+)
 from ..utils.logger import BotLogger
 from ..utils.response_formatter import LogFormatter
 from ..utils.session_protection import session_protection
@@ -115,6 +118,10 @@ class BotManager:
             "auto_reply": set(),
         }
         self.start_time = time.time()
+        self._session_load_requested = asyncio.Event()
+        self._session_load_task: Optional[asyncio.Task] = None
+        self._session_load_lock = asyncio.Lock()
+        self._sessions_loaded = False
         self.auth_manager = None
         self.account_invalidation_handler = None
         self.protection_manager = None
@@ -192,13 +199,16 @@ class BotManager:
                 await command_registry.register_with_botfather(self.bot)
             except Exception as e:
                 logger.warning(f"Failed to register commands: {e}")
-            await self._load_existing_sessions()
             await self._initialize_components()
             # Initialize account invalidation handler
             self.account_invalidation_handler = init_account_invalidation_handler(self)
             # Mark as running
             self._is_running = True
             self._startup_complete = True
+            self._session_load_task = asyncio.create_task(
+                self._load_sessions_after_startup_trigger(),
+                name="deferred_existing_session_load",
+            )
             logger.debug("TeleGuard Bot started successfully")
         except Exception as e:
             logger.error(f"Bot startup failed: {e}")
@@ -246,6 +256,13 @@ class BotManager:
                 **device_params,
             )
             await self._start_bot_with_retry()
+            self.bot.add_event_handler(
+                self._on_session_load_interaction,
+                events.NewMessage(incoming=True, func=lambda event: event.is_private),
+            )
+            self.bot.add_event_handler(
+                self._on_session_load_interaction, events.CallbackQuery()
+            )
             logger.debug("Bot client initialized")
         except Exception as e:
             raise TeleGuardError(
@@ -273,10 +290,52 @@ class BotManager:
                 raise e
         raise TeleGuardError("Bot startup failed after retries")
 
-    async def _load_existing_sessions(self) -> None:
+    async def _on_session_load_interaction(self, event) -> None:
+        if not self._session_load_requested.is_set():
+            user_id = getattr(event, "sender_id", None)
+            if user_id is None:
+                return
+            try:
+                existing_account = await mongodb.db.accounts.find_one(
+                    {"user_id": user_id}, {"_id": 1}
+                )
+            except Exception:
+                logger.exception(
+                    "Could not verify account owner for deferred session loading"
+                )
+                return
+            if not existing_account:
+                return
+
+            logger.info(
+                "User interaction received; scheduling saved-account loading"
+            )
+            self._session_load_requested.set()
+
+    async def _load_sessions_after_startup_trigger(self) -> None:
+        timeout = max(0.0, 300.0 - (time.time() - self.start_time))
         try:
-            # Skip session loading ONLY on cloud platforms for faster startup
-            # Check for actual cloud environment variables
+            await asyncio.wait_for(self._session_load_requested.wait(), timeout)
+            trigger = "first user interaction"
+        except asyncio.TimeoutError:
+            trigger = "five-minute startup grace period"
+
+        if self._shutting_down:
+            return
+        logger.info("Loading saved Telegram accounts after %s", trigger)
+        await self._load_existing_sessions()
+
+    async def _load_existing_sessions(self) -> None:
+        async with self._session_load_lock:
+            if self._sessions_loaded:
+                return
+            self._sessions_loaded = True
+            await self._load_existing_sessions_once()
+
+    async def _load_existing_sessions_once(self) -> None:
+        try:
+            # Keep the existing opt-out for deployments that load accounts
+            # only when an account-specific action requests them.
             is_cloud = (
                 os.getenv("DYNO")
                 or os.getenv("KOYEB_DEPLOYMENT_ID")
@@ -328,6 +387,12 @@ class BotManager:
                         )
                         if client and client.is_connected():
                             loaded_count += 1
+                            if self._startup_complete:
+                                await self._setup_loaded_client_handlers(
+                                    account["user_id"],
+                                    account.get("name", "Unknown"),
+                                    client,
+                                )
                     except asyncio.TimeoutError:
                         logger.warning(
                             f"Timeout loading client for {account.get('name')}"
@@ -338,7 +403,14 @@ class BotManager:
                         phone = account.get("phone", "Unknown")
 
                         # Check if this is a session invalidation error
-                        if any(
+                        if self._is_duplicate_session_error(e):
+                            await self._handle_duplicate_session_conflict(
+                                account["user_id"],
+                                account_name,
+                                phone,
+                                str(e),
+                            )
+                        elif any(
                             phrase in error_msg
                             for phrase in [
                                 "auth_key_unregistered",
@@ -389,6 +461,69 @@ class BotManager:
                 )
             except BaseException:
                 pass
+
+    async def _setup_loaded_client_handlers(
+        self, user_id: int, account_name: str, client
+    ) -> None:
+        if self.protection_manager:
+            try:
+                await self.protection_manager.register_handler_for_client(
+                    user_id, account_name, client
+                )
+                await self.protection_manager.session_destroyer.sync_trusted_for_new_client(
+                    user_id, client
+                )
+            except Exception as error:
+                logger.warning(
+                    "Protection handler setup failed for %s: %s",
+                    account_name,
+                    error,
+                )
+
+        if self.dm_reply_handler:
+            try:
+                await self.dm_reply_handler.setup_new_client_handler(
+                    user_id, account_name, client
+                )
+                await self.dm_reply_handler.refresh_all_handlers()
+            except Exception as error:
+                logger.warning(
+                    "DM handler setup failed for %s: %s", account_name, error
+                )
+
+        if self.unified_messaging:
+            try:
+                await self.unified_messaging.setup_new_client_handler(
+                    user_id, account_name, client
+                )
+            except Exception as error:
+                logger.warning(
+                    "Unified messaging handler setup failed for %s: %s",
+                    account_name,
+                    error,
+                )
+
+        if self.auto_reply_handler:
+            try:
+                await self.auto_reply_handler.setup_new_client_handler(
+                    user_id, account_name, client
+                )
+            except Exception as error:
+                logger.warning(
+                    "Auto-reply handler setup failed for %s: %s", account_name, error
+                )
+
+        if self.activity_simulator:
+            try:
+                await self.activity_simulator.add_account(
+                    user_id, account_name, client
+                )
+            except Exception as error:
+                logger.warning(
+                    "Activity simulator setup failed for %s: %s",
+                    account_name,
+                    error,
+                )
 
     async def _start_user_client(
         self,
@@ -666,14 +801,28 @@ class BotManager:
                         f"Failed to get valid user info for {account_name}: {e}"
                     )
                     await client.disconnect()
-                    await self._mark_account_for_reauth(
-                        user_id, account_name, f"Failed to get user info: {e}"
-                    )
+                    if self._is_duplicate_session_error(e):
+                        await self._handle_session_conflict(
+                            user_id, account_name, str(e)
+                        )
+                    else:
+                        await self._mark_account_for_reauth(
+                            user_id, account_name, f"Failed to get user info: {e}"
+                        )
                     return
 
             except Exception as e:
                 # Handle specific session errors with better recovery
                 error_msg = str(e).lower()
+                if self._is_duplicate_session_error(e):
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                    await self._handle_session_conflict(
+                        user_id, account_name, str(e)
+                    )
+                    return
                 if any(
                     phrase in error_msg
                     for phrase in [
@@ -763,19 +912,7 @@ class BotManager:
 
     @staticmethod
     def _is_duplicate_session_error(error: Exception | str) -> bool:
-        error_text = str(error).lower()
-        return (
-            "auth_key_duplicated" in error_text
-            or "two different ip" in error_text
-            or (
-                "authorization key" in error_text
-                and "ip addresses" in error_text
-            )
-            or (
-                "authorization key" in error_text
-                and "simultaneously" in error_text
-            )
-        )
+        return is_duplicate_auth_key_error(str(error))
 
     def _schedule_session_retry(self, user_id: int, account_name: str) -> None:
         key = (user_id, account_name)
@@ -1735,6 +1872,13 @@ class BotManager:
             self._is_running = False
             self._shutting_down = True
 
+            if self._session_load_task:
+                self._session_load_task.cancel()
+                await asyncio.gather(
+                    self._session_load_task, return_exceptions=True
+                )
+                self._session_load_task = None
+
             retry_tasks = list(self._session_retry_tasks.values())
             for task in retry_tasks:
                 task.cancel()
@@ -1959,6 +2103,13 @@ class BotManager:
     ):
         """Handle session conflicts caused by other bots/clients"""
         try:
+            if self._is_duplicate_session_error(error_reason):
+                phone = await self._get_phone_for_account(user_id, account_name)
+                await self._handle_duplicate_session_conflict(
+                    user_id, account_name, phone, error_reason
+                )
+                return
+
             # Update database with conflict status
             await mongodb.db.accounts.update_one(
                 {"user_id": user_id, "name": account_name},
@@ -1993,6 +2144,12 @@ class BotManager:
     ):
         """Handle session conflict with database ID"""
         try:
+            if self._is_duplicate_session_error(error_reason):
+                await self._handle_duplicate_session_conflict(
+                    user_id, account_name, phone, error_reason
+                )
+                return
+
             await mongodb.db.accounts.update_one(
                 {"_id": account_id},
                 {
@@ -2015,6 +2172,18 @@ class BotManager:
 
         except Exception as e:
             logger.error(f"Failed to handle session conflict in DB: {e}")
+
+    async def _handle_duplicate_session_conflict(
+        self, user_id: int, account_name: str, phone: str, error_reason: str
+    ) -> None:
+        logger.warning(
+            "Retaining %s after duplicate authorization-key error and scheduling a retry",
+            account_name,
+        )
+        self._schedule_session_retry(user_id, account_name)
+        await self._notify_user_session_conflict(
+            user_id, account_name, phone, error_reason
+        )
 
     async def _mark_account_for_reauth(
         self, user_id: int, account_name: str, error_reason: str
