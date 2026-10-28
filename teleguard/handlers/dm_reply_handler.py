@@ -444,6 +444,12 @@ class DMReplyHandler:
             # Generate AI response
             response = await self._ai_generate_dm_reply(event, me)
             if response:
+                if not self.bot_manager.claim_auto_reply(event):
+                    logger.debug(
+                        "Another auto-reply handler already claimed message %s",
+                        event.id,
+                    )
+                    return
                 # Extremely realistic auto-reply behavior
                 await self._simulate_human_auto_reply_behavior(
                     event.client, event.chat_id, response

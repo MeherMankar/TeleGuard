@@ -325,6 +325,12 @@ class UnifiedMessagingSystem:
                         "I'm not available right now. I'll get back to you later.",
                     )
             if response:
+                if not self.bot_manager.claim_auto_reply(event):
+                    logger.debug(
+                        "Another auto-reply handler already claimed message %s",
+                        event.id,
+                    )
+                    return
                 await event.reply(response)
         except Exception as e:
             logger.error(f"Auto-reply error for {account_name}: {e}")

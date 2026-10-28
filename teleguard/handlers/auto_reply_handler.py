@@ -206,6 +206,12 @@ class AutoReplyHandler:
                     response = "Hey! " + response
                 elif contact_type == "work":
                     response = "Hi, " + response
+                if not self.bot_manager.claim_auto_reply(event):
+                    logger.debug(
+                        "Another auto-reply handler already claimed message %s",
+                        event.id,
+                    )
+                    return
                 await event.reply(response)
                 self.analytics["auto_replies_sent"] += 1
                 from ..services.messaging_stats import MessagingStats

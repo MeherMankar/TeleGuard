@@ -109,6 +109,7 @@ class BotManager:
         # Maps (user_id, account_name) -> telegram_id so OTP handler
         # doesn't need to call client.get_me() on every message.
         self._client_tg_ids: Dict[tuple, int] = {}
+        self._auto_reply_claims: Dict[tuple[int, int, int], float] = {}
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
         self.pending_2fa_storage: Dict[int, Dict[str, Any]] = {}
         self.component_manager = ComponentManager(self)
@@ -142,6 +143,31 @@ class BotManager:
         self._shutting_down = False
         self._startup_complete = False
         self.spam_detector = None
+
+    def claim_auto_reply(self, event) -> bool:
+        """Allow only one auto-reply subsystem to answer each incoming message."""
+        message_id = getattr(event, "id", None)
+        if message_id is None:
+            message_id = getattr(getattr(event, "message", None), "id", None)
+        client = getattr(event, "client", None)
+        chat_id = getattr(event, "chat_id", None)
+        if message_id is None or chat_id is None or client is None:
+            logger.warning("Cannot deduplicate auto-reply without message identity")
+            return False
+
+        now = time.monotonic()
+        if len(self._auto_reply_claims) > 1024:
+            self._auto_reply_claims = {
+                key: timestamp
+                for key, timestamp in self._auto_reply_claims.items()
+                if now - timestamp < 300
+            }
+
+        key = (id(client), int(chat_id), int(message_id))
+        if key in self._auto_reply_claims:
+            return False
+        self._auto_reply_claims[key] = now
+        return True
 
     def register_webapp_event_handlers(
         self, user_id: int, account_name: str, client: TelegramClient
