@@ -329,10 +329,24 @@ class BotManager:
         async with self._session_load_lock:
             if self._sessions_loaded:
                 return
-            self._sessions_loaded = True
-            await self._load_existing_sessions_once()
+            self._sessions_loaded = await self._load_existing_sessions_once()
 
-    async def _load_existing_sessions_once(self) -> None:
+    async def ensure_existing_sessions_loaded(self) -> None:
+        """Load saved accounts now when a user action needs connected clients."""
+        if self._sessions_loaded:
+            return
+
+        self._session_load_requested.set()
+        task = self._session_load_task
+        if task and not task.done():
+            await task
+        else:
+            await self._load_existing_sessions()
+
+        if not self._sessions_loaded:
+            raise RuntimeError("Saved Telegram accounts could not be loaded")
+
+    async def _load_existing_sessions_once(self) -> bool:
         try:
             # Keep the existing opt-out for deployments that load accounts
             # only when an account-specific action requests them.
@@ -343,7 +357,7 @@ class BotManager:
             )
             if is_cloud and os.getenv("SKIP_SESSION_LOAD", "false").lower() == "true":
                 logger.debug("Session loading skipped - accounts will load on demand")
-                return
+                return False
 
             logger.debug("Loading existing user sessions...")
 
@@ -363,10 +377,10 @@ class BotManager:
                 )
             except asyncio.TimeoutError:
                 logger.warning("Database query timed out, starting without accounts")
-                return
+                return False
             except Exception as e:
                 logger.error(f"Database error: {e}")
-                return
+                return False
 
             loaded_count = 0
             # Load all accounts — no artificial cap
@@ -449,8 +463,10 @@ class BotManager:
                         logger.warning(f"Failed to load client for {account_name}: {e}")
             if loaded_count > 0:
                 logger.debug(f"Loaded {loaded_count} user sessions")
+            return True
         except asyncio.TimeoutError:
             logger.warning("Timeout loading sessions, continuing without them")
+            return False
         except Exception as e:
             logger.error(f"Failed to load existing sessions: {e}")
             try:
@@ -461,15 +477,21 @@ class BotManager:
                 )
             except BaseException:
                 pass
+            return False
 
     async def _setup_loaded_client_handlers(
         self, user_id: int, account_name: str, client
     ) -> None:
         if self.protection_manager:
-            try:
-                await self.protection_manager.register_handler_for_client(
-                    user_id, account_name, client
+            registered = self.protection_manager.register_handler_for_client(
+                user_id, account_name, client
+            )
+            if not registered:
+                logger.error(
+                    "OTP handler registration failed for loaded account %s",
+                    account_name,
                 )
+            try:
                 await self.protection_manager.session_destroyer.sync_trusted_for_new_client(
                     user_id, client
                 )
@@ -1464,10 +1486,16 @@ class BotManager:
 
             # Setup OTP handler for the new client
             if self.protection_manager and client:
-                await self.protection_manager.register_handler_for_client(
+                registered = self.protection_manager.register_handler_for_client(
                     user_id, account_name, client
                 )
-                logger.info(f"OTP handler setup completed for {account_name}")
+                if registered:
+                    logger.info(f"OTP handler setup completed for {account_name}")
+                else:
+                    logger.error(
+                        "OTP handler registration failed for new account %s",
+                        account_name,
+                    )
 
                 # If Session Destroyer is already active, trust this account's
                 # pre-existing sessions so the watcher doesn't destroy them.

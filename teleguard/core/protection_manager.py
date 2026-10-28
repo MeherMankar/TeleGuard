@@ -217,13 +217,15 @@ class ProtectionManager:
             for handler_key in self.registered_handlers:
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
 
-    def register_handler_for_client(self, user_id: int, account_name: str, client):
+    def register_handler_for_client(
+        self, user_id: int, account_name: str, client
+    ) -> bool:
         """Register OTP handler for a specific client"""
         if not client or not client.is_connected():
-            return
+            return False
         handler_key = f"{user_id}:{account_name}"
         if handler_key in self.registered_handlers:
-            return
+            return True
         
         try:
             client.add_event_handler(
@@ -234,8 +236,10 @@ class ProtectionManager:
             if hasattr(self.bot_manager, "registered_handlers"):
                 self.bot_manager.registered_handlers["otp"].add(handler_key)
             logger.debug(f"Registered OTP handler for {handler_key}")
+            return True
         except Exception as e:
             logger.error(f"Failed to register OTP handler for {handler_key}: {e}")
+            return False
 
     def unregister_handler_for_client(self, user_id: int, account_name: str, client):
         """Unregister OTP handler for a specific client if previously registered"""
@@ -862,6 +866,16 @@ class ProtectionManager:
                 account = DataEncryption.decrypt_account_data(account)
                 await self._restore_temp_passthrough(user_id, account_id, account)
             if enabled:
+                account_name = account.get("name")
+                client_obj = self.bot_manager.user_clients.get(user_id, {}).get(
+                    account_name
+                )
+                if not client_obj or not client_obj.is_connected():
+                    return (
+                        False,
+                        "Account session is not connected; OTP Destroyer was not enabled.",
+                    )
+
                 await mongodb.db.accounts.update_one(
                     {"_id": ObjectId(account_id)},
                     {
@@ -879,13 +893,44 @@ class ProtectionManager:
                     },
                 )
                 try:
-                    # Re-register only this account's client, not all clients
-                    client_obj = self.bot_manager.user_clients.get(user_id, {}).get(account.get("name"))
-                    if client_obj:
-                        self.register_handler_for_client(user_id, account.get("name"), client_obj)
-                    logger.info(f"Re-registered OTP handler for {account.get('name')} (destroyer enabled)")
+                    registered = self.register_handler_for_client(
+                        user_id, account_name, client_obj
+                    )
+                    if not registered:
+                        await mongodb.db.accounts.update_one(
+                            {"_id": ObjectId(account_id)},
+                            {
+                                "$set": {
+                                    "otp_destroyer_enabled": account.get(
+                                        "otp_destroyer_enabled", False
+                                    )
+                                }
+                            },
+                        )
+                        return (
+                            False,
+                            "OTP handler could not be activated; the setting was reverted.",
+                        )
+                    logger.info(
+                        "OTP handler registered for %s (destroyer enabled)",
+                        account_name,
+                    )
                 except Exception as handler_error:
                     logger.error(f"Failed to re-register handler: {handler_error}")
+                    await mongodb.db.accounts.update_one(
+                        {"_id": ObjectId(account_id)},
+                        {
+                            "$set": {
+                                "otp_destroyer_enabled": account.get(
+                                    "otp_destroyer_enabled", False
+                                )
+                            }
+                        },
+                    )
+                    return (
+                        False,
+                        "OTP handler could not be activated; the setting was reverted.",
+                    )
 
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled"
             else:

@@ -277,6 +277,18 @@ async def toggle_otp_destroyer(
         if not bot_manager or not getattr(bot_manager, "protection_manager", None):
             raise HTTPException(status_code=503, detail="Protection manager not initialized")
 
+        if payload.enabled:
+            try:
+                await bot_manager.ensure_existing_sessions_loaded()
+            except Exception:
+                logger.exception(
+                    "Could not load saved accounts before enabling OTP Destroyer"
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Saved account sessions are unavailable; OTP Destroyer was not enabled.",
+                )
+
         success, message = await bot_manager.protection_manager.toggle_destroyer(
             user_id, payload.account_id, payload.enabled
         )

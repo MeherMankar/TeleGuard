@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 from bson import ObjectId
 
+from teleguard.core.bot_manager import BotManager
 from teleguard.core.protection_manager import ProtectionManager
 from teleguard.core.mongo_database import mongodb
 from teleguard.services.protection_storage import ProtectionStorage
@@ -84,6 +85,70 @@ def make_manager(monkeypatch, message_text, client, *, account_overrides=None):
         ProtectionStorage, "increment_otp_stats", AsyncMock()
     )
     return manager, event
+
+
+def test_register_handler_for_client_reports_registration_status():
+    class HandlerClient:
+        def __init__(self, connected=True, fail=False):
+            self.connected = connected
+            self.fail = fail
+            self.handlers = []
+
+        def is_connected(self):
+            return self.connected
+
+        def add_event_handler(self, handler, event):
+            if self.fail:
+                raise RuntimeError("handler registration failed")
+            self.handlers.append((handler, event))
+
+    manager = object.__new__(ProtectionManager)
+    manager.bot_manager = SimpleNamespace(registered_handlers={"otp": set()})
+    manager.registered_handlers = set()
+    manager._client_handlers = {}
+
+    connected_client = HandlerClient()
+    assert manager.register_handler_for_client(123, "primary", connected_client)
+    assert "123:primary" in manager.registered_handlers
+    assert len(connected_client.handlers) == 1
+
+    disconnected_client = HandlerClient(connected=False)
+    assert not manager.register_handler_for_client(123, "secondary", disconnected_client)
+
+    failed_client = HandlerClient(fail=True)
+    assert not manager.register_handler_for_client(123, "failed", failed_client)
+
+
+def test_deferred_account_setup_registers_otp_handler():
+    registered_accounts = []
+    protection_manager = SimpleNamespace(
+        register_handler_for_client=lambda user_id, account_name, _client: (
+            registered_accounts.append((user_id, account_name)) or True
+        ),
+        session_destroyer=SimpleNamespace(
+            sync_trusted_for_new_client=AsyncMock()
+        ),
+    )
+    manager = object.__new__(BotManager)
+    manager.protection_manager = protection_manager
+    manager.dm_reply_handler = None
+    manager.unified_messaging = None
+    manager.auto_reply_handler = None
+    manager.activity_simulator = None
+    client = object()
+
+    setup = manager._setup_loaded_client_handlers(123, "primary", client)
+    try:
+        setup.send(None)
+    except StopIteration:
+        pass
+    else:
+        raise AssertionError("deferred handler setup unexpectedly suspended")
+
+    assert registered_accounts == [(123, "primary")]
+    protection_manager.session_destroyer.sync_trusted_for_new_client.assert_awaited_once_with(
+        123, client
+    )
 
 
 def test_unextractable_otp_is_not_deleted(monkeypatch):
