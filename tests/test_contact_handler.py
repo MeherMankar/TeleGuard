@@ -4,7 +4,16 @@ from unittest.mock import AsyncMock
 
 from teleguard.core.contact_models import ContactGroup
 from teleguard.handlers.contact_handler import ContactHandler
+from teleguard.handlers.menu_system import _is_owned_callback
 from teleguard.handlers.menu_modules.callback_router import CallbackRouter
+
+
+def test_contact_menu_callbacks_reach_router_except_dedicated_export():
+    assert not _is_owned_callback("contacts:list")
+    assert not _is_owned_callback("contacts:add")
+    assert not _is_owned_callback("contacts:search")
+    assert _is_owned_callback("contacts:export")
+    assert _is_owned_callback("export_contacts:0")
 
 
 def test_get_user_account_skips_disconnected_clients():

@@ -32,6 +32,104 @@ from .secure_2fa_handlers import Secure2FAHandlers
 
 logger = logging.getLogger(__name__)
 
+_OWNED_CALLBACK_PREFIXES = frozenset(
+    {
+        "session_login",
+        "export_sessions",
+        "create_sess",
+        "login_session_file",
+        "login_bulk_import",
+        "login_tdata_import",
+        "session_info",
+        "session_operations",
+        "session_op",
+        "session_delete",
+        "session_export_string",
+        "session_analytics",
+        "session_automation",
+        "session_bulk_ops",
+        "resend_code",
+        "restart_auth",
+        "import_sessions",
+        "import_string",
+        "import_file",
+        "import_zip",
+        "import_tdata",
+        "import_formats",
+        "proxy",
+        "auto_reply",
+        "template",
+        "contact_scrape",
+        "dm_",
+        "advanced_spam",
+        "spam_filters",
+        "spam_master",
+        "accept_spam_warning",
+        "decline_spam_warning",
+        "forward_bomb",
+        "mass_invite",
+        "multi_raid",
+        "raid_coord",
+        "stealth_raid",
+        "message_flood",
+        "username_check",
+        "group_leave",
+        "group_list",
+        "group_manager",
+        "send_all_groups",
+        "cs_acc",
+        "cs_all",
+        "cs_all_groups",
+        "fb_acc",
+        "fb_all",
+        "fb_spec",
+        "mf_acc",
+        "mf_all",
+        "mf_spec",
+        "mi_acc",
+        "mi_all",
+        "mi_spec",
+        "sag_acc",
+        "uc_acc",
+        "bulk_import",
+        "sim_stats",
+        "analytics_account",
+        "security_dashboard",
+        "security_activity",
+        "security_report",
+        "messaging_stats",
+        "transfer_toggle",
+        "transfer_select_all",
+        "transfer_done",
+        "transfer_cancel",
+        "coowner_cancel",
+        "otp_pwd",
+        "device",
+        "help_main",
+        "appeal_account_id",
+        "appeal_cancel",
+        "captcha_",
+        "schedule_msg",
+        "schedule_list",
+        "schedule_cancel",
+        "schedule_new",
+        "schedule_account",
+        "export_contacts",
+    }
+)
+
+
+def _is_owned_callback(data: str) -> bool:
+    callback_prefix = data.split(":", 1)[0]
+    return (
+        callback_prefix in _OWNED_CALLBACK_PREFIXES
+        or data == "contacts:export"
+        or (
+            data.startswith(("dm_", "captcha_"))
+            and not data.startswith("dm_reply:")
+        )
+    )
+
 
 class MenuSystem:
     """Handles inline keyboard menus and callback queries"""
@@ -316,81 +414,16 @@ class MenuSystem:
                 await event.reply("⚠️ Error processing menu action")
 
         # DIRECT CALLBACK HANDLER
-        # Prefixes that are handled by dedicated pattern-based handlers elsewhere.
-        # The catch-all must NOT process these — doing so causes double-firing and
-        # conflicting menus.
-        _OWNED_PREFIXES = frozenset([
-            # session handlers
-            "session_login", "export_sessions", "create_sess", "login_session_file",
-            "login_bulk_import", "login_tdata_import", "session_info",
-            "session_operations", "session_op", "session_delete",
-            "session_export_string", "session_analytics", "session_automation",
-            "session_bulk_ops", "resend_code", "restart_auth",
-            # import handlers
-            "import_sessions", "import_string", "import_file", "import_zip",
-            "import_tdata", "import_formats",
-            # proxy handler
-            "proxy",
-            # auto-reply handler
-            "auto_reply",
-            # template handler
-            "template",
-            # contact handler
-            "contacts", "contact_scrape",
-            # dm_reply_commands
-            "dm_",
-            # spam / advanced spam
-            "advanced_spam", "spam_filters", "spam_master",
-            "accept_spam_warning", "decline_spam_warning",
-            "forward_bomb", "mass_invite", "multi_raid", "raid_coord",
-            "stealth_raid", "message_flood", "username_check",
-            "group_leave", "group_list", "group_manager",
-            "send_all_groups", "cs_acc", "cs_all", "cs_all_groups",
-            "fb_acc", "fb_all", "fb_spec", "mf_acc", "mf_all", "mf_spec",
-            "mi_acc", "mi_all", "mi_spec", "sag_acc", "uc_acc",
-            # bulk import
-            "bulk_import",
-            # simulation
-            "sim_stats", "analytics_account",
-            # security dashboard
-            "security_dashboard", "security_activity", "security_report",
-            "messaging_stats",
-            # transfer ownership
-            "transfer_toggle", "transfer_select_all", "transfer_done",
-            "transfer_cancel", "coowner_cancel",
-            # otp password
-            "otp_pwd",
-            # device
-            "device",
-            # help (dedicated handler)
-            "help_main",
-            # spam appeal
-            "appeal_account_id", "appeal_cancel", "captcha_",
-            # scheduled messaging
-            "schedule_msg", "schedule_list", "schedule_cancel",
-            "schedule_new", "schedule_account",
-            # contact export
-            "export_contacts",
-            # session export toggles (handled inline in catch-all below)
-            # "session_type", "toggle_session", "toggle_all_sessions", "create_selected_sessions"
-        ])
-
         @self.bot.on(events.CallbackQuery())
         async def direct_callback_handler(event):
             try:
                 user_id = event.sender_id
                 data = event.data.decode("utf-8")
 
-                # Skip callbacks owned by dedicated pattern handlers to prevent
-                # double-firing and conflicting menus.
-                callback_prefix = data.split(":")[0]
-                if callback_prefix in _OWNED_PREFIXES:
+                # Dedicated handlers own these callbacks. Contact actions are
+                # routed here, except contact export handled by its own handler.
+                if _is_owned_callback(data):
                     return
-                # Also skip any data that starts with a known owned prefix
-                # (handles prefixes like "dm_" that aren't colon-delimited)
-                for pfx in ("dm_", "captcha_"):
-                    if data.startswith(pfx) and not data.startswith("dm_reply:"):
-                        return
 
                 logger.info(f"Callback: {data} from user {user_id}")
 
