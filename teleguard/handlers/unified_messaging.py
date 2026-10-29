@@ -720,62 +720,25 @@ class UnifiedMessagingSystem:
         """Send reply from topic to original sender"""
         try:
             target_user_id = mapping["user_id"]
-            old_account_id = mapping["account_id"]
-            managed_client = await self._get_client_by_id(old_account_id)
-            
+            account_id = mapping["account_id"]
+            managed_client = await self._get_client_by_id(account_id)
+
             if not managed_client:
-                logger.error(f"No client found for account {old_account_id}. Finding current account.")
-                # Find any active account for this user
-                for user_id, clients in self.user_clients.items():
-                    for account_name, client in clients.items():
-                        if client and client.is_connected():
-                            try:
-                                me = await client.get_me()
-                                # Update mapping with new account_id
-                                await mongodb.db.topic_mappings.update_many(
-                                    {"sender_id": target_user_id},
-                                    {"$set": {"account_id": me.id}}
-                                )
-                                # Update sender record with new account_id
-                                old_sender = await mongodb.db.dm_senders.find_one(
-                                    {"account_id": old_account_id, "sender_id": target_user_id}
-                                )
-                                if old_sender:
-                                    await mongodb.db.dm_senders.update_one(
-                                        {"sender_id": target_user_id},
-                                        {"$set": {
-                                            "account_id": me.id,
-                                            "access_hash": old_sender.get("access_hash", 0),
-                                            "username": old_sender.get("username"),
-                                            "first_name": old_sender.get("first_name"),
-                                            "last_name": old_sender.get("last_name"),
-                                        }},
-                                        upsert=True
-                                    )
-                                managed_client = client
-                                managed_account_id = me.id
-                                logger.debug(f"✅ Updated mapping and sender record to use account {me.id}")
-                                break
-                            except Exception:
-                                continue
-                    if managed_client:
-                        break
-                
-                if not managed_client:
-                    logger.error("No active account found")
-                    return
-            else:
-                managed_account_id = old_account_id
-            
+                logger.error(
+                    "Cannot send topic reply: mapped account %s is unavailable",
+                    account_id,
+                )
+                return
+
             # Get sender info from database
             sender_record = await mongodb.db.dm_senders.find_one(
-                {"account_id": managed_account_id, "sender_id": target_user_id}
+                {"account_id": account_id, "sender_id": target_user_id}
             )
             if not sender_record:
                 logger.error(f"No sender record found for {target_user_id}")
                 return
             
-            logger.debug(f"Sending reply to user {target_user_id} from account {managed_account_id}")
+            logger.debug(f"Sending reply to user {target_user_id} from account {account_id}")
             
             # Build InputPeerUser with stored access_hash
             from telethon.tl.types import InputPeerUser

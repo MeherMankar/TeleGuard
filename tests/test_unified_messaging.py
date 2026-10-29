@@ -111,3 +111,30 @@ def test_active_auth_flow_can_receive_its_own_login_code(monkeypatch):
         check.send(None)
 
     assert result.value.value is True
+
+
+def test_topic_reply_does_not_fall_back_to_an_unrelated_account(monkeypatch):
+    unrelated_client = SimpleNamespace(
+        is_connected=Mock(return_value=True),
+        get_me=AsyncMock(return_value=SimpleNamespace(id=456)),
+    )
+    topic_mappings = SimpleNamespace(update_many=AsyncMock())
+    sender_records = SimpleNamespace(find_one=AsyncMock())
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings, dm_senders=sender_records),
+    )
+    manager = object.__new__(UnifiedMessagingSystem)
+    manager.bot_manager = SimpleNamespace(
+        get_client_by_telegram_id=AsyncMock(return_value=None)
+    )
+    manager.user_clients = {999: {"unrelated": unrelated_client}}
+
+    _run_immediately(
+        manager._send_topic_reply({"user_id": 123, "account_id": 789}, "hello")
+    )
+
+    unrelated_client.get_me.assert_not_awaited()
+    topic_mappings.update_many.assert_not_awaited()
+    sender_records.find_one.assert_not_awaited()
