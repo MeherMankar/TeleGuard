@@ -221,21 +221,70 @@ class TopicActionsHandler:
         Telegram removes the forum topic's own messages with the deleted topic.
         """
         chat_id = utils.get_peer_id(PeerChannel(channel_id))
+        found_topic = False
         for topic_id in set(deleted_message_ids):
             mapping = await mongodb.db.topic_mappings.find_one(
                 {"admin_group_id": chat_id, "topic_id": topic_id}
             )
             if not mapping:
                 continue
-            query = {"admin_group_id": chat_id, "topic_id": topic_id}
-            await mongodb.db.topic_mappings.update_one(
-                query,
-                {"$set": {"topic_deleted": True, "history_clear_pending": True}},
-            )
-            if not await self._clear_sender_history(mapping):
-                continue
+            found_topic = True
+            await self._clear_deleted_topic_history(mapping)
 
+        if not found_topic:
+            await self._handle_deleted_topics_from_admin_log(chat_id)
+
+    async def _clear_deleted_topic_history(self, mapping: dict):
+        query = {
+            "admin_group_id": mapping["admin_group_id"],
+            "topic_id": mapping["topic_id"],
+        }
+        await mongodb.db.topic_mappings.update_one(
+            query,
+            {"$set": {"topic_deleted": True, "history_clear_pending": True}},
+        )
+        if await self._clear_sender_history(mapping):
             await mongodb.db.topic_mappings.delete_one(query)
+
+    async def _handle_deleted_topics_from_admin_log(self, chat_id: int):
+        """Use the forum admin log when deletion updates omit the topic root ID."""
+        try:
+            from telethon.tl.functions.channels import GetAdminLogRequest
+            from telethon.tl.types import (
+                ChannelAdminLogEventActionDeleteTopic,
+                ChannelAdminLogEventsFilter,
+            )
+
+            events = await self.bot(
+                GetAdminLogRequest(
+                    channel=await self.bot.get_input_entity(chat_id),
+                    q="",
+                    max_id=0,
+                    min_id=0,
+                    limit=100,
+                    events_filter=ChannelAdminLogEventsFilter(delete=True),
+                )
+            )
+            for admin_event in events.events:
+                action = admin_event.action
+                if not isinstance(action, ChannelAdminLogEventActionDeleteTopic):
+                    continue
+                topic_id = action.topic.id
+                mapping = await mongodb.db.topic_mappings.find_one(
+                    {"admin_group_id": chat_id, "topic_id": topic_id}
+                )
+                if mapping:
+                    logger.info(
+                        "Found deleted DM topic %s for group %s in admin log",
+                        topic_id,
+                        chat_id,
+                    )
+                    await self._clear_deleted_topic_history(mapping)
+        except Exception:
+            logger.exception(
+                "Could not identify deleted DM topic in admin log for group %s",
+                chat_id,
+            )
 
     async def _clear_sender_history(self, mapping: dict, client=None) -> bool:
         account_id = mapping.get("account_id")

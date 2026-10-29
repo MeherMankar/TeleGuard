@@ -228,6 +228,42 @@ def test_deleted_topic_clears_mapped_account_history_and_mapping(monkeypatch):
     )
 
 
+def test_deleted_topic_uses_admin_log_when_root_id_is_missing(monkeypatch):
+    from telethon.tl.types import ChannelAdminLogEventActionDeleteTopic
+
+    mapping = {
+        "admin_group_id": -1000000000123,
+        "topic_id": 321,
+        "account_id": 789,
+        "sender_id": 456,
+    }
+    topic_mappings = SimpleNamespace(
+        find_one=AsyncMock(side_effect=[None, None, mapping]),
+    )
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings),
+    )
+    admin_event = SimpleNamespace(
+        action=ChannelAdminLogEventActionDeleteTopic(
+            topic=SimpleNamespace(id=321)
+        )
+    )
+    bot = AsyncMock(return_value=SimpleNamespace(events=[admin_event]))
+    bot.get_input_entity = AsyncMock(return_value=SimpleNamespace(channel_id=123))
+    handler = object.__new__(TopicActionsHandler)
+    handler.bot = bot
+    handler._clear_deleted_topic_history = AsyncMock()
+
+    _run_immediately(handler._handle_deleted_topic_messages(123, [888, 889]))
+
+    handler._clear_deleted_topic_history.assert_awaited_once_with(mapping)
+    request = bot.await_args.args[0]
+    assert request.events_filter.delete is True
+    assert request.limit == 100
+
+
 def test_offline_topic_close_is_retried_when_account_returns(monkeypatch):
     from telethon.tl.functions.contacts import BlockRequest
 
