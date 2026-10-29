@@ -2,9 +2,10 @@
 
 import logging
 
-from telethon import events
+from telethon import events, utils
 from telethon.tl.types import (
     MessageActionTopicEdit,
+    PeerChannel,
     UpdateDeleteChannelMessages,
     UpdateEditChannelMessage,
     UpdateNewChannelMessage,
@@ -49,10 +50,18 @@ class TopicActionsHandler:
                 if closed is None:
                     return
 
-                channel_id = getattr(message.peer_id, "channel_id", None)
+                channel_id = getattr(
+                    getattr(message, "peer_id", None), "channel_id", None
+                )
+                reply_to = getattr(message, "reply_to", None)
+                topic_id = (
+                    getattr(reply_to, "reply_to_top_id", None)
+                    or getattr(reply_to, "reply_to_msg_id", None)
+                    or message.id
+                )
                 if channel_id is not None:
                     await self._handle_topic_closed(
-                        channel_id, message.id, closed=closed
+                        channel_id, topic_id, closed=closed
                     )
             except Exception:
                 logger.exception("Failed to process forum topic update")
@@ -108,7 +117,7 @@ class TopicActionsHandler:
         self, channel_id: int, topic_id: int, closed: bool = True
     ) -> bool:
         """Persist a topic's state and apply it to its mapped Telegram account."""
-        chat_id = -1000000000000 - channel_id
+        chat_id = utils.get_peer_id(PeerChannel(channel_id))
         query = {"admin_group_id": chat_id, "topic_id": topic_id}
         mapping = await mongodb.db.topic_mappings.find_one(query)
         if not mapping:
@@ -211,7 +220,7 @@ class TopicActionsHandler:
 
         Telegram removes the forum topic's own messages with the deleted topic.
         """
-        chat_id = -1000000000000 - channel_id
+        chat_id = utils.get_peer_id(PeerChannel(channel_id))
         for topic_id in set(deleted_message_ids):
             mapping = await mongodb.db.topic_mappings.find_one(
                 {"admin_group_id": chat_id, "topic_id": topic_id}

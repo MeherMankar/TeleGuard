@@ -262,6 +262,7 @@ def test_raw_topic_close_reopen_and_delete_updates_are_routed():
     from telethon.tl.types import (
         MessageActionTopicEdit,
         Message,
+        MessageReplyHeader,
         PeerChannel,
         UpdateDeleteChannelMessages,
         UpdateEditChannelMessage,
@@ -287,20 +288,41 @@ def test_raw_topic_close_reopen_and_delete_updates_are_routed():
     raw_handler = bot.handlers[0][1]
 
     message = Message(
-        id=321,
+        id=888,
         peer_id=PeerChannel(channel_id=123),
+        reply_to=MessageReplyHeader(reply_to_top_id=321),
         action=MessageActionTopicEdit(closed=False),
     )
     _run_immediately(
         raw_handler(UpdateEditChannelMessage(message=message, pts=1, pts_count=1))
     )
+    closed_message = Message(
+        id=889,
+        peer_id=PeerChannel(channel_id=123),
+        reply_to=MessageReplyHeader(reply_to_top_id=321),
+        action=MessageActionTopicEdit(closed=True),
+    )
+    _run_immediately(
+        raw_handler(
+            UpdateEditChannelMessage(
+                message=closed_message, pts=2, pts_count=1
+            )
+        )
+    )
     _run_immediately(
         raw_handler(
             UpdateDeleteChannelMessages(
-                channel_id=123, messages=[321], pts=2, pts_count=1
+                channel_id=123, messages=[321], pts=3, pts_count=1
             )
         )
     )
 
-    handler._handle_topic_closed.assert_awaited_once_with(123, 321, closed=False)
+    assert handler._handle_topic_closed.await_args_list[0].args == (123, 321)
+    assert handler._handle_topic_closed.await_args_list[0].kwargs == {
+        "closed": False
+    }
+    assert handler._handle_topic_closed.await_args_list[1].args == (123, 321)
+    assert handler._handle_topic_closed.await_args_list[1].kwargs == {
+        "closed": True
+    }
     handler._handle_deleted_topic_messages.assert_awaited_once_with(123, [321])
