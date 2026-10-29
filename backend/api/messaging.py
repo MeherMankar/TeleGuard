@@ -1,8 +1,17 @@
 import logging
 import time
-from typing import Dict, Any, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional
+
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, File, Form, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 
 from backend.auth.jwt import get_current_user_id
@@ -78,9 +87,11 @@ async def send_message(payload: SendMessageRequest, user_id: int = Depends(get_c
             )
             return {"status": "success"}
         raise HTTPException(status_code=400, detail="Failed to send message")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/jobs", response_model=List[Dict[str, Any]])
@@ -203,7 +214,9 @@ async def send_file_message(
         raise HTTPException(status_code=404, detail="Active client not found")
 
     try:
-        import tempfile, os
+        import os
+        import tempfile
+
         suffix = os.path.splitext(file.filename or "file")[1] or ".bin"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(await file.read())

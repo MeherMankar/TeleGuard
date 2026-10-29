@@ -1,10 +1,15 @@
 import logging
 import os
+from typing import Any, Dict
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any
 
-from backend.auth.jwt import validate_telegram_init_data, create_access_token
+from backend.auth.jwt import (
+    consume_telegram_init_data,
+    create_access_token,
+    validate_telegram_init_data,
+)
 from teleguard.core.mongo_database import mongodb
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -21,7 +26,15 @@ async def login(payload: LoginRequest):
     try:
         user_info = validate_telegram_init_data(payload.initData)
         if not user_info:
-            raise HTTPException(status_code=401, detail="Invalid Telegram initialization data")
+            raise HTTPException(
+                status_code=401, detail="Invalid Telegram initialization data"
+            )
+
+        if not await consume_telegram_init_data(payload.initData):
+            raise HTTPException(
+                status_code=401,
+                detail="Telegram initialization data has already been used",
+            )
 
         telegram_id = user_info.get("id")
         if not telegram_id:

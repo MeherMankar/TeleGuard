@@ -10,7 +10,6 @@ regions = ["fra"]
 type = "docker"
 dockerfile = "Dockerfile"
 
-[services.teleguard-bot.ports]
 [[services.teleguard-bot.ports]]
 port = 8080
 protocol = "http"
@@ -26,3 +25,4 @@ restart_limit = 3
 PORT = "8080"
 ENVIRONMENT = "production"
 KOYEB_DEPLOYMENT = "true"
+# Set JWT_SECRET and ALLOWED_ORIGINS in the Koyeb service environment.

@@ -1,34 +1,34 @@
- # 🛡️ TeleGuard
+# 🛡️ TeleGuard
 
-> **Professional Telegram Account Manager with Military-Grade Security**
+> **Telegram Account Manager with Security and Automation Tools**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/ContactXYZrobot)
 
-Manage multiple Telegram accounts with advanced security features, automated workflows, and real-time protection against unauthorized access.
+Manage Telegram accounts with security features, automated workflows, and a web dashboard.
 
 ---
 
 ## ✨ Key Features
 
 ### 🔐 Security Suite
-- **OTP Destroyer** - Automatically invalidates login codes in real-time to prevent unauthorized access
-- **2FA Management** - Encrypted storage and management of two-factor authentication passwords
-- **Session Guardian** - Monitor and terminate suspicious login sessions instantly
+- **OTP Protection** - Monitor and handle incoming login-code messages using the configured protection settings
+- **2FA Management** - Manage two-factor authentication during account sign-in
+- **Session Guardian** - Review and manage Telegram sessions
 - **Proxy Support** - MTProto/SOCKS5/HTTP with automatic bridge for Telethon compatibility
 
 ### 📱 Account Management
-- **Multi-Account Support** - Manage up to 10 Telegram accounts from one interface
+- **Multi-Account Support** - Manage multiple Telegram accounts from one interface
 - **Profile Manager** - Update names, usernames, bios, and profile photos
 - **Universal Session Import** - Import sessions from Telethon, Pyrogram, and TData formats
 - **Session Export** - Export session strings with DC information
-- **Bulk Import** - Import 50+ accounts at once from ZIP files
+- **Bulk Import** - Import session files from ZIP archives
 
 ### 💬 Messaging Tools
 - **Unified DM Management** - Centralized inbox with forum topics for all accounts
 - **Auto-Reply System** - Keyword-based automatic responses
-- **Bulk Messaging** - Send messages to multiple users simultaneously
+- **Bulk Messaging** - Send a message to multiple targets
 - **Message Templates** - Create and reuse message templates
 
 ### 📢 Channel Operations
@@ -42,7 +42,7 @@ Manage multiple Telegram accounts with advanced security features, automated wor
 - **Spam Appeal** - Automated spam restriction appeal system
 
 ### 🎭 Automation
-- **Activity Simulator** - Human-like behavior to avoid detection
+- **Activity Simulator** - Configure account activity behavior
 - **Online Maker** - Keep accounts online automatically
 - **Contact Export** - Export contacts to CSV with full details
 
@@ -88,18 +88,28 @@ BOT_TOKEN=your_bot_token_here
 
 # Database
 MONGO_URI=mongodb://localhost:27017
-DB_NAME=teleguard
+MONGO_DB_NAME=teleguard
 
 # Security
-ENCRYPTION_KEY=your_32_byte_key_here
+JWT_SECRET=
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4173
 ADMIN_IDS=123456789,987654321
 
 # Optional
-MAX_ACCOUNTS=10
 SESSION_BACKUP_ENABLED=false
 # To enable GitHub session backups, also set GITHUB_REPO, GITHUB_TOKEN,
 # and a stable FERNET_KEY; MongoDB remains the live database.
 ```
+
+Generate `JWT_SECRET` with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+In production, use a unique secret and set `ALLOWED_ORIGINS` to the exact
+origin(s) serving the frontend. The frontend build also needs `VITE_API_URL`
+and `VITE_WS_URL` set to the backend's HTTPS and WSS URLs, respectively.
 
 ### Run
 
@@ -172,30 +182,16 @@ Access features through inline keyboard:
 
 ```
 teleguard/
-├── teleguard/              # Core application
-│   ├── core/              # Business logic
-│   │   ├── bot_manager.py
-│   │   ├── otp_manager.py
-│   │   └── mongo_database.py
-│   ├── handlers/          # Event handlers
-│   │   ├── command_handlers.py
-│   │   ├── menu_system.py
-│   │   └── callback handlers
-│   ├── utils/             # Utilities
-│   └── workers/           # Background workers
-│
-├── teleguard_modular/     # Modular features
-│   ├── account_settings/  # Account management
-│   ├── otp_manager/       # OTP features
-│   ├── messaging/         # Messaging tools
-│   ├── channels/          # Channel operations
-│   ├── cleanup/           # Cleanup tools
-│   └── spam_master/       # Advanced tools
-│
-├── config/                # Configuration files
-├── sessions/              # Session storage
-├── logs/                  # Application logs
-└── main.py               # Entry point
+├── backend/       # FastAPI routes, authentication, and WebSocket API
+├── config/        # Environment examples and application configuration
+├── frontend/      # Vite/React dashboard
+├── teleguard/
+│   ├── core/      # Bot lifecycle, database, and feature managers
+│   ├── handlers/  # Telegram bot and event handlers
+├── tests/         # Python tests
+├── main.py        # Combined bot and API entry point
+├── requirements.txt
+└── pyproject.toml
 ```
 
 ---
@@ -203,21 +199,19 @@ teleguard/
 ## 🔒 Security Features
 
 ### Encryption
-- **Fernet Encryption** - Military-grade symmetric encryption for all sensitive data
-- **Double Encryption** - Session strings are encrypted twice for maximum security
-- **Secure Storage** - 2FA passwords stored with AES-256 encryption
+- Session backups use Fernet encryption when configured with a stable `FERNET_KEY`.
+- Keep encryption keys out of source control and configure them as deployment secrets.
+
+### WebApp Authentication
+- Telegram login data must have a valid signature and an `auth_date` no older than 24 hours.
+- Each verified login payload can be used once; replay identifiers are stored in MongoDB and expire automatically.
 
 ### OTP Destroyer
-- **Real-time Protection** - Automatically invalidates login codes as they arrive
-- **Zero False Positives** - Only triggers on actual unauthorized login attempts
-- **Instant Alerts** - Notifies you immediately when attacks are blocked
-- **99.9% Effective** - Blocks virtually all unauthorized access attempts
+- Provides OTP-related monitoring and protection workflows through the bot.
+- Review the account and notification settings before enabling protection.
 
 ### Session Management
-- **Active Monitoring** - View all active login sessions in real-time
-- **Instant Termination** - End suspicious sessions with one click
-- **Location Tracking** - See login locations and device information
-- **Session Alerts** - Get notified of new login attempts
+- View session information and use the available session-management controls.
 
 ---
 
@@ -232,17 +226,25 @@ python main.py
 ### Production (Koyeb)
 
 ```bash
-# Using koyeb.toml configuration
+# Deploy using the Koyeb service configuration
 koyeb deploy
 
 # Or manual deployment
 koyeb app create teleguard \
-  --git github.com/yourusername/teleguard \
-  --git-branch main \
+  --git github.com/MeherMankar/TeleGuard \
+  --git-branch test \
   --env API_ID=xxx \
   --env API_HASH=xxx \
-  --env BOT_TOKEN=xxx
+  --env BOT_TOKEN=xxx \
+  --env MONGO_URI=xxx \
+  --env JWT_SECRET=xxx \
+  --env ALLOWED_ORIGINS=https://your-frontend-domain
 ```
+
+Configure all required values as Koyeb **service environment variables**. The
+manifest expects project-scoped values for `API_ID`, `API_HASH`, `BOT_TOKEN`,
+`MONGO_URI`, `JWT_SECRET`, and `ALLOWED_ORIGINS`. Never use a placeholder
+secret in a deployed service.
 
 ### Docker
 
@@ -267,10 +269,10 @@ docker run -d \
 | `API_HASH` | ✅ | Telegram API Hash |
 | `BOT_TOKEN` | ✅ | Bot token from @BotFather |
 | `MONGO_URI` | ✅ | MongoDB connection string |
-| `ADMIN_IDS` | ✅ | Comma-separated admin user IDs |
-| `ENCRYPTION_KEY` | ⚠️ | 32-byte encryption key (auto-generated if not set) |
-| `MAX_ACCOUNTS` | ❌ | Max accounts per user (default: 10) |
-| `JWT_SECRET` | ✅ | Random signing key (at least 32 characters) |
+| `JWT_SECRET` | ✅ | Unique random signing key, at least 32 characters |
+| `ALLOWED_ORIGINS` | ✅ in production | Comma-separated frontend origins allowed by backend CORS |
+| `ADMIN_IDS` | Optional | Comma-separated admin user IDs |
+| `MAX_ACCOUNTS` | Optional | Maximum accounts per user |
 | `FERNET_KEY` | ❌ | Stable Fernet key; required for encrypted GitHub session backups |
 | `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
 | `GITHUB_REPO` | ❌ | Private GitHub repository (`owner/repository`) |
@@ -281,6 +283,12 @@ GitHub is only a session-backup destination; MongoDB remains the live database.
 When deploying on Koyeb, set these as **service environment variables**—GitHub
 Actions repository secrets are not automatically passed to the running service.
 Use a private repository and keep `FERNET_KEY` unchanged between deployments.
+The `/health` endpoint is a readiness check: it returns HTTP 503 until MongoDB
+is reachable and the bot has completed startup.
+
+For a separately hosted frontend, set `VITE_API_URL` to the backend HTTPS URL
+and `VITE_WS_URL` to the backend WSS URL in the frontend host's build
+environment. Add the frontend's exact origin to backend `ALLOWED_ORIGINS`.
 
 ---
 
@@ -338,15 +346,6 @@ pytest tests/test_otp_manager.py
 5. **Open** Pull Request
 
 ---
-
-## 📊 Statistics
-
-- **3,281 lines** of production code
-- **42% reduction** from original codebase through optimization
-- **10 accounts** maximum per user
-- **99.9% uptime** on production deployments
-- **<100ms** average response time
-
 ---
 
 ## 🤝 Support & Community
@@ -354,23 +353,15 @@ pytest tests/test_otp_manager.py
 ### Get Help
 
 - 📧 **Email Support**: Contact via @ContactXYZrobot
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/teleguard/issues)
-- 💬 **Community**: [Telegram Group](https://t.me/teleguard_community)
-- 📚 **Documentation**: [Wiki](https://github.com/yourusername/teleguard/wiki)
-
-### Response Times
-
-- Critical security issues: **1-2 hours**
-- Bug reports: **24-48 hours**
-- Feature requests: **3-7 days**
-- General questions: **12-24 hours**
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/MeherMankar/TeleGuard/issues)
+- 📚 **Documentation**: [Wiki](https://github.com/MeherMankar/TeleGuard/wiki)
 
 ---
 
 ## 👨‍💻 Credits
 
 **Developed by:**
-- [@Meher_Mankar](https://t.me/Meher_Mankar) - Lead Developer & Architecture
+- [@MeherPatil](https://t.me/MeherPatil) - Lead Developer & Architecture
 - [@Gutkesh](https://t.me/Gutkesh) - Core Developer & Security
 
 **Special Thanks:**
@@ -424,12 +415,6 @@ This tool is provided for **educational and research purposes only**. Users are 
 - [ ] Advanced spam detection
 - [ ] Group management tools
 - [ ] API for third-party integrations
-
-### Version 3.0 (Q3 2024)
-- [ ] Complete UI redesign
-- [ ] Mobile app companion
-- [ ] Cloud sync features
-- [ ] Enterprise features
 
 ---
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowLeft, Loader2, RefreshCw } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,8 @@ interface QRLoginPageProps {
   onSuccess: () => void
   onRequires2FA: (sessionId: string) => void
 }
+
+const QR_TTL = 115
 
 export function QRLoginPage({
   isOpen,
@@ -27,9 +29,8 @@ export function QRLoginPage({
   const [timeLeft, setTimeLeft] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const QR_TTL = 115 // seconds before auto-refresh (QR expires at 120s)
 
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
@@ -38,9 +39,9 @@ export function QRLoginPage({
       clearInterval(timerRef.current)
       timerRef.current = null
     }
-  }
+  }, [])
 
-  const startQR = async () => {
+  const startQR = useCallback(async () => {
     stopPolling()
     setLoading(true)
     setError(null)
@@ -94,7 +95,7 @@ export function QRLoginPage({
     } finally {
       setLoading(false)
     }
-  }
+  }, [onRequires2FA, onSuccess, stopPolling])
 
   useEffect(() => {
     if (isOpen) {
@@ -107,7 +108,7 @@ export function QRLoginPage({
       setTimeLeft(0)
     }
     return stopPolling
-  }, [isOpen])
+  }, [isOpen, startQR, stopPolling])
 
   // qrUrl is used directly by QRCodeSVG — no external service needed
 

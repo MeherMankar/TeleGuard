@@ -3,9 +3,12 @@
 import logging
 import os
 import time
+from types import SimpleNamespace
 from typing import List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
+
 from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
@@ -23,8 +26,11 @@ class MongoDB:
         mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI")
         if not mongo_uri:
             raise ValueError("MONGO_URI or MONGODB_URI environment variable required")
+        environment = os.getenv("ENVIRONMENT", "production").lower()
+        allow_mock_database = environment in {"development", "testing"}
+        connection_error: Optional[Exception] = None
 
-        # Try Atlas connection first
+        # Try the configured MongoDB endpoint first.
         try:
             self.client = AsyncIOMotorClient(
                 mongo_uri,
@@ -41,33 +47,43 @@ class MongoDB:
             self.db = self.client[db_name]
             await self.client.admin.command("ping")
             await self._create_indexes()
-            logger.info("Connected to MongoDB Atlas")
+            logger.info("Connected to configured MongoDB")
             return
         except Exception as e:
-            logger.warning(f"MongoDB Atlas failed: {e}")
+            connection_error = e
+            logger.warning(f"Configured MongoDB connection failed: {e}")
             if self.client:
                 self.client.close()
                 self.client = None
+            self.db = None
 
-        # Fallback to local MongoDB
-        try:
-            logger.info("Trying local MongoDB...")
-            self.client = AsyncIOMotorClient(
-                "mongodb://localhost:27017/teleguard", serverSelectionTimeoutMS=3000
-            )
-            self.db = self.client["teleguard"]
-            await self.client.admin.command("ping")
-            await self._create_indexes()
-            logger.info("Connected to local MongoDB")
+        if allow_mock_database:
+            try:
+                logger.info("Trying local MongoDB...")
+                self.client = AsyncIOMotorClient(
+                    "mongodb://localhost:27017/teleguard",
+                    serverSelectionTimeoutMS=3000,
+                )
+                self.db = self.client["teleguard"]
+                await self.client.admin.command("ping")
+                await self._create_indexes()
+                logger.info("Connected to local MongoDB")
+                return
+            except Exception as e:
+                logger.warning(f"Local MongoDB connection failed: {e}")
+                if self.client:
+                    self.client.close()
+                    self.client = None
+                self.db = None
+
+            logger.warning("Using mock database in %s environment", environment)
+            self._create_mock_db()
             return
-        except Exception:
-            if self.client:
-                self.client.close()
-                self.client = None
 
-        # Create mock database
-        logger.warning("Using mock database for development")
-        self._create_mock_db()
+        raise RuntimeError(
+            "Could not connect to configured MongoDB; refusing to start without "
+            "durable storage"
+        ) from connection_error
 
     def _create_mock_db(self):
         """Create mock database for development"""
@@ -98,6 +114,16 @@ class MongoDB:
             async def create_index(self, *args, **kwargs):
                 pass
 
+        class MockReplayCollection(MockCollection):
+            def __init__(self):
+                self.used_ids = set()
+
+            async def insert_one(self, doc):
+                if doc["_id"] in self.used_ids:
+                    raise DuplicateKeyError("Duplicate Telegram init data")
+                self.used_ids.add(doc["_id"])
+                return SimpleNamespace(inserted_id=doc["_id"])
+
         class MockDB:
             def __init__(self):
                 self.users = MockCollection()
@@ -106,10 +132,11 @@ class MongoDB:
                 self.user_settings = MockCollection()
                 self.otp_protections = MockCollection()
                 self.topic_mappings = MockCollection()
-            # Session destroyer related collections (mocked for testing)
-            self.session_destroyer_settings = MockCollection()
-            self.trusted_sessions = MockCollection()
-            self.session_destroyer_logs = MockCollection()
+                self.telegram_init_data_replays = MockReplayCollection()
+                # Session destroyer related collections (mocked for testing)
+                self.session_destroyer_settings = MockCollection()
+                self.trusted_sessions = MockCollection()
+                self.session_destroyer_logs = MockCollection()
         self.db = MockDB()
         logger.info("Mock database ready")
 
@@ -147,6 +174,14 @@ class MongoDB:
             except Exception:
                 # Index creation may fail on some MongoDB setups; non-fatal
                 logger.warning("Could not create TTL index for otp_protections")
+            try:
+                await self.db.telegram_init_data_replays.create_index(
+                    "expires_at", expireAfterSeconds=0
+                )
+            except Exception:
+                logger.warning(
+                    "Could not create TTL index for consumed Telegram login data"
+                )
             # Session Destroyer indexes - wrap in try/except for mock DB
             try:
                 await self.db.session_destroyer_settings.create_index("user_id", unique=True)
@@ -313,6 +348,7 @@ class MongoDB:
     async def store_2fa_password(self, user_id: int, account_id: str, password: str):
         """Store encrypted 2FA password for account"""
         from bson import ObjectId
+
         from ..utils.crypto_utils import DataEncryption as _DE
 
         encrypted_password = _DE.encrypt_field(password)

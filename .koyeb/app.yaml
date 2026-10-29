@@ -29,6 +29,10 @@ services:
         scope: project
       - key: MONGO_URI
         scope: project
+      - key: JWT_SECRET
+        scope: project
+      - key: ALLOWED_ORIGINS
+        scope: project
       - key: REDIS_URL
         scope: project
       - key: FERNET_KEY
