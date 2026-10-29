@@ -25,6 +25,29 @@ class AdvancedSpamHandler:
         self.active_raids = {}
         self.scraped_data = {}
 
+    @staticmethod
+    def _build_menu_buttons(back_text="🔙 Back", back_data=b"menu:main"):
+        return [
+            [
+                Button.inline("📤 Mass Inviter", b"mass_invite"),
+                Button.inline("📇 Contact Scraper", b"contact_scrape"),
+            ],
+            [
+                Button.inline("🔍 Username Checker", b"username_check"),
+                Button.inline("💣 Forward Bomber", b"forward_bomb"),
+            ],
+            [
+                Button.inline("🌊 Message Flooder", b"message_flood"),
+                Button.inline("⚔️ Raid Coordinator", b"raid_coord"),
+            ],
+            [
+                Button.inline("🥷 Stealth Raid", b"stealth_raid"),
+                Button.inline("🎯 Multi-Target Raid", b"multi_raid"),
+            ],
+            [Button.inline("📢 Send to All Groups", b"send_all_groups")],
+            [Button.inline(back_text, back_data)],
+        ]
+
     async def _handle_spam_master_menu(self, event):
         """Handle SpamMaster menu display"""
         try:
@@ -97,26 +120,7 @@ class AdvancedSpamHandler:
             logger.error(f"Error getting accounts: {e}")
             accounts = []
 
-        buttons = [
-            [
-                Button.inline("📤 Mass Inviter", b"mass_invite"),
-                Button.inline("📇 Contact Scraper", b"contact_scrape"),
-            ],
-            [
-                Button.inline("🔍 Username Checker", b"username_check"),
-                Button.inline("💣 Forward Bomber", b"forward_bomb"),
-            ],
-            [
-                Button.inline("🌊 Message Flooder", b"message_flood"),
-                Button.inline("⚔️ Raid Coordinator", b"raid_coord"),
-            ],
-            [
-                Button.inline("🥷 Stealth Raid", b"stealth_raid"),
-                Button.inline("🎯 Multi-Target Raid", b"multi_raid"),
-            ],
-            [Button.inline("📢 Send to All Groups", b"send_all_groups")],
-            [Button.inline("🔙 Back", b"menu:main")],
-        ]
+        buttons = self._build_menu_buttons()
 
         text = (
             "🔥 **ADVANCED SPAM OPERATIONS** 🔥\n"
@@ -165,26 +169,9 @@ class AdvancedSpamHandler:
             # Show main menu with operations
             accounts = await self._get_accounts(user_id)
 
-            buttons = [
-                [
-                    Button.inline("📤 Mass Inviter", b"mass_invite"),
-                    Button.inline("📇 Contact Scraper", b"contact_scrape"),
-                ],
-                [
-                    Button.inline("🔍 Username Checker", b"username_check"),
-                    Button.inline("💣 Forward Bomber", b"forward_bomb"),
-                ],
-                [
-                    Button.inline("🌊 Message Flooder", b"message_flood"),
-                    Button.inline("⚔️ Raid Coordinator", b"raid_coord"),
-                ],
-                [
-                    Button.inline("🥷 Stealth Raid", b"stealth_raid"),
-                    Button.inline("🎯 Multi-Target Raid", b"multi_raid"),
-                ],
-                [Button.inline("📢 Send to All Groups", b"send_all_groups")],
-                [Button.inline("🔙 Back to Main Menu", b"menu:main")],
-            ]
+            buttons = self._build_menu_buttons(
+                "🔙 Back to Main Menu", b"menu:main"
+            )
 
             text = (
                 "🔥 **SPAMMASTER - ADVANCED OPERATIONS** 🔥\n"
@@ -255,26 +242,7 @@ class AdvancedSpamHandler:
             user_id = event.sender_id
             await self._get_accounts(user_id)
 
-            buttons = [
-                [
-                    Button.inline("📤 Mass Inviter", b"mass_invite"),
-                    Button.inline("📇 Contact Scraper", b"contact_scrape"),
-                ],
-                [
-                    Button.inline("🔍 Username Checker", b"username_check"),
-                    Button.inline("💣 Forward Bomber", b"forward_bomb"),
-                ],
-                [
-                    Button.inline("🌊 Message Flooder", b"message_flood"),
-                    Button.inline("⚔️ Raid Coordinator", b"raid_coord"),
-                ],
-                [
-                    Button.inline("🥷 Stealth Raid", b"stealth_raid"),
-                    Button.inline("🎯 Multi-Target Raid", b"multi_raid"),
-                ],
-                [Button.inline("📢 Send to All Groups", b"send_all_groups")],
-                [Button.inline("🔙 Back", b"spam_master")],
-            ]
+            buttons = self._build_menu_buttons("🔙 Back", b"spam_master")
 
             text = (
                 "🔥 **ADVANCED SPAM OPERATIONS** 🔥\n"

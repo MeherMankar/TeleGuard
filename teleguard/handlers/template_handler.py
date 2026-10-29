@@ -62,6 +62,18 @@ class TemplateHandler:
 
     async def show_main_menu(self, event):
         """Show the main templates menu"""
+        text, buttons = self._main_menu_content()
+        if hasattr(event, "edit"):
+            await event.edit(text, buttons=buttons)
+        else:
+            await event.reply(text, buttons=buttons)
+
+    async def show_main_menu_for(self, user_id: int, message_id: int):
+        text, buttons = self._main_menu_content()
+        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+
+    @staticmethod
+    def _main_menu_content():
         text = "📝 **Message Templates**\n\nManage your message templates with variables, media, and buttons."
         buttons = [
             [Button.inline("➕ Create Template", "template:create")],
@@ -69,10 +81,7 @@ class TemplateHandler:
             [Button.inline("📁 Manage Categories", "template:categories")],
             [Button.inline("🔙 Back", "menu:messaging")],
         ]
-        if hasattr(event, "edit"):
-            await event.edit(text, buttons=buttons)
-        else:
-            await event.reply(text, buttons=buttons)
+        return text, buttons
 
     async def show_create_menu(self, event):
         """Show template creation options"""
@@ -468,10 +477,14 @@ class TemplateHandler:
             await self.start_media_template_creation(event)
         elif data == "template:view":
             await self.show_view_menu(event)
+        elif data == "template:list":
+            await self.show_view_menu(event)
         elif data == "template:categories":
             await self.show_categories_menu(event)
         elif data.startswith("template:view_category:"):
             await self.show_templates_by_category(event, data.replace("template:view_category:", ""))
+        elif data.startswith("template:view:"):
+            await self.show_template_details(event, data.replace("template:view:", ""))
         elif data.startswith("template:edit:"):
             await self.show_template_details(event, data.replace("template:edit:", ""))
         elif data.startswith("template:delete:"):

@@ -210,6 +210,9 @@ class MenuHandlers:
     async def handle_messaging(self, event):
         user_id = event.sender_id
         await self.menu._cleanup_old_messages(user_id)
+        await self.show_messaging_menu(user_id, getattr(event, "message_id", None))
+
+    async def show_messaging_menu(self, user_id, message_id=None):
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         if not accounts:
             text = "💬 **Advanced Messaging Center**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts available!**\n\nYou need active accounts to use messaging features.\n\n🎯 **Available Features:**\n• 📤 **Smart Messaging** - Send to users/groups\n• 📨 **Bulk Operations** - Mass messaging campaigns\n• 🤖 **Auto-Reply** - Intelligent response system\n• 📝 **Templates** - Reusable message templates\n• 📨 **DM Management** - Unified inbox system\n\nAdd accounts to unlock these powerful features:"
@@ -243,7 +246,7 @@ class MenuHandlers:
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, message_id, text, buttons
         )
 
     async def handle_channels(self, event):

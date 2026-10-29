@@ -493,7 +493,7 @@ class AutoReplyHandler:
                         buttons=buttons,
                     )
 
-    async def _refresh_main_menu(self, event, user_id):
+    async def _refresh_main_menu(self, event, user_id, message_id=None):
         """Refresh the main auto-reply menu"""
         try:
             encrypted_accounts = await mongodb.db.accounts.find(
@@ -531,7 +531,12 @@ class AutoReplyHandler:
                 [Button.inline("🗑️ Reset All", "auto_reply:reset")],
                 [Button.inline("🔙 Back", "menu:messaging")],
             ]
-            await event.edit(text, buttons=buttons)
+            if event is None:
+                await self.bot.edit_message(
+                    user_id, message_id, text, buttons=buttons
+                )
+            else:
+                await event.edit(text, buttons=buttons)
         except Exception as e:
             if "MessageNotModifiedError" not in str(e):
                 logger.error(f"Error refreshing main menu: {e}")

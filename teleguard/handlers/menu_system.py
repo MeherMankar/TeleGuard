@@ -472,55 +472,9 @@ class MenuSystem:
                 await event.reply("👥 Use /contacts to manage contacts.")
                 return
 
-            account = await ch._get_user_account(user_id)
-            from telethon.tl.custom import Button as TLButton
-
-            buttons = [
-                [TLButton.inline("👥 View All Contacts", "contacts:list")],
-                [
-                    TLButton.inline("➕ Add Contact", "contacts:add"),
-                    TLButton.inline("🔍 Search", "contacts:search"),
-                ],
-                [
-                    TLButton.inline("📁 Groups", "contacts:groups"),
-                    TLButton.inline("🏷️ Tags", "contacts:tags"),
-                ],
-                [
-                    TLButton.inline("📤 Export", "contacts:export"),
-                    TLButton.inline("📥 Import", "contacts:import"),
-                ],
-                [TLButton.inline("🔄 Sync Contacts", "contacts:sync")],
-                [TLButton.inline("🔙 Back to Main Menu", "menu:main")],
-            ]
-
-            if account:
-                from ..core.contact_db import ContactDB
-                try:
-                    contacts = await ContactDB.get_all_contacts(account, limit=5)
-                    count = len(contacts)
-                except Exception:
-                    count = 0
-                text = (
-                    f"👥 **Contact Management**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"📊 Contacts in DB: {count}\n"
-                    f"📱 Account: {account}\n\n"
-                    "Choose an option:"
-                )
-            else:
-                text = (
-                    "👥 **Contact Management**\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "⚠️ No active account found.\n\n"
-                    "Add and connect an account first to manage contacts."
-                )
-                buttons = [
-                    [TLButton.inline("➕ Add Account", "account:add")],
-                    [TLButton.inline("🔙 Back to Main Menu", "menu:main")],
-                ]
-
-            # Use send_message — works for both text and callback events
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            await ch._show_main_menu(
+                event, user_id, reply=not isinstance(event, events.CallbackQuery.Event)
+            )
 
         except Exception as e:
             logger.error(f"Failed to handle contacts menu: {e}", exc_info=True)
@@ -544,41 +498,8 @@ class MenuSystem:
         """Handle Proxy Manager menu"""
         try:
             user_id = event.sender_id
-            if hasattr(self, "proxy_handler") and self.proxy_handler:
-                # Build the proxy menu and send as a new message
-                # (can't edit a reply-keyboard text event)
-                from telethon import Button
-                from ..core.mongo_database import mongodb
-                from ..core.proxy_manager import proxy_manager
-
-                proxies = await proxy_manager.get_user_proxies(user_id)
-                accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(length=None)
-                accounts_with_proxy = sum(1 for acc in accounts if acc.get("proxy_id"))
-                default_proxy = await proxy_manager.get_default_proxy(user_id)
-                default_info = (
-                    f"✅ {default_proxy['server']}:{default_proxy['port']}"
-                    if default_proxy else "❌ None"
-                )
-                text = (
-                    f"🌐 **Proxy Management**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"📊 **Statistics:**\n"
-                    f"• Total Proxies: {len(proxies)}\n"
-                    f"• Accounts with Proxy: {accounts_with_proxy}/{len(accounts)}\n"
-                    f"• Default: {default_info}\n\n"
-                    f"✅ SOCKS5, HTTP, and native MTProto proxies supported\n"
-                    f"⚠️ Connectivity depends on the proxy and cloud network\n\n"
-                    f"Select an option:"
-                )
-                buttons = [
-                    [Button.inline("➕ Add Proxy", "proxy:add")],
-                    [Button.inline("🌐 Import from Webshare", "proxy:webshare")],
-                    [Button.inline("📋 View Proxies", "proxy:list")],
-                    [Button.inline("🔗 Assign to Account", "proxy:assign")],
-                    [Button.inline("👥 View Accounts", "proxy:view_accounts")],
-                    [Button.inline("🔙 Back to Main Menu", "menu:main")],
-                ]
-                await self.bot.send_message(user_id, text, buttons=buttons)
+            if self.proxy_handler:
+                await self.proxy_handler._show_proxy_menu(event, user_id)
             else:
                 await event.reply("❌ Proxy Manager not available")
         except Exception as e:
@@ -1361,25 +1282,8 @@ class MenuSystem:
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _send_messaging_menu(self, user_id: int, message_id: int):
-        """Send messaging menu"""
-        try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-            if not accounts:
-                text = "💬 **Messaging**\n\nNo accounts found. Add accounts first to use messaging features."
-                buttons = [[Button.inline("\ud83d\udd19 Back to Main", "menu:main")]]
-            else:
-                text = "💬 **Messaging**\n\nSelect messaging action:"
-                buttons = [
-                    [Button.inline("📝 Send Message", "msg:send")],
-                    [Button.inline("🔄 Auto Reply", "msg:autoreply")],
-                    [Button.inline("\ud83d\udd19 Message Templates", "msg:templates")],
-                    [Button.inline("\ud83d\udd19 Back to Main", "menu:main")],
-                ]
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except Exception as e:
-            logger.error(f"Failed to send messaging menu: {e}")
+        """Render the canonical messaging menu."""
+        await self.handlers.show_messaging_menu(user_id, message_id)
 
     async def _send_automation_menu(self, user_id: int, message_id: int):
         """Send automation menu"""
@@ -1945,17 +1849,8 @@ class MenuSystem:
             await event.reply("⚠️ Error executing account removal")
 
     async def _handle_messaging_callback(self, event, user_id: int, data: str):
-        """Handle messaging-related callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        if action == "send":
-            await self._send_message_menu(user_id, event.message_id)
-        elif action == "autoreply":
-            await self._send_autoreply_menu(user_id, event.message_id)
-
-        elif action == "compose":
-            account_id = parts[2]  # Keep as string for MongoDB ObjectId
-            await self._handle_compose_message(user_id, account_id, event)
+        """Delegate messaging callbacks to the canonical router."""
+        await self.router.handle_messaging_callback(event, user_id, data)
 
     async def _send_message_menu(self, user_id: int, message_id: int):
         """Send message composition menu - delegated to MessagingOperations"""
@@ -2159,188 +2054,6 @@ class MenuSystem:
 
     async def _handle_simulate_callback(self, event, user_id: int, data: str):
         await self.callback_handlers.handle_simulate_callback(event, user_id, data)
-
-    async def _handle_simulate_callback_legacy(self, event, user_id: int, data: str):
-        """Handle Activity Simulator callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        account_id = parts[2] if len(parts) > 2 else "0"
-        if action == "toggle":
-            await self._toggle_simulation(user_id, account_id, event)
-        elif action == "status":
-            await self._show_simulation_status(user_id, account_id, event.message_id)
-        elif action == "log":
-            await self._show_activity_log(user_id, account_id, event.message_id)
-        elif action == "stats":
-            await self._show_simulation_stats(user_id, account_id, event.message_id)
-
-    async def _toggle_simulation(self, user_id: int, account_id: str, event):
-        """Toggle Activity Simulator for account"""
-        try:
-            from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                new_status = not account.get("simulation_enabled", False)
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {"$set": {"simulation_enabled": new_status}},
-                )
-                if hasattr(self.account_manager, "activity_simulator"):
-                    if new_status:
-                        await self.account_manager.activity_simulator._start_account_simulation(
-                            user_id, account_id, account["name"]
-                        )
-                    else:
-                        task_key = f"{user_id}_{account_id}"
-                        if (
-                            task_key
-                            in self.account_manager.activity_simulator.simulation_tasks
-                        ):
-                            self.account_manager.activity_simulator.simulation_tasks[
-                                task_key
-                            ].cancel()
-                            del self.account_manager.activity_simulator.simulation_tasks[
-                                task_key
-                            ]
-                status = "enabled" if new_status else "disabled"
-                status_emoji = "✅" if new_status else "🔴"
-                await event.answer(f"{status_emoji} Activity simulation {status}!")
-                await self.send_account_management(
-                    user_id, account_id, event.message_id
-                )
-            else:
-                await event.answer("\u274c Account not found")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Toggle simulation error: {e}")
-            await event.answer("❌ Error toggling simulation")
-
-    async def _show_simulation_status(
-        self, user_id: int, account_id: str, message_id: int
-    ):
-        """Show Activity Simulator status"""
-        try:
-            from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                status = (
-                    "\u274c Active"
-                    if account.get("simulation_enabled", False)
-                    else "\u274c Inactive"
-                )
-                text = (
-                    f"\ud83d\udd19 **Activity Simulator: {account['name']}**\n\n"
-                    f"Status: {status}\n\n"
-                    f"The simulator performs human-like activities:\n"
-                    f"• Views random channels/groups\n"
-                    f"• Reacts to posts with emojis\n"
-                    f"• Votes in polls occasionally\n"
-                    f"• Browses user profiles\n"
-                    f"• Rarely joins/leaves channels\n\n"
-                    f"Sessions every 30-90 minutes with 2-5 actions each."
-                )
-                toggle_text = (
-                    "🔴 Disable"
-                    if account.get("simulation_enabled", False)
-                    else "\ud83d\udd19 Enable"
-                )
-                buttons = [
-                    [
-                        Button.inline(
-                            f"{toggle_text} Simulation", f"simulate:toggle:{account_id}"
-                        )
-                    ],
-                    [
-                        Button.inline(
-                            "\ud83d\udd19 Activity Log (4h)",
-                            f"simulate:log:{account_id}",
-                        )
-                    ],
-                    [
-                        Button.inline(
-                            "\ud83d\udd19 Back", f"account:manage:{account_id}"
-                        )
-                    ],
-                ]
-                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-            else:
-                await self.bot.send_message(user_id, "\u274c Account not found")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Show simulation status error: {e}")
-
-    async def _show_activity_log(self, user_id: int, account_id: str, message_id: int):
-        """Show activity log for account"""
-        from ..handlers.activity_log_handler import show_activity_log
-
-        await show_activity_log(self.bot, user_id, account_id, message_id)
-
-    async def _show_simulation_stats(
-        self, user_id: int, account_id: str, message_id: int
-    ):
-        """Show simulation statistics for account"""
-        try:
-            from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                stats_text = "Loading statistics..."
-                if hasattr(self.account_manager, "activity_simulator"):
-                    task_key = f"{user_id}_{account_id}"
-                    if (
-                        task_key
-                        in self.account_manager.activity_simulator.simulation_tasks
-                    ):
-                        stats = self.account_manager.activity_simulator.stats.get(
-                            task_key, {}
-                        )
-                        total_actions = stats.get("total_actions", 0)
-                        last_session = stats.get("last_session", "Never")
-                        avg_actions = stats.get("avg_actions_per_session", 0)
-                        stats_text = (
-                            f"**Statistics:**\n"
-                            f"• Total Actions: {total_actions}\n"
-                            f"• Last Session: {last_session}\n"
-                            f"• Avg Actions/Session: {avg_actions:.1f}\n"
-                            f"• Status: {
-                                'Active' if account.get('simulation_enabled') else 'Inactive'}"
-                        )
-                    else:
-                        stats_text = "No active simulation session found."
-                text = (
-                    f"\ud83d\udd19 **Simulation Stats: {account['name']}**\n\n"
-                    f"{stats_text}\n\n"
-                    f"**Activity Types:**\n"
-                    f"• Channel/Group browsing\n"
-                    f"• Emoji reactions\n"
-                    f"• Poll voting\n"
-                    f"• Profile viewing\n"
-                    f"• Occasional joins/leaves"
-                )
-                buttons = [
-                    [Button.inline("🔄 Refresh", f"simulate:stats:{account_id}")],
-                    [
-                        Button.inline(
-                            "\ud83d\udd19 Back", f"account:manage:{account_id}"
-                        )
-                    ],
-                ]
-                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-            else:
-                await self.bot.send_message(user_id, "\u274c Account not found")
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Show simulation stats error: {e}")
-            text = "❌ Error loading simulation statistics"
-            buttons = [
-                [Button.inline("\ud83d\udd19 Back", f"account:manage:{account_id}")]
-            ]
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def _handle_manage_callback(self, event, user_id: int, data: str):
         """Handle channel management account selection"""
@@ -2660,104 +2373,6 @@ class MenuSystem:
         except (ValueError, KeyError, ConnectionError) as e:
             logger.error(f"Failed to export contacts: {e}")
             await event.answer("❌ Error exporting contacts")
-
-    async def _show_otp_statistics(self, user_id: int, message_id: int):
-        """Show OTP statistics using the OTP metrics service"""
-        try:
-            from datetime import datetime, timedelta
-
-            from ..services.otp_metrics import OTPMetrics
-
-            otp_metrics = OTPMetrics()
-
-            # Get date range for last 30 days
-            end_date = datetime.utcnow().strftime("%Y-%m-%d")
-            start_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
-
-            # Get global statistics
-            global_stats = await otp_metrics.get_global_stats(start_date, end_date)
-
-            # Get user's accounts for account-specific stats
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
-
-            # Get top blocked accounts (global)
-            top_blocked = await otp_metrics.get_top_blocked_accounts(limit=5)
-
-            # Get activity sparkline for last 7 days
-            sparkline_start = (datetime.utcnow() - timedelta(days=7)).strftime(
-                "%Y-%m-%d"
-            )
-            sparkline = await otp_metrics.get_activity_sparkline(
-                sparkline_start, end_date
-            )
-
-            # Build statistics text
-            text = (
-                "\ud83d\udd19 **OTP Statistics (Last 30 Days)**\n\n"
-                f"🕰 **Global Summary:**\n"
-                f"• Total Blocks: {global_stats.get('total_blocked', 0):,}\n"
-                f"• Total Allows: {global_stats.get('total_allowed', 0):,}\n"
-                f"• Protected Accounts: {len(global_stats.get('accounts', []))}\n"
-                f"• Success Rate: {global_stats.get('block_rate', 0):.1f}%\n\n"
-            )
-
-            # Add user account stats if available
-            if accounts:
-                user_total_blocks = 0
-                user_total_allows = 0
-                for account in accounts:
-                    account_id = str(account["_id"])
-                    account_stats = await otp_metrics.get_account_stats(
-                        account_id, start_date, end_date
-                    )
-                    user_total_blocks += account_stats.get("total_blocked", 0)
-                    user_total_allows += account_stats.get("total_allowed", 0)
-
-                text += (
-                    f"\ud83d\udd19 **Your Accounts:**\n"
-                    f"• Your Blocks: {user_total_blocks:,}\n"
-                    f"• Your Allows: {user_total_allows:,}\n"
-                    f"• Managed Accounts: {len(accounts)}\n\n"
-                )
-
-            # Add top blocked accounts
-            if top_blocked:
-                text += "🏆 **Top Protected Accounts:**\n"
-                for i, account_data in enumerate(top_blocked, 1):
-                    account_id = account_data["_id"]
-                    blocks = account_data["total_blocked"]
-                    text += f"{i}. Account {account_id[:8]}... - {blocks:,} blocks\n"
-                text += "\n"
-
-            # Add activity sparkline
-            if sparkline:
-                text += f"\ud83d\udd19 **Activity (Last 7 Days):**\n{sparkline}\n\n"
-
-            text += (
-                "\ud83d\udd19 **Legend:**\n"
-                "• Blocks: Unauthorized login attempts stopped\n"
-                "• Allows: Legitimate OTP codes forwarded\n"
-                "• Success Rate: Percentage of malicious attempts blocked"
-            )
-
-            buttons = [
-                [Button.inline("🔄 Refresh Stats", "otp:stats")],
-                [Button.inline("\ud83d\udd19 Back to OTP Manager", "menu:otp")],
-            ]
-
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Error showing OTP statistics: {e}")
-            text = (
-                "\ud83d\udd19 **OTP Statistics**\n\n"
-                "\u274c Error loading statistics. Please try again.\n\n"
-                f"Error: {str(e)}"
-            )
-            buttons = [[Button.inline("\ud83d\udd19 Back to OTP Manager", "menu:otp")]]
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     def validate_session_string(self, session_string: str) -> dict:
         """Validate session string and extract DC information (DC1, DC2, DC3, DC4, or DC5)"""

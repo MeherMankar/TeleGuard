@@ -17,6 +17,14 @@ class TransferOwnershipHandler:
         self.pending_transfers = {}
         self.pending_coowner = {}
 
+    @staticmethod
+    def _selection_controls():
+        return [
+            [Button.inline("Select All", "transfer_select_all")],
+            [Button.inline("Done", "transfer_done")],
+            [Button.inline("Cancel", "transfer_cancel")],
+        ]
+
     def register_handlers(self):
         """Register transfer ownership and co-owner commands"""
 
@@ -72,9 +80,7 @@ class TransferOwnershipHandler:
                         ]
                     )
 
-                buttons.append([Button.inline("Select All", "transfer_select_all")])
-                buttons.append([Button.inline("Done", "transfer_done")])
-                buttons.append([Button.inline("Cancel", "transfer_cancel")])
+                buttons.extend(self._selection_controls())
 
                 await event.reply(
                     f"Transfer Ownership\n\nYou have {
@@ -171,9 +177,7 @@ class TransferOwnershipHandler:
                     ]
                 )
 
-            buttons.append([Button.inline("Select All", "transfer_select_all")])
-            buttons.append([Button.inline("Done", "transfer_done")])
-            buttons.append([Button.inline("Cancel", "transfer_cancel")])
+            buttons.extend(self._selection_controls())
 
             await event.edit(
                 f"Selected: {len(selected)}/{len(accounts)}\n\nSelect accounts:",

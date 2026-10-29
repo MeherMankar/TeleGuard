@@ -1,11 +1,19 @@
-import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from teleguard.core.contact_models import ContactGroup
 from teleguard.handlers.contact_handler import ContactHandler
 from teleguard.handlers.menu_system import _is_owned_callback
 from teleguard.handlers.menu_modules.callback_router import CallbackRouter
+from teleguard.handlers.template_handler import TemplateHandler
+
+
+def _run_immediately(coroutine):
+    try:
+        return coroutine.send(None)
+    except StopIteration as result:
+        return result.value
+    raise AssertionError("Coroutine unexpectedly suspended")
 
 
 def test_contact_menu_callbacks_reach_router_except_dedicated_export():
@@ -27,7 +35,7 @@ def test_get_user_account_skips_disconnected_clients():
         }
     )
 
-    assert asyncio.run(handler._get_user_account(123)) == "online"
+    assert _run_immediately(handler._get_user_account(123)) == "online"
 
 
 def test_export_uses_the_selected_account_client_only():
@@ -39,16 +47,16 @@ def test_export_uses_the_selected_account_client_only():
         }
     }
     selected_client = AsyncMock()
-    selected_client.is_connected.return_value = True
+    selected_client.is_connected = Mock(return_value=True)
     selected_client.return_value = SimpleNamespace(users=[])
     other_client = AsyncMock()
-    other_client.is_connected.return_value = True
+    other_client.is_connected = Mock(return_value=True)
     handler.bot_manager = SimpleNamespace(
         user_clients={123: {"other": other_client, "selected": selected_client}}
     )
     event = SimpleNamespace(edit=AsyncMock(), answer=AsyncMock())
 
-    asyncio.run(handler._process_export(event, 123, 0))
+    _run_immediately(handler._process_export(event, 123, 0))
 
     selected_client.assert_awaited_once()
     other_client.assert_not_awaited()
@@ -65,7 +73,7 @@ def test_group_creation_persists_group_and_clears_pending_state(monkeypatch):
         "teleguard.handlers.contact_handler.ContactDB.add_group", add_group
     )
 
-    asyncio.run(handler._process_create_group(event, 123, "  Friends  "))
+    _run_immediately(handler._process_create_group(event, 123, "  Friends  "))
 
     group = add_group.await_args.args[0]
     assert isinstance(group, ContactGroup)
@@ -82,7 +90,7 @@ def test_contact_name_edit_callback_routes_to_input_flow():
     )
     event = SimpleNamespace(answer=AsyncMock())
 
-    asyncio.run(router.handle_contacts_callback(event, 123, "contact:edit_name:456"))
+    _run_immediately(router.handle_contacts_callback(event, 123, "contact:edit_name:456"))
 
     contact_handler._start_edit_name.assert_awaited_once_with(event, 123, 456)
 
@@ -95,7 +103,7 @@ def test_group_add_contact_callback_routes_to_input_flow():
     )
     event = SimpleNamespace(answer=AsyncMock())
 
-    asyncio.run(
+    _run_immediately(
         router.handle_contacts_callback(event, 123, "group:add_contact:Friends")
     )
 
@@ -112,7 +120,7 @@ def test_group_delete_callback_routes_to_account_scoped_delete():
     )
     event = SimpleNamespace(answer=AsyncMock())
 
-    asyncio.run(router.handle_contacts_callback(event, 123, "group:delete:Friends"))
+    _run_immediately(router.handle_contacts_callback(event, 123, "group:delete:Friends"))
 
     contact_handler._delete_group.assert_awaited_once_with(event, 123, "Friends")
 
@@ -125,9 +133,47 @@ def test_contact_list_page_callback_routes_page_number():
     )
     event = SimpleNamespace(answer=AsyncMock())
 
-    asyncio.run(router.handle_contacts_callback(event, 123, "contacts:list:2"))
+    _run_immediately(router.handle_contacts_callback(event, 123, "contacts:list:2"))
 
     contact_handler._show_contacts_list.assert_awaited_once_with(event, 123, 2)
+
+
+def test_contact_main_menu_handles_missing_account_from_any_entry_point():
+    handler = object.__new__(ContactHandler)
+    handler.pending_actions = {123: {"type": "search"}}
+    handler._get_user_account = AsyncMock(return_value=None)
+    event = SimpleNamespace(edit=AsyncMock(), reply=AsyncMock())
+
+    _run_immediately(handler._show_main_menu(event, 123))
+
+    text = event.edit.await_args.args[0]
+    assert "No active account found" in text
+    assert len(event.edit.await_args.kwargs["buttons"]) == 2
+    assert 123 not in handler.pending_actions
+
+
+def test_messaging_templates_action_opens_registered_template_menu():
+    template_callback = AsyncMock()
+    router = object.__new__(CallbackRouter)
+    router.menu = SimpleNamespace(_handle_template_callback=template_callback)
+    event = SimpleNamespace(message_id=7)
+
+    _run_immediately(router.handle_messaging_callback(event, 123, "msg:templates"))
+
+    template_callback.assert_awaited_once_with(event, 123, "template:main")
+
+
+def test_legacy_template_callbacks_route_to_current_template_views():
+    handler = object.__new__(TemplateHandler)
+    handler.show_view_menu = AsyncMock()
+    handler.show_template_details = AsyncMock()
+    event = SimpleNamespace()
+
+    _run_immediately(handler._route_template_action(event, "template:list"))
+    _run_immediately(handler._route_template_action(event, "template:view:456"))
+
+    handler.show_view_menu.assert_awaited_once_with(event)
+    handler.show_template_details.assert_awaited_once_with(event, "456")
 
 
 def test_contact_list_paginates_eight_results():
@@ -136,6 +182,7 @@ def test_contact_list_paginates_eight_results():
     contacts = [
         {
             "name": f"Contact {index}",
+            "user_id": index,
             "username": "No username",
             "phone": "No phone",
             "account": "account",
@@ -143,7 +190,7 @@ def test_contact_list_paginates_eight_results():
         for index in range(1, 10)
     ]
 
-    asyncio.run(handler._display_contacts(event, contacts, 9, page=1))
+    _run_immediately(handler._display_contacts(event, contacts, 9, page=1))
 
     text = event.edit.await_args.args[0]
     assert "Showing 9-9 of 9" in text

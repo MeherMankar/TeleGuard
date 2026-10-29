@@ -33,45 +33,28 @@ class MessagingOperations:
         await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
 
     async def send_autoreply_menu(self, user_id, message_id):
-        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(100)
-        if not accounts:
-            text = "🤖 **Advanced Auto-Reply System**\n\n❌ No accounts found. Add accounts first."
-            buttons = [[Button.inline("🔙 Back", "menu:messaging")]]
-        else:
-            enabled_count = sum(
-                1 for acc in accounts if acc.get("auto_reply_enabled", False)
+        handler = getattr(self.account_manager, "auto_reply_handler", None)
+        if handler is None:
+            await self.bot.edit_message(
+                user_id,
+                message_id,
+                "❌ Auto-reply is unavailable.",
+                buttons=[[Button.inline("🔙 Back", "menu:messaging")]],
             )
-            settings = (
-                await mongodb.db.auto_reply_settings.find_one({"user_id": user_id})
-                or {}
-            )
-            keyword_status = (
-                "🟢 On" if settings.get("keyword_replies_enabled", False) else "🔴 Off"
-            )
-            time_status = (
-                "🟢 On"
-                if settings.get("time_based_replies_enabled", False)
-                else "🔴 Off"
-            )
-            text = f"🤖 **Advanced Auto-Reply System**\n\n📱 Accounts: {enabled_count}/{
-                len(accounts)} enabled\n🔑 Keyword Replies: {keyword_status}\n⏰ Time-based Replies: {time_status}\n\nConfigure your automatic responses:"
-            buttons = [
-                [Button.inline("📱 Toggle Per Account", "auto_reply:toggle")],
-                [Button.inline("🔑 Keyword Settings", "auto_reply:keyword_settings")],
-                [Button.inline("⏰ Time Settings", "auto_reply:time_settings")],
-                [Button.inline("📊 View Stats", "auto_reply:analytics")],
-                [Button.inline("🗑️ Reset All", "auto_reply:reset")],
-                [Button.inline("🔙 Back", "menu:messaging")],
-            ]
-        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            return
+        await handler._refresh_main_menu(None, user_id, message_id)
 
     async def send_templates_menu(self, user_id, message_id):
-        text = "📝 **Advanced Message Templates**\n\nUse the new advanced template system with:\n\n✨ **Features:**\n• Dynamic variables ({name}, {username}, {time}, {date})\n• Rich media support (images, videos)\n• Template categories\n• Quick reply buttons\n• Step-by-step creation wizard\n\nUse `/templates` command to access the advanced system."
-        buttons = [
-            [Button.inline("🚀 Open Advanced Templates", "template:main")],
-            [Button.inline("🔙 Back", "menu:messaging")],
-        ]
-        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+        handler = getattr(self.account_manager, "template_handler", None)
+        if handler is None:
+            await self.bot.edit_message(
+                user_id,
+                message_id,
+                "❌ Templates are unavailable.",
+                buttons=[[Button.inline("🔙 Back", "menu:messaging")]],
+            )
+            return
+        await handler.show_main_menu_for(user_id, message_id)
 
     async def send_bulk_sender_menu(self, user_id, message_id):
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)

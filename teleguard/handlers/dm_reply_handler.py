@@ -54,12 +54,12 @@ class DMReplyHandler:
                 logger.warning(f"AI initialization failed: {e}")
 
     async def setup_dm_handlers(self):
-        """Set up DM handlers for all user clients"""
-        for user_id, clients in self.user_clients.items():
-            for account_name, client in clients.items():
-                if client and client.is_connected():
-                    await self._setup_client_dm_handler(user_id, account_name, client)
-        self._setup_bot_handlers()
+        """Refresh DM forwarding through the unified messaging system."""
+        unified_messaging = getattr(self.bot_manager, "unified_messaging", None)
+        if unified_messaging is None:
+            logger.error("Unified messaging system is unavailable")
+            return
+        unified_messaging.setup_handlers()
 
     async def get_admin_group(self, user_id: int) -> int:
         """Get admin group ID for user"""
@@ -414,22 +414,16 @@ class DMReplyHandler:
             logger.error(f"Failed to create AI automation job: {e}")
 
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
-        """Set up DM handler for a newly added client"""
-        if client and client.is_connected():
-            await self._setup_client_dm_handler(user_id, account_name, client)
-            logger.info(f"✅ DM handler registered for new account: {account_name}")
+        """Register a new client's DM handler through the unified system."""
+        unified_messaging = getattr(self.bot_manager, "unified_messaging", None)
+        if unified_messaging is None:
+            logger.error("Unified messaging system is unavailable")
+            return
+        await unified_messaging.setup_new_client_handler(user_id, account_name, client)
 
     async def refresh_all_handlers(self):
-        """Refresh all DM handlers - automatically called on startup and when adding accounts"""
-        try:
-            self.handled_clients.clear()
-            await self.setup_dm_handlers()
-            handler_count = len(self.handled_clients)
-            logger.info(
-                f"✅ Refreshed DM handlers: {handler_count} accounts registered"
-            )
-        except Exception as e:
-            logger.error(f"Failed to refresh DM handlers: {e}")
+        """Refresh DM forwarding through the unified messaging system."""
+        await self.setup_dm_handlers()
 
     async def _handle_ai_auto_reply(self, event, me, user_id: int):
         """Handle AI-powered auto-reply to DMs"""

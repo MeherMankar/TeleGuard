@@ -413,19 +413,19 @@ class CallbackRouter:
                 except ValueError:
                     contact_id = 0
                 dispatch = {
-                    "view": ch._view_contact,
-                    "edit": ch._edit_contact_menu,
-                    "edit_name": ch._start_edit_name,
-                    "delete": ch._delete_contact,
-                    "delete_confirm": ch._confirm_delete_contact,
-                    "blacklist": ch._toggle_blacklist,
-                    "whitelist": ch._toggle_whitelist,
-                    "add_notes": ch._start_add_notes,
-                    "add_tags": ch._start_add_tags,
+                    "view": "_view_contact",
+                    "edit": "_edit_contact_menu",
+                    "edit_name": "_start_edit_name",
+                    "delete": "_delete_contact",
+                    "delete_confirm": "_confirm_delete_contact",
+                    "blacklist": "_toggle_blacklist",
+                    "whitelist": "_toggle_whitelist",
+                    "add_notes": "_start_add_notes",
+                    "add_tags": "_start_add_tags",
                 }
-                handler = dispatch.get(action)
-                if handler:
-                    await handler(event, user_id, contact_id)
+                handler_name = dispatch.get(action)
+                if handler_name:
+                    await getattr(ch, handler_name)(event, user_id, contact_id)
                 else:
                     await event.answer("✅ Processing...")
 
@@ -706,7 +706,9 @@ class CallbackRouter:
                 else:
                     await event.answer("❌ Bulk messaging not available")
             elif action == "templates":
-                await self.handle_template_callback(event, user_id, "template:main")
+                await self.menu._handle_template_callback(
+                    event, user_id, "template:main"
+                )
             elif action in ("stats", "analytics"):
                 await self.menu._show_messaging_statistics(user_id, event.message_id)
             elif action == "history":
@@ -834,70 +836,8 @@ class CallbackRouter:
             await event.answer("❌ Error processing DM reply")
 
     async def handle_template_callback(self, event, user_id: int, data: str):
-        """Handle template callbacks"""
-        try:
-            from telethon import Button
-
-            from ...core.mongo_database import mongodb
-
-            parts = data.split(":")
-            action = parts[1] if len(parts) > 1 else "main"
-
-            if action == "main":
-                templates = await mongodb.db.message_templates.find(
-                    {"user_id": user_id}
-                ).to_list(None)
-                text = f"📝 **Message Templates**\n\n✨ Saved templates: {
-                    len(templates)}\n\n🔹 **Features:**\n• Dynamic variables ({{name}}, {{username}})\n• Rich media support\n• Template categories\n• Quick reply buttons"
-                buttons = [
-                    [Button.inline("🆕 Create Template", "template:create")],
-                    [Button.inline("📚 View Templates", "template:list")],
-                    [Button.inline("🔙 Back", "menu:messaging")],
-                ]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-            elif action == "create":
-                if self.menu.account_manager:
-                    self.menu.account_manager.pending_actions[user_id] = {
-                        "action": "template_create_name"
-                    }
-                text = "🆕 **Create Template**\n\n📝 Reply with template name:\n\nExample: Welcome Message"
-                buttons = [[Button.inline("🔙 Back", "template:main")]]
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-                await event.answer("📝 Reply with name")
-            elif action == "list":
-                templates = await mongodb.db.message_templates.find(
-                    {"user_id": user_id}
-                ).to_list(None)
-                if not templates:
-                    text = "📚 **Your Templates**\n\n❌ No templates found.\n\nCreate your first template!"
-                    buttons = [
-                        [Button.inline("🆕 Create Template", "template:create")],
-                        [Button.inline("🔙 Back", "template:main")],
-                    ]
-                else:
-                    text = f"📚 **Your Templates** ({len(templates)})\n\n"
-                    buttons = []
-                    for tmpl in templates[:10]:
-                        name = tmpl.get("name", "Unnamed")
-                        buttons.append(
-                            [
-                                Button.inline(
-                                    f"📄 {name}", f"template:view:{tmpl['_id']}"
-                                )
-                            ]
-                        )
-                    buttons.append([Button.inline("🔙 Back", "template:main")])
-                await self.menu.bot.edit_message(
-                    user_id, event.message_id, text, buttons=buttons
-                )
-                await event.answer("📚 Templates loaded")
-        except Exception as e:
-            logger.error(f"Template callback error: {e}")
-            await event.answer("❌ Error processing template")
+        """Delegate template callbacks to the registered template handler."""
+        await self.menu._handle_template_callback(event, user_id, data)
 
     async def handle_bulk_callback(self, event, user_id: int, data: str):
         """Handle bulk messaging callbacks"""

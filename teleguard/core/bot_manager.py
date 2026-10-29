@@ -528,17 +528,6 @@ class BotManager:
                     error,
                 )
 
-        if self.dm_reply_handler:
-            try:
-                await self.dm_reply_handler.setup_new_client_handler(
-                    user_id, account_name, client
-                )
-                await self.dm_reply_handler.refresh_all_handlers()
-            except Exception as error:
-                logger.warning(
-                    "DM handler setup failed for %s: %s", account_name, error
-                )
-
         if self.unified_messaging:
             try:
                 await self.unified_messaging.setup_new_client_handler(
@@ -1093,13 +1082,6 @@ class BotManager:
             except Exception as e:
                 logger.warning(f"Auto backup initialization failed: {e}")
 
-            # Set up DM handlers for loaded sessions after all components are initialized
-            if self.dm_reply_handler:
-                try:
-                    await self.dm_reply_handler.refresh_all_handlers()
-                except Exception as e:
-                    logger.warning(f"Failed to set up DM handlers: {e}")
-
             # Deferred re-sweep: some clients may still be connecting when
             # setup_handlers() ran. Re-register any that were missed.
             asyncio.create_task(self._deferred_handler_sweep())
@@ -1540,23 +1522,6 @@ class BotManager:
                             self.protection_manager)}, client: {
                         bool(client)}"
                 )
-            # Setup DM reply handler - auto-refresh to ensure all handlers are
-            # registered
-            if self.dm_reply_handler and client:
-                try:
-                    await self.dm_reply_handler.setup_new_client_handler(
-                        user_id, account_name, client
-                    )
-                    # Auto-refresh all handlers to ensure consistency
-                    await self.dm_reply_handler.refresh_all_handlers()
-                    logger.info(
-                        f"DM handler setup and refresh completed for {account_name}"
-                    )
-                except Exception as dm_error:
-                    logger.error(
-                        f"Failed to setup DM handler for {account_name}: {dm_error}"
-                    )
-
             # Setup unified messaging handler for the new client
             if self.unified_messaging and client:
                 try:

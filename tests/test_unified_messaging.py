@@ -1,10 +1,51 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from teleguard.core.mongo_database import mongodb
+from teleguard.handlers.dm_reply_handler import DMReplyHandler
 from teleguard.handlers.unified_messaging import UnifiedMessagingSystem
+
+
+def _run_immediately(coroutine):
+    try:
+        return coroutine.send(None)
+    except StopIteration as result:
+        return result.value
+    raise AssertionError("Coroutine unexpectedly suspended")
+
+
+def test_legacy_dm_refresh_delegates_to_unified_handler():
+    unified_messaging = SimpleNamespace(setup_handlers=Mock())
+    handler = object.__new__(DMReplyHandler)
+    handler.bot_manager = SimpleNamespace(unified_messaging=unified_messaging)
+
+    _run_immediately(handler.refresh_all_handlers())
+
+    unified_messaging.setup_handlers.assert_called_once_with()
+
+
+def test_unified_admin_reply_handler_is_registered_only_once():
+    class RegisteringBot:
+        def __init__(self):
+            self.registrations = 0
+
+        def on(self, _event):
+            def register(handler):
+                self.registrations += 1
+                return handler
+
+            return register
+
+    manager = object.__new__(UnifiedMessagingSystem)
+    manager.bot = RegisteringBot()
+    manager._admin_reply_handler_registered = False
+
+    manager._setup_admin_reply_handler()
+    manager._setup_admin_reply_handler()
+
+    assert manager.bot.registrations == 1
 
 
 def test_otp_destroyer_stops_duplicate_service_message_forward(monkeypatch):

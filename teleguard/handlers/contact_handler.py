@@ -30,36 +30,7 @@ class ContactHandler:
         @self.bot.on(events.NewMessage(pattern=r"^/contacts$"))
         async def contacts_menu(event):
             """Main contacts menu"""
-            user_id = event.sender_id
-            account = await self._get_user_account(user_id)
-            if not account:
-                await event.reply("❌ No active account found.")
-                return
-            buttons = [
-                [Button.inline("👥 View All Contacts", "contacts:list")],
-                [
-                    Button.inline("➕ Add Contact", "contacts:add"),
-                    Button.inline("🔍 Search", "contacts:search"),
-                ],
-                [
-                    Button.inline("📁 Groups", "contacts:groups"),
-                    Button.inline("🏷️ Tags", "contacts:tags"),
-                ],
-                [
-                    Button.inline("📤 Export", "contacts:export"),
-                    Button.inline("📥 Import", "contacts:import"),
-                ],
-                [Button.inline("🔄 Sync", "contacts:sync")],
-            ]
-            count = await ContactDB.count_contacts(account)
-            count_text = str(count) if count is not None else "Unavailable"
-            await event.reply(
-                f"📱 **Contact Management**\n\n"
-                f"📊 Saved Contacts: {count_text}\n"
-                f"🔧 Account: {account}\n\n"
-                f"Choose an option:",
-                buttons=buttons,
-            )
+            await self._show_main_menu(event, event.sender_id, reply=True)
 
     def _register_input_handler(self):
         @self.bot.on(
@@ -1145,38 +1116,51 @@ class ContactHandler:
         else:
             await event.answer("❌ Failed to delete group")
 
-    async def _show_main_menu(self, event, user_id: int):
+    async def _show_main_menu(self, event, user_id: int, reply: bool = False):
         """Show main contacts menu"""
         self.pending_actions.pop(user_id, None)
         account = await self._get_user_account(user_id)
         if not account:
-            await event.edit("❌ No active account found.", buttons=[])
-            return
-        buttons = [
-            [Button.inline("👥 View All Contacts", "contacts:list")],
-            [
-                Button.inline("➕ Add Contact", "contacts:add"),
-                Button.inline("🔍 Search", "contacts:search"),
-            ],
-            [
-                Button.inline("📁 Groups", "contacts:groups"),
-                Button.inline("🏷️ Tags", "contacts:tags"),
-            ],
-            [
-                Button.inline("📤 Export", "contacts:export"),
-                Button.inline("📥 Import", "contacts:import"),
-            ],
-            [Button.inline("🔄 Sync", "contacts:sync")],
-        ]
-        count = await ContactDB.count_contacts(account)
-        count_text = str(count) if count is not None else "Unavailable"
-        await event.edit(
-            f"📱 **Contact Management**\n\n"
-            f"📊 Saved Contacts: {count_text}\n"
-            f"🔧 Account: {account}\n\n"
-            f"Choose an option:",
-            buttons=buttons,
-        )
+            text = (
+                "📱 **Contact Management**\n\n"
+                "⚠️ No active account found.\n\n"
+                "Add and connect an account first to manage contacts."
+            )
+            buttons = [
+                [Button.inline("➕ Add Account", "account:add")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+        else:
+            count = await ContactDB.count_contacts(account)
+            count_text = str(count) if count is not None else "Unavailable"
+            text = (
+                "📱 **Contact Management**\n\n"
+                f"📊 Saved Contacts: {count_text}\n"
+                f"🔧 Account: {account}\n\n"
+                "Choose an option:"
+            )
+            buttons = [
+                [Button.inline("👥 View All Contacts", "contacts:list")],
+                [
+                    Button.inline("➕ Add Contact", "contacts:add"),
+                    Button.inline("🔍 Search", "contacts:search"),
+                ],
+                [
+                    Button.inline("📁 Groups", "contacts:groups"),
+                    Button.inline("🏷️ Tags", "contacts:tags"),
+                ],
+                [
+                    Button.inline("📤 Export", "contacts:export"),
+                    Button.inline("📥 Import", "contacts:import"),
+                ],
+                [Button.inline("🔄 Sync Contacts", "contacts:sync")],
+                [Button.inline("🔙 Back to Main Menu", "menu:main")],
+            ]
+
+        if reply or not hasattr(event, "edit"):
+            await event.reply(text, buttons=buttons)
+        else:
+            await event.edit(text, buttons=buttons)
 
     async def _process_export(self, event, user_id: int, account_idx: int):
         """Process contact export for selected account"""

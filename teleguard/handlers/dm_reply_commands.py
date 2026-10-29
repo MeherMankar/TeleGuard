@@ -176,15 +176,15 @@ class DMReplyCommands:
                 await event.reply("🔄 Refreshing DM handlers...")
 
                 if (
-                    hasattr(self.bot_manager, "dm_reply_handler")
-                    and self.bot_manager.dm_reply_handler
+                    hasattr(self.bot_manager, "unified_messaging")
+                    and self.bot_manager.unified_messaging
                 ):
-                    await self.bot_manager.dm_reply_handler.refresh_all_handlers()
+                    self.bot_manager.unified_messaging.setup_handlers()
 
                     # Count registered handlers for this user
                     user_handlers = sum(
                         1
-                        for key in self.bot_manager.dm_reply_handler.handled_clients
+                        for key in self.bot_manager.unified_messaging.handled_clients
                         if key.startswith(f"{user_id}:")
                     )
 

@@ -21,6 +21,7 @@ class UnifiedMessagingSystem:
         self.registered_client_objects = set()
         self.auto_reply_handlers = {}
         self.processed_messages = set()
+        self._admin_reply_handler_registered = False
 
     def setup_handlers(self):
         """Set up all messaging handlers"""
@@ -78,6 +79,10 @@ class UnifiedMessagingSystem:
                 is_telegram_official = sender.id in [777000, 42777]
 
                 logger.debug(f"📨 Private message received on {account_name}: from={sender.id}, is_bot={is_bot}, is_official={is_telegram_official}")
+
+                dm_reply_handler = getattr(self.bot_manager, "dm_reply_handler", None)
+                if dm_reply_handler and not is_bot and not is_telegram_official:
+                    await dm_reply_handler._handle_ai_auto_reply(event, me, user_id)
 
                 if is_telegram_official:
                     if not await self._should_forward_telegram_service_message(
@@ -163,6 +168,8 @@ class UnifiedMessagingSystem:
 
     def _setup_admin_reply_handler(self):
         """Set up handler for admin replies in topics"""
+        if self._admin_reply_handler_registered:
+            return
 
         @self.bot.on(events.NewMessage())
         async def admin_group_handler(event):
@@ -233,6 +240,8 @@ class UnifiedMessagingSystem:
                     logger.warning(f"❌ No mapping found for topic {topic_id} in group {event.chat_id}")
             except Exception as e:
                 logger.error(f"Admin group handler error: {e}", exc_info=True)
+
+        self._admin_reply_handler_registered = True
 
     async def _handle_incoming_dm(
         self, admin_group_id: int, event, sender, me, user_id: int
