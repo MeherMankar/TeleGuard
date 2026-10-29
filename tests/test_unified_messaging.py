@@ -5,6 +5,7 @@ import pytest
 
 from teleguard.core.mongo_database import mongodb
 from teleguard.handlers.dm_reply_handler import DMReplyHandler
+from teleguard.handlers.topic_actions_handler import TopicActionsHandler
 from teleguard.handlers.unified_messaging import UnifiedMessagingSystem
 
 
@@ -138,3 +139,168 @@ def test_topic_reply_does_not_fall_back_to_an_unrelated_account(monkeypatch):
     unrelated_client.get_me.assert_not_awaited()
     topic_mappings.update_many.assert_not_awaited()
     sender_records.find_one.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("closed", "request_name"),
+    [(True, "BlockRequest"), (False, "UnblockRequest")],
+)
+def test_topic_close_and_reopen_block_and_unblock_mapped_sender(
+    monkeypatch, closed, request_name
+):
+    from telethon.tl.functions.contacts import BlockRequest, UnblockRequest
+
+    client = AsyncMock()
+    client.get_input_entity = AsyncMock(return_value=SimpleNamespace(user_id=456))
+    mapping = {
+        "admin_group_id": -1000000000123,
+        "topic_id": 321,
+        "account_id": 789,
+        "sender_id": 456,
+    }
+    topic_mappings = SimpleNamespace(
+        find_one=AsyncMock(return_value=mapping),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings),
+    )
+    handler = object.__new__(TopicActionsHandler)
+    handler.bot_manager = SimpleNamespace(
+        get_client_by_telegram_id=AsyncMock(return_value=client)
+    )
+
+    result = _run_immediately(handler._handle_topic_closed(123, 321, closed))
+
+    assert result is True
+    topic_mappings.update_one.assert_any_await(
+        {"admin_group_id": -1000000000123, "topic_id": 321},
+        {"$set": {"is_closed": closed, "block_sync_pending": True}},
+    )
+    topic_mappings.update_one.assert_any_await(
+        {"admin_group_id": -1000000000123, "topic_id": 321},
+        {"$set": {"block_sync_pending": False}},
+    )
+    request = client.await_args.args[0]
+    if request_name == "BlockRequest":
+        assert isinstance(request, BlockRequest)
+    else:
+        assert isinstance(request, UnblockRequest)
+    assert request.id.user_id == 456
+
+
+def test_deleted_topic_clears_mapped_account_history_and_mapping(monkeypatch):
+    from telethon.tl.functions.messages import DeleteHistoryRequest
+
+    client = AsyncMock()
+    client.get_input_entity = AsyncMock(return_value=SimpleNamespace(user_id=456))
+    mapping = {
+        "admin_group_id": -1000000000123,
+        "topic_id": 321,
+        "account_id": 789,
+        "sender_id": 456,
+    }
+    topic_mappings = SimpleNamespace(
+        find_one=AsyncMock(return_value=mapping),
+        update_one=AsyncMock(),
+        delete_one=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings),
+    )
+    handler = object.__new__(TopicActionsHandler)
+    handler.bot_manager = SimpleNamespace(
+        get_client_by_telegram_id=AsyncMock(return_value=client)
+    )
+
+    _run_immediately(handler._handle_deleted_topic_messages(123, [321]))
+
+    request = client.await_args.args[0]
+    assert isinstance(request, DeleteHistoryRequest)
+    assert request.peer.user_id == 456
+    assert request.revoke is True
+    topic_mappings.delete_one.assert_awaited_once_with(
+        {"admin_group_id": -1000000000123, "topic_id": 321}
+    )
+
+
+def test_offline_topic_close_is_retried_when_account_returns(monkeypatch):
+    from telethon.tl.functions.contacts import BlockRequest
+
+    mapping = {
+        "admin_group_id": -1000000000123,
+        "topic_id": 321,
+        "account_id": 789,
+        "sender_id": 456,
+        "is_closed": True,
+    }
+    empty_cursor = SimpleNamespace(to_list=AsyncMock(return_value=[]))
+    pending_cursor = SimpleNamespace(to_list=AsyncMock(return_value=[mapping]))
+    topic_mappings = SimpleNamespace(
+        find=Mock(side_effect=[empty_cursor, pending_cursor]),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings),
+    )
+    client = AsyncMock()
+    client.get_input_entity = AsyncMock(return_value=SimpleNamespace(user_id=456))
+    handler = object.__new__(TopicActionsHandler)
+
+    _run_immediately(handler.sync_account_topic_states(789, client))
+
+    assert isinstance(client.await_args.args[0], BlockRequest)
+
+
+def test_raw_topic_close_reopen_and_delete_updates_are_routed():
+    from telethon.tl.types import (
+        MessageActionTopicEdit,
+        Message,
+        PeerChannel,
+        UpdateDeleteChannelMessages,
+        UpdateEditChannelMessage,
+    )
+
+    class RegisteringBot:
+        def __init__(self):
+            self.handlers = []
+
+        def on(self, event_builder):
+            def register(handler):
+                self.handlers.append((event_builder, handler))
+                return handler
+
+            return register
+
+    bot = RegisteringBot()
+    handler = object.__new__(TopicActionsHandler)
+    handler.bot = bot
+    handler._handle_topic_closed = AsyncMock()
+    handler._handle_deleted_topic_messages = AsyncMock()
+    handler.register_handlers()
+    raw_handler = bot.handlers[0][1]
+
+    message = Message(
+        id=321,
+        peer_id=PeerChannel(channel_id=123),
+        action=MessageActionTopicEdit(closed=False),
+    )
+    _run_immediately(
+        raw_handler(UpdateEditChannelMessage(message=message, pts=1, pts_count=1))
+    )
+    _run_immediately(
+        raw_handler(
+            UpdateDeleteChannelMessages(
+                channel_id=123, messages=[321], pts=2, pts_count=1
+            )
+        )
+    )
+
+    handler._handle_topic_closed.assert_awaited_once_with(123, 321, closed=False)
+    handler._handle_deleted_topic_messages.assert_awaited_once_with(123, [321])

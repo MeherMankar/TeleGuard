@@ -1304,6 +1304,8 @@ class BotManager:
         self.topic_actions_handler = await self.component_manager.initialize_component(
             "topic_actions_handler", TopicActionsHandler, self
         )
+        if self.topic_actions_handler:
+            await self.topic_actions_handler.sync_connected_account_states()
 
         from ..handlers.contact_share_handler import ContactShareHandler
 

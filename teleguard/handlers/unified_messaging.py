@@ -406,6 +406,7 @@ class UnifiedMessagingSystem:
                     "admin_group_id": admin_group_id,
                     "sender_id": sender_id,
                     "account_id": account_id,
+                    "topic_deleted": {"$ne": True},
                 }
             )
             if mapping:
@@ -459,6 +460,7 @@ class UnifiedMessagingSystem:
                     "admin_group_id": admin_group_id,
                     "sender_id": sender_id,
                     "account_id": account_id,
+                    "topic_deleted": {"$ne": True},
                 },
                 {"$set": mapping},
                 upsert=True,
@@ -1093,6 +1095,13 @@ class UnifiedMessagingSystem:
         if client:
             logger.info(f"Setting up unified messaging handler for {account_name}")
             self._setup_client_handlers(user_id, account_name, client)
+            if client.is_connected():
+                topic_actions = getattr(
+                    self.bot_manager, "topic_actions_handler", None
+                )
+                if topic_actions:
+                    me = await client.get_me()
+                    await topic_actions.sync_account_topic_states(me.id, client)
             # Scrape existing DMs only once the client is actually connected
             if client.is_connected():
                 await self.scrape_existing_dms(user_id, account_name, client)
