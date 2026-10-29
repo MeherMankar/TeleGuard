@@ -192,6 +192,7 @@ def test_topic_close_and_reopen_block_and_unblock_mapped_sender(
 
 
 def test_deleted_topic_clears_mapped_account_history_and_mapping(monkeypatch):
+    from telethon.tl.functions.contacts import UnblockRequest
     from telethon.tl.functions.messages import DeleteHistoryRequest
 
     client = AsyncMock()
@@ -219,10 +220,16 @@ def test_deleted_topic_clears_mapped_account_history_and_mapping(monkeypatch):
 
     _run_immediately(handler._handle_deleted_topic_messages(123, [321]))
 
-    request = client.await_args.args[0]
-    assert isinstance(request, DeleteHistoryRequest)
-    assert request.peer.user_id == 456
-    assert request.revoke is True
+    requests = [call.args[0] for call in client.await_args_list]
+    unblock_request = next(
+        request for request in requests if isinstance(request, UnblockRequest)
+    )
+    delete_request = next(
+        request for request in requests if isinstance(request, DeleteHistoryRequest)
+    )
+    assert unblock_request.id.user_id == 456
+    assert delete_request.peer.user_id == 456
+    assert delete_request.revoke is True
     topic_mappings.delete_one.assert_awaited_once_with(
         {"admin_group_id": -1000000000123, "topic_id": 321}
     )
@@ -262,6 +269,34 @@ def test_deleted_topic_uses_admin_log_when_root_id_is_missing(monkeypatch):
     request = bot.await_args.args[0]
     assert request.events_filter.delete is True
     assert request.limit == 100
+
+
+def test_deleted_topic_mapping_is_not_reused_for_next_incoming_dm(monkeypatch):
+    topic_mappings = SimpleNamespace(find_one=AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(topic_mappings=topic_mappings),
+    )
+    manager = object.__new__(UnifiedMessagingSystem)
+    manager._verify_forum_enabled = AsyncMock(return_value=True)
+    manager._get_account_info = AsyncMock(return_value=SimpleNamespace(id=789))
+    manager._create_new_topic = AsyncMock(return_value=654)
+    manager._store_topic_mapping = AsyncMock()
+    manager._create_system_message = AsyncMock()
+    sender = SimpleNamespace(id=456, first_name="Sender")
+
+    topic_id = _run_immediately(
+        manager._find_or_create_topic(-1000000000123, 456, 789, sender, 123)
+    )
+
+    assert topic_id == 654
+    query = topic_mappings.find_one.await_args.args[0]
+    assert query["topic_deleted"] == {"$ne": True}
+    manager._create_new_topic.assert_awaited_once()
+    manager._store_topic_mapping.assert_awaited_once_with(
+        -1000000000123, 654, 456, 789
+    )
 
 
 def test_offline_topic_close_is_retried_when_account_returns(monkeypatch):

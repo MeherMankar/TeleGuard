@@ -241,9 +241,27 @@ class TopicActionsHandler:
         }
         await mongodb.db.topic_mappings.update_one(
             query,
-            {"$set": {"topic_deleted": True, "history_clear_pending": True}},
+            {
+                "$set": {
+                    "topic_deleted": True,
+                    "is_closed": False,
+                    "block_sync_pending": True,
+                    "history_clear_pending": True,
+                }
+            },
         )
-        if await self._clear_sender_history(mapping):
+        unblocked = await self._set_sender_blocked(mapping, False)
+        history_cleared = await self._clear_sender_history(mapping)
+        await mongodb.db.topic_mappings.update_one(
+            query,
+            {
+                "$set": {
+                    "block_sync_pending": not unblocked,
+                    "history_clear_pending": not history_cleared,
+                }
+            },
+        )
+        if unblocked and history_cleared:
             await mongodb.db.topic_mappings.delete_one(query)
 
     async def _handle_deleted_topics_from_admin_log(self, chat_id: int):
@@ -338,15 +356,32 @@ class TopicActionsHandler:
     async def sync_account_topic_states(self, account_id: int, client):
         """Retry topic actions that could not run while an account was offline."""
         deleted_topics = await mongodb.db.topic_mappings.find(
-            {"account_id": account_id, "history_clear_pending": True}
+            {"account_id": account_id, "topic_deleted": True}
         ).to_list(None)
         for mapping in deleted_topics:
-            if await self._clear_sender_history(mapping, client):
-                await mongodb.db.topic_mappings.delete_one(
-                    {
-                        "admin_group_id": mapping["admin_group_id"],
-                        "topic_id": mapping["topic_id"],
+            unblocked = await self._set_sender_blocked(
+                mapping, False, client
+            )
+            history_cleared = (
+                not mapping.get("history_clear_pending")
+                or await self._clear_sender_history(mapping, client)
+            )
+            query = {
+                "admin_group_id": mapping["admin_group_id"],
+                "topic_id": mapping["topic_id"],
+            }
+            await mongodb.db.topic_mappings.update_one(
+                query,
+                {
+                    "$set": {
+                        "block_sync_pending": not unblocked,
+                        "history_clear_pending": not history_cleared,
                     }
+                },
+            )
+            if unblocked and history_cleared:
+                await mongodb.db.topic_mappings.delete_one(
+                    query
                 )
 
         pending_states = await mongodb.db.topic_mappings.find(
