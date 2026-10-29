@@ -226,6 +226,11 @@ class BotManager:
             except Exception as e:
                 logger.warning(f"Failed to register commands: {e}")
             await self._initialize_components()
+            if config.security.session_backup_enabled:
+                from ..utils.session_scheduler import SessionScheduler
+
+                self.session_scheduler = SessionScheduler(bot_manager=self)
+                await self.session_scheduler.start()
             # Initialize account invalidation handler
             self.account_invalidation_handler = init_account_invalidation_handler(self)
             # Mark as running
@@ -1922,6 +1927,12 @@ class BotManager:
                     await self.session_monitor.stop_monitoring()
                 except Exception as e:
                     logger.warning(f"Session monitor cleanup failed: {e}")
+
+            if self.session_scheduler:
+                try:
+                    await self.session_scheduler.stop()
+                except Exception as e:
+                    logger.warning(f"Session backup scheduler cleanup failed: {e}")
 
             # Stop auto backup system
             try:

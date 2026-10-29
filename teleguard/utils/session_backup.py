@@ -6,23 +6,25 @@ GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """
 
+import asyncio
+import base64
+import binascii
+import hashlib
 import json
 import logging
 import os
-import subprocess
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+from urllib.error import HTTPError
+from urllib.parse import quote, urlencode, urlparse
+from urllib.request import Request, urlopen
 
-from ..core.config import FERNET
+from cryptography.fernet import InvalidToken
+
+from ..core.config import FERNET, config
 from ..core.mongo_database import mongodb
-from .crypto_utils import DataEncryption, encrypt_session_string
-from .mongo_store import (
-    get_unpersisted_sessions,
-    log_audit_event,
-    mark_session_persisted,
-    store_session_temp,
-)
+from .crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
 
@@ -118,295 +120,268 @@ class TelegramBackup:
             return False
 
 
-# Configuration
-
-default_workdir = Path.home() / ".teleguard" / "sessions_repo"
-GIT_WORKDIR = os.environ.get("GIT_WORKDIR", str(default_workdir))
-GPG_KEY_ID = os.environ.get("GPG_KEY_ID")
-
-
 class SessionBackupManager:
-    """Manages session backup to MongoDB and GitHub"""
+    """Back up encrypted Telegram sessions to a private GitHub repository."""
 
     def __init__(self):
-        self.enabled = (
-            os.environ.get("SESSION_BACKUP_ENABLED", "false").lower() == "true"
-        )
+        self.enabled = config.security.session_backup_enabled
+        self.github_branch = config.backup.github_backup_branch
         if self.enabled:
-            self.github_repo = os.environ.get("GITHUB_REPO")
-            if not self.github_repo:
+            repository = config.backup.github_repo
+            self.github_token = config.backup.github_token
+            if not repository:
                 raise ValueError(
-                    "GITHUB_REPO environment variable required when SESSION_BACKUP_ENABLED=true"
+                    "GITHUB_REPO is required when session backups are enabled"
                 )
+            if not self.github_token:
+                raise ValueError(
+                    "GITHUB_TOKEN is required when session backups are enabled"
+                )
+            if FERNET is None:
+                raise ValueError("FERNET_KEY is required for GitHub session backups")
+            owner, name = self._parse_repository(repository)
+            self.repository = f"{owner}/{name}"
+            self.api_url = f"https://api.github.com/repos/{self.repository}"
+            self.headers = {
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {self.github_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
         else:
-            self.github_repo = None
-        self.workdir = Path(GIT_WORKDIR)
+            self.repository = None
+            self.github_token = None
+            self.api_url = None
+            self.headers = None
 
-    def store_session(self, account_id: str, session_string: str) -> dict:
-        """Store session in MongoDB temporary storage"""
+    @staticmethod
+    def _parse_repository(repository: str) -> tuple[str, str]:
+        """Return owner/name from a GitHub URL, SSH URL, or owner/name."""
+        value = repository.strip()
+        if value.startswith("git@github.com:"):
+            value = value.removeprefix("git@github.com:")
+        elif value.startswith("https://"):
+            parsed = urlparse(value)
+            if parsed.hostname != "github.com" or parsed.username or parsed.password:
+                raise ValueError("GITHUB_REPO must refer to a repository on github.com")
+            value = parsed.path.strip("/")
+        value = value.removesuffix(".git")
+        parts = value.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise ValueError(
+                "GITHUB_REPO must be owner/repository or a GitHub repository URL"
+            )
+        if not all(
+            part.replace("-", "").replace("_", "").replace(".", "").isalnum()
+            for part in parts
+        ):
+            raise ValueError(
+                "GITHUB_REPO contains invalid owner or repository characters"
+            )
+        return parts[0], parts[1]
+
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        params: Optional[Dict[str, str]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        allow_status: tuple = (),
+    ) -> Tuple[int, Dict[str, Any]]:
+        if not self.api_url or self.headers is None:
+            raise RuntimeError("GitHub backup client is not configured")
+        url = f"{self.api_url}/{endpoint}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        data = json.dumps(json_body).encode("utf-8") if json_body is not None else None
+        headers = self.headers
+        if json_body is not None:
+            headers = {**headers, "Content-Type": "application/json"}
+        request = Request(url, data=data, headers=headers, method=method)
         try:
-            encrypted_bytes, sha256_hash = encrypt_session_string(session_string)
-            result = store_session_temp(account_id, encrypted_bytes, sha256_hash)
-            logger.info(f"Session stored in MongoDB for account {account_id}")
-            return result
-        except Exception as e:
-            logger.error(f"Failed to store session for {account_id}: {e}")
-            raise
-
-    def ensure_local_clone(self):
-        """Ensure local git clone exists and is up to date"""
-        if not self.workdir.exists():
-            # Use absolute path to git and validate repo URL
-            if not self.github_repo or not self.github_repo.startswith(
-                ("https://", "git@")
-            ):
-                raise ValueError("Invalid GitHub repository URL")
-            subprocess.run(
-                ["/usr/bin/git", "clone", self.github_repo, str(self.workdir)],
-                check=True,
-                shell=False,
+            with urlopen(request, timeout=30) as response:
+                status = response.status
+                body = response.read()
+        except HTTPError as error:
+            status = error.code
+            body = error.read()
+        if not 200 <= status < 300 and status not in allow_status:
+            details = body.decode("utf-8", errors="replace")[:500]
+            raise RuntimeError(
+                f"GitHub API {method} {endpoint} failed with HTTP {status}: {details}"
             )
-            logger.info(f"Cloned sessions repo to {self.workdir}")
-        else:
-            subprocess.run(
-                ["/usr/bin/git", "-C", str(self.workdir), "fetch", "origin"],
-                check=True,
-                shell=False,
-            )
-            subprocess.run(
-                [
-                    "/usr/bin/git",
-                    "-C",
-                    str(self.workdir),
-                    "reset",
-                    "--hard",
-                    "origin/main",
-                ],
-                check=True,
-                shell=False,
-            )
-            logger.info("Updated local sessions repo")
+        return status, json.loads(body) if body else {}
 
-    def write_session_file(self, account_id: str, encrypted_bytes: bytes):
-        """Write encrypted session to file"""
-        sessions_dir = self.workdir / "sessions"
-        sessions_dir.mkdir(exist_ok=True)
-        # Sanitize account_id to prevent path traversal
-        safe_account_id = "".join(c for c in account_id if c.isalnum() or c in "_-")
-        if not safe_account_id or safe_account_id != account_id:
-            raise ValueError(f"Invalid account_id: {account_id}")
-        file_path = sessions_dir / f"{safe_account_id}.enc"
-        with open(file_path, "wb") as f:
-            f.write(encrypted_bytes)
+    def _ensure_private_branch(self) -> None:
+        _, repository = self._request("GET", "")
+        if not repository.get("private"):
+            raise ValueError("The GitHub session-backup repository must be private")
 
-    def build_manifest(self, sessions: list) -> dict:
-        """Build manifest file for sessions"""
-        manifest = {
-            "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
-            "sessions": [],
-        }
-        for session in sessions:
-            manifest["sessions"].append(
-                {
-                    "account_id": session["account_id"],
-                    "file": f"sessions/{session['account_id']}.enc",
-                    "sha256": session["sha256"],
-                    "ts": session["last_updated"].isoformat(),
-                }
-            )
-        return manifest
-
-    def sign_manifest(self, manifest_path: Path):
-        """Sign manifest with GPG"""
-        if not GPG_KEY_ID:
-            logger.warning("GPG_KEY_ID not set, skipping manifest signing")
+        encoded_branch = quote(self.github_branch, safe="")
+        ref_endpoint = f"git/ref/heads/{encoded_branch}"
+        status, _ = self._request("GET", ref_endpoint, allow_status=(404,))
+        if status == 200:
             return
-        try:
-            subprocess.run(
-                [
-                    "/usr/bin/gpg",
-                    "--batch",
-                    "--yes",
-                    "--detach-sign",
-                    "--armor",
-                    "--default-key",
-                    GPG_KEY_ID,
-                    "--output",
-                    str(manifest_path) + ".sig",
-                    str(manifest_path),
-                ],
-                check=True,
-                shell=False,
-            )
-            logger.info("Manifest signed successfully")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to sign manifest: {e}")
-            raise
 
-    def commit_and_push(self, message: str) -> str:
-        """Commit changes and push to GitHub"""
-        subprocess.run(["git", "-C", str(self.workdir), "add", "."], check=True)
-        result = subprocess.run(
-            ["git", "-C", str(self.workdir), "diff", "--cached", "--quiet"],
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            logger.info("No changes to commit")
-            return None
-        subprocess.run(
-            ["git", "-C", str(self.workdir), "commit", "-m", message], check=True
-        )
-        subprocess.run(
-            ["git", "-C", str(self.workdir), "push", "origin", "main"], check=True
-        )
-        commit_sha = (
-            subprocess.check_output(
-                ["git", "-C", str(self.workdir), "rev-parse", "HEAD"]
+        default_branch = repository.get("default_branch")
+        if default_branch:
+            status, source_ref = self._request(
+                "GET",
+                f"git/ref/heads/{quote(default_branch, safe='')}",
+                allow_status=(404,),
             )
-            .strip()
-            .decode()
-        )
-        logger.info(f"Pushed sessions to GitHub, commit: {commit_sha}")
-        return commit_sha
+        else:
+            status = 404
 
-    def push_sessions_batch(self) -> bool:
-        """Push unpersisted sessions to GitHub"""
-        if not self.enabled:
-            logger.info("Session backup disabled")
-            return False
-        try:
-            sessions = get_unpersisted_sessions()
-            if not sessions:
-                logger.info("No sessions to push")
-                return True
-            logger.info(f"Pushing {len(sessions)} sessions to GitHub")
-            self.ensure_local_clone()
-            # Write session files
-            for session in sessions:
-                self.write_session_file(session["account_id"], session["enc_blob"])
-            # Build and write manifest
-            manifest = self.build_manifest(sessions)
-            manifest_dir = self.workdir / "manifests"
-            manifest_dir.mkdir(exist_ok=True)
-            manifest_path = manifest_dir / "sessions.json"
-            with open(manifest_path, "w") as f:
-                json.dump(manifest, f, indent=2, sort_keys=True)
-            # Sign manifest
-            self.sign_manifest(manifest_path)
-            # Commit and push
-            commit_sha = self.commit_and_push(
-                f"Session backup @ {datetime.now(timezone.utc).isoformat()}Z"
-            )
-            if commit_sha:
-                # Mark sessions as persisted
-                for session in sessions:
-                    mark_session_persisted(
-                        session["account_id"], commit_sha, manifest["generated_at"]
-                    )
-                    # Log audit event
-                    log_audit_event(
-                        session["account_id"],
-                        "push_to_github",
-                        {
-                            "commit": commit_sha,
-                            "manifest_version": manifest["generated_at"],
-                        },
-                        "scheduler",
-                    )
-                logger.info(f"Successfully pushed {len(sessions)} sessions")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to push sessions: {e}")
-            # Log failure
-            log_audit_event(
-                None,
-                "push_to_github",
-                {
-                    "error": str(e),
-                    "session_count": len(sessions) if "sessions" in locals() else 0,
+        if status == 404:
+            _, tree = self._request("POST", "git/trees", json_body={"tree": []})
+            _, commit = self._request(
+                "POST",
+                "git/commits",
+                json_body={
+                    "message": "Initialize encrypted session backups",
+                    "tree": tree["sha"],
                 },
-                "scheduler",
             )
+            source_sha = commit["sha"]
+        else:
+            source_sha = source_ref["object"]["sha"]
+        self._request(
+            "POST",
+            "git/refs",
+            json_body={
+                "ref": f"refs/heads/{self.github_branch}",
+                "sha": source_sha,
+            },
+        )
+
+    def _put_file(
+        self,
+        path: str,
+        content: bytes,
+        compare_plaintext: Optional[bytes] = None,
+    ) -> bool:
+        """Create or update a GitHub file; skip a commit if its contents match."""
+        encoded_path = quote(path, safe="/")
+        endpoint = f"contents/{encoded_path}"
+        status, remote_file = self._request(
+            "GET",
+            endpoint,
+            params={"ref": self.github_branch},
+            allow_status=(404,),
+        )
+        current_sha = None
+        if status == 200:
+            current_sha = remote_file.get("sha")
+            remote_content = remote_file.get("content")
+            if compare_plaintext is not None and remote_content:
+                if FERNET is None:
+                    raise ValueError("Fernet encryption is unavailable")
+                try:
+                    remote_ciphertext = base64.b64decode(remote_content)
+                    if FERNET.decrypt(remote_ciphertext) == compare_plaintext:
+                        return False
+                except (InvalidToken, binascii.Error, ValueError):
+                    logger.warning(
+                        "Existing GitHub session file could not be decrypted: %s",
+                        path,
+                    )
+
+        git_blob = b"blob " + str(len(content)).encode() + b"\0" + content
+        if current_sha == hashlib.sha1(git_blob).hexdigest():
             return False
 
-    def compact_history(self) -> bool:
-        """Compact GitHub repository history"""
+        payload = {
+            "message": f"Update session backup: {path}",
+            "content": base64.b64encode(content).decode("ascii"),
+            "branch": self.github_branch,
+        }
+        if current_sha:
+            payload["sha"] = current_sha
+        self._request("PUT", endpoint, json_body=payload)
+        return True
+
+    async def push_sessions_batch(self) -> bool:
+        """Encrypt and push all account sessions to the configured private repo."""
         if not self.enabled:
             logger.info("Session backup disabled")
             return False
         try:
-            logger.info("Starting history compaction")
-            self.ensure_local_clone()
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-            backup_branch = f"backup_history_{ts}"
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "checkout", "-B", backup_branch],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "push", "origin", backup_branch],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "checkout", "--orphan", "clean_main"],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "rm", "-rf", "."], check=True
-            )
-            # Re-add current files
-            if (self.workdir / "sessions").exists():
-                subprocess.run(
-                    ["git", "-C", str(self.workdir), "add", "sessions"], check=True
+            if FERNET is None:
+                raise ValueError("Fernet encryption is unavailable")
+            accounts = await mongodb.db.accounts.find(
+                {
+                    "$or": [
+                        {"session_string": {"$exists": True, "$nin": [None, ""]}},
+                        {"session_string_enc": {"$exists": True, "$nin": [None, ""]}},
+                    ]
+                }
+            ).to_list(length=None)
+            files = {}
+            plaintext_sessions = {}
+            manifest_sessions = []
+            for account in accounts:
+                account_id = str(account.get("_id", ""))
+                if not account_id or not all(
+                    character.isalnum() or character in "_-" for character in account_id
+                ):
+                    raise ValueError("Account has an invalid database ID")
+                decrypted = DataEncryption.decrypt_account_data(account)
+                session_string = decrypted.get("session_string")
+                if not isinstance(session_string, str) or not session_string:
+                    continue
+                if (
+                    "session_string_enc" in account
+                    and session_string == account["session_string_enc"]
+                ):
+                    raise ValueError(
+                        f"Could not decrypt session for account {account_id}; "
+                        "check FERNET_KEY"
+                    )
+
+                encrypted_session = FERNET.encrypt(session_string.encode("utf-8"))
+                file_path = f"sessions/{account_id}.enc"
+                files[file_path] = encrypted_session
+                plaintext_sessions[file_path] = session_string.encode("utf-8")
+                manifest_sessions.append(
+                    {
+                        "account_id": account_id,
+                        "file": file_path,
+                        "sha256": hashlib.sha256(encrypted_session).hexdigest(),
+                    }
                 )
-            if (self.workdir / "manifests").exists():
-                subprocess.run(
-                    ["git", "-C", str(self.workdir), "add", "manifests"], check=True
+
+            if not files:
+                logger.info("No account sessions found for GitHub backup")
+                return True
+
+            manifest = json.dumps(
+                {
+                    "version": 1,
+                    "sessions": sorted(
+                        manifest_sessions, key=lambda session: session["account_id"]
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            ).encode("utf-8")
+            files["manifests/sessions.json"] = manifest
+
+            await asyncio.to_thread(self._ensure_private_branch)
+            updated_files = 0
+            for path, content in files.items():
+                updated = await asyncio.to_thread(
+                    self._put_file, path, content, plaintext_sessions.get(path)
                 )
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(self.workdir),
-                    "commit",
-                    "-m",
-                    f"compact snapshot @ {ts}",
-                ],
-                check=True,
+                updated_files += int(updated)
+            logger.info(
+                "GitHub session backup complete: %d account sessions, %d files updated",
+                len(manifest_sessions),
+                updated_files,
             )
-            # Force-push to main
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(self.workdir),
-                    "push",
-                    "-f",
-                    "origin",
-                    "clean_main:main",
-                ],
-                check=True,
-            )
-            # Clean up local branch
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "checkout", "main"], check=True
-            )
-            subprocess.run(
-                ["git", "-C", str(self.workdir), "branch", "-D", "clean_main"],
-                check=True,
-            )
-            # Log audit event
-            log_audit_event(
-                None,
-                "compact_history",
-                {"backup_branch": backup_branch, "timestamp": ts},
-                "scheduler",
-            )
-            logger.info(f"History compacted successfully, backup: {backup_branch}")
             return True
         except Exception as e:
-            logger.error(f"Failed to compact history: {e}")
-            log_audit_event(None, "compact_history", {"error": str(e)}, "scheduler")
+            logger.error("Failed to push sessions to GitHub: %s", e)
             return False
 
     async def push_session_files_to_telegram(self, bot_client) -> bool:

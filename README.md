@@ -96,7 +96,9 @@ ADMIN_IDS=123456789,987654321
 
 # Optional
 MAX_ACCOUNTS=10
-SESSION_BACKUP_ENABLED=true
+SESSION_BACKUP_ENABLED=false
+# To enable GitHub session backups, also set GITHUB_REPO, GITHUB_TOKEN,
+# and a stable FERNET_KEY; MongoDB remains the live database.
 ```
 
 ### Run
@@ -268,6 +270,17 @@ docker run -d \
 | `ADMIN_IDS` | ✅ | Comma-separated admin user IDs |
 | `ENCRYPTION_KEY` | ⚠️ | 32-byte encryption key (auto-generated if not set) |
 | `MAX_ACCOUNTS` | ❌ | Max accounts per user (default: 10) |
+| `JWT_SECRET` | ✅ | Random signing key (at least 32 characters) |
+| `FERNET_KEY` | ❌ | Stable Fernet key; required for encrypted GitHub session backups |
+| `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
+| `GITHUB_REPO` | ❌ | Private GitHub repository (`owner/repository`) |
+| `GITHUB_TOKEN` | ❌ | Token with Contents read/write access to the private backup repository |
+| `GITHUB_BACKUP_BRANCH` | ❌ | Backup branch (default: `backups`) |
+
+GitHub is only a session-backup destination; MongoDB remains the live database.
+When deploying on Koyeb, set these as **service environment variables**—GitHub
+Actions repository secrets are not automatically passed to the running service.
+Use a private repository and keep `FERNET_KEY` unchanged between deployments.
 
 ---
 

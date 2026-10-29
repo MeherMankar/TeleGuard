@@ -14,7 +14,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..core.mongo_database import mongodb
-from .mongo_store import cleanup_old_sessions, init_mongo_indexes
 from .session_backup import SessionBackupManager
 
 logger = logging.getLogger(__name__)
@@ -37,26 +36,20 @@ class SessionScheduler:
         if self.running:
             return
         try:
-            init_mongo_indexes()
+            self.scheduler.add_job(
+                self._push_sessions_job,
+                "date",
+                run_date=datetime.now(),
+                id="initial_session_push",
+                name="Initial GitHub session backup",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
             self.scheduler.add_job(
                 self._push_sessions_job,
                 IntervalTrigger(minutes=30),
                 id="push_sessions",
                 name="Push sessions to GitHub",
-                max_instances=1,
-            )
-            self.scheduler.add_job(
-                self._compact_history_job,
-                IntervalTrigger(hours=8),
-                id="compact_history",
-                name="Compact GitHub history",
-                max_instances=1,
-            )
-            self.scheduler.add_job(
-                self._cleanup_old_sessions_job,
-                IntervalTrigger(hours=24),
-                id="cleanup_sessions",
-                name="Cleanup old MongoDB sessions",
                 max_instances=1,
             )
             if self.bot_client:
@@ -83,7 +76,7 @@ class SessionScheduler:
                 )
             self.scheduler.start()
             self.running = True
-            logger.info("Session scheduler started")
+            logger.info("Session backup scheduler started")
         except Exception as e:
             logger.error(f"Failed to start session scheduler: {e}")
             raise
@@ -103,34 +96,13 @@ class SessionScheduler:
         """Job to push sessions to GitHub"""
         try:
             logger.info("Running scheduled session push job")
-            success = self.backup_manager.push_sessions_batch()
+            success = await self.backup_manager.push_sessions_batch()
             if success:
                 logger.info("Session push job completed successfully")
             else:
                 logger.warning("Session push job failed")
         except Exception as e:
             logger.error(f"Session push job error: {e}")
-
-    async def _compact_history_job(self):
-        """Job to compact GitHub history"""
-        try:
-            logger.info("Running scheduled history compaction job")
-            success = self.backup_manager.compact_history()
-            if success:
-                logger.info("History compaction job completed successfully")
-            else:
-                logger.warning("History compaction job failed")
-        except Exception as e:
-            logger.error(f"History compaction job error: {e}")
-
-    async def _cleanup_old_sessions_job(self):
-        """Job to cleanup old sessions from MongoDB"""
-        try:
-            logger.info("Running scheduled MongoDB cleanup job")
-            count = cleanup_old_sessions(days=7)
-            logger.info(f"MongoDB cleanup completed, removed {count} old sessions")
-        except Exception as e:
-            logger.error(f"MongoDB cleanup job error: {e}")
 
     def trigger_push_now(self):
         """Manually trigger session push"""
@@ -164,15 +136,6 @@ class SessionScheduler:
                 self._push_session_files_job,
                 id="manual_session_files_push",
                 name="Manual session files push",
-            )
-
-    def trigger_compact_now(self):
-        """Manually trigger history compaction"""
-        if self.running:
-            self.scheduler.add_job(
-                self._compact_history_job,
-                id="manual_compact",
-                name="Manual history compaction",
             )
 
     async def _push_user_settings_job(self):
