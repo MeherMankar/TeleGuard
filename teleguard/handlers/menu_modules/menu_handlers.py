@@ -239,10 +239,7 @@ class MenuHandlers:
                     Button.inline("📨 Unified DM Manager", "dm_reply:main"),
                     Button.inline("📊 Analytics", "msg:stats"),
                 ],
-                [
-                    Button.inline("📋 Message History", "msg:history"),
-                    Button.inline("⚙️ System Settings", "msg:settings"),
-                ],
+                [Button.inline("📋 Message History", "msg:history")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         await self._render_menu(

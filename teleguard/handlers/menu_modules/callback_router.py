@@ -711,8 +711,6 @@ class CallbackRouter:
                 await self.menu._show_messaging_statistics(user_id, event.message_id)
             elif action == "history":
                 await self.menu._show_message_history(user_id, event.message_id)
-            elif action == "settings":
-                await self.menu._show_messaging_settings(user_id, event.message_id)
             elif action == "autoreply":
                 if hasattr(self.menu.account_manager, "auto_reply_handler"):
                     await self.menu.account_manager.auto_reply_handler._refresh_main_menu(event, user_id)

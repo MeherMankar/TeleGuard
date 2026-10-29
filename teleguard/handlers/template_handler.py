@@ -67,7 +67,7 @@ class TemplateHandler:
             [Button.inline("➕ Create Template", "template:create")],
             [Button.inline("📋 View Templates", "template:view")],
             [Button.inline("📁 Manage Categories", "template:categories")],
-            [Button.inline("🔙 Back", "messaging:main")],
+            [Button.inline("🔙 Back", "menu:messaging")],
         ]
         if hasattr(event, "edit"):
             await event.edit(text, buttons=buttons)
@@ -453,7 +453,7 @@ class TemplateHandler:
                     )
                 ]
             )
-        buttons.append([Button.inline("🔙 Back", "messaging:main")])
+        buttons.append([Button.inline("🔙 Back", "menu:messaging")])
         return text, buttons
 
     async def _route_template_action(self, event, data: str):
