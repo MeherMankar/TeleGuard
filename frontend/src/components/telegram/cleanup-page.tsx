@@ -35,16 +35,20 @@ interface CleanupPageProps {
 }
 
 const cleanupItems = [
-  { icon: MessageSquare, label: "personal",       description: "Delete all direct message conversations" },
-  { icon: Bot,          label: "bots",            description: "Delete all bot conversations" },
-  { icon: Send,         label: "telegram",        description: "Delete Telegram service chats" },
-  { icon: AlertCircle,  label: "spambot",         description: "Delete @spambot conversation" },
-  { icon: Mail,         label: "my_messages",     description: "Delete your sent messages from groups" },
-  { icon: LogOut,       label: "channels",        description: "Leave all channels" },
-  { icon: Users,        label: "groups",          description: "Leave all groups" },
-  { icon: Trash2,       label: "owned_groups",    description: "Delete groups you own" },
-  { icon: Radio,        label: "owned_channels",  description: "Delete channels you own" },
-  { icon: Flame,        label: "all",             description: "Everything above — full cleanup", danger: true },
+  {
+    icon: MessageSquare,
+    label: "personal",
+    description: "Delete all direct message conversations",
+  },
+  { icon: Bot, label: "bots", description: "Delete all bot conversations" },
+  { icon: Send, label: "telegram", description: "Delete Telegram service chats" },
+  { icon: AlertCircle, label: "spambot", description: "Delete @spambot conversation" },
+  { icon: Mail, label: "my_messages", description: "Delete your sent messages from groups" },
+  { icon: LogOut, label: "channels", description: "Leave all channels" },
+  { icon: Users, label: "groups", description: "Leave all groups" },
+  { icon: Trash2, label: "owned_groups", description: "Delete groups you own" },
+  { icon: Radio, label: "owned_channels", description: "Delete channels you own" },
+  { icon: Flame, label: "all", description: "Everything above — full cleanup", danger: true },
 ]
 
 export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
@@ -134,16 +138,20 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
                   {loading === label ? (
                     <Loader2 className="h-5 w-5 text-[#2AABEE] animate-spin flex-shrink-0" />
                   ) : (
-                    <Icon className={cn(
-                      "h-5 w-5 flex-shrink-0",
-                      danger ? "text-red-400" : "text-[#2AABEE]",
-                    )} />
+                    <Icon
+                      className={cn(
+                        "h-5 w-5 flex-shrink-0",
+                        danger ? "text-red-400" : "text-[#2AABEE]",
+                      )}
+                    />
                   )}
                   <div className="flex-1 text-left">
-                    <p className={cn(
-                      "text-[15px] font-medium",
-                      danger ? "text-red-400" : "text-white",
-                    )}>
+                    <p
+                      className={cn(
+                        "text-[15px] font-medium",
+                        danger ? "text-red-400" : "text-white",
+                      )}
+                    >
                       {label}
                     </p>
                     <p className="text-[13px] text-gray-500 mt-0.5">{description}</p>
@@ -158,8 +166,8 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
             <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
               <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
               <p className="text-red-400 text-xs">
-                These actions are <strong>permanent</strong> and cannot be undone.
-                Cleanup runs on your Telegram account directly.
+                These actions are <strong>permanent</strong> and cannot be undone. Cleanup runs on
+                your Telegram account directly.
               </p>
             </div>
           </div>
@@ -173,9 +181,8 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
             <AlertDialogTitle>Confirm Cleanup</AlertDialogTitle>
             <AlertDialogDescription>
               Run <strong>{targetItem?.label}</strong> cleanup on{" "}
-              <strong>{activeAccount?.name}</strong>?{" "}
-              {targetItem?.description}.{" "}
-              This action <strong>cannot be undone</strong>.
+              <strong>{activeAccount?.name}</strong>? {targetItem?.description}. This action{" "}
+              <strong>cannot be undone</strong>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

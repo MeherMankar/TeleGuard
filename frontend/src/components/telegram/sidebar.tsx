@@ -96,16 +96,22 @@ export function Sidebar({
   })
 
   // Refresh when bot pushes account_added / account_removed events
-  useWsEvent("account_added", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["accounts"] })
-    queryClient.invalidateQueries({ queryKey: ["accounts-status"] })
-    toast.success("New account connected")
-  }, [queryClient]))
+  useWsEvent(
+    "account_added",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+      queryClient.invalidateQueries({ queryKey: ["accounts-status"] })
+      toast.success("New account connected")
+    }, [queryClient]),
+  )
 
-  useWsEvent("account_removed", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["accounts"] })
-    queryClient.invalidateQueries({ queryKey: ["accounts-status"] })
-  }, [queryClient]))
+  useWsEvent(
+    "account_removed",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+      queryClient.invalidateQueries({ queryKey: ["accounts-status"] })
+    }, [queryClient]),
+  )
 
   const removeMutation = useMutation({
     mutationFn: (account_id: string) => accountsApi.remove(account_id),
@@ -147,19 +153,45 @@ export function Sidebar({
     // Delay panel open until sidebar close animation finishes (300ms)
     setTimeout(() => {
       switch (action) {
-        case "add_account": onAddAccountClick(); break
-        case "profile": onProfileClick(); break
-        case "settings": onSettingsClick(); break
-        case "contacts": onContactsClick(); break
-        case "protection": onProtectionManagerClick(); break
-        case "spam": onSpamMasterClick(); break
-        case "cleanup": onCleanupClick(); break
-        case "automation": onAutomationClick(); break
-        case "sessions": onSessionManagerClick(); break
-        case "dashboard": onDashboardClick(); break
-        case "proxy": onProxyManagerClick(); break
-        case "folders": onChatFoldersClick(); break
-        case "saved": onSavedMessagesClick(); break
+        case "add_account":
+          onAddAccountClick()
+          break
+        case "profile":
+          onProfileClick()
+          break
+        case "settings":
+          onSettingsClick()
+          break
+        case "contacts":
+          onContactsClick()
+          break
+        case "protection":
+          onProtectionManagerClick()
+          break
+        case "spam":
+          onSpamMasterClick()
+          break
+        case "cleanup":
+          onCleanupClick()
+          break
+        case "automation":
+          onAutomationClick()
+          break
+        case "sessions":
+          onSessionManagerClick()
+          break
+        case "dashboard":
+          onDashboardClick()
+          break
+        case "proxy":
+          onProxyManagerClick()
+          break
+        case "folders":
+          onChatFoldersClick()
+          break
+        case "saved":
+          onSavedMessagesClick()
+          break
       }
     }, 320)
   }

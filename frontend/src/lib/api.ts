@@ -26,10 +26,7 @@ export function isAuthenticated(): boolean {
   return !!getToken()
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -93,8 +90,7 @@ export interface LoginResponse {
 }
 
 export const authApi = {
-  login: (initData: string) =>
-    post<LoginResponse>("/api/auth/login", { initData }),
+  login: (initData: string) => post<LoginResponse>("/api/auth/login", { initData }),
   devLogin: () => get<LoginResponse>("/api/auth/dev-login"),
 }
 
@@ -159,12 +155,14 @@ export interface AccountProfile {
 export const accountsApi = {
   list: () => get<Account[]>("/api/accounts/list"),
   status: () => get<AccountStatus>("/api/accounts/status"),
-  remove: (account_id: string) =>
-    del<{ status: string }>(`/api/accounts/remove/${account_id}`),
+  remove: (account_id: string) => del<{ status: string }>(`/api/accounts/remove/${account_id}`),
   profile: (account_name: string) =>
     get<AccountProfile>(`/api/accounts/profile/${encodeURIComponent(account_name)}`),
   refreshNames: () =>
-    post<{ status: string; updated: string[]; skipped: string[] }>("/api/accounts/refresh-names", {}),
+    post<{ status: string; updated: string[]; skipped: string[] }>(
+      "/api/accounts/refresh-names",
+      {},
+    ),
   toggleReply: (name: string) =>
     post<{ status: string; auto_reply_enabled: boolean }>("/api/accounts/toggle-reply", { name }),
   sendCode: (phone: string) =>
@@ -184,10 +182,7 @@ export const accountsApi = {
     account_name: string,
     fields: { first_name?: string; last_name?: string; bio?: string; username?: string },
   ) =>
-    patch<{ status: string }>(
-      `/api/accounts/profile/${encodeURIComponent(account_name)}`,
-      fields,
-    ),
+    patch<{ status: string }>(`/api/accounts/profile/${encodeURIComponent(account_name)}`, fields),
 }
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
@@ -401,12 +396,7 @@ export const contactsApi = {
 
 export const messagingApi = {
   stats: () => get<MessagingStats>("/api/messaging/stats"),
-  send: (
-    account_name: string,
-    target: string,
-    message: string,
-    reply_to_message_id?: number,
-  ) =>
+  send: (account_name: string, target: string, message: string, reply_to_message_id?: number) =>
     post<{ status: string }>("/api/messaging/send", {
       account_name,
       target,
@@ -518,16 +508,17 @@ export interface SecurityLog {
 }
 
 export const securityApi = {
-  settings: () => get<{
-    settings: {
-      session_destroyer_enabled: boolean
-      otp_destroyer_enabled: boolean
-      allow_next: boolean
-      trusted_hashes_count: number
-    }
-    stats: { destroyed_count: number; otp_destroyed: number }
-    enabled: boolean
-  }>("/api/security/settings"),
+  settings: () =>
+    get<{
+      settings: {
+        session_destroyer_enabled: boolean
+        otp_destroyer_enabled: boolean
+        allow_next: boolean
+        trusted_hashes_count: number
+      }
+      stats: { destroyed_count: number; otp_destroyed: number }
+      enabled: boolean
+    }>("/api/security/settings"),
   updateSettings: (enabled: boolean) =>
     post<{ status: string; enabled: boolean }>("/api/security/settings", { enabled }),
   allowNextLogin: () =>
@@ -543,20 +534,22 @@ export const securityApi = {
   // OTP Destroyer per-account
   toggleOtpDestroyer: (account_id: string, enabled: boolean) =>
     post<{ status: string; message: string; enabled: boolean }>(
-      "/api/security/otp-destroyer/toggle", { account_id, enabled },
+      "/api/security/otp-destroyer/toggle",
+      { account_id, enabled },
     ),
   toggleOtpForward: (account_id: string, enabled: boolean) =>
     post<{ status: string; message: string; enabled: boolean }>(
-      "/api/security/otp-forward/toggle", { account_id, enabled },
+      "/api/security/otp-forward/toggle",
+      { account_id, enabled },
     ),
   tempPassthrough: (account_id: string) =>
-    post<{ status: string; message: string }>(
-      "/api/security/otp-destroyer/temp-passthrough", { account_id },
-    ),
+    post<{ status: string; message: string }>("/api/security/otp-destroyer/temp-passthrough", {
+      account_id,
+    }),
   disableDestroyerTemp: (account_id: string) =>
-    post<{ status: string; message: string }>(
-      "/api/security/otp-destroyer/disable-temp", { account_id },
-    ),
+    post<{ status: string; message: string }>("/api/security/otp-destroyer/disable-temp", {
+      account_id,
+    }),
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────
@@ -625,10 +618,11 @@ export const privacyApi = {
 
 export const spamApi = {
   scrapeMembers: (accountName: string, target: string, limit = 2000) =>
-    post<{ target: string; count: number; members: ScrapedMember[] }>(
-      "/api/spam/scrape-members",
-      { account_name: accountName, target, limit },
-    ),
+    post<{ target: string; count: number; members: ScrapedMember[] }>("/api/spam/scrape-members", {
+      account_name: accountName,
+      target,
+      limit,
+    }),
   checkUsernames: (accountName: string, base: string, count = 50) =>
     post<{ base: string; checked: number; available_count: number; available: string[] }>(
       "/api/spam/check-usernames",
@@ -636,7 +630,8 @@ export const spamApi = {
     ),
 }
 
-export const cleanupApi = {  run: (accountName: string, type: string) =>
+export const cleanupApi = {
+  run: (accountName: string, type: string) =>
     post<{ status: string; message: string }>(
       `/api/chats/cleanup/${encodeURIComponent(accountName)}`,
       { type },

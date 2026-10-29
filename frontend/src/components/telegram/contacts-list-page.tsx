@@ -11,9 +11,18 @@ interface ContactsListPageProps {
 }
 
 const AVATAR_COLORS = [
-  "bg-rose-500", "bg-amber-500", "bg-violet-500", "bg-pink-500",
-  "bg-sky-500", "bg-indigo-500", "bg-emerald-500", "bg-orange-500",
-  "bg-teal-500", "bg-cyan-500", "bg-lime-600", "bg-fuchsia-500",
+  "bg-rose-500",
+  "bg-amber-500",
+  "bg-violet-500",
+  "bg-pink-500",
+  "bg-sky-500",
+  "bg-indigo-500",
+  "bg-emerald-500",
+  "bg-orange-500",
+  "bg-teal-500",
+  "bg-cyan-500",
+  "bg-lime-600",
+  "bg-fuchsia-500",
 ]
 
 function avatarColor(id: number) {
@@ -46,17 +55,22 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
   const { activeAccount } = useUser()
   const [searchValue, setSearchValue] = useState("")
 
-  const { data: contacts = [], isLoading, isError } = useQuery({
+  const {
+    data: contacts = [],
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ["contacts", activeAccount?.name],
     queryFn: () => contactsApi.list(activeAccount!.name),
     enabled: isOpen && !!activeAccount,
     staleTime: 60_000,
   })
 
-  const filtered = contacts.filter((c) =>
-    c.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-    (c.username ?? "").toLowerCase().includes(searchValue.toLowerCase()) ||
-    (c.phone ?? "").includes(searchValue)
+  const filtered = contacts.filter(
+    (c) =>
+      c.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+      (c.username ?? "").toLowerCase().includes(searchValue.toLowerCase()) ||
+      (c.phone ?? "").includes(searchValue),
   )
 
   return (
@@ -64,7 +78,7 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
       style={{ zIndex: 75 }}
       className={cn(
         "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
-        isOpen ? "translate-x-0" : "translate-x-full"
+        isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
       {/* Header */}
@@ -116,9 +130,7 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
 
         {/* No account selected */}
         {!activeAccount && !isLoading && (
-          <div className="px-4 py-8 text-center text-gray-500 text-sm">
-            No account selected.
-          </div>
+          <div className="px-4 py-8 text-center text-gray-500 text-sm">No account selected.</div>
         )}
 
         {/* Empty state */}
@@ -151,17 +163,18 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
 }
 
 function ContactRow({ contact, accountName }: { contact: Contact; accountName: string }) {
-  const photoUrl = contact.has_photo && accountName
-    ? chatsApi.photoUrl(accountName, contact.id)
-    : null
+  const photoUrl =
+    contact.has_photo && accountName ? chatsApi.photoUrl(accountName, contact.id) : null
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer">
       {/* Avatar */}
-      <div className={cn(
-        "w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-base overflow-hidden",
-        !photoUrl && avatarColor(contact.id)
-      )}>
+      <div
+        className={cn(
+          "w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-base overflow-hidden",
+          !photoUrl && avatarColor(contact.id),
+        )}
+      >
         {photoUrl ? (
           <img src={photoUrl} alt={contact.name} className="w-full h-full object-cover" />
         ) : (
@@ -172,10 +185,12 @@ function ContactRow({ contact, accountName }: { contact: Contact; accountName: s
       {/* Info */}
       <div className="flex-1 min-w-0">
         <p className="text-white text-[15px] font-medium truncate">{contact.name}</p>
-        <p className={cn(
-          "text-xs truncate mt-0.5",
-          contact.last_seen === "online" ? "text-[#2AABEE]" : "text-gray-500"
-        )}>
+        <p
+          className={cn(
+            "text-xs truncate mt-0.5",
+            contact.last_seen === "online" ? "text-[#2AABEE]" : "text-gray-500",
+          )}
+        >
           {formatLastSeen(contact.last_seen)}
         </p>
       </div>

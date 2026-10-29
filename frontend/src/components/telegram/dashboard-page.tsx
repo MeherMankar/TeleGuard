@@ -1,4 +1,14 @@
-import { ArrowLeft, Users, Activity, MessageSquare, Shield, TrendingUp, Clock, Globe, Server } from "lucide-react"
+import {
+  ArrowLeft,
+  Users,
+  Activity,
+  MessageSquare,
+  Shield,
+  TrendingUp,
+  Clock,
+  Globe,
+  Server,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { analyticsApi, messagingApi, systemApi } from "@/lib/api"
@@ -10,7 +20,11 @@ interface DashboardPageProps {
 }
 
 export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
-  const { data: dashboard, isLoading: dashLoading, isError: dashError } = useQuery({
+  const {
+    data: dashboard,
+    isLoading: dashLoading,
+    isError: dashError,
+  } = useQuery({
     queryKey: ["dashboard"],
     queryFn: analyticsApi.dashboard,
     enabled: isOpen,
@@ -106,7 +120,12 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
                 <Skeleton className="h-16 w-full bg-white/5" />
               ) : (
                 <>
-                  <div className={cn("w-10 h-10 rounded-full flex items-center justify-center mb-3", bg)}>
+                  <div
+                    className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center mb-3",
+                      bg,
+                    )}
+                  >
                     <Icon className={cn("h-5 w-5", color)} />
                   </div>
                   <p className="text-2xl font-bold text-white">{value.toLocaleString()}</p>
@@ -125,7 +144,11 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
             <div className="min-w-0">
               <p className="text-sm font-medium text-white">Backend service</p>
               <p className={cn("text-xs", backendError ? "text-red-400" : "text-gray-400")}>
-                {backendError ? "Unavailable" : backendHealth?.status === "healthy" ? "Connected" : "Checking…"}
+                {backendError
+                  ? "Unavailable"
+                  : backendHealth?.status === "healthy"
+                    ? "Connected"
+                    : "Checking…"}
               </p>
             </div>
           </div>

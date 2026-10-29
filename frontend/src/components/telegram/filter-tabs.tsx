@@ -35,14 +35,16 @@ export function FilterTabs({ tabs, activeTab, onTabChange }: FilterTabsProps) {
                 "flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-1",
                 isActive
                   ? "bg-[#3e546a] text-white"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
-              <span className={cn(
-                "text-xs font-medium",
-                isActive ? "text-white" : "text-muted-foreground"
-              )}>
+              <span
+                className={cn(
+                  "text-xs font-medium",
+                  isActive ? "text-white" : "text-muted-foreground",
+                )}
+              >
                 {tab.count}
               </span>
             </button>

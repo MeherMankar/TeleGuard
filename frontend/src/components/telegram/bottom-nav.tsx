@@ -33,7 +33,7 @@ export function BottomNav({ activeTab, onTabChange, unreadCount = 0 }: BottomNav
                 <Icon
                   className={cn(
                     "h-6 w-6 transition-colors",
-                    isActive ? "text-sky-400" : "text-muted-foreground"
+                    isActive ? "text-sky-400" : "text-muted-foreground",
                   )}
                 />
                 {showBadge && (
@@ -45,7 +45,7 @@ export function BottomNav({ activeTab, onTabChange, unreadCount = 0 }: BottomNav
               <span
                 className={cn(
                   "text-xs transition-colors",
-                  isActive ? "text-sky-400" : "text-muted-foreground"
+                  isActive ? "text-sky-400" : "text-muted-foreground",
                 )}
               >
                 {item.label}

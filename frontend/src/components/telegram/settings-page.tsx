@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState } from "react"
 import {
   ArrowLeft,
   Search,
@@ -20,29 +20,29 @@ import {
   Lightbulb,
   ShieldCheck,
   ExternalLink,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useUser } from "@/contexts/user-context";
-import { EditProfilePage } from "./edit-profile-page";
-import { SessionManagerPage } from "./session-manager-page";
-import { PrivacySecurityPage } from "./privacy-security-page";
-import { AccountSettingsPage } from "./account-settings-page";
-import { ChatFoldersPage } from "./chat-folders-page";
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useUser } from "@/contexts/user-context"
+import { EditProfilePage } from "./edit-profile-page"
+import { SessionManagerPage } from "./session-manager-page"
+import { PrivacySecurityPage } from "./privacy-security-page"
+import { AccountSettingsPage } from "./account-settings-page"
+import { ChatFoldersPage } from "./chat-folders-page"
 
 interface SettingsPageProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean
+  onClose: () => void
 }
 
 type Row = {
-  icon: typeof SettingsIcon;
-  label: string;
-  subtitle?: string;
-  iconBg: string;
-  iconColor?: string;
-};
+  icon: typeof SettingsIcon
+  label: string
+  subtitle?: string
+  iconBg: string
+  iconColor?: string
+}
 
-const plusItems: Row[] = [{ icon: Users, label: "Support group", iconBg: "bg-sky-500" }];
+const plusItems: Row[] = [{ icon: Users, label: "Support group", iconBg: "bg-sky-500" }]
 
 const mainItems: Row[] = [
   { icon: UserIcon, label: "Account", subtitle: "Number, Username, Bio", iconBg: "bg-sky-500" },
@@ -66,14 +66,14 @@ const mainItems: Row[] = [
   },
   { icon: Monitor, label: "Devices", subtitle: "Manage connected devices", iconBg: "bg-cyan-500" },
   { icon: Globe, label: "Language", subtitle: "English", iconBg: "bg-violet-500" },
-];
+]
 
 const helpItems: Row[] = [
   { icon: MessageSquare, label: "Ask a Question", iconBg: "bg-orange-500" },
   { icon: HelpCircle, label: "Telegram FAQ", iconBg: "bg-sky-500" },
   { icon: Lightbulb, label: "Telegram Features", iconBg: "bg-violet-500" },
   { icon: ShieldCheck, label: "Privacy Policy", iconBg: "bg-emerald-500" },
-];
+]
 
 function SectionCard({ children, label }: { children: React.ReactNode; label?: string }) {
   return (
@@ -81,11 +81,11 @@ function SectionCard({ children, label }: { children: React.ReactNode; label?: s
       {label && <p className="px-4 pt-3 pb-1 text-sky-400 text-[13px] font-semibold">{label}</p>}
       {children}
     </div>
-  );
+  )
 }
 
 function SettingsRow({ row, last, onClick }: { row: Row; last?: boolean; onClick?: () => void }) {
-  const Icon = row.icon;
+  const Icon = row.icon
   return (
     <button
       onClick={onClick}
@@ -110,7 +110,7 @@ function SettingsRow({ row, last, onClick }: { row: Row; last?: boolean; onClick
       </div>
       <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
     </button>
-  );
+  )
 }
 
 function SettingsSubPage({
@@ -118,9 +118,9 @@ function SettingsSubPage({
   isOpen,
   onClose,
 }: {
-  title: string;
-  isOpen: boolean;
-  onClose: () => void;
+  title: string
+  isOpen: boolean
+  onClose: () => void
 }) {
   return (
     <div
@@ -139,43 +139,43 @@ function SettingsSubPage({
       <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
         <ExternalLink className="h-10 w-10 text-muted-foreground" />
         <p className="text-muted-foreground text-sm leading-relaxed">
-          <strong className="text-foreground">{title}</strong> settings are managed in the official Telegram app
-          and cannot be changed here.
+          <strong className="text-foreground">{title}</strong> settings are managed in the official
+          Telegram app and cannot be changed here.
         </p>
       </div>
     </div>
-  );
+  )
 }
 
 export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
-  const { profile, setAvatarUrl } = useUser();
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const [scrolled, setScrolled] = useState(false);
-  const [activeSub, setActiveSub] = useState<string | null>(null);
-  const [isEditProfileOpen, setEditProfileOpen] = useState(false);
-  const [isDevicesOpen, setIsDevicesOpen] = useState(false);
-  const [isPrivacySecurityOpen, setIsPrivacySecurityOpen] = useState(false);
-  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
-  const [isChatFoldersOpen, setIsChatFoldersOpen] = useState(false);
+  const { profile, setAvatarUrl } = useUser()
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [scrolled, setScrolled] = useState(false)
+  const [activeSub, setActiveSub] = useState<string | null>(null)
+  const [isEditProfileOpen, setEditProfileOpen] = useState(false)
+  const [isDevicesOpen, setIsDevicesOpen] = useState(false)
+  const [isPrivacySecurityOpen, setIsPrivacySecurityOpen] = useState(false)
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false)
+  const [isChatFoldersOpen, setIsChatFoldersOpen] = useState(false)
 
   function openRow(label: string) {
     if (label === "Account") {
-      setIsAccountSettingsOpen(true);
+      setIsAccountSettingsOpen(true)
     } else if (label === "Devices") {
-      setIsDevicesOpen(true);
+      setIsDevicesOpen(true)
     } else if (label === "Privacy & Security") {
-      setIsPrivacySecurityOpen(true);
+      setIsPrivacySecurityOpen(true)
     } else if (label === "Chat Folders") {
-      setIsChatFoldersOpen(true);
+      setIsChatFoldersOpen(true)
     } else {
-      setActiveSub(label);
+      setActiveSub(label)
     }
   }
 
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setAvatarUrl(URL.createObjectURL(file));
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAvatarUrl(URL.createObjectURL(file))
   }
 
   return (
@@ -295,5 +295,5 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
         onClose={() => setActiveSub(null)}
       />
     </div>
-  );
+  )
 }

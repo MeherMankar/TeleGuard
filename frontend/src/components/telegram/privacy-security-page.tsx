@@ -40,8 +40,8 @@ interface PickerProps {
 
 const OPTIONS = [
   { value: "everybody", label: "Everybody" },
-  { value: "contacts",  label: "My Contacts" },
-  { value: "nobody",    label: "Nobody" },
+  { value: "contacts", label: "My Contacts" },
+  { value: "nobody", label: "Nobody" },
 ]
 
 function PrivacyPicker({ label, current, onSave, onBack, loading }: PickerProps) {
@@ -73,7 +73,12 @@ function PrivacyPicker({ label, current, onSave, onBack, loading }: PickerProps)
                 i < OPTIONS.length - 1 && "border-b border-border/30",
               )}
             >
-              <span className={cn("text-[15px]", selected === opt.value ? "text-primary font-medium" : "text-foreground")}>
+              <span
+                className={cn(
+                  "text-[15px]",
+                  selected === opt.value ? "text-primary font-medium" : "text-foreground",
+                )}
+              >
                 {opt.label}
               </span>
               {selected === opt.value && (
@@ -94,8 +99,8 @@ function PrivacyPicker({ label, current, onSave, onBack, loading }: PickerProps)
 function optionLabel(v: string | undefined): string {
   if (!v || v === "unknown") return "—"
   if (v === "everybody") return "Everybody"
-  if (v === "contacts")  return "My Contacts"
-  if (v === "nobody")    return "Nobody"
+  if (v === "contacts") return "My Contacts"
+  if (v === "nobody") return "Nobody"
   return v
 }
 
@@ -129,21 +134,29 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
     onError: (e) => toast.error(apiErrorMessage(e)),
   })
 
-  const handleSave = useCallback((key: string, value: string) => {
-    mutation.mutate({ key, value })
-  }, [mutation])
+  const handleSave = useCallback(
+    (key: string, value: string) => {
+      mutation.mutate({ key, value })
+    },
+    [mutation],
+  )
 
   const s = data?.settings
 
-  const privacyRows: { icon: React.ElementType; label: string; key: keyof PrivacySettings; iconBg: string }[] = [
-    { icon: Eye,       label: "Last Seen & Online",      key: "last_seen",      iconBg: "bg-sky-500" },
-    { icon: Phone,     label: "Phone Number",             key: "phone",          iconBg: "bg-emerald-500" },
-    { icon: Users,     label: "Profile Photo",            key: "profile_photo",  iconBg: "bg-rose-500" },
-    { icon: AtSign,    label: "Bio",                      key: "bio",            iconBg: "bg-cyan-500" },
-    { icon: Link2,     label: "Forwarded Messages",       key: "forwards",       iconBg: "bg-indigo-500" },
-    { icon: UserPlus,  label: "Who can add me to groups", key: "groups",         iconBg: "bg-violet-500" },
-    { icon: PhoneCall, label: "Calls",                    key: "calls",          iconBg: "bg-orange-500" },
-    { icon: Mic,       label: "Voice Messages",           key: "voice_messages", iconBg: "bg-teal-500" },
+  const privacyRows: {
+    icon: React.ElementType
+    label: string
+    key: keyof PrivacySettings
+    iconBg: string
+  }[] = [
+    { icon: Eye, label: "Last Seen & Online", key: "last_seen", iconBg: "bg-sky-500" },
+    { icon: Phone, label: "Phone Number", key: "phone", iconBg: "bg-emerald-500" },
+    { icon: Users, label: "Profile Photo", key: "profile_photo", iconBg: "bg-rose-500" },
+    { icon: AtSign, label: "Bio", key: "bio", iconBg: "bg-cyan-500" },
+    { icon: Link2, label: "Forwarded Messages", key: "forwards", iconBg: "bg-indigo-500" },
+    { icon: UserPlus, label: "Who can add me to groups", key: "groups", iconBg: "bg-violet-500" },
+    { icon: PhoneCall, label: "Calls", key: "calls", iconBg: "bg-orange-500" },
+    { icon: Mic, label: "Voice Messages", key: "voice_messages", iconBg: "bg-teal-500" },
   ]
 
   return (
@@ -182,7 +195,9 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
           {isError && !isLoading && (
             <div className="mx-4 mt-6 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
-              <p className="text-red-400 text-sm">Failed to load privacy settings. Is the bot running?</p>
+              <p className="text-red-400 text-sm">
+                Failed to load privacy settings. Is the bot running?
+              </p>
             </div>
           )}
 
@@ -190,7 +205,9 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
             <>
               {/* Privacy */}
               <div className="mx-3 mt-4">
-                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">Privacy</p>
+                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">
+                  Privacy
+                </p>
                 <div className="rounded-2xl bg-card overflow-hidden border border-border/40">
                   {privacyRows.map(({ icon: Icon, label, key, iconBg }, i) => (
                     <button
@@ -201,31 +218,46 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
                         i < privacyRows.length - 1 && "border-b border-border/30",
                       )}
                     >
-                      <div className={cn("w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0", iconBg)}>
+                      <div
+                        className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
+                          iconBg,
+                        )}
+                      >
                         <Icon className="h-5 w-5 text-white" />
                       </div>
-                      <span className="flex-1 text-[15px] text-foreground font-medium">{label}</span>
+                      <span className="flex-1 text-[15px] text-foreground font-medium">
+                        {label}
+                      </span>
                       <span className="text-[14px] text-sky-400 mr-1">{optionLabel(s[key])}</span>
                       <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     </button>
                   ))}
                 </div>
-                <p className="px-4 pt-2 text-[13px] text-muted-foreground">Change who can see your personal info.</p>
+                <p className="px-4 pt-2 text-[13px] text-muted-foreground">
+                  Change who can see your personal info.
+                </p>
               </div>
 
               {/* Security */}
               <div className="mx-3 mt-4">
-                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">Security</p>
+                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">
+                  Security
+                </p>
                 <div className="rounded-2xl bg-card overflow-hidden border border-border/40">
                   <div className="flex items-center gap-3.5 px-4 py-3 border-b border-border/30">
                     <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
                       <Key className="h-5 w-5 text-white" />
                     </div>
-                    <span className="flex-1 text-[15px] text-foreground font-medium">Two-Step Verification</span>
-                    <span className={cn(
-                      "text-[14px] font-medium",
-                      data.twofa_enabled ? "text-emerald-400" : "text-muted-foreground",
-                    )}>
+                    <span className="flex-1 text-[15px] text-foreground font-medium">
+                      Two-Step Verification
+                    </span>
+                    <span
+                      className={cn(
+                        "text-[14px] font-medium",
+                        data.twofa_enabled ? "text-emerald-400" : "text-muted-foreground",
+                      )}
+                    >
                       {data.twofa_enabled ? "On" : "Off"}
                     </span>
                   </div>
@@ -236,7 +268,9 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
                     <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center flex-shrink-0">
                       <Smartphone className="h-5 w-5 text-white" />
                     </div>
-                    <span className="flex-1 text-[15px] text-foreground font-medium">Active Sessions</span>
+                    <span className="flex-1 text-[15px] text-foreground font-medium">
+                      Active Sessions
+                    </span>
                     <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                   </button>
                 </div>
@@ -251,7 +285,9 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
                     </div>
                     <div className="flex-1">
                       <p className="text-[15px] text-red-500 font-medium">Delete My Account</p>
-                      <p className="text-[13px] text-muted-foreground">Use the official Telegram app</p>
+                      <p className="text-[13px] text-muted-foreground">
+                        Use the official Telegram app
+                      </p>
                     </div>
                   </button>
                 </div>
@@ -273,10 +309,7 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
       )}
 
       {/* Sessions sub-page */}
-      <SessionManagerPage
-        isOpen={isSessionsOpen}
-        onClose={() => setIsSessionsOpen(false)}
-      />
+      <SessionManagerPage isOpen={isSessionsOpen} onClose={() => setIsSessionsOpen(false)} />
     </>
   )
 }

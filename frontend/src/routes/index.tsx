@@ -11,22 +11,77 @@ import { useAuth } from "@/hooks/use-auth"
 import { authApi, chatsApi, type Dialog, type ChatFolder } from "@/lib/api"
 import { authStore } from "@/store/auth"
 import { useWsEvent } from "@/hooks/use-ws-event"
-import { Loader2, MessageSquare, FolderOpen, Users, Radio, Bot, User, Bell, Folder, Pin, Check, VolumeX, BadgeCheck, Bookmark } from "lucide-react"
+import {
+  Loader2,
+  MessageSquare,
+  FolderOpen,
+  Users,
+  Radio,
+  Bot,
+  User,
+  Bell,
+  Folder,
+  Pin,
+  Check,
+  VolumeX,
+  BadgeCheck,
+  Bookmark,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 
+interface TelegramWebApp {
+  initData?: string
+  ready?: () => void
+  expand?: () => void
+}
+
+interface TelegramWindow extends Window {
+  Telegram?: {
+    WebApp?: TelegramWebApp
+  }
+}
+
 // Lazily-loaded panels — only bundled when first opened
-const ProfilePage          = lazy(() => import("@/components/telegram/profile-page").then(m => ({ default: m.ProfilePage })))
-const AuthFlow             = lazy(() => import("@/components/telegram/auth/auth-flow").then(m => ({ default: m.AuthFlow })))
-const SettingsPage         = lazy(() => import("@/components/telegram/settings-page").then(m => ({ default: m.SettingsPage })))
-const ContactsListPage     = lazy(() => import("@/components/telegram/contacts-list-page").then(m => ({ default: m.ContactsListPage })))
-const ProtectionManagerPage = lazy(() => import("@/components/telegram/protection-manager-page").then(m => ({ default: m.ProtectionManagerPage })))
-const SpamMasterPage       = lazy(() => import("@/components/telegram/spam-master-page").then(m => ({ default: m.SpamMasterPage })))
-const CleanupPage          = lazy(() => import("@/components/telegram/cleanup-page").then(m => ({ default: m.CleanupPage })))
-const AutomationPage       = lazy(() => import("@/components/telegram/automation-page").then(m => ({ default: m.AutomationPage })))
-const SessionManagerPage   = lazy(() => import("@/components/telegram/session-manager-page").then(m => ({ default: m.SessionManagerPage })))
-const DashboardPage        = lazy(() => import("@/components/telegram/dashboard-page").then(m => ({ default: m.DashboardPage })))
-const ProxyManagerPage     = lazy(() => import("@/components/telegram/proxy-manager-page").then(m => ({ default: m.ProxyManagerPage })))
-const ChatFoldersPage      = lazy(() => import("@/components/telegram/chat-folders-page").then(m => ({ default: m.ChatFoldersPage })))
+const ProfilePage = lazy(() =>
+  import("@/components/telegram/profile-page").then((m) => ({ default: m.ProfilePage })),
+)
+const AuthFlow = lazy(() =>
+  import("@/components/telegram/auth/auth-flow").then((m) => ({ default: m.AuthFlow })),
+)
+const SettingsPage = lazy(() =>
+  import("@/components/telegram/settings-page").then((m) => ({ default: m.SettingsPage })),
+)
+const ContactsListPage = lazy(() =>
+  import("@/components/telegram/contacts-list-page").then((m) => ({ default: m.ContactsListPage })),
+)
+const ProtectionManagerPage = lazy(() =>
+  import("@/components/telegram/protection-manager-page").then((m) => ({
+    default: m.ProtectionManagerPage,
+  })),
+)
+const SpamMasterPage = lazy(() =>
+  import("@/components/telegram/spam-master-page").then((m) => ({ default: m.SpamMasterPage })),
+)
+const CleanupPage = lazy(() =>
+  import("@/components/telegram/cleanup-page").then((m) => ({ default: m.CleanupPage })),
+)
+const AutomationPage = lazy(() =>
+  import("@/components/telegram/automation-page").then((m) => ({ default: m.AutomationPage })),
+)
+const SessionManagerPage = lazy(() =>
+  import("@/components/telegram/session-manager-page").then((m) => ({
+    default: m.SessionManagerPage,
+  })),
+)
+const DashboardPage = lazy(() =>
+  import("@/components/telegram/dashboard-page").then((m) => ({ default: m.DashboardPage })),
+)
+const ProxyManagerPage = lazy(() =>
+  import("@/components/telegram/proxy-manager-page").then((m) => ({ default: m.ProxyManagerPage })),
+)
+const ChatFoldersPage = lazy(() =>
+  import("@/components/telegram/chat-folders-page").then((m) => ({ default: m.ChatFoldersPage })),
+)
 
 function safeText(v: unknown): string | null {
   if (v === null || v === undefined) return null
@@ -37,7 +92,11 @@ function safeText(v: unknown): string | null {
     if (typeof obj.text === "string") return obj.text
     if (typeof obj.message === "string") return obj.message
   }
-  try { return String(v) } catch { return null }
+  try {
+    return String(v)
+  } catch {
+    return null
+  }
 }
 
 export const Route = createFileRoute("/")({
@@ -59,18 +118,24 @@ function AppShell() {
 
   // On mount: if running inside Telegram WebApp, auto-login with initData
   useEffect(() => {
-    if (authenticated) { setAutoLogging(false); return }
+    if (authenticated) {
+      setAutoLogging(false)
+      return
+    }
 
-    const tg = (window as any).Telegram?.WebApp
+    const tg = (window as TelegramWindow).Telegram?.WebApp
     if (tg?.initData) {
       // Running inside Telegram — auto-login silently
-      authApi.login(tg.initData)
+      authApi
+        .login(tg.initData)
         .then((res) => {
           authStore.login(res.token, res.user)
           tg.ready?.()
           tg.expand?.()
         })
-        .catch((e) => { if (import.meta.env.DEV) console.error(e) })
+        .catch((e) => {
+          if (import.meta.env.DEV) console.error(e)
+        })
         .finally(() => setAutoLogging(false))
     } else {
       setAutoLogging(false)
@@ -93,7 +158,7 @@ function AppShell() {
 function LoginGate() {
   const [loading, setLoading] = useState(false)
   const [showAuthFlow, setShowAuthFlow] = useState(false)
-  const isTelegramWebApp = !!(window as any).Telegram?.WebApp?.initData
+  const isTelegramWebApp = !!(window as TelegramWindow).Telegram?.WebApp?.initData
 
   const handleDevLogin = async () => {
     setLoading(true)
@@ -130,8 +195,7 @@ function LoginGate() {
             <p className="text-[#2AABEE] text-sm font-medium mb-1">Open inside Telegram</p>
             <p className="text-gray-400 text-xs leading-relaxed">
               For automatic login, open TeleGuard via{" "}
-              <span className="text-white font-medium">@TeleGuardRobot</span>
-              {" "}→ Menu → Dashboard.
+              <span className="text-white font-medium">@TeleGuardRobot</span> → Menu → Dashboard.
               <br />
               Your bot accounts will load instantly.
             </p>
@@ -176,7 +240,9 @@ function TelegramChatList() {
   const { activeAccount } = useUser()
 
   const [searchValue, setSearchValue] = useState("")
-  const [activeNavTab, setActiveNavTab] = useState<"chats" | "contacts" | "settings" | "profile">("chats")
+  const [activeNavTab, setActiveNavTab] = useState<"chats" | "contacts" | "settings" | "profile">(
+    "chats",
+  )
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isAuthFlowOpen, setIsAuthFlowOpen] = useState(false)
@@ -209,11 +275,14 @@ function TelegramChatList() {
 
   useWsEvent(
     "new_message",
-    useCallback((event) => {
-      const eventAccountName = typeof event.account_name === "string" ? event.account_name : null
-      if (eventAccountName && eventAccountName !== activeAccount?.name) return
-      queryClient.invalidateQueries({ queryKey: ["dialogs", activeAccount?.name] })
-    }, [activeAccount?.name, queryClient]),
+    useCallback(
+      (event) => {
+        const eventAccountName = typeof event.account_name === "string" ? event.account_name : null
+        if (eventAccountName && eventAccountName !== activeAccount?.name) return
+        queryClient.invalidateQueries({ queryKey: ["dialogs", activeAccount?.name] })
+      },
+      [activeAccount?.name, queryClient],
+    ),
   )
 
   const handleNavTabChange = (tab: "chats" | "contacts" | "settings" | "profile") => {
@@ -263,7 +332,12 @@ function TelegramChatList() {
           onProfileClick={() => setIsProfileOpen(true)}
           onSavedMessagesClick={() => {
             // Navigate to Saved Messages (Telegram entity "me" — chat ID matches user's own ID)
-            if (activeAccount) navigate({ to: "/chat/$chatId", params: { chatId: "saved" }, search: { account: activeAccount.name } })
+            if (activeAccount)
+              navigate({
+                to: "/chat/$chatId",
+                params: { chatId: "saved" },
+                search: { account: activeAccount.name },
+              })
           }}
           onAddAccountClick={() => setIsAuthFlowOpen(true)}
           onSettingsClick={() => setIsSettingsOpen(true)}
@@ -279,16 +353,43 @@ function TelegramChatList() {
         />
 
         <Suspense fallback={null}>
-          <SettingsPage isOpen={isSettingsOpen} onClose={() => { setIsSettingsOpen(false); setActiveNavTab("chats") }} />
-          <ProfilePage isOpen={isProfileOpen} onClose={() => { setIsProfileOpen(false); setActiveNavTab("chats") }} />
-          <ContactsListPage isOpen={isContactsOpen} onClose={() => { setIsContactsOpen(false); setActiveNavTab("chats") }} />
-          <ProtectionManagerPage isOpen={isProtectionManagerOpen} onClose={() => setIsProtectionManagerOpen(false)} />
+          <SettingsPage
+            isOpen={isSettingsOpen}
+            onClose={() => {
+              setIsSettingsOpen(false)
+              setActiveNavTab("chats")
+            }}
+          />
+          <ProfilePage
+            isOpen={isProfileOpen}
+            onClose={() => {
+              setIsProfileOpen(false)
+              setActiveNavTab("chats")
+            }}
+          />
+          <ContactsListPage
+            isOpen={isContactsOpen}
+            onClose={() => {
+              setIsContactsOpen(false)
+              setActiveNavTab("chats")
+            }}
+          />
+          <ProtectionManagerPage
+            isOpen={isProtectionManagerOpen}
+            onClose={() => setIsProtectionManagerOpen(false)}
+          />
           <SpamMasterPage isOpen={isSpamMasterOpen} onClose={() => setIsSpamMasterOpen(false)} />
           <CleanupPage isOpen={isCleanupOpen} onClose={() => setIsCleanupOpen(false)} />
           <AutomationPage isOpen={isAutomationOpen} onClose={() => setIsAutomationOpen(false)} />
-          <SessionManagerPage isOpen={isSessionManagerOpen} onClose={() => setIsSessionManagerOpen(false)} />
+          <SessionManagerPage
+            isOpen={isSessionManagerOpen}
+            onClose={() => setIsSessionManagerOpen(false)}
+          />
           <DashboardPage isOpen={isDashboardOpen} onClose={() => setIsDashboardOpen(false)} />
-          <ProxyManagerPage isOpen={isProxyManagerOpen} onClose={() => setIsProxyManagerOpen(false)} />
+          <ProxyManagerPage
+            isOpen={isProxyManagerOpen}
+            onClose={() => setIsProxyManagerOpen(false)}
+          />
           <ChatFoldersPage isOpen={isChatFoldersOpen} onClose={() => setIsChatFoldersOpen(false)} />
           <AuthFlow
             isOpen={isAuthFlowOpen}
@@ -301,130 +402,144 @@ function TelegramChatList() {
         </Suspense>
 
         <main className="relative min-h-screen w-full pb-20 md:flex md:h-screen md:min-h-0 md:w-[420px] md:shrink-0 md:flex-col md:border-r md:border-white/[0.08] md:pb-0">
-        <SearchHeader
-          searchValue={searchValue}
-          onSearchChange={setSearchValue}
-          onMenuClick={() => setIsSidebarOpen(true)}
-          title={activeAccount?.name ?? "TeleGuard"}
-        />
+          <SearchHeader
+            searchValue={searchValue}
+            onSearchChange={setSearchValue}
+            onMenuClick={() => setIsSidebarOpen(true)}
+            title={activeAccount?.name ?? "TeleGuard"}
+          />
 
-        {/* Dynamic folder tabs — from real Telegram API */}
-        {folders.length > 0 && (
-          <div className="flex gap-1 overflow-x-auto border-b border-white/[0.06] px-3 py-2.5 scrollbar-hide">
-            {folders.map((folder) => {
-              const unread = folder.id === 0
-                ? totalUnread
-                : dialogs.filter((d) =>
-                    d.unread_count > 0 && matchesFolder(d, folder)
-                  ).reduce((s, d) => s + d.unread_count, 0)
+          {/* Dynamic folder tabs — from real Telegram API */}
+          {folders.length > 0 && (
+            <div className="flex gap-1 overflow-x-auto border-b border-white/[0.06] px-3 py-2.5 scrollbar-hide">
+              {folders.map((folder) => {
+                const unread =
+                  folder.id === 0
+                    ? totalUnread
+                    : dialogs
+                        .filter((d) => d.unread_count > 0 && matchesFolder(d, folder))
+                        .reduce((s, d) => s + d.unread_count, 0)
 
-              // Pick icon based on folder type or stored icon id
-              const FolderTabIcon = folder.is_default
-                ? MessageSquare
-                : folder.emoji === "users" || folder.groups ? Users
-                : folder.emoji === "radio" || folder.broadcasts ? Radio
-                : folder.emoji === "bot" || folder.bots ? Bot
-                : folder.emoji === "user" || folder.contacts ? User
-                : folder.emoji === "bell" ? Bell
-                : Folder
+                // Pick icon based on folder type or stored icon id
+                const FolderTabIcon = folder.is_default
+                  ? MessageSquare
+                  : folder.emoji === "users" || folder.groups
+                    ? Users
+                    : folder.emoji === "radio" || folder.broadcasts
+                      ? Radio
+                      : folder.emoji === "bot" || folder.bots
+                        ? Bot
+                        : folder.emoji === "user" || folder.contacts
+                          ? User
+                          : folder.emoji === "bell"
+                            ? Bell
+                            : Folder
 
-              const isActive = activeFolder === folder.id
+                const isActive = activeFolder === folder.id
 
-              return (
-                <button
-                  key={folder.id}
-                  onClick={() => setActiveFolder(folder.id)}
-                  className={cn(
-                    "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
-                    isActive
-                      ? "bg-[#2AABEE]/15 text-[#70c5f3]"
-                      : "text-gray-400 hover:bg-white/[0.05] hover:text-white",
-                  )}
-                >
-                  <FolderTabIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>{folder.title}</span>
-                  {unread > 0 && (
-                    <span className={cn(
-                      "text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                      isActive ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
-                    )}>
-                      {unread > 99 ? "99+" : unread}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-            {/* Edit folders */}
-            <button
-              onClick={() => setIsChatFoldersOpen(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-white/[0.05] hover:text-white"
-              title="Manage folders"
-            >
-              <FolderOpen className="h-4 w-4" />
-              <span>Manage</span>
-            </button>
-          </div>
-        )}
+                return (
+                  <button
+                    key={folder.id}
+                    onClick={() => setActiveFolder(folder.id)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
+                      isActive
+                        ? "bg-[#2AABEE]/15 text-[#70c5f3]"
+                        : "text-gray-400 hover:bg-white/[0.05] hover:text-white",
+                    )}
+                  >
+                    <FolderTabIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{folder.title}</span>
+                    {unread > 0 && (
+                      <span
+                        className={cn(
+                          "text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                          isActive ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
+                        )}
+                      >
+                        {unread > 99 ? "99+" : unread}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+              {/* Edit folders */}
+              <button
+                onClick={() => setIsChatFoldersOpen(true)}
+                className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-white/[0.05] hover:text-white"
+                title="Manage folders"
+              >
+                <FolderOpen className="h-4 w-4" />
+                <span>Manage</span>
+              </button>
+            </div>
+          )}
 
-        {/* No folders yet — show edit button */}
-        {activeAccount && folders.length === 0 && !dialogsLoading && (
-          <div className="px-4 py-2 flex items-center gap-2">
-            <button
-              onClick={() => setIsChatFoldersOpen(true)}
-              className="flex items-center gap-2 text-gray-500 hover:text-[#2AABEE] text-sm transition-colors"
-            >
-              <FolderOpen className="h-4 w-4" />
-              <span>Create chat folders</span>
-            </button>
-          </div>
-        )}
+          {/* No folders yet — show edit button */}
+          {activeAccount && folders.length === 0 && !dialogsLoading && (
+            <div className="px-4 py-2 flex items-center gap-2">
+              <button
+                onClick={() => setIsChatFoldersOpen(true)}
+                className="flex items-center gap-2 text-gray-500 hover:text-[#2AABEE] text-sm transition-colors"
+              >
+                <FolderOpen className="h-4 w-4" />
+                <span>Create chat folders</span>
+              </button>
+            </div>
+          )}
 
-        {!activeAccount && (
-          <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-            <MessageSquare className="h-16 w-16 text-gray-600 mb-4" />
-            <p className="text-white font-medium text-lg mb-2">No account connected</p>
-            <p className="text-gray-400 text-sm mb-6">Add a Telegram account to start messaging</p>
-            <button
-              onClick={() => setIsAuthFlowOpen(true)}
-              className="px-6 py-3 bg-[#2AABEE] text-white rounded-xl font-medium"
-            >
-              Add Account
-            </button>
-          </div>
-        )}
+          {!activeAccount && (
+            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+              <MessageSquare className="h-16 w-16 text-gray-600 mb-4" />
+              <p className="text-white font-medium text-lg mb-2">No account connected</p>
+              <p className="text-gray-400 text-sm mb-6">
+                Add a Telegram account to start messaging
+              </p>
+              <button
+                onClick={() => setIsAuthFlowOpen(true)}
+                className="px-6 py-3 bg-[#2AABEE] text-white rounded-xl font-medium"
+              >
+                Add Account
+              </button>
+            </div>
+          )}
 
-        {activeAccount && dialogsLoading && (
-          <div className="flex justify-center py-20">
-            <Loader2 className="h-8 w-8 text-[#2AABEE] animate-spin" />
-          </div>
-        )}
+          {activeAccount && dialogsLoading && (
+            <div className="flex justify-center py-20">
+              <Loader2 className="h-8 w-8 text-[#2AABEE] animate-spin" />
+            </div>
+          )}
 
-        {activeAccount && !dialogsLoading && (
-          <div className="divide-y divide-white/[0.06] md:min-h-0 md:flex-1 md:overflow-y-auto">
-            {filteredDialogs.length === 0 && (
-              <div className="text-center py-16 text-gray-400 text-sm">
-                {searchValue ? "No chats match your search" : "No chats yet"}
-              </div>
-            )}
-            {filteredDialogs.map((dialog) => (
-              <DialogItem
-                key={dialog.id}
-                dialog={dialog}
-                accountName={activeAccount.name}
-                onClick={() =>
-                  navigate({
-                    to: "/chat/$chatId",
-                    params: { chatId: String(dialog.id) },
-                    search: { account: activeAccount.name },
-                  })
-                }
-              />
-            ))}
-          </div>
-        )}
+          {activeAccount && !dialogsLoading && (
+            <div className="divide-y divide-white/[0.06] md:min-h-0 md:flex-1 md:overflow-y-auto">
+              {filteredDialogs.length === 0 && (
+                <div className="text-center py-16 text-gray-400 text-sm">
+                  {searchValue ? "No chats match your search" : "No chats yet"}
+                </div>
+              )}
+              {filteredDialogs.map((dialog) => (
+                <DialogItem
+                  key={dialog.id}
+                  dialog={dialog}
+                  accountName={activeAccount.name}
+                  onClick={() =>
+                    navigate({
+                      to: "/chat/$chatId",
+                      params: { chatId: String(dialog.id) },
+                      search: { account: activeAccount.name },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          )}
 
-        <FabButton onClick={() => setIsContactsOpen(true)} />
-        <BottomNav activeTab={activeNavTab} onTabChange={handleNavTabChange} unreadCount={totalUnread} />
+          <FabButton onClick={() => setIsContactsOpen(true)} />
+          <BottomNav
+            activeTab={activeNavTab}
+            onTabChange={handleNavTabChange}
+            unreadCount={totalUnread}
+          />
         </main>
 
         <aside className="hidden min-w-0 flex-1 flex-col items-center justify-center bg-[#101820] px-8 text-center md:flex">
@@ -433,7 +548,8 @@ function TelegramChatList() {
           </div>
           <h2 className="text-lg font-medium text-white">Your messages, in one place</h2>
           <p className="mt-2 max-w-sm text-sm leading-relaxed text-gray-400">
-            Choose a conversation to view messages, or use the menu to manage your Telegram accounts.
+            Choose a conversation to view messages, or use the menu to manage your Telegram
+            accounts.
           </p>
         </aside>
       </div>
@@ -441,12 +557,19 @@ function TelegramChatList() {
   )
 }
 
-function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountName: string; onClick: () => void }) {
+function DialogItem({
+  dialog,
+  accountName,
+  onClick,
+}: {
+  dialog: Dialog
+  accountName: string
+  onClick: () => void
+}) {
   const [imgError, setImgError] = useState(false)
   const displayName = dialog.name || dialog.title || "Unknown"
-  const photoUrl = accountName && dialog.has_photo
-    ? chatsApi.photoUrl(accountName, dialog.entity_id)
-    : null
+  const photoUrl =
+    accountName && dialog.has_photo ? chatsApi.photoUrl(accountName, dialog.entity_id) : null
 
   // ── Time formatting (Telegram-style) ─────────────────────────────────
   const timeDisplay = (() => {
@@ -456,7 +579,8 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
     const diffMs = now.getTime() - msgDate.getTime()
     const diffDays = Math.floor(diffMs / 86400000)
 
-    if (diffDays === 0) return msgDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    if (diffDays === 0)
+      return msgDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     if (diffDays === 1) return "Yesterday"
     if (diffDays < 7) return msgDate.toLocaleDateString([], { weekday: "short" })
     return msgDate.toLocaleDateString([], { day: "numeric", month: "short" })
@@ -467,8 +591,14 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
     const t = dialog.last_message?.media_type
     if (!t) return null
     const icons: Record<string, string> = {
-      photo: "🖼", video: "🎬", gif: "GIF", sticker: "🎭",
-      voice: "🎤", audio: "🎵", file: "📄", webpage: "🔗",
+      photo: "🖼",
+      video: "🎬",
+      gif: "GIF",
+      sticker: "🎭",
+      voice: "🎤",
+      audio: "🎵",
+      file: "📄",
+      webpage: "🔗",
     }
     return icons[t] ?? "📎"
   })()
@@ -478,9 +608,18 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
 
   // ── Avatar fallback color ─────────────────────────────────────────────
   const colors = [
-    "#E53935", "#D81B60", "#8E24AA", "#5E35B1",
-    "#1E88E5", "#00897B", "#43A047", "#FB8C00",
-    "#F4511E", "#6D4C41", "#039BE5", "#00ACC1",
+    "#E53935",
+    "#D81B60",
+    "#8E24AA",
+    "#5E35B1",
+    "#1E88E5",
+    "#00897B",
+    "#43A047",
+    "#FB8C00",
+    "#F4511E",
+    "#6D4C41",
+    "#039BE5",
+    "#00ACC1",
   ]
   const color = colors[Math.abs(dialog.id) % colors.length]
   const initial = displayName.charAt(0).toUpperCase()
@@ -538,28 +677,24 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
             {dialog.is_channel && !dialog.is_group && (
               <Radio className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
             )}
-            {dialog.is_group && (
-              <Users className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-            )}
-            {dialog.is_bot && (
-              <Bot className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-            )}
+            {dialog.is_group && <Users className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />}
+            {dialog.is_bot && <Bot className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />}
             <p className="text-white font-medium text-[15px] truncate leading-tight">
               {displayName}
             </p>
-            {dialog.verified && (
-              <BadgeCheck className="h-3.5 w-3.5 text-[#2AABEE] flex-shrink-0" />
-            )}
+            {dialog.verified && <BadgeCheck className="h-3.5 w-3.5 text-[#2AABEE] flex-shrink-0" />}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             {dialog.last_message?.out && !dialog.muted && (
               <Check className="h-3.5 w-3.5 text-gray-500" />
             )}
             {dialog.muted && <VolumeX className="h-3 w-3 text-gray-600" />}
-            <span className={cn(
-              "text-xs whitespace-nowrap",
-              dialog.unread_count > 0 && !dialog.muted ? "text-[#2AABEE]" : "text-gray-500",
-            )}>
+            <span
+              className={cn(
+                "text-xs whitespace-nowrap",
+                dialog.unread_count > 0 && !dialog.muted ? "text-[#2AABEE]" : "text-gray-500",
+              )}
+            >
               {timeDisplay}
             </span>
           </div>
@@ -573,9 +708,7 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
               <span className="text-[#2AABEE] mr-1 font-medium">{senderName}:</span>
             )}
             {/* Outgoing indicator */}
-            {dialog.last_message?.out && (
-              <span className="text-gray-500 mr-1">You:</span>
-            )}
+            {dialog.last_message?.out && <span className="text-gray-500 mr-1">You:</span>}
             {/* Media icon */}
             {mediaIcon && <span className="mr-1">{mediaIcon}</span>}
             {/* Text preview */}
@@ -588,10 +721,12 @@ function DialogItem({ dialog, accountName, onClick }: { dialog: Dialog; accountN
 
           {/* Unread badge */}
           {dialog.unread_count > 0 ? (
-            <span className={cn(
-              "ml-1 min-w-[20px] h-5 rounded-full text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0",
-              dialog.muted ? "bg-gray-600" : "bg-[#2AABEE]",
-            )}>
+            <span
+              className={cn(
+                "ml-1 min-w-[20px] h-5 rounded-full text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0",
+                dialog.muted ? "bg-gray-600" : "bg-[#2AABEE]",
+              )}
+            >
               {dialog.unread_count > 9999 ? "9999+" : dialog.unread_count}
             </span>
           ) : dialog.pinned ? (

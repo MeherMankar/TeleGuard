@@ -75,9 +75,9 @@ export function ChatItem({
   }
 
   return (
-    <Link 
-      to="/chat/$chatId" 
-      params={{ chatId: id }} 
+    <Link
+      to="/chat/$chatId"
+      params={{ chatId: id }}
       className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#202b36] cursor-pointer transition-colors"
     >
       {/* Avatar with online indicator */}
@@ -98,17 +98,11 @@ export function ChatItem({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-medium text-foreground truncate">{name}</span>
-            {isVerified && (
-              <BadgeCheck className="h-4 w-4 text-sky-400 fill-sky-400 shrink-0" />
-            )}
-            {isMuted && (
-              <VolumeX className="h-4 w-4 text-muted-foreground shrink-0" />
-            )}
+            {isVerified && <BadgeCheck className="h-4 w-4 text-sky-400 fill-sky-400 shrink-0" />}
+            {isMuted && <VolumeX className="h-4 w-4 text-muted-foreground shrink-0" />}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {isRead && !unreadCount && (
-              <CheckCheck className="h-4 w-4 text-sky-400" />
-            )}
+            {isRead && !unreadCount && <CheckCheck className="h-4 w-4 text-sky-400" />}
             <span className="text-xs text-muted-foreground">{time}</span>
           </div>
         </div>
@@ -116,9 +110,7 @@ export function ChatItem({
         {/* Preview row */}
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
-            {senderPrefix && (
-              <span className="text-sky-400">{senderPrefix}: </span>
-            )}
+            {senderPrefix && <span className="text-sky-400">{senderPrefix}: </span>}
             {messageType !== "text" ? getMessagePreview() : preview}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -126,9 +118,7 @@ export function ChatItem({
               <span
                 className={cn(
                   "min-w-[22px] h-[22px] rounded-full text-xs font-medium flex items-center justify-center px-1.5",
-                  isMuted
-                    ? "bg-[#3e546a] text-muted-foreground"
-                    : "bg-sky-500 text-white"
+                  isMuted ? "bg-[#3e546a] text-muted-foreground" : "bg-sky-500 text-white",
                 )}
               >
                 {formatUnreadCount(unreadCount)}

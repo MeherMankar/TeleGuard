@@ -36,8 +36,7 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const maxPhoneDigits = 15 - selectedCountry.code.replace(/\D/g, "").length
-  const isPhoneValid =
-    phoneNumber.length + selectedCountry.code.replace(/\D/g, "").length >= 7
+  const isPhoneValid = phoneNumber.length + selectedCountry.code.replace(/\D/g, "").length >= 7
 
   const handleNext = async () => {
     if (!isPhoneValid) return

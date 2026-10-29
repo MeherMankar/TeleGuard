@@ -1,7 +1,18 @@
 import {
-  ArrowLeft, Shield, Zap, Loader2, AlertTriangle, Clock,
-  CheckCircle2, Eye, Timer, ShieldOff, Forward, RefreshCw,
-  LogIn, Bell,
+  ArrowLeft,
+  Shield,
+  Zap,
+  Loader2,
+  AlertTriangle,
+  Clock,
+  CheckCircle2,
+  Eye,
+  Timer,
+  ShieldOff,
+  Forward,
+  RefreshCw,
+  LogIn,
+  Bell,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -37,29 +48,45 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
   })
 
   // Refresh on live bot events
-  useWsEvent("security_alert", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["security"] })
-    queryClient.invalidateQueries({ queryKey: ["security-logs"] })
-  }, [queryClient]))
+  useWsEvent(
+    "security_alert",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["security"] })
+      queryClient.invalidateQueries({ queryKey: ["security-logs"] })
+    }, [queryClient]),
+  )
 
-  useWsEvent("otp_destroyer_toggled", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["accounts"] })
-  }, [queryClient]))
+  useWsEvent(
+    "otp_destroyer_toggled",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+    }, [queryClient]),
+  )
 
-  useWsEvent("otp_forward_toggled", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["accounts"] })
-  }, [queryClient]))
+  useWsEvent(
+    "otp_forward_toggled",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+    }, [queryClient]),
+  )
 
   // otp_event: a code was destroyed or forwarded — refresh logs + stats
-  useWsEvent("otp_event", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["security"] })
-    queryClient.invalidateQueries({ queryKey: ["security-logs"] })
-  }, [queryClient]))
+  useWsEvent(
+    "otp_event",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["security"] })
+      queryClient.invalidateQueries({ queryKey: ["security-logs"] })
+    }, [queryClient]),
+  )
 
-  useWsEvent("otp_temp_passthrough", useCallback((event) => {
-    const accountId = typeof event.account_id === "string" ? ` for account ${event.account_id}` : ""
-    toast.info(`Temporary OTP passthrough enabled${accountId}`)
-  }, []))
+  useWsEvent(
+    "otp_temp_passthrough",
+    useCallback((event) => {
+      const accountId =
+        typeof event.account_id === "string" ? ` for account ${event.account_id}` : ""
+      toast.info(`Temporary OTP passthrough enabled${accountId}`)
+    }, []),
+  )
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -71,9 +98,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     },
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -82,9 +111,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     onSuccess: (res) => toast.success(res.message),
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -93,9 +124,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     onSuccess: (res) => toast.success(`Synced ${res.trusted_count} trusted sessions`),
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -108,9 +141,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     },
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -123,9 +158,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     },
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -134,9 +171,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     onSuccess: () => toast.success("OTP passthrough active for 5 min"),
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
@@ -145,26 +184,33 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     onSuccess: () => toast.success("Destroyer paused for 5 min"),
     onError: (e) => {
       const msg = (e as Error).message
-      toast.error(msg.includes("503") || msg.toLowerCase().includes("bot not running")
-        ? "Bot is offline — start the bot first"
-        : msg)
+      toast.error(
+        msg.includes("503") || msg.toLowerCase().includes("bot not running")
+          ? "Bot is offline — start the bot first"
+          : msg,
+      )
     },
   })
 
-  const isSessionDestroyerEnabled = security?.settings?.session_destroyer_enabled
-    ?? security?.enabled
-    ?? false
+  const isSessionDestroyerEnabled =
+    security?.settings?.session_destroyer_enabled ?? security?.enabled ?? false
   const destroyedCount = security?.stats?.destroyed_count ?? 0
   const otpDestroyedCount = security?.stats?.otp_destroyed ?? 0
   const allowNext = security?.settings?.allow_next ?? false
 
   return (
-    <div style={{ zIndex: 75 }} className={cn(
-      "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
-      isOpen ? "translate-x-0" : "translate-x-full",
-    )}>
+    <div
+      style={{ zIndex: 75 }}
+      className={cn(
+        "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+        isOpen ? "translate-x-0" : "translate-x-full",
+      )}
+    >
       <header className="flex items-center gap-4 px-4 py-3 bg-[#17212b] border-b border-white/10">
-        <button onClick={onClose} className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors">
+        <button
+          onClick={onClose}
+          className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+        >
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="text-xl font-medium text-white flex-1">Protection Manager</h1>
@@ -185,12 +231,13 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
         {/* ── Session Destroyer ─────────────────────────────────────────────── */}
         <div className="bg-[#242f3d] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10">
             <p className="text-sky-400 text-sm font-medium">Session Destroyer</p>
-            <p className="text-gray-500 text-xs mt-0.5">Terminates unauthorized Telegram sessions automatically</p>
+            <p className="text-gray-500 text-xs mt-0.5">
+              Terminates unauthorized Telegram sessions automatically
+            </p>
           </div>
 
           <div className="px-4 py-4 flex items-center gap-4">
@@ -233,7 +280,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                       : "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20",
                   )}
                 >
-                  {allowNextMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogIn className="h-3.5 w-3.5" />}
+                  {allowNextMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <LogIn className="h-3.5 w-3.5" />
+                  )}
                   {allowNext ? "Next login trusted ✓" : "Trust next login"}
                 </button>
                 <button
@@ -241,7 +292,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                   disabled={syncTrustedMutation.isPending}
                   className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10 transition-colors"
                 >
-                  {syncTrustedMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {syncTrustedMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
                   Sync trusted
                 </button>
               </div>
@@ -254,7 +309,9 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
               <p className="text-sky-400 text-sm font-medium">OTP Protection — Per Account</p>
-              <p className="text-gray-500 text-xs mt-0.5">Destroyer invalidates codes · Forward sends them to your bot chat</p>
+              <p className="text-gray-500 text-xs mt-0.5">
+                Destroyer invalidates codes · Forward sends them to your bot chat
+              </p>
             </div>
             <ul role="list">
               {accounts.map((acc: Account, i) => {
@@ -262,14 +319,22 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                 const fwdOn = acc.otp_forward_enabled ?? false
 
                 return (
-                  <li key={acc.id} className={cn("px-4 py-3 space-y-2.5", i < accounts.length - 1 && "border-b border-white/5")}>
+                  <li
+                    key={acc.id}
+                    className={cn(
+                      "px-4 py-3 space-y-2.5",
+                      i < accounts.length - 1 && "border-b border-white/5",
+                    )}
+                  >
                     {/* Account header */}
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 font-bold text-sm">
                         {(acc.name || acc.phone || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium truncate">{acc.name || acc.phone}</p>
+                        <p className="text-white text-sm font-medium truncate">
+                          {acc.name || acc.phone}
+                        </p>
                         {acc.phone && acc.name !== acc.phone && (
                           <p className="text-gray-500 text-xs truncate">{acc.phone}</p>
                         )}
@@ -287,7 +352,9 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                       </div>
                       <Switch
                         checked={otpOn}
-                        onCheckedChange={(v) => otpDestroyerMutation.mutate({ account_id: acc.id, enabled: v })}
+                        onCheckedChange={(v) =>
+                          otpDestroyerMutation.mutate({ account_id: acc.id, enabled: v })
+                        }
                         disabled={otpDestroyerMutation.isPending}
                       />
                     </div>
@@ -304,7 +371,9 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                         </div>
                         <Switch
                           checked={fwdOn}
-                          onCheckedChange={(v) => otpForwardMutation.mutate({ account_id: acc.id, enabled: v })}
+                          onCheckedChange={(v) =>
+                            otpForwardMutation.mutate({ account_id: acc.id, enabled: v })
+                          }
                           disabled={otpForwardMutation.isPending}
                         />
                       </div>
@@ -318,7 +387,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                           disabled={tempPassthroughMutation.isPending}
                           className="flex-1 flex items-center justify-center gap-1.5 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg py-2 hover:bg-amber-500/20 transition-colors"
                         >
-                          {tempPassthroughMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                          {tempPassthroughMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
                           Temp OTP (5m)
                         </button>
                         <button
@@ -326,7 +399,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                           disabled={disableTempMutation.isPending}
                           className="flex-1 flex items-center justify-center gap-1.5 text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 rounded-lg py-2 hover:bg-orange-500/20 transition-colors"
                         >
-                          {disableTempMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Timer className="h-3.5 w-3.5" />}
+                          {disableTempMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Timer className="h-3.5 w-3.5" />
+                          )}
                           Pause (5m)
                         </button>
                       </div>
@@ -346,10 +423,18 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
             </div>
             <ul role="list">
               {logs.map((log, i) => (
-                <li key={i} className={cn("px-4 py-3 flex items-start gap-3", i < logs.length - 1 && "border-b border-white/5")}>
+                <li
+                  key={i}
+                  className={cn(
+                    "px-4 py-3 flex items-start gap-3",
+                    i < logs.length - 1 && "border-b border-white/5",
+                  )}
+                >
                   <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm">Session destroyed — {log.device ?? "Unknown device"}</p>
+                    <p className="text-white text-sm">
+                      Session destroyed — {log.device ?? "Unknown device"}
+                    </p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-gray-500 text-xs">{log.ip ?? "Unknown IP"}</span>
                       {log.timestamp && (
@@ -376,7 +461,9 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
           </div>
         )}
 
-        <p className="text-gray-600 text-xs text-center">All changes apply to the running bot immediately.</p>
+        <p className="text-gray-600 text-xs text-center">
+          All changes apply to the running bot immediately.
+        </p>
       </div>
     </div>
   )

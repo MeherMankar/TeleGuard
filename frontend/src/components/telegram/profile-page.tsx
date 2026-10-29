@@ -1,7 +1,16 @@
 import { useState } from "react"
 import {
-  X, Pencil, Phone, User, AtSign, Server, Loader2,
-  BadgeCheck, Sparkles, Copy, CheckCheck,
+  X,
+  Pencil,
+  Phone,
+  User,
+  AtSign,
+  Server,
+  Loader2,
+  BadgeCheck,
+  Sparkles,
+  Copy,
+  CheckCheck,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/contexts/user-context"
@@ -26,20 +35,23 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
   const { activeAccount } = useUser()
   const [copied, setCopied] = useState<string | null>(null)
 
-  const { data: profile, isLoading, error } = useQuery({
+  const {
+    data: profile,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["profile", activeAccount?.name],
     queryFn: () => accountsApi.profile(activeAccount!.name),
     enabled: isOpen && !!activeAccount,
     staleTime: 60_000,
   })
 
-  const photoUrl = profile?.has_photo && activeAccount
-    ? chatsApi.photoUrl(activeAccount.name, profile.id)
-    : null
+  const photoUrl =
+    profile?.has_photo && activeAccount ? chatsApi.photoUrl(activeAccount.name, profile.id) : null
 
   const displayName = profile
     ? `${profile.first_name} ${profile.last_name}`.trim() || profile.username || profile.phone
-    : activeAccount?.name ?? "—"
+    : (activeAccount?.name ?? "—")
 
   const copyToClipboard = (value: string, label: string) => {
     navigator.clipboard.writeText(value).then(() => {
@@ -91,7 +103,9 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
                   src={photoUrl}
                   alt={displayName}
                   className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                  onError={(e) => {
+                    ;(e.target as HTMLImageElement).style.display = "none"
+                  }}
                 />
               ) : (
                 <div className="w-full h-full bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-4xl font-bold text-white">
@@ -106,9 +120,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
               {profile.premium && <Sparkles className="h-5 w-5 text-amber-400" />}
             </div>
 
-            {profile.username && (
-              <p className="text-[#2AABEE] text-sm">@{profile.username}</p>
-            )}
+            {profile.username && <p className="text-[#2AABEE] text-sm">@{profile.username}</p>}
           </div>
 
           {/* Info cards */}
@@ -148,7 +160,11 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             {/* Telegram ID */}
             <InfoRow
               icon={<Server className="h-5 w-5 text-[#2AABEE]" />}
-              label={profile.dc_id ? `DC${profile.dc_id} · ${DC_LOCATIONS[profile.dc_id] ?? "Unknown"}` : "Telegram ID"}
+              label={
+                profile.dc_id
+                  ? `DC${profile.dc_id} · ${DC_LOCATIONS[profile.dc_id] ?? "Unknown"}`
+                  : "Telegram ID"
+              }
               value={String(profile.id)}
               onCopy={() => copyToClipboard(String(profile.id), "ID")}
               copied={copied === "ID"}
@@ -177,7 +193,9 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
       {/* No account selected */}
       {!activeAccount && !isLoading && (
         <div className="flex-1 flex items-center justify-center px-6 text-center">
-          <p className="text-gray-400 text-sm">Select an account from the sidebar to view its profile</p>
+          <p className="text-gray-400 text-sm">
+            Select an account from the sidebar to view its profile
+          </p>
         </div>
       )}
     </div>
@@ -213,7 +231,11 @@ function InfoRow({
           onClick={onCopy}
           className="p-1 text-gray-500 hover:text-[#2AABEE] transition-colors flex-shrink-0"
         >
-          {copied ? <CheckCheck className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+          {copied ? (
+            <CheckCheck className="h-4 w-4 text-green-400" />
+          ) : (
+            <Copy className="h-4 w-4" />
+          )}
         </button>
       )}
     </div>

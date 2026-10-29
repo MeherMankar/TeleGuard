@@ -1,5 +1,17 @@
 import { useCallback, useState } from "react"
-import { ArrowLeft, Loader2, Monitor, Smartphone, Globe, Trash2, ShieldCheck, Shield, Plus, X, Phone } from "lucide-react"
+import {
+  ArrowLeft,
+  Loader2,
+  Monitor,
+  Smartphone,
+  Globe,
+  Trash2,
+  ShieldCheck,
+  Shield,
+  Plus,
+  X,
+  Phone,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { sessionsApi, securityApi, apiErrorMessage, type Session } from "@/lib/api"
@@ -91,7 +103,11 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     setImportPassword("")
   }
 
-  const { data: sessions = [], isLoading, error } = useQuery({
+  const {
+    data: sessions = [],
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["sessions"],
     queryFn: sessionsApi.list,
     enabled: isOpen,
@@ -162,7 +178,10 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
           </button>
           <h1 className="text-xl font-medium text-white">Active Sessions</h1>
           <button
-            onClick={() => { setShowImport(true); resetImport() }}
+            onClick={() => {
+              setShowImport(true)
+              resetImport()
+            }}
             className="ml-auto p-2 text-[#2AABEE] hover:text-[#2AABEE]/80 transition-colors"
             aria-label="Add account via phone"
           >
@@ -245,8 +264,16 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                                 ? "text-emerald-400 hover:text-emerald-300"
                                 : "text-gray-400 hover:text-emerald-300",
                             )}
-                            aria-label={trustedHashes.includes(session.hash) ? "Remove trusted status" : "Mark session trusted"}
-                            title={trustedHashes.includes(session.hash) ? "Trusted session" : "Mark as trusted"}
+                            aria-label={
+                              trustedHashes.includes(session.hash)
+                                ? "Remove trusted status"
+                                : "Mark session trusted"
+                            }
+                            title={
+                              trustedHashes.includes(session.hash)
+                                ? "Trusted session"
+                                : "Mark as trusted"
+                            }
                           >
                             {trustedHashes.includes(session.hash) ? (
                               <ShieldCheck className="h-5 w-5" />
@@ -278,8 +305,8 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
             <AlertDialogTitle>Revoke Session</AlertDialogTitle>
             <AlertDialogDescription>
               This will terminate the session on{" "}
-              <strong>{revokeTarget?.device_model ?? "this device"}</strong>. This action cannot
-              be undone.
+              <strong>{revokeTarget?.device_model ?? "this device"}</strong>. This action cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -295,11 +322,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {revokeMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                "Revoke"
-              )}
+              {revokeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Revoke"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -315,21 +338,29 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                 {importStep === "otp" && "Enter OTP Code"}
                 {importStep === "password" && "2FA Password"}
               </h2>
-              <button onClick={() => { setShowImport(false); resetImport() }} className="text-gray-400 hover:text-white">
+              <button
+                onClick={() => {
+                  setShowImport(false)
+                  resetImport()
+                }}
+                className="text-gray-400 hover:text-white"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {importStep === "phone" && (
               <>
-                <p className="text-gray-400 text-sm">Enter the phone number of the account to add.</p>
+                <p className="text-gray-400 text-sm">
+                  Enter the phone number of the account to add.
+                </p>
                 <div className="flex items-center gap-3 bg-[#242f3d] rounded-xl px-4 py-3">
                   <Phone className="h-5 w-5 text-gray-400 flex-shrink-0" />
                   <input
                     type="tel"
                     value={importPhone}
-                    onChange={e => setImportPhone(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleImportPhone()}
+                    onChange={(e) => setImportPhone(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleImportPhone()}
                     placeholder="+1 234 567 8900"
                     className="flex-1 bg-transparent text-white outline-none text-sm placeholder:text-gray-500"
                     autoFocus
@@ -347,13 +378,15 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
 
             {importStep === "otp" && (
               <>
-                <p className="text-gray-400 text-sm">Enter the OTP code sent to <strong className="text-white">{importPhone}</strong>.</p>
+                <p className="text-gray-400 text-sm">
+                  Enter the OTP code sent to <strong className="text-white">{importPhone}</strong>.
+                </p>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={importCode}
-                  onChange={e => setImportCode(e.target.value.replace(/\D/g, ""))}
-                  onKeyDown={e => e.key === "Enter" && handleImportCode()}
+                  onChange={(e) => setImportCode(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={(e) => e.key === "Enter" && handleImportCode()}
                   placeholder="12345"
                   maxLength={7}
                   autoFocus
@@ -366,18 +399,25 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                 >
                   {importLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify Code"}
                 </button>
-                <button onClick={() => setImportStep("phone")} className="w-full text-gray-500 text-sm py-1">← Back</button>
+                <button
+                  onClick={() => setImportStep("phone")}
+                  className="w-full text-gray-500 text-sm py-1"
+                >
+                  ← Back
+                </button>
               </>
             )}
 
             {importStep === "password" && (
               <>
-                <p className="text-gray-400 text-sm">This account has 2FA enabled. Enter your cloud password.</p>
+                <p className="text-gray-400 text-sm">
+                  This account has 2FA enabled. Enter your cloud password.
+                </p>
                 <input
                   type="password"
                   value={importPassword}
-                  onChange={e => setImportPassword(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleImportPassword()}
+                  onChange={(e) => setImportPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleImportPassword()}
                   placeholder="2FA password"
                   autoFocus
                   className="w-full bg-[#242f3d] text-white rounded-xl px-4 py-3 outline-none border border-white/10 focus:border-[#2AABEE] text-sm"

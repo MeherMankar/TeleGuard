@@ -11,11 +11,5 @@ interface AccountSettingsPageProps {
 }
 
 export function AccountSettingsPage({ isOpen, onClose }: AccountSettingsPageProps) {
-  return (
-    <EditProfilePage
-      isOpen={isOpen}
-      onClose={onClose}
-      onBack={onClose}
-    />
-  )
+  return <EditProfilePage isOpen={isOpen} onClose={onClose} onBack={onClose} />
 }

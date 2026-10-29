@@ -70,6 +70,7 @@ class DatabaseConfig:
 class SecurityConfig:
     """Security configuration"""
 
+    jwt_secret: str
     encryption_key: Optional[bytes] = None
     fernet_key: Optional[str] = None
     backup_encryption_key: Optional[str] = None
@@ -79,6 +80,8 @@ class SecurityConfig:
 
     def __post_init__(self):
         """Validate security configuration"""
+        if not self.jwt_secret or len(self.jwt_secret) < 32:
+            raise ConfigurationError("JWT_SECRET must be at least 32 characters long")
         if self.session_backup_enabled and not self.backup_encryption_key:
             logger.warning("Session backup enabled but no encryption key provided")
 
@@ -239,12 +242,16 @@ class ConfigManager:
 
     def _load_security_config(self) -> SecurityConfig:
         """Load and validate security configuration"""
+        jwt_secret = os.getenv("JWT_SECRET")
+        if not jwt_secret:
+            raise ConfigurationError("JWT_SECRET environment variable is required")
         # Parse admin IDs
         admin_ids = self._parse_admin_ids()
         encryption_key = self._get_or_create_encryption_key()
         fernet_key = os.getenv("FERNET_KEY")
         backup_encryption_key = os.getenv(ConfigKeys.ENCRYPTION_KEY)
         return SecurityConfig(
+            jwt_secret=jwt_secret,
             encryption_key=encryption_key,
             fernet_key=fernet_key,
             backup_encryption_key=backup_encryption_key,

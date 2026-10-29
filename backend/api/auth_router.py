@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -55,9 +56,8 @@ async def login(payload: LoginRequest):
 
 @router.get("/dev-login")
 async def dev_login():
-    """Dev-only login — returns JWT for test user. Disabled in production."""
-    import os
-    if os.getenv("ENVIRONMENT", "development") == "production":
+    """Development-only login — returns a JWT for the test user."""
+    if os.getenv("ENVIRONMENT", "production").lower() != "development":
         raise HTTPException(status_code=404, detail="Not found")
 
     test_user_id = 6121637257

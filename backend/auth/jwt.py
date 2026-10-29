@@ -12,11 +12,7 @@ from teleguard.core.config import config
 
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = (
-    config.security.jwt_secret
-    if hasattr(config, "security") and hasattr(config.security, "jwt_secret")
-    else "teleguard_super_secret_jwt_key_change_in_production"
-)
+SECRET_KEY = config.security.jwt_secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
 
@@ -38,12 +34,6 @@ def validate_telegram_init_data(init_data: str) -> Optional[Dict[str, Any]]:
             return None
 
         received_hash = params.pop("hash")
-
-        # Dev bypass
-        if received_hash == "mock_hash":
-            user_data = params.get("user")
-            if user_data:
-                return json.loads(user_data)
 
         data_check_list = sorted([f"{k}={v}" for k, v in params.items()])
         data_check_string = "\n".join(data_check_list)

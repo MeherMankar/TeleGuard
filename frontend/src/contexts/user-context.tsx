@@ -54,8 +54,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [queryClient])
   useWsEvent("account_removed", handleAccountRemoved)
 
-  const activeAccount =
-    accounts.find((a) => a.name === activeAccountName) ?? accounts[0] ?? null
+  const activeAccount = accounts.find((a) => a.name === activeAccountName) ?? accounts[0] ?? null
 
   // Auto-set first account as active if none selected
   useEffect(() => {
@@ -66,7 +65,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const profile: UserProfile = {
     name: activeAccount?.name ?? user?.first_name ?? "TeleGuard User",
-    username: activeAccount?.username ? `@${activeAccount.username}` : user?.username ? `@${user.username}` : "",
+    username: activeAccount?.username
+      ? `@${activeAccount.username}`
+      : user?.username
+        ? `@${user.username}`
+        : "",
     phone: activeAccount?.phone ?? "",
     bio: "",
     avatarUrl,

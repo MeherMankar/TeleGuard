@@ -51,9 +51,7 @@ export function CloudPasswordPage({
       )}
     >
       <div className="flex-1 flex flex-col justify-center px-6 max-w-md mx-auto w-full">
-        <h1 className="text-2xl font-semibold text-foreground mb-3">
-          Two-step verification
-        </h1>
+        <h1 className="text-2xl font-semibold text-foreground mb-3">Two-step verification</h1>
         <p className="text-muted-foreground text-sm mb-8">
           {mode === "qr"
             ? "Your account has two-step verification enabled. Please enter your cloud password to continue."
@@ -61,9 +59,7 @@ export function CloudPasswordPage({
         </p>
 
         <div className="mb-6">
-          <label className="text-primary text-sm font-medium mb-2 block">
-            Password
-          </label>
+          <label className="text-primary text-sm font-medium mb-2 block">Password</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}

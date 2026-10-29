@@ -38,3 +38,28 @@ jobs:
     
     - name: Run tests
       run: pytest tests/ -v --cov=teleguard
+      env:
+        API_ID: "12345"
+        API_HASH: "0123456789abcdef0123456789abcdef"
+        BOT_TOKEN: "12345:test"
+        MONGO_URI: "mongodb://localhost:27017/teleguard"
+        JWT_SECRET: "ci-only-test-secret-value-at-least-32-chars"
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      run: npm ci
+      working-directory: frontend
+
+    - name: Lint frontend
+      run: npm run lint
+      working-directory: frontend
+
+    - name: Build frontend
+      run: npm run build
+      working-directory: frontend

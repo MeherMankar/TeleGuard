@@ -13,7 +13,13 @@ interface QRLoginPageProps {
   onRequires2FA: (sessionId: string) => void
 }
 
-export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequires2FA }: QRLoginPageProps) {
+export function QRLoginPage({
+  isOpen,
+  onClose,
+  onPhoneLogin,
+  onSuccess,
+  onRequires2FA,
+}: QRLoginPageProps) {
   const [qrUrl, setQrUrl] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -24,8 +30,14 @@ export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequir
   const QR_TTL = 115 // seconds before auto-refresh (QR expires at 120s)
 
   const stopPolling = () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
   }
 
   const startQR = async () => {
@@ -155,9 +167,16 @@ export function QRLoginPage({ isOpen, onClose, onPhoneLogin, onSuccess, onRequir
         </h2>
 
         <ol className="text-sm text-muted-foreground space-y-2 mb-8 text-left w-full max-w-xs">
-          <li><span className="text-foreground font-medium">1.</span> Open Telegram on your phone</li>
-          <li><span className="text-foreground font-medium">2.</span> Go to Settings → Devices → Link Desktop Device</li>
-          <li><span className="text-foreground font-medium">3.</span> Scan this QR code</li>
+          <li>
+            <span className="text-foreground font-medium">1.</span> Open Telegram on your phone
+          </li>
+          <li>
+            <span className="text-foreground font-medium">2.</span> Go to Settings → Devices → Link
+            Desktop Device
+          </li>
+          <li>
+            <span className="text-foreground font-medium">3.</span> Scan this QR code
+          </li>
         </ol>
 
         {/* Progress bar */}

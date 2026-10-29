@@ -48,6 +48,12 @@ class TelegramAuthManager:
         if not self.cleanup_task or self.cleanup_task.done():
             self.cleanup_task = asyncio.create_task(self._cleanup_loop())
 
+    def _get_login_data(self, session_id: str, user_id: int) -> Dict[str, Any]:
+        login_data = self.pending_logins.get(session_id)
+        if not login_data or login_data.get("user_id") != user_id:
+            raise ValueError("Invalid or expired session_id")
+        return login_data
+
     async def _cleanup_loop(self):
         while True:
             await asyncio.sleep(60)
@@ -64,7 +70,7 @@ class TelegramAuthManager:
                         pass
                     del self.pending_logins[sid]
 
-    async def start_phone_login(self, phone: str):
+    async def start_phone_login(self, user_id: int, phone: str):
         if not API_ID or not API_HASH:
             raise ValueError("API_ID and API_HASH not configured")
 
@@ -76,6 +82,7 @@ class TelegramAuthManager:
             result = await client.send_code_request(phone)
             async with self._lock:
                 self.pending_logins[session_id] = {
+                    "user_id": user_id,
                     "client": client,
                     "phone": phone,
                     "phone_code_hash": result.phone_code_hash,
@@ -87,11 +94,11 @@ class TelegramAuthManager:
             await client.disconnect()
             raise e
 
-    async def verify_code(self, session_id: str, code: str) -> Dict[str, Any]:
+    async def verify_code(
+        self, user_id: int, session_id: str, code: str
+    ) -> Dict[str, Any]:
         async with self._lock:
-            login_data = self.pending_logins.get(session_id)
-        if not login_data:
-            raise ValueError("Invalid or expired session_id")
+            login_data = self._get_login_data(session_id, user_id)
 
         client: TelegramClient = login_data["client"]
         login_data["timestamp"] = time.time()
@@ -112,11 +119,11 @@ class TelegramAuthManager:
         except Exception as e:
             raise e
 
-    async def verify_password(self, session_id: str, password: str) -> Dict[str, Any]:
+    async def verify_password(
+        self, user_id: int, session_id: str, password: str
+    ) -> Dict[str, Any]:
         async with self._lock:
-            login_data = self.pending_logins.get(session_id)
-        if not login_data:
-            raise ValueError("Invalid or expired session_id")
+            login_data = self._get_login_data(session_id, user_id)
 
         client: TelegramClient = login_data["client"]
         login_data["timestamp"] = time.time()
@@ -130,7 +137,7 @@ class TelegramAuthManager:
         except Exception as e:
             raise e
 
-    async def start_qr_login(self) -> Dict[str, Any]:
+    async def start_qr_login(self, user_id: int) -> Dict[str, Any]:
         if not API_ID or not API_HASH:
             raise ValueError("API_ID and API_HASH not configured")
 
@@ -142,6 +149,7 @@ class TelegramAuthManager:
             qr_login = await client.qr_login()
             async with self._lock:
                 self.pending_logins[session_id] = {
+                    "user_id": user_id,
                     "client": client,
                     "qr_login": qr_login,
                     "status": "pending",
@@ -182,11 +190,9 @@ class TelegramAuthManager:
                         "error": str(e),
                     })
 
-    async def get_qr_status(self, session_id: str) -> Dict[str, Any]:
+    async def get_qr_status(self, user_id: int, session_id: str) -> Dict[str, Any]:
         async with self._lock:
-            login_data = self.pending_logins.get(session_id)
-        if not login_data:
-            raise ValueError("Invalid or expired session_id")
+            login_data = self._get_login_data(session_id, user_id)
 
         login_data["timestamp"] = time.time()
         status = login_data.get("status")
@@ -203,12 +209,12 @@ class TelegramAuthManager:
             return {"status": "failed", "error": login_data.get("error")}
         return {"status": "pending"}
 
-    async def verify_qr_password(self, session_id: str, password: str) -> Dict[str, Any]:
+    async def verify_qr_password(
+        self, user_id: int, session_id: str, password: str
+    ) -> Dict[str, Any]:
         """Verify 2FA password after QR scan when 2FA is enabled."""
         async with self._lock:
-            login_data = self.pending_logins.get(session_id)
-        if not login_data:
-            raise ValueError("Invalid or expired session_id")
+            login_data = self._get_login_data(session_id, user_id)
         if login_data.get("status") != "requires_2fa":
             raise ValueError("Session is not awaiting 2FA password")
 
@@ -225,26 +231,35 @@ class TelegramAuthManager:
         except Exception as e:
             raise e
 
-    def get_connected_client(self, session_id: str) -> Optional[TelegramClient]:
+    def get_connected_client(
+        self, session_id: str, user_id: int
+    ) -> Optional[TelegramClient]:
         """
         Return the already-connected client after successful login.
         Used by accounts.py to hand to bot_manager WITHOUT disconnecting/reconnecting.
         """
         data = self.pending_logins.get(session_id)
-        if data and data.get("status") in ("success", None):
+        if (
+            data
+            and data.get("user_id") == user_id
+            and data.get("status") in ("success", None)
+        ):
             return data.get("client")
         return None
 
-    async def finish_login(self, session_id: str, keep_client: bool = False):
+    async def finish_login(
+        self, session_id: str, user_id: int, keep_client: bool = False
+    ):
         """
         Clean up pending login state.
         If keep_client=True, do NOT disconnect — bot_manager owns it now.
         """
         async with self._lock:
             if session_id in self.pending_logins:
+                login_data = self._get_login_data(session_id, user_id)
                 if not keep_client:
                     try:
-                        await self.pending_logins[session_id]["client"].disconnect()
+                        await login_data["client"].disconnect()
                     except Exception:
                         pass
                 del self.pending_logins[session_id]

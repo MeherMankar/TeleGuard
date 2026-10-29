@@ -45,9 +45,18 @@ function formatLastSeen(status: string | null): string {
 }
 
 const AVATAR_COLORS = [
-  "bg-rose-500", "bg-amber-500", "bg-violet-500", "bg-pink-500",
-  "bg-sky-500", "bg-indigo-500", "bg-emerald-500", "bg-orange-500",
-  "bg-teal-500", "bg-cyan-500", "bg-lime-600", "bg-fuchsia-500",
+  "bg-rose-500",
+  "bg-amber-500",
+  "bg-violet-500",
+  "bg-pink-500",
+  "bg-sky-500",
+  "bg-indigo-500",
+  "bg-emerald-500",
+  "bg-orange-500",
+  "bg-teal-500",
+  "bg-cyan-500",
+  "bg-lime-600",
+  "bg-fuchsia-500",
 ]
 function avatarColor(id: number) {
   return AVATAR_COLORS[Math.abs(id) % AVATAR_COLORS.length]
@@ -67,17 +76,17 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
     staleTime: 60_000,
   })
 
-  const photoUrl = dialog.has_photo && activeAccount
-    ? chatsApi.photoUrl(activeAccount.name, dialog.entity_id)
-    : null
+  const photoUrl =
+    dialog.has_photo && activeAccount
+      ? chatsApi.photoUrl(activeAccount.name, dialog.entity_id)
+      : null
 
   // Extract media messages
   const mediaMessages = messages.filter(
-    (m) => m.media && (m.media.type === "photo" || m.media.type === "video" || m.media.type === "gif"),
+    (m) =>
+      m.media && (m.media.type === "photo" || m.media.type === "video" || m.media.type === "gif"),
   )
-  const linkMessages = messages.filter(
-    (m) => m.media?.type === "webpage" && m.media.url,
-  )
+  const linkMessages = messages.filter((m) => m.media?.type === "webpage" && m.media.url)
 
   const handleClose = useCallback(() => onClose(), [onClose])
 
@@ -103,21 +112,28 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
       >
         {/* Top bar */}
         <div className="flex items-center justify-between px-2 pt-3 pb-2">
-          <button onClick={handleClose} aria-label="Back" className="p-2 text-gray-400 hover:text-white">
+          <button
+            onClick={handleClose}
+            aria-label="Back"
+            className="p-2 text-gray-400 hover:text-white"
+          >
             <ArrowLeft className="h-6 w-6" />
           </button>
         </div>
 
         {/* Avatar + name */}
         <div className="flex flex-col items-center pt-2 pb-5 px-4">
-          <div className={cn(
-            "w-32 h-32 rounded-full flex items-center justify-center text-5xl font-semibold text-white overflow-hidden flex-shrink-0",
-            !photoUrl && avatarColor(dialog.entity_id),
-          )}>
-            {photoUrl
-              ? <img src={photoUrl} alt={dialog.name} className="w-full h-full object-cover" />
-              : dialog.name.charAt(0).toUpperCase()
-            }
+          <div
+            className={cn(
+              "w-32 h-32 rounded-full flex items-center justify-center text-5xl font-semibold text-white overflow-hidden flex-shrink-0",
+              !photoUrl && avatarColor(dialog.entity_id),
+            )}
+          >
+            {photoUrl ? (
+              <img src={photoUrl} alt={dialog.name} className="w-full h-full object-cover" />
+            ) : (
+              dialog.name.charAt(0).toUpperCase()
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 mt-4">
@@ -126,10 +142,12 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
             {dialog.is_bot && <Bot className="h-4 w-4 text-gray-400 flex-shrink-0" />}
           </div>
 
-          <p className={cn(
-            "text-sm mt-1",
-            dialog.status === "online" ? "text-sky-400" : "text-gray-500",
-          )}>
+          <p
+            className={cn(
+              "text-sm mt-1",
+              dialog.status === "online" ? "text-sky-400" : "text-gray-500",
+            )}
+          >
             {dialog.is_group || dialog.is_channel
               ? dialog.participants_count != null
                 ? `${dialog.participants_count.toLocaleString()} ${dialog.is_channel ? "subscribers" : "members"}`
@@ -160,18 +178,20 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
           <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5">
             <ImageIcon className="h-5 w-5 text-gray-400" />
             <span className="flex-1 text-[15px] text-white">Photos & Videos</span>
-            {loadingMsgs
-              ? <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
-              : <span className="text-[15px] text-sky-400">{mediaMessages.length}</span>
-            }
+            {loadingMsgs ? (
+              <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
+            ) : (
+              <span className="text-[15px] text-sky-400">{mediaMessages.length}</span>
+            )}
           </div>
           <div className="flex items-center gap-3 px-4 py-3">
             <Link2 className="h-5 w-5 text-gray-400" />
             <span className="flex-1 text-[15px] text-white">Links</span>
-            {loadingMsgs
-              ? <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
-              : <span className="text-[15px] text-sky-400">{linkMessages.length}</span>
-            }
+            {loadingMsgs ? (
+              <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
+            ) : (
+              <span className="text-[15px] text-sky-400">{linkMessages.length}</span>
+            )}
           </div>
         </div>
 
@@ -201,8 +221,9 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
         )}
 
         {/* Media grid */}
-        {!loadingMsgs && activeTab === "media" && (
-          mediaMessages.length === 0 ? (
+        {!loadingMsgs &&
+          activeTab === "media" &&
+          (mediaMessages.length === 0 ? (
             <p className="text-center text-gray-500 text-sm py-8">No media found</p>
           ) : (
             <div className="grid grid-cols-3 gap-0.5 pb-6">
@@ -210,12 +231,12 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
                 <MediaThumb key={msg.id} msg={msg} accountName={activeAccount?.name ?? ""} />
               ))}
             </div>
-          )
-        )}
+          ))}
 
         {/* Links list */}
-        {!loadingMsgs && activeTab === "links" && (
-          linkMessages.length === 0 ? (
+        {!loadingMsgs &&
+          activeTab === "links" &&
+          (linkMessages.length === 0 ? (
             <p className="text-center text-gray-500 text-sm py-8">No links found</p>
           ) : (
             <ul className="divide-y divide-white/5 pb-6">
@@ -232,14 +253,15 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
                     )}
                     <p className="text-sky-400 text-xs truncate mt-0.5">{msg.media?.url}</p>
                     {msg.media?.description && (
-                      <p className="text-gray-500 text-xs mt-0.5 line-clamp-2">{msg.media.description}</p>
+                      <p className="text-gray-500 text-xs mt-0.5 line-clamp-2">
+                        {msg.media.description}
+                      </p>
                     )}
                   </a>
                 </li>
               ))}
             </ul>
-          )
-        )}
+          ))}
       </div>
     </>
   )
@@ -247,9 +269,7 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
 
 function MediaThumb({ msg, accountName }: { msg: Message; accountName: string }) {
   const isVideo = msg.media?.type === "video" || msg.media?.type === "gif"
-  const thumbUrl = msg.media?.photo_id
-    ? chatsApi.mediaUrl(accountName, msg.id, msg.id)
-    : null
+  const thumbUrl = msg.media?.photo_id ? chatsApi.mediaUrl(accountName, msg.id, msg.id) : null
 
   return (
     <div className="relative aspect-square bg-[#1e2c3a] overflow-hidden">
@@ -263,7 +283,8 @@ function MediaThumb({ msg, accountName }: { msg: Message; accountName: string })
       {isVideo && msg.media?.duration && (
         <span className="absolute bottom-1.5 left-1.5 text-[11px] text-white font-medium bg-black/60 px-1.5 py-0.5 rounded flex items-center gap-0.5">
           <PlayCircle className="h-3 w-3" />
-          {Math.floor((msg.media.duration ?? 0) / 60)}:{String((msg.media.duration ?? 0) % 60).padStart(2, "0")}
+          {Math.floor((msg.media.duration ?? 0) / 60)}:
+          {String((msg.media.duration ?? 0) % 60).padStart(2, "0")}
         </span>
       )}
     </div>

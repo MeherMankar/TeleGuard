@@ -1,4 +1,3 @@
-
 import { useEffect } from "react"
 import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -23,7 +22,7 @@ export function LoginSuccessPage({ isOpen, onComplete }: LoginSuccessPageProps) 
       style={{ zIndex: 80 }}
       className={cn(
         "tg-screen tg-screen-narrow fixed inset-0 bg-background flex flex-col items-center justify-center transition-transform duration-300 ease-in-out",
-        isOpen ? "translate-x-0" : "translate-x-full"
+        isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
       {/* Success Icon */}
@@ -37,9 +36,18 @@ export function LoginSuccessPage({ isOpen, onComplete }: LoginSuccessPageProps) 
 
       {/* Loading dots */}
       <div className="flex gap-1 mt-8">
-        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0ms" }} />
-        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: "150ms" }} />
-        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: "300ms" }} />
+        <div
+          className="w-2 h-2 rounded-full bg-primary animate-pulse"
+          style={{ animationDelay: "0ms" }}
+        />
+        <div
+          className="w-2 h-2 rounded-full bg-primary animate-pulse"
+          style={{ animationDelay: "150ms" }}
+        />
+        <div
+          className="w-2 h-2 rounded-full bg-primary animate-pulse"
+          style={{ animationDelay: "300ms" }}
+        />
       </div>
     </div>
   )

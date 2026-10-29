@@ -42,25 +42,20 @@ export function SpamMasterPage({ isOpen, onClose }: SpamMasterPageProps) {
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="text-xl font-medium text-white">
-          {activeTool === "scraper" ? "Contact Scraper" :
-           activeTool === "username" ? "Username Checker" :
-           "Spam Master"}
+          {activeTool === "scraper"
+            ? "Contact Scraper"
+            : activeTool === "username"
+              ? "Username Checker"
+              : "Spam Master"}
         </h1>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         {activeTool === "none" && (
-          <MenuView
-            activeAccount={activeAccount?.name ?? null}
-            onSelect={setActiveTool}
-          />
+          <MenuView activeAccount={activeAccount?.name ?? null} onSelect={setActiveTool} />
         )}
-        {activeTool === "scraper" && (
-          <ScraperTool accountName={activeAccount?.name ?? ""} />
-        )}
-        {activeTool === "username" && (
-          <UsernameTool accountName={activeAccount?.name ?? ""} />
-        )}
+        {activeTool === "scraper" && <ScraperTool accountName={activeAccount?.name ?? ""} />}
+        {activeTool === "username" && <UsernameTool accountName={activeAccount?.name ?? ""} />}
       </div>
     </div>
   )
@@ -98,7 +93,9 @@ function MenuView({
           </div>
           <div className="flex-1 text-left">
             <p className="text-white text-sm font-medium">Contact Scraper</p>
-            <p className="text-gray-500 text-xs mt-0.5">Extract member list from any group/channel</p>
+            <p className="text-gray-500 text-xs mt-0.5">
+              Extract member list from any group/channel
+            </p>
           </div>
           <ChevronRight className="h-4 w-4 text-gray-500" />
         </button>
@@ -126,14 +123,16 @@ function MenuView({
             <Bot className="h-4 w-4 text-gray-400" />
             <p className="text-gray-400 text-sm font-medium">Bot-only tools</p>
           </div>
-          <p className="text-gray-600 text-xs mt-0.5">Use these via the Telegram bot (require ToS acceptance)</p>
+          <p className="text-gray-600 text-xs mt-0.5">
+            Use these via the Telegram bot (require ToS acceptance)
+          </p>
         </div>
         {[
-          { label: "Mass Inviter",      desc: "Bulk invite scraped users to groups" },
-          { label: "Forward Bomber",    desc: "Mass forward messages to users" },
-          { label: "Message Flooder",   desc: "Rapid message sending to a target" },
-          { label: "Raid Coordinator",  desc: "Multi-account coordinated raids" },
-          { label: "Stealth Raid",      desc: "Human-like raid patterns" },
+          { label: "Mass Inviter", desc: "Bulk invite scraped users to groups" },
+          { label: "Forward Bomber", desc: "Mass forward messages to users" },
+          { label: "Message Flooder", desc: "Rapid message sending to a target" },
+          { label: "Raid Coordinator", desc: "Multi-account coordinated raids" },
+          { label: "Stealth Raid", desc: "Human-like raid patterns" },
           { label: "Multi-Target Raid", desc: "Simultaneous raids on multiple targets" },
         ].map(({ label, desc }) => (
           <div
@@ -153,8 +152,8 @@ function MenuView({
       <div className="flex items-start gap-3 px-4 py-3 bg-orange-500/10 border border-orange-500/20 rounded-xl">
         <AlertTriangle className="h-4 w-4 text-orange-400 flex-shrink-0 mt-0.5" />
         <p className="text-orange-400 text-xs">
-          Bot-only tools violate Telegram's ToS and may result in account bans.
-          Use only on throwaway accounts.
+          Bot-only tools violate Telegram's ToS and may result in account bans. Use only on
+          throwaway accounts.
         </p>
       </div>
     </div>
@@ -171,7 +170,10 @@ function ScraperTool({ accountName }: { accountName: string }) {
   const [count, setCount] = useState(0)
 
   const handleScrape = async () => {
-    if (!target.trim()) { toast.error("Enter a group or channel"); return }
+    if (!target.trim()) {
+      toast.error("Enter a group or channel")
+      return
+    }
     setLoading(true)
     setResult(null)
     try {
@@ -189,8 +191,8 @@ function ScraperTool({ accountName }: { accountName: string }) {
   const handleDownloadCSV = () => {
     if (!result) return
     const header = "id,username,first_name,last_name,phone"
-    const rows = result.map(m =>
-      `${m.id},${m.username ?? ""},${m.first_name},${m.last_name},${m.phone ?? ""}`
+    const rows = result.map(
+      (m) => `${m.id},${m.username ?? ""},${m.first_name},${m.last_name},${m.phone ?? ""}`,
     )
     const csv = [header, ...rows].join("\n")
     const blob = new Blob([csv], { type: "text/csv" })
@@ -206,25 +208,21 @@ function ScraperTool({ accountName }: { accountName: string }) {
     <div className="p-4 space-y-4">
       <div className="space-y-3">
         <div>
-          <label className="text-gray-400 text-xs font-medium block mb-1.5">
-            Group / Channel
-          </label>
+          <label className="text-gray-400 text-xs font-medium block mb-1.5">Group / Channel</label>
           <input
             type="text"
             value={target}
-            onChange={e => setTarget(e.target.value)}
+            onChange={(e) => setTarget(e.target.value)}
             placeholder="@groupname or t.me/group"
             className="w-full bg-[#1e2c3a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 outline-none focus:border-sky-500/50"
           />
         </div>
         <div>
-          <label className="text-gray-400 text-xs font-medium block mb-1.5">
-            Max members
-          </label>
+          <label className="text-gray-400 text-xs font-medium block mb-1.5">Max members</label>
           <input
             type="number"
             value={limit}
-            onChange={e => setLimit(e.target.value)}
+            onChange={(e) => setLimit(e.target.value)}
             min="10"
             max="5000"
             className="w-full bg-[#1e2c3a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500/50"
@@ -253,7 +251,7 @@ function ScraperTool({ accountName }: { accountName: string }) {
             </button>
           </div>
           <ul className="divide-y divide-white/5 max-h-80 overflow-y-auto">
-            {result.slice(0, 100).map(m => (
+            {result.slice(0, 100).map((m) => (
               <li key={m.id} className="flex items-center gap-3 px-4 py-2.5">
                 <div className="w-8 h-8 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 text-xs font-bold">
                   {(m.first_name || m.username || "?").charAt(0).toUpperCase()}
@@ -262,9 +260,7 @@ function ScraperTool({ accountName }: { accountName: string }) {
                   <p className="text-white text-sm truncate">
                     {[m.first_name, m.last_name].filter(Boolean).join(" ") || `id:${m.id}`}
                   </p>
-                  {m.username && (
-                    <p className="text-gray-500 text-xs">@{m.username}</p>
-                  )}
+                  {m.username && <p className="text-gray-500 text-xs">@{m.username}</p>}
                 </div>
               </li>
             ))}
@@ -290,7 +286,10 @@ function UsernameTool({ accountName }: { accountName: string }) {
   const [checked, setChecked] = useState(0)
 
   const handleCheck = async () => {
-    if (!base.trim()) { toast.error("Enter a base username"); return }
+    if (!base.trim()) {
+      toast.error("Enter a base username")
+      return
+    }
     setLoading(true)
     setResult(null)
     try {
@@ -309,13 +308,11 @@ function UsernameTool({ accountName }: { accountName: string }) {
     <div className="p-4 space-y-4">
       <div className="space-y-3">
         <div>
-          <label className="text-gray-400 text-xs font-medium block mb-1.5">
-            Base username
-          </label>
+          <label className="text-gray-400 text-xs font-medium block mb-1.5">Base username</label>
           <input
             type="text"
             value={base}
-            onChange={e => setBase(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
+            onChange={(e) => setBase(e.target.value.replace(/[^a-zA-Z0-9]/g, ""))}
             placeholder="e.g. coolname"
             className="w-full bg-[#1e2c3a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 outline-none focus:border-sky-500/50"
           />
@@ -324,13 +321,11 @@ function UsernameTool({ accountName }: { accountName: string }) {
           </p>
         </div>
         <div>
-          <label className="text-gray-400 text-xs font-medium block mb-1.5">
-            How many to find
-          </label>
+          <label className="text-gray-400 text-xs font-medium block mb-1.5">How many to find</label>
           <input
             type="number"
             value={count}
-            onChange={e => setCount(e.target.value)}
+            onChange={(e) => setCount(e.target.value)}
             min="5"
             max="100"
             className="w-full bg-[#1e2c3a] border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-sky-500/50"
@@ -359,7 +354,7 @@ function UsernameTool({ accountName }: { accountName: string }) {
             </p>
           ) : (
             <ul className="divide-y divide-white/5 max-h-80 overflow-y-auto">
-              {result.map(u => (
+              {result.map((u) => (
                 <li key={u} className="flex items-center gap-3 px-4 py-3">
                   <AtSign className="h-4 w-4 text-purple-400 flex-shrink-0" />
                   <span className="text-white text-sm font-mono">@{u}</span>

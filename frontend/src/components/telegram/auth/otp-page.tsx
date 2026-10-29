@@ -16,7 +16,13 @@ interface OTPPageProps {
   onRequires2FA: () => void
 }
 
-export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2FA }: OTPPageProps) {
+export function OTPPage({
+  isOpen,
+  phoneNumber,
+  sessionId,
+  onSuccess,
+  onRequires2FA,
+}: OTPPageProps) {
   const [otp, setOtp] = useState<string[]>(Array(OTP_MAX).fill(""))
   const [loading, setLoading] = useState(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
@@ -41,7 +47,9 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     if (value.length > 1) {
       const digits = value.replace(/\D/g, "").slice(0, OTP_MAX).split("")
       const newOtp = Array(OTP_MAX).fill("")
-      digits.forEach((d, i) => { if (i < OTP_MAX) newOtp[i] = d })
+      digits.forEach((d, i) => {
+        if (i < OTP_MAX) newOtp[i] = d
+      })
       setOtp(newOtp)
       const nextIndex = Math.min(digits.length, OTP_MAX - 1)
       inputRefs.current[nextIndex]?.focus()
@@ -69,16 +77,16 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
     // Auto-submit when all 6 filled, or after 1s pause at 5 digits
     const filled = newOtp.filter((d) => d !== "")
     if (filled.length === OTP_MAX) {
-    submitTimer.current = setTimeout(() => {
-      submitTimer.current = null
-      submitCode(newOtp.join(""))
-    }, 100)
+      submitTimer.current = setTimeout(() => {
+        submitTimer.current = null
+        submitCode(newOtp.join(""))
+      }, 100)
     } else if (filled.length === OTP_MIN) {
-    // Wait briefly in case a 6th digit is coming
-    submitTimer.current = setTimeout(() => {
-      submitTimer.current = null
-      submitCode(newOtp.join(""))
-    }, 800)
+      // Wait briefly in case a 6th digit is coming
+      submitTimer.current = setTimeout(() => {
+        submitTimer.current = null
+        submitCode(newOtp.join(""))
+      }, 800)
     }
   }
 
@@ -135,7 +143,9 @@ export function OTPPage({ isOpen, phoneNumber, sessionId, onSuccess, onRequires2
           {otp.map((digit, index) => (
             <input
               key={index}
-              ref={(el) => { inputRefs.current[index] = el }}
+              ref={(el) => {
+                inputRefs.current[index] = el
+              }}
               type="text"
               inputMode="numeric"
               maxLength={1}

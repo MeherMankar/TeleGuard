@@ -1,14 +1,5 @@
 import { useState, useEffect } from "react"
-import {
-  ArrowLeft,
-  X,
-  Camera,
-  User,
-  Phone,
-  AtSign,
-  Check,
-  Loader2,
-} from "lucide-react"
+import { ArrowLeft, X, Camera, User, Phone, AtSign, Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { accountsApi, chatsApi, apiErrorMessage } from "@/lib/api"
@@ -37,9 +28,9 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
 
   // Editable local state — synced when profile loads or page opens
   const [firstName, setFirstName] = useState("")
-  const [lastName, setLastName]   = useState("")
-  const [username, setUsername]   = useState("")
-  const [bio, setBio]             = useState("")
+  const [lastName, setLastName] = useState("")
+  const [username, setUsername] = useState("")
+  const [bio, setBio] = useState("")
 
   const [editingField, setEditingField] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
@@ -68,12 +59,14 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
         const parts = [firstName.trim(), lastName.trim()]
         await accountsApi.updateProfile(activeAccount.name, {
           first_name: parts[0],
-          last_name:  parts[1],
+          last_name: parts[1],
         })
       } else if (field === "bio") {
         await accountsApi.updateProfile(activeAccount.name, { bio: bio.trim() })
       } else if (field === "username") {
-        await accountsApi.updateProfile(activeAccount.name, { username: username.trim().replace(/^@/, "") })
+        await accountsApi.updateProfile(activeAccount.name, {
+          username: username.trim().replace(/^@/, ""),
+        })
       }
       toast.success("Saved")
       setEditingField(null)
@@ -87,11 +80,10 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
 
   const displayName = profile
     ? [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.username || "—"
-    : activeAccount?.name ?? "—"
+    : (activeAccount?.name ?? "—")
 
-  const photoUrl = profile?.has_photo && activeAccount
-    ? chatsApi.photoUrl(activeAccount.name, profile.id)
-    : null
+  const photoUrl =
+    profile?.has_photo && activeAccount ? chatsApi.photoUrl(activeAccount.name, profile.id) : null
 
   return (
     <div
@@ -111,7 +103,11 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-base font-semibold text-foreground">Edit Profile</h1>
-        <button onClick={onClose} aria-label="Close" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+        >
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -136,15 +132,15 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
                 )}
               </div>
               {/* Camera — photo change is done via bot (/start → Account Settings → Change Photo) */}
-              <div className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-primary/80 flex items-center justify-center cursor-not-allowed opacity-60"
-                   title="Change photo via the bot: Account Settings → Change Photo">
+              <div
+                className="absolute bottom-1 right-1 w-9 h-9 rounded-full bg-primary/80 flex items-center justify-center cursor-not-allowed opacity-60"
+                title="Change photo via the bot: Account Settings → Change Photo"
+              >
                 <Camera className="h-4 w-4 text-primary-foreground" />
               </div>
             </div>
             <h2 className="text-xl font-semibold text-foreground">{displayName}</h2>
-            {profile?.username && (
-              <p className="text-sm text-primary mt-1">@{profile.username}</p>
-            )}
+            {profile?.username && <p className="text-sm text-primary mt-1">@{profile.username}</p>}
           </div>
 
           {/* Bio */}
@@ -211,9 +207,11 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
                     disabled={saving === "name"}
                     className="text-primary"
                   >
-                    {saving === "name"
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <Check className="h-5 w-5" />}
+                    {saving === "name" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-5 w-5" />
+                    )}
                   </button>
                 </div>
               ) : (
@@ -230,7 +228,9 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
             <div className="flex items-center gap-4 px-4 py-4 border-b border-border/20">
               <Phone className="h-5 w-5 text-muted-foreground flex-shrink-0" />
               <span className="flex-1 text-[15px] text-foreground">Phone number</span>
-              <span className="text-[15px] text-primary">{profile?.phone || activeAccount?.phone || "—"}</span>
+              <span className="text-[15px] text-primary">
+                {profile?.phone || activeAccount?.phone || "—"}
+              </span>
             </div>
 
             {/* Username */}
@@ -253,9 +253,11 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
                     disabled={saving === "username"}
                     className="text-primary"
                   >
-                    {saving === "username"
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <Check className="h-5 w-5" />}
+                    {saving === "username" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-5 w-5" />
+                    )}
                   </button>
                 </div>
               ) : (

@@ -1,9 +1,27 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import {
-  ArrowLeft, Search, MoreVertical, Smile, Paperclip, Mic, Send,
-  ArrowDown, Loader2, File, Music, Play, Image, Sticker, Globe,
-  Pin, Eye, Forward, Reply, X as XIcon, ChevronDown,
+  ArrowLeft,
+  Search,
+  MoreVertical,
+  Smile,
+  Paperclip,
+  Mic,
+  Send,
+  ArrowDown,
+  Loader2,
+  File,
+  Music,
+  Play,
+  Image,
+  Sticker,
+  Globe,
+  Pin,
+  Eye,
+  Forward,
+  Reply,
+  X as XIcon,
+  ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -22,7 +40,11 @@ function safeText(v: unknown): string | null {
     if (typeof obj.text === "string") return obj.text
     if (typeof obj.message === "string") return obj.message
   }
-  try { return String(v) } catch { return null }
+  try {
+    return String(v)
+  } catch {
+    return null
+  }
 }
 
 export const Route = createFileRoute("/chat/$chatId")({
@@ -104,9 +126,7 @@ function ChatPage() {
     getNextPageParam: (lastPage) =>
       lastPage.length === 50 ? lastPage[lastPage.length - 1]?.id : undefined,
     enabled:
-      !!effectiveAccount &&
-      Number.isFinite(chatEntityId) &&
-      (chatId !== "saved" || !!dialog),
+      !!effectiveAccount && Number.isFinite(chatEntityId) && (chatId !== "saved" || !!dialog),
     staleTime: 5_000,
   })
 
@@ -119,7 +139,8 @@ function ChatPage() {
       !previousScroll ||
       !scrollContainerRef.current ||
       (messagePages?.pages.length ?? 0) <= previousScroll.pageCount
-    ) return
+    )
+      return
     const element = scrollContainerRef.current
     element.scrollTop = element.scrollHeight - previousScroll.height + previousScroll.top
     previousScrollRef.current = null
@@ -170,11 +191,18 @@ function ChatPage() {
     onError: (e) => toast.error((e as Error).message),
   })
 
-  useWsEvent("new_message", useCallback((event) => {
-    if (typeof event.account_name === "string" && event.account_name !== effectiveAccount) return
-    if (typeof event.chat_id === "number" && event.chat_id !== chatEntityId) return
-    qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
-  }, [effectiveAccount, chatEntityId, qc]))
+  useWsEvent(
+    "new_message",
+    useCallback(
+      (event) => {
+        if (typeof event.account_name === "string" && event.account_name !== effectiveAccount)
+          return
+        if (typeof event.chat_id === "number" && event.chat_id !== chatEntityId) return
+        qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+      },
+      [effectiveAccount, chatEntityId, qc],
+    ),
+  )
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
 
@@ -198,7 +226,10 @@ function ChatPage() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
   }
 
   const displayName = dialog?.name || dialog?.title || `Chat ${chatId}`
@@ -206,25 +237,30 @@ function ChatPage() {
   const isGroup = dialog?.is_group ?? false
   const entityId = dialog?.entity_id ?? parseInt(chatId)
 
-  const photoUrl = effectiveAccount && dialog?.has_photo
-    ? chatsApi.photoUrl(effectiveAccount, entityId)
-    : null
+  const photoUrl =
+    effectiveAccount && dialog?.has_photo ? chatsApi.photoUrl(effectiveAccount, entityId) : null
 
   // Status display string
   const statusDisplay = isPrivate
-    ? (isOnline ? "online" : userStatus ?? "")
+    ? isOnline
+      ? "online"
+      : (userStatus ?? "")
     : isGroup
-    ? "group"
-    : isChannel
-    ? "channel"
-    : ""
+      ? "group"
+      : isChannel
+        ? "channel"
+        : ""
 
   return (
     <div className="dark">
       <div className="relative flex min-h-screen max-w-md flex-col bg-background text-foreground md:h-screen md:max-w-none md:overflow-hidden">
         {/* Header */}
         <div className="sticky top-0 z-30 flex items-center gap-3 px-2 py-2 bg-card/95 backdrop-blur border-b border-border/40">
-          <button onClick={() => navigate({ to: "/" })} aria-label="Back" className="p-1.5 text-foreground flex-shrink-0">
+          <button
+            onClick={() => navigate({ to: "/" })}
+            aria-label="Back"
+            className="p-1.5 text-foreground flex-shrink-0"
+          >
             <ArrowLeft className="h-6 w-6" />
           </button>
           {searchOpen ? (
@@ -237,25 +273,26 @@ function ChatPage() {
               className="min-w-0 flex-1 rounded-lg bg-background px-3 py-2 text-sm text-foreground outline-none"
             />
           ) : (
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Avatar with live online indicator */}
-            <div className="relative flex-shrink-0">
-              <EntityAvatar
-                name={displayName}
-                photoUrl={photoUrl}
-                size={10}
-              />
-              {isOnline && (
-                <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-400 border-2 border-card" />
-              )}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              {/* Avatar with live online indicator */}
+              <div className="relative flex-shrink-0">
+                <EntityAvatar name={displayName} photoUrl={photoUrl} size={10} />
+                {isOnline && (
+                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-green-400 border-2 border-card" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold text-foreground truncate">{displayName}</p>
+                <p
+                  className={cn(
+                    "text-xs truncate",
+                    isOnline ? "text-green-400" : "text-muted-foreground",
+                  )}
+                >
+                  {statusDisplay || (isChannel ? "channel" : isGroup ? "group" : "private chat")}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-[15px] font-semibold text-foreground truncate">{displayName}</p>
-              <p className={cn("text-xs truncate", isOnline ? "text-green-400" : "text-muted-foreground")}>
-                {statusDisplay || (isChannel ? "channel" : isGroup ? "group" : "private chat")}
-              </p>
-            </div>
-          </div>
           )}
           <button
             aria-label={searchOpen ? "Close search" : "Search messages"}
@@ -270,9 +307,12 @@ function ChatPage() {
           <button
             aria-label="Chat details"
             onClick={() =>
-              toast.info(`${displayName} · ${isChannel ? "Channel" : isGroup ? "Group" : "Private chat"}`, {
-                description: `Chat ID: ${chatEntityId}`,
-              })
+              toast.info(
+                `${displayName} · ${isChannel ? "Channel" : isGroup ? "Group" : "Private chat"}`,
+                {
+                  description: `Chat ID: ${chatEntityId}`,
+                },
+              )
             }
             className="p-2 text-foreground flex-shrink-0"
           >
@@ -287,7 +327,11 @@ function ChatPage() {
           className="flex-1 px-3 py-4 space-y-1 bg-[oklch(0.18_0.02_260)] overflow-y-auto"
           style={{ minHeight: 0 }}
         >
-          {isLoading && <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-primary animate-spin" /></div>}
+          {isLoading && (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 text-primary animate-spin" />
+            </div>
+          )}
           {/* Load older messages */}
           {!isLoading && hasNextPage && (
             <div className="flex justify-center py-2">
@@ -307,9 +351,13 @@ function ChatPage() {
                 className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-4 py-2 rounded-full transition-colors"
               >
                 {isFetchingNextPage ? (
-                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading</>
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading
+                  </>
                 ) : (
-                  <><ChevronDown className="h-3.5 w-3.5" /> Load older messages</>
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" /> Load older messages
+                  </>
                 )}
               </button>
             </div>
@@ -321,8 +369,11 @@ function ChatPage() {
           )}
           {sortedMessages.map((m, i) => {
             const prev = sortedMessages[i - 1]
-            const showDate = !prev || (m.date && prev.date &&
-              new Date(m.date).toDateString() !== new Date(prev.date).toDateString())
+            const showDate =
+              !prev ||
+              (m.date &&
+                prev.date &&
+                new Date(m.date).toDateString() !== new Date(prev.date).toDateString())
             return (
               <div key={m.id}>
                 {showDate && m.date && (
@@ -362,10 +413,17 @@ function ChatPage() {
               <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-border/20">
                 <Reply className="h-4 w-4 text-primary flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-primary text-xs font-medium truncate">{replyTo.sender_name ?? "Message"}</p>
-                  <p className="text-muted-foreground text-xs truncate">{replyTo.text ?? "Media"}</p>
+                  <p className="text-primary text-xs font-medium truncate">
+                    {replyTo.sender_name ?? "Message"}
+                  </p>
+                  <p className="text-muted-foreground text-xs truncate">
+                    {replyTo.text ?? "Media"}
+                  </p>
                 </div>
-                <button onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground p-1">
+                <button
+                  onClick={() => setReplyTo(null)}
+                  className="text-muted-foreground hover:text-foreground p-1"
+                >
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
@@ -394,7 +452,10 @@ function ChatPage() {
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0]
-                  if (file) { sendFileMutation.mutate(file); e.target.value = "" }
+                  if (file) {
+                    sendFileMutation.mutate(file)
+                    e.target.value = ""
+                  }
                 }}
               />
               <button
@@ -402,9 +463,11 @@ function ChatPage() {
                 disabled={sendFileMutation.isPending}
                 className="p-2 text-muted-foreground hover:text-foreground transition-colors"
               >
-                {sendFileMutation.isPending
-                  ? <Loader2 className="h-5 w-5 animate-spin" />
-                  : <Paperclip className="h-6 w-6" />}
+                {sendFileMutation.isPending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Paperclip className="h-6 w-6" />
+                )}
               </button>
               {messageText.trim() ? (
                 <button
@@ -412,7 +475,11 @@ function ChatPage() {
                   disabled={sendMutation.isPending}
                   className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground disabled:opacity-70"
                 >
-                  {sendMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                  {sendMutation.isPending ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5" />
+                  )}
                 </button>
               ) : (
                 <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
@@ -421,7 +488,10 @@ function ChatPage() {
               )}
             </div>
             {showEmojiPicker && (
-              <div className="grid grid-cols-8 gap-1 border-t border-border/30 px-3 py-2" aria-label="Emoji picker">
+              <div
+                className="grid grid-cols-8 gap-1 border-t border-border/30 px-3 py-2"
+                aria-label="Emoji picker"
+              >
                 {QUICK_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
@@ -449,7 +519,32 @@ function ChatPage() {
   )
 }
 
-const QUICK_EMOJIS = ["😀", "😂", "🥰", "😍", "😊", "😉", "😭", "😎", "👍", "👎", "❤️", "🔥", "🎉", "🙏", "👏", "🤔", "👋", "💯", "✨", "✅", "🤝", "💙", "😢", "😡"]
+const QUICK_EMOJIS = [
+  "😀",
+  "😂",
+  "🥰",
+  "😍",
+  "😊",
+  "😉",
+  "😭",
+  "😎",
+  "👍",
+  "👎",
+  "❤️",
+  "🔥",
+  "🎉",
+  "🙏",
+  "👏",
+  "🤔",
+  "👋",
+  "💯",
+  "✨",
+  "✅",
+  "🤝",
+  "💙",
+  "😢",
+  "😡",
+]
 
 // ── Entity Avatar ────────────────────────────────────────────────────────────
 
@@ -469,8 +564,14 @@ function EntityAvatar({
   const sizeClass = `w-${size} h-${size}`
 
   const colors = [
-    "bg-pink-500", "bg-green-500", "bg-blue-600", "bg-purple-500",
-    "bg-amber-500", "bg-rose-600", "bg-cyan-600", "bg-indigo-500",
+    "bg-pink-500",
+    "bg-green-500",
+    "bg-blue-600",
+    "bg-purple-500",
+    "bg-amber-500",
+    "bg-rose-600",
+    "bg-cyan-600",
+    "bg-indigo-500",
   ]
   const color = colors[initial.charCodeAt(0) % colors.length]
 
@@ -486,7 +587,13 @@ function EntityAvatar({
   }
 
   return (
-    <div className={cn(`${sizeClass} rounded-full flex items-center justify-center text-white font-semibold`, color, className)}>
+    <div
+      className={cn(
+        `${sizeClass} rounded-full flex items-center justify-center text-white font-semibold`,
+        color,
+        className,
+      )}
+    >
       {initial}
     </div>
   )
@@ -509,14 +616,10 @@ function MessageBubble({
 }) {
   const outgoing = m.out
   const timeStr = m.date ? format(new Date(m.date), "HH:mm") : ""
-  const mediaUrl = m.media?.id
-    ? chatsApi.mediaUrl(accountName, chatId, m.id)
-    : null
+  const mediaUrl = m.media?.id ? chatsApi.mediaUrl(accountName, chatId, m.id) : null
 
   return (
-    <div
-      className={cn("flex flex-col group", outgoing ? "items-end" : "items-start")}
-    >
+    <div className={cn("flex flex-col group", outgoing ? "items-end" : "items-start")}>
       {/* Reply button on hover */}
       {onReply && (
         <button
@@ -538,8 +641,12 @@ function MessageBubble({
 
       {/* Forwarded header */}
       {m.forward && (
-        <div className={cn("flex items-center gap-1 text-xs text-muted-foreground mb-0.5",
-          outgoing ? "mr-2" : "ml-2")}>
+        <div
+          className={cn(
+            "flex items-center gap-1 text-xs text-muted-foreground mb-0.5",
+            outgoing ? "mr-2" : "ml-2",
+          )}
+        >
           <Forward className="h-3 w-3" />
           <span>Forwarded{m.forward.from_name ? ` from ${m.forward.from_name}` : ""}</span>
         </div>
@@ -547,28 +654,40 @@ function MessageBubble({
 
       {/* Pinned indicator */}
       {m.pinned && (
-        <div className={cn("flex items-center gap-1 text-xs text-amber-400 mb-0.5",
-          outgoing ? "mr-2" : "ml-2")}>
+        <div
+          className={cn(
+            "flex items-center gap-1 text-xs text-amber-400 mb-0.5",
+            outgoing ? "mr-2" : "ml-2",
+          )}
+        >
           <Pin className="h-3 w-3" />
           <span>Pinned</span>
         </div>
       )}
 
-      <div className={cn(
-        "max-w-[85%] rounded-2xl overflow-hidden",
-        outgoing ? "bg-sky-700 text-white rounded-br-sm" : "bg-card text-foreground rounded-bl-sm",
-      )}>
+      <div
+        className={cn(
+          "max-w-[85%] rounded-2xl overflow-hidden",
+          outgoing
+            ? "bg-sky-700 text-white rounded-br-sm"
+            : "bg-card text-foreground rounded-bl-sm",
+        )}
+      >
         {/* Reply context */}
         {m.reply && (
-          <div className={cn(
-            "border-l-2 border-sky-400 pl-2 py-1 mx-3 mt-2 text-xs",
-            outgoing ? "text-white/70" : "text-muted-foreground",
-          )}>
+          <div
+            className={cn(
+              "border-l-2 border-sky-400 pl-2 py-1 mx-3 mt-2 text-xs",
+              outgoing ? "text-white/70" : "text-muted-foreground",
+            )}
+          >
             <div className="flex items-center gap-1 mb-0.5">
               <Reply className="h-3 w-3" />
               {m.reply.sender_id && <span className="font-medium">Reply</span>}
             </div>
-            {m.reply.text && typeof m.reply.text === "string" && <p className="truncate">{safeText(m.reply.text)}</p>}
+            {m.reply.text && typeof m.reply.text === "string" && (
+              <p className="truncate">{safeText(m.reply.text)}</p>
+            )}
             {m.reply.media_type && !m.reply.text && (
               <p className="capitalize">{m.reply.media_type}</p>
             )}
@@ -587,7 +706,9 @@ function MessageBubble({
             {m.media?.type === "webpage" && m.media.url && (
               <WebPagePreview media={m.media} outgoing={outgoing} />
             )}
-            <p className="text-[15px] whitespace-pre-wrap break-words leading-snug">{safeText(m.text)}</p>
+            <p className="text-[15px] whitespace-pre-wrap break-words leading-snug">
+              {safeText(m.text)}
+            </p>
             <MessageMeta time={timeStr} outgoing={outgoing} views={m.views} />
           </div>
         )}
@@ -664,10 +785,12 @@ function MediaBlock({
   // Video / Round video
   if (media.type === "video") {
     return (
-      <div className={cn(
-        "relative bg-gradient-to-br from-slate-700 to-slate-900",
-        media.round ? "w-40 h-40 rounded-full overflow-hidden mx-auto" : "w-full h-52",
-      )}>
+      <div
+        className={cn(
+          "relative bg-gradient-to-br from-slate-700 to-slate-900",
+          media.round ? "w-40 h-40 rounded-full overflow-hidden mx-auto" : "w-full h-52",
+        )}
+      >
         {mediaUrl && !imgError ? (
           <img
             src={mediaUrl}
@@ -705,11 +828,19 @@ function MediaBlock({
     return (
       <div className="relative w-full h-40 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
         {mediaUrl && !imgError ? (
-          <img src={mediaUrl} alt="GIF" onError={() => setImgError(true)} className="w-full h-full object-cover" loading="lazy" />
+          <img
+            src={mediaUrl}
+            alt="GIF"
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <Play className="h-8 w-8 text-white/40" />
         )}
-        <span className="absolute bottom-1.5 left-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">GIF</span>
+        <span className="absolute bottom-1.5 left-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+          GIF
+        </span>
       </div>
     )
   }
@@ -719,9 +850,7 @@ function MediaBlock({
     return (
       <div className="px-3 py-2 flex items-center gap-2">
         <Sticker className="h-5 w-5 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">
-          Sticker {media.emoji || ""}
-        </span>
+        <span className="text-sm text-muted-foreground">Sticker {media.emoji || ""}</span>
       </div>
     )
   }
@@ -767,18 +896,32 @@ function MediaBlock({
 
 // ── Web page preview ──────────────────────────────────────────────────────────
 
-function WebPagePreview({ media, outgoing }: { media: NonNullable<Message["media"]>; outgoing: boolean }) {
+function WebPagePreview({
+  media,
+  outgoing,
+}: {
+  media: NonNullable<Message["media"]>
+  outgoing: boolean
+}) {
   return (
-    <div className={cn(
-      "border-l-2 border-sky-400 pl-2 mb-2 text-xs",
-      outgoing ? "text-white/80" : "text-muted-foreground",
-    )}>
+    <div
+      className={cn(
+        "border-l-2 border-sky-400 pl-2 mb-2 text-xs",
+        outgoing ? "text-white/80" : "text-muted-foreground",
+      )}
+    >
       {media.site_name && <p className="font-semibold text-sky-400">{media.site_name}</p>}
       {media.title && <p className="font-medium">{media.title}</p>}
       {media.description && <p className="line-clamp-2 opacity-80">{media.description}</p>}
       {media.url && (
-        <a href={media.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sky-400 hover:underline mt-0.5">
-          <Globe className="h-3 w-3" />{media.url.replace(/^https?:\/\//, "").split("/")[0]}
+        <a
+          href={media.url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 text-sky-400 hover:underline mt-0.5"
+        >
+          <Globe className="h-3 w-3" />
+          {media.url.replace(/^https?:\/\//, "").split("/")[0]}
         </a>
       )}
     </div>
@@ -844,15 +987,31 @@ function InlineKeyboard({
 
 // ── Message meta (time + checkmarks + views) ──────────────────────────────────
 
-function MessageMeta({ time, outgoing, views }: { time: string; outgoing: boolean; views?: number | null }) {
+function MessageMeta({
+  time,
+  outgoing,
+  views,
+}: {
+  time: string
+  outgoing: boolean
+  views?: number | null
+}) {
   return (
     <div className="flex items-center justify-end gap-1.5 mt-0.5">
       {views != null && (
-        <span className={cn("text-[10px] flex items-center gap-0.5", outgoing ? "text-white/60" : "text-muted-foreground")}>
-          <Eye className="h-3 w-3" />{formatViews(views)}
+        <span
+          className={cn(
+            "text-[10px] flex items-center gap-0.5",
+            outgoing ? "text-white/60" : "text-muted-foreground",
+          )}
+        >
+          <Eye className="h-3 w-3" />
+          {formatViews(views)}
         </span>
       )}
-      <span className={cn("text-[11px]", outgoing ? "text-white/70" : "text-muted-foreground")}>{time}</span>
+      <span className={cn("text-[11px]", outgoing ? "text-white/70" : "text-muted-foreground")}>
+        {time}
+      </span>
       {outgoing && (
         <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white/80 flex-shrink-0">
           <path fill="currentColor" d="M2 8l3 3 4-5M7 11l3-5" />

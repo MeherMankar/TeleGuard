@@ -41,9 +41,7 @@ interface AutomationPageProps {
 
 function formatJobTime(value: number | string): string {
   const timestamp = typeof value === "number" ? value * 1000 : Date.parse(value)
-  return Number.isFinite(timestamp)
-    ? new Date(timestamp).toLocaleString()
-    : "not scheduled"
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : "not scheduled"
 }
 
 export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
@@ -66,9 +64,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
   const [bulkMessage, setBulkMessage] = useState("")
 
   // WS: refresh jobs when automation_log arrives
-  useWsEvent("automation_log", useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["jobs"] })
-  }, [queryClient]))
+  useWsEvent(
+    "automation_log",
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] })
+    }, [queryClient]),
+  )
 
   const { data: arSettings, isLoading: arLoading } = useQuery({
     queryKey: ["auto-reply"],
@@ -113,19 +114,22 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
   })
 
   const createJobMutation = useMutation({
-    mutationFn: () => messagingApi.createJob({
-      account_id: activeAccount?.id ?? "",
-      job_type: jobType,
-      job_config:
-        jobType === "scheduled_post"
-          ? { channel: jobTarget, message: jobMessage }
-          : { channel_link: jobTarget },
-      interval_seconds: jobType === "auto_join" ? 60 : Math.max(60, parseInt(jobInterval) || 3600),
-    }),
+    mutationFn: () =>
+      messagingApi.createJob({
+        account_id: activeAccount?.id ?? "",
+        job_type: jobType,
+        job_config:
+          jobType === "scheduled_post"
+            ? { channel: jobTarget, message: jobMessage }
+            : { channel_link: jobTarget },
+        interval_seconds:
+          jobType === "auto_join" ? 60 : Math.max(60, parseInt(jobInterval) || 3600),
+      }),
     onSuccess: () => {
       toast.success("Job created")
       setShowCreateJob(false)
-      setJobTarget(""); setJobMessage("")
+      setJobTarget("")
+      setJobMessage("")
       queryClient.invalidateQueries({ queryKey: ["jobs"] })
     },
     onError: (e) => toast.error(apiErrorMessage(e)),
@@ -133,12 +137,16 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
 
   const bulkMutation = useMutation({
     mutationFn: () => {
-      const targets = bulkTargets.split("\n").map(t => t.trim()).filter(Boolean)
+      const targets = bulkTargets
+        .split("\n")
+        .map((t) => t.trim())
+        .filter(Boolean)
       return messagingApi.bulk(activeAccount!.name, targets, bulkMessage.trim())
     },
     onSuccess: (res) => {
       toast.success(res.message || "Bulk message queued")
-      setBulkTargets(""); setBulkMessage("")
+      setBulkTargets("")
+      setBulkMessage("")
     },
     onError: (e) => toast.error(apiErrorMessage(e)),
   })
@@ -146,7 +154,9 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
   const toggleAccountReplyMutation = useMutation({
     mutationFn: () => accountsApi.toggleReply(activeAccount!.name),
     onSuccess: (result) => {
-      toast.success(`Auto-reply ${result.auto_reply_enabled ? "enabled" : "disabled"} for ${activeAccount?.name}`)
+      toast.success(
+        `Auto-reply ${result.auto_reply_enabled ? "enabled" : "disabled"} for ${activeAccount?.name}`,
+      )
       queryClient.invalidateQueries({ queryKey: ["accounts"] })
     },
     onError: (error) => toast.error(apiErrorMessage(error)),
@@ -316,9 +326,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               ) : (
                 <div className="bg-[#242f3d] rounded-xl overflow-hidden">
                   <div className="px-4 py-3 border-b border-white/10">
-                    <span className="text-sky-400 text-sm font-medium">
-                      Jobs ({jobs.length})
-                    </span>
+                    <span className="text-sky-400 text-sm font-medium">Jobs ({jobs.length})</span>
                   </div>
                   <ul role="list">
                     {jobs.map((job, i) => (
@@ -370,7 +378,9 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
             <div className="p-4 space-y-4">
               {!activeAccount && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-                  <p className="text-yellow-400 text-sm text-center">Select an active account first</p>
+                  <p className="text-yellow-400 text-sm text-center">
+                    Select an active account first
+                  </p>
                 </div>
               )}
               <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
@@ -378,10 +388,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                   <Users className="h-4 w-4" /> Bulk Message
                 </p>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">Targets (one per line — @username, +phone, or chat ID)</label>
+                  <label className="text-gray-400 text-xs block mb-1">
+                    Targets (one per line — @username, +phone, or chat ID)
+                  </label>
                   <textarea
                     value={bulkTargets}
-                    onChange={e => setBulkTargets(e.target.value)}
+                    onChange={(e) => setBulkTargets(e.target.value)}
                     rows={4}
                     placeholder={"@user1\n@user2\n+1234567890"}
                     className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
@@ -391,7 +403,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                   <label className="text-gray-400 text-xs block mb-1">Message</label>
                   <textarea
                     value={bulkMessage}
-                    onChange={e => setBulkMessage(e.target.value)}
+                    onChange={(e) => setBulkMessage(e.target.value)}
                     rows={3}
                     placeholder="Your message..."
                     className="w-full bg-[#17212b] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
@@ -399,10 +411,19 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 </div>
                 <button
                   onClick={() => bulkMutation.mutate()}
-                  disabled={!activeAccount || !bulkTargets.trim() || !bulkMessage.trim() || bulkMutation.isPending}
+                  disabled={
+                    !activeAccount ||
+                    !bulkTargets.trim() ||
+                    !bulkMessage.trim() ||
+                    bulkMutation.isPending
+                  }
                   className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE] hover:bg-[#2AABEE]/90 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors"
                 >
-                  {bulkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {bulkMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                   {bulkMutation.isPending ? "Sending…" : "Send to All"}
                 </button>
               </div>
@@ -416,14 +437,20 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
 
       {/* Create Job modal */}
       {showCreateJob && (
-        <div className="fixed inset-0 z-[85] bg-black/70 flex items-end justify-center" onClick={() => setShowCreateJob(false)}>
-          <div className="bg-[#17212b] w-full max-w-md rounded-t-2xl p-5 space-y-4" onClick={e => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[85] bg-black/70 flex items-end justify-center"
+          onClick={() => setShowCreateJob(false)}
+        >
+          <div
+            className="bg-[#17212b] w-full max-w-md rounded-t-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className="text-white font-semibold text-lg">Create Automation Job</h2>
             <div>
               <label className="text-gray-400 text-xs block mb-1">Job Type</label>
               <select
                 value={jobType}
-                onChange={e =>
+                onChange={(e) =>
                   setJobType(e.target.value === "auto_join" ? "auto_join" : "scheduled_post")
                 }
                 className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:outline-none"
@@ -439,8 +466,10 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               <input
                 type="text"
                 value={jobTarget}
-                onChange={e => setJobTarget(e.target.value)}
-                placeholder={jobType === "scheduled_post" ? "@channel or chat ID" : "https://t.me/..."}
+                onChange={(e) => setJobTarget(e.target.value)}
+                placeholder={
+                  jobType === "scheduled_post" ? "@channel or chat ID" : "https://t.me/..."
+                }
                 className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
               />
             </div>
@@ -449,7 +478,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 <label className="text-gray-400 text-xs block mb-1">Message</label>
                 <textarea
                   value={jobMessage}
-                  onChange={e => setJobMessage(e.target.value)}
+                  onChange={(e) => setJobMessage(e.target.value)}
                   rows={2}
                   placeholder="Message to send…"
                   className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none resize-none"
@@ -458,11 +487,13 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
             )}
             {jobType === "scheduled_post" && (
               <div>
-                <label className="text-gray-400 text-xs block mb-1">Repeat interval (seconds)</label>
+                <label className="text-gray-400 text-xs block mb-1">
+                  Repeat interval (seconds)
+                </label>
                 <input
                   type="number"
                   value={jobInterval}
-                  onChange={e => setJobInterval(e.target.value)}
+                  onChange={(e) => setJobInterval(e.target.value)}
                   min="60"
                   className="w-full bg-[#242f3d] text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-[#2AABEE] focus:outline-none"
                 />
@@ -472,7 +503,9 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               <button
                 onClick={() => setShowCreateJob(false)}
                 className="flex-1 py-2.5 border border-white/20 text-gray-400 rounded-xl text-sm"
-              >Cancel</button>
+              >
+                Cancel
+              </button>
               <button
                 onClick={() => createJobMutation.mutate()}
                 disabled={
@@ -483,7 +516,11 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 }
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE] text-white rounded-xl text-sm font-medium disabled:opacity-50"
               >
-                {createJobMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {createJobMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
                 Create
               </button>
             </div>
