@@ -127,15 +127,18 @@ class SessionBackupManager:
         self.enabled = config.security.session_backup_enabled
         self.github_branch = config.backup.github_backup_branch
         if self.enabled:
-            repository = config.backup.github_repo
-            self.github_token = config.backup.github_token
+            repository = config.backup.session_backup_github_repo
+            token = config.backup.session_backup_github_token
+            self.github_token = token
             if not repository:
                 raise ValueError(
-                    "GITHUB_REPO is required when session backups are enabled"
+                    "SESSION_BACKUP_GITHUB_REPO is required when "
+                    "session backups are enabled"
                 )
             if not self.github_token:
                 raise ValueError(
-                    "GITHUB_TOKEN is required when session backups are enabled"
+                    "SESSION_BACKUP_GITHUB_TOKEN is required when "
+                    "session backups are enabled"
                 )
             if FERNET is None:
                 raise ValueError("FERNET_KEY is required for GitHub session backups")
@@ -147,6 +150,7 @@ class SessionBackupManager:
                 "Authorization": f"Bearer {self.github_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             }
+            self.headers["Authorization"] = f"Bearer {token}"
         else:
             self.repository = None
             self.github_token = None

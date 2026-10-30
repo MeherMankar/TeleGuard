@@ -26,3 +26,6 @@ PORT = "8080"
 ENVIRONMENT = "production"
 KOYEB_DEPLOYMENT = "true"
 # Set JWT_SECRET and ALLOWED_ORIGINS in the Koyeb service environment.
+# To enable the encrypted public MongoDB mirror, configure
+# GITHUB_DATA_MIRROR_ENABLED, GITHUB_DATA_REPO, GITHUB_DATA_TOKEN,
+# GITHUB_DATA_BRANCH, and FERNET_KEY in the Koyeb service environment.

@@ -14,6 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..core.mongo_database import mongodb
+from .github_data_mirror import GitHubDataMirror
 from .session_backup import SessionBackupManager
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class SessionScheduler:
     def __init__(self, bot_client=None, bot_manager=None):
         self.scheduler = AsyncIOScheduler()
         self.backup_manager = SessionBackupManager()
+        self.data_mirror = GitHubDataMirror()
         self.bot_client = bot_client
         self.bot_manager = bot_manager
         self.running = False
@@ -36,22 +38,40 @@ class SessionScheduler:
         if self.running:
             return
         try:
-            self.scheduler.add_job(
-                self._push_sessions_job,
-                "date",
-                run_date=datetime.now(),
-                id="initial_session_push",
-                name="Initial GitHub session backup",
-                replace_existing=True,
-                misfire_grace_time=300,
-            )
-            self.scheduler.add_job(
-                self._push_sessions_job,
-                IntervalTrigger(minutes=30),
-                id="push_sessions",
-                name="Push sessions to GitHub",
-                max_instances=1,
-            )
+            if self.backup_manager.enabled:
+                self.scheduler.add_job(
+                    self._push_sessions_job,
+                    "date",
+                    run_date=datetime.now(),
+                    id="initial_session_push",
+                    name="Initial GitHub session backup",
+                    replace_existing=True,
+                    misfire_grace_time=300,
+                )
+                self.scheduler.add_job(
+                    self._push_sessions_job,
+                    IntervalTrigger(minutes=30),
+                    id="push_sessions",
+                    name="Push sessions to GitHub",
+                    max_instances=1,
+                )
+            if self.data_mirror.enabled:
+                self.scheduler.add_job(
+                    self._push_database_mirror_job,
+                    "date",
+                    run_date=datetime.now(),
+                    id="initial_database_mirror",
+                    name="Initial encrypted GitHub data mirror",
+                    replace_existing=True,
+                    misfire_grace_time=300,
+                )
+                self.scheduler.add_job(
+                    self._push_database_mirror_job,
+                    IntervalTrigger(minutes=5),
+                    id="push_database_mirror",
+                    name="Mirror encrypted MongoDB records to GitHub",
+                    max_instances=1,
+                )
             if self.bot_client:
                 self.scheduler.add_job(
                     self._push_user_settings_job,
@@ -103,6 +123,13 @@ class SessionScheduler:
                 logger.warning("Session push job failed")
         except Exception as e:
             logger.error(f"Session push job error: {e}")
+
+    async def _push_database_mirror_job(self):
+        """Publish the latest encrypted MongoDB snapshot to GitHub."""
+        try:
+            await self.data_mirror.sync()
+        except Exception:
+            logger.exception("GitHub database mirror job failed")
 
     def trigger_push_now(self):
         """Manually trigger session push"""

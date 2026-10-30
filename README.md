@@ -97,8 +97,11 @@ ADMIN_IDS=123456789,987654321
 
 # Optional
 SESSION_BACKUP_ENABLED=false
-# To enable GitHub session backups, also set GITHUB_REPO, GITHUB_TOKEN,
-# and a stable FERNET_KEY; MongoDB remains the live database.
+# Optional private GitHub session backup: set SESSION_BACKUP_GITHUB_REPO
+# and SESSION_BACKUP_GITHUB_TOKEN to a private repo and write-enabled token.
+# Optional encrypted MongoDB mirror to a public repository:
+# set GITHUB_DATA_MIRROR_ENABLED=true, GITHUB_DATA_REPO, GITHUB_DATA_TOKEN,
+# and a stable FERNET_KEY. MongoDB remains the live database.
 ```
 
 Generate `JWT_SECRET` with:
@@ -200,7 +203,12 @@ teleguard/
 
 ### Encryption
 - Session backups use Fernet encryption when configured with a stable `FERNET_KEY`.
+- The optional public GitHub data mirror encrypts complete MongoDB user/account
+  documents before upload; its public index contains counts, opaque record IDs,
+  and keyed fingerprints rather than plaintext data.
 - Keep encryption keys out of source control and configure them as deployment secrets.
+- GitHub retains prior ciphertext in commit history even after a record is updated
+  or deleted; deleting a record from the current mirror does not erase its history.
 
 ### WebApp Authentication
 - Telegram login data must have a valid signature and an `auth_date` no older than 24 hours.
@@ -273,16 +281,34 @@ docker run -d \
 | `ALLOWED_ORIGINS` | ✅ in production | Comma-separated frontend origins allowed by backend CORS |
 | `ADMIN_IDS` | Optional | Comma-separated admin user IDs |
 | `MAX_ACCOUNTS` | Optional | Maximum accounts per user |
-| `FERNET_KEY` | ❌ | Stable Fernet key; required for encrypted GitHub session backups |
+| `FERNET_KEY` | ❌ | Stable secret Fernet key; required for the encrypted public data mirror and encrypted session backups |
+| `GITHUB_DATA_MIRROR_ENABLED` | ❌ | Set to `true` to mirror MongoDB user/account records to GitHub (default: `false`) |
+| `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`) |
+| `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write access to the data repository |
+| `GITHUB_DATA_BRANCH` | ❌ | Data mirror branch (default: `main`) |
+| `USE_GITHUB_DB` | ❌ | Legacy alias; with `DB_WRITE_ALLOWED=true`, enables the encrypted mirror if the explicit mirror flag is unset |
+| `DB_WRITE_ALLOWED` | ❌ | Legacy opt-in gate required together with `USE_GITHUB_DB=true` |
+| `DB_GITHUB_OWNER` / `DB_GITHUB_REPO` | ❌ | Legacy mirror repository owner and name |
+| `DB_GITHUB_BRANCH` | ❌ | Legacy mirror branch |
+| `DB_GITHUB_TOKEN` | ❌ | Legacy mirror write token |
 | `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
-| `GITHUB_REPO` | ❌ | Private GitHub repository (`owner/repository`) |
-| `GITHUB_TOKEN` | ❌ | Token with Contents read/write access to the private backup repository |
-| `GITHUB_BACKUP_BRANCH` | ❌ | Backup branch (default: `backups`) |
+| `SESSION_BACKUP_GITHUB_REPO` | ❌ | Private repository for session backups (`owner/repository`) |
+| `SESSION_BACKUP_GITHUB_TOKEN` | ❌ | Token with Contents read/write access to that private repository |
+| `GITHUB_BACKUP_BRANCH` | ❌ | Session backup branch (default: `backups`) |
 
-GitHub is only a session-backup destination; MongoDB remains the live database.
-When deploying on Koyeb, set these as **service environment variables**—GitHub
-Actions repository secrets are not automatically passed to the running service.
-Use a private repository and keep `FERNET_KEY` unchanged between deployments.
+MongoDB remains the live source of truth. The encrypted data mirror performs an
+initial sync at startup and then syncs every five minutes. Keep `FERNET_KEY`
+private and unchanged between deployments; changing it makes existing mirror
+records undecryptable. The data-mirror repository must be public, while session
+backup repositories must remain private. Configure these as **service
+environment variables** on Koyeb—GitHub Actions repository secrets are not
+automatically passed to the running service. GitHub commit history retains
+previous encrypted payloads after updates/deletions.
+For compatibility, `USE_GITHUB_DB=true` and `DB_WRITE_ALLOWED=true` enable the
+encrypted mirror when `GITHUB_DATA_MIRROR_ENABLED` is unset. `DB_GITHUB_OWNER`,
+`DB_GITHUB_REPO`, `DB_GITHUB_BRANCH`, and `DB_GITHUB_TOKEN` configure its target.
+These legacy names do not make GitHub the live database. `DATABASE_URL` is not
+used for live storage by this app; configure `MONGO_URI`.
 The `/health` endpoint is a readiness check: it returns HTTP 503 until MongoDB
 is reachable and the bot has completed startup.
 

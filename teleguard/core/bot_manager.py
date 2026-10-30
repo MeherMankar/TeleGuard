@@ -226,7 +226,10 @@ class BotManager:
             except Exception as e:
                 logger.warning(f"Failed to register commands: {e}")
             await self._initialize_components()
-            if config.security.session_backup_enabled:
+            if (
+                config.security.session_backup_enabled
+                or config.backup.github_data_mirror_enabled
+            ):
                 from ..utils.session_scheduler import SessionScheduler
 
                 self.session_scheduler = SessionScheduler(bot_manager=self)

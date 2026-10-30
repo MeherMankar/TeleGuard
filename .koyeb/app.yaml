@@ -37,6 +37,36 @@ services:
         scope: project
       - key: FERNET_KEY
         scope: project
+      - key: GITHUB_DATA_MIRROR_ENABLED
+        scope: project
+      - key: GITHUB_DATA_REPO
+        scope: project
+      - key: GITHUB_DATA_TOKEN
+        scope: project
+      - key: GITHUB_DATA_BRANCH
+        scope: project
+      - key: SESSION_BACKUP_ENABLED
+        scope: project
+      - key: SESSION_BACKUP_GITHUB_REPO
+        scope: project
+      - key: SESSION_BACKUP_GITHUB_TOKEN
+        scope: project
+      - key: USE_GITHUB_DB
+        scope: project
+      - key: DB_WRITE_ALLOWED
+        scope: project
+      - key: DB_GITHUB_OWNER
+        scope: project
+      - key: DB_GITHUB_REPO
+        scope: project
+      - key: DB_GITHUB_BRANCH
+        scope: project
+      - key: DB_GITHUB_TOKEN
+        scope: project
+      - key: SESSION_BACKUP_GITHUB_REPO
+        scope: project
+      - key: SESSION_BACKUP_GITHUB_TOKEN
+        scope: project
       - key: PORT
         value: "8080"
       - key: ENVIRONMENT

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
@@ -39,6 +40,28 @@ def test_refuses_to_store_sessions_in_public_repository(monkeypatch):
     with pytest.raises(ValueError, match="must be private"):
         manager._ensure_private_branch()
     assert calls == [("GET", "")]
+
+
+def test_session_manager_uses_dedicated_private_repo_credentials(monkeypatch):
+    monkeypatch.setattr(
+        session_backup,
+        "config",
+        SimpleNamespace(
+            security=SimpleNamespace(session_backup_enabled=True),
+            backup=SimpleNamespace(
+                github_backup_branch="backups",
+                session_backup_github_repo="owner/private-session-backups",
+                session_backup_github_token="private-token",
+            ),
+        ),
+    )
+    monkeypatch.setattr(session_backup, "FERNET", Fernet(Fernet.generate_key()))
+
+    manager = SessionBackupManager()
+    assert manager.headers is not None
+
+    assert manager.repository == "owner/private-session-backups"
+    assert manager.headers["Authorization"] == "Bearer private-token"
 
 
 def test_creates_configured_branch_from_repository_default(monkeypatch):
