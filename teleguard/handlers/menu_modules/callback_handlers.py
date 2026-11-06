@@ -384,43 +384,7 @@ class CallbackHandlers:
                 return await self.account_manager.protection_manager.enable_temp_passthrough(
                     user_id, account_id
                 )
-            else:
-                # Fallback implementation
-                import time
-
-                from bson import ObjectId
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-                if not account:
-                    return False, "Account not found"
-
-                if not account.get("otp_destroyer_enabled", False):
-                    return False, "OTP Destroyer must be enabled to use temp OTP"
-
-                # Enable temp passthrough for 5 minutes
-                expiry_time = time.time() + 300
-
-                # Store in database
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {
-                        "$set": {"otp_temp_passthrough": True, "otp_temp_expiry": int(expiry_time)},
-                        "$push": {
-                            "audit_log": {
-                                "action": "temp_otp_enabled",
-                                "duration": "5_minutes",
-                                "timestamp": int(time.time()),
-                            }
-                        },
-                    },
-                )
-
-                return (
-                    True,
-                    "Temp OTP enabled for 5 minutes! OTP codes will be forwarded.",
-                )
+            return False, "Protection Manager is not initialized"
         except Exception as e:
             logger.error(f"Error handling temp OTP: {e}")
             return False, f"Error: {str(e)}"

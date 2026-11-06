@@ -34,6 +34,7 @@ def test_cleanup_account_must_be_active_and_connected():
     connected_client = SimpleNamespace(is_connected=lambda: True)
     disconnected_client = SimpleNamespace(is_connected=lambda: False)
     manager = SimpleNamespace(
+        bot=SimpleNamespace(),
         account_manager=SimpleNamespace(
             user_clients={
                 7: {

@@ -328,7 +328,8 @@ class ProtectionMenu:
                 {"user_id": user_id, "hash": session_hash}
             )
             protection_manager = getattr(self.bot_manager, "protection_manager", None)
-            if protection_manager:
+            settings = await ProtectionStorage.get_settings(user_id)
+            if protection_manager and settings.get("session_destroyer_enabled", False):
                 await protection_manager.session_destroyer.terminate_session(
                     user_id, session_hash
                 )

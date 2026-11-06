@@ -133,11 +133,14 @@ def test_untrust_action_removes_only_the_selected_hash(monkeypatch):
     menu, pending = make_protection_menu(monkeypatch, [authorization])
     mark_untrusted = AsyncMock()
     monkeypatch.setattr(ProtectionStorage, "add_untrusted_hash", mark_untrusted)
+    get_settings = AsyncMock(return_value={"session_destroyer_enabled": False})
+    monkeypatch.setattr(ProtectionStorage, "get_settings", get_settings)
 
     updated = asyncio.run(menu.set_session_trust(123, 456, False))
 
     assert updated
     mark_untrusted.assert_awaited_once_with(123, 456)
+    get_settings.assert_awaited_once_with(123)
     pending.delete_many.assert_awaited_once_with({"user_id": 123, "hash": 456})
 
 
@@ -261,3 +264,23 @@ def test_current_session_cannot_be_untrusted(monkeypatch):
 
     assert not updated
     update_settings.assert_not_awaited()
+
+
+def test_immediate_termination_never_revokes_current_session(monkeypatch):
+    authorization = SimpleNamespace(hash=456, current=True)
+    client = SessionClient([authorization])
+    destroyer = object.__new__(SessionDestroyer)
+    destroyer.bot_manager = SimpleNamespace(user_clients={123: {"primary": client}})
+
+    monkeypatch.setattr(
+        ProtectionStorage,
+        "get_settings",
+        AsyncMock(return_value={"session_destroyer_enabled": True}),
+    )
+    add_trusted = AsyncMock()
+    monkeypatch.setattr(ProtectionStorage, "add_trusted_hash", add_trusted)
+
+    terminated = asyncio.run(destroyer.terminate_session(123, 456))
+
+    assert not terminated
+    add_trusted.assert_awaited_once_with(123, 456)

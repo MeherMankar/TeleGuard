@@ -70,6 +70,9 @@ class SessionDestroyer:
 
     async def terminate_session(self, user_id: int, session_hash: int) -> bool:
         """Immediately terminate a live session owned by the user."""
+        settings = await ProtectionStorage.get_settings(user_id)
+        if not settings.get("session_destroyer_enabled"):
+            return False
         terminated = False
         user_clients = self.bot_manager.user_clients.get(user_id, {})
 
@@ -80,6 +83,17 @@ class SessionDestroyer:
                 result = await client(functions.account.GetAuthorizationsRequest())
                 if not any(auth.hash == session_hash for auth in result.authorizations):
                     continue
+                authorization = next(
+                    auth for auth in result.authorizations if auth.hash == session_hash
+                )
+                if getattr(authorization, "current", False):
+                    await ProtectionStorage.add_trusted_hash(user_id, session_hash)
+                    logger.warning(
+                        "Refused to terminate TeleGuard's current session %s for user %s",
+                        session_hash,
+                        user_id,
+                    )
+                    return False
                 await client(
                     functions.account.ResetAuthorizationRequest(hash=session_hash)
                 )
@@ -317,7 +331,10 @@ class SessionDestroyer:
                     # If 'allow next login' is active, trust this new session
                     if allow_next:
                         await ProtectionStorage.add_trusted_hash(user_id, auth.hash)
-                        await ProtectionStorage.update_settings(user_id, {"allow_next": False})
+                        await ProtectionStorage.update_settings(user_id, {
+                            "allow_next": False,
+                            "allow_next_until": None,
+                        })
                         allow_next = False
                         logger.info(
                             f"User {user_id}: New session {auth.hash} trusted via 'Allow Next Login'"
@@ -331,6 +348,17 @@ class SessionDestroyer:
                 if newly_detected:
                     async def _kill(client, auth):
                         try:
+                            if getattr(auth, "current", False):
+                                await ProtectionStorage.add_trusted_hash(user_id, auth.hash)
+                                logger.warning(
+                                    "Refused to terminate TeleGuard's current session %s for user %s",
+                                    auth.hash,
+                                    user_id,
+                                )
+                                return
+                            settings = await ProtectionStorage.get_settings(user_id)
+                            if not settings.get("session_destroyer_enabled"):
+                                return
                             await client(
                                 functions.account.ResetAuthorizationRequest(hash=auth.hash)
                             )
@@ -431,6 +459,16 @@ class SessionDestroyer:
                     if live:
                         client, auth = live
                         try:
+                            if getattr(auth, "current", False):
+                                await ProtectionStorage.add_trusted_hash(
+                                    user_id, auth.hash
+                                )
+                                remove_pending = True
+                                continue
+                            settings = await ProtectionStorage.get_settings(user_id)
+                            if not settings.get("session_destroyer_enabled"):
+                                remove_pending = True
+                                continue
                             await client(
                                 functions.account.ResetAuthorizationRequest(hash=auth.hash)
                             )

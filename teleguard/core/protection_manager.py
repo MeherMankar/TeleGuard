@@ -1238,6 +1238,7 @@ class ProtectionManager:
                         "otp_temp_original_forward_state": account.get(
                             "otp_forward_enabled", False
                         ),
+                        "otp_temp_session_bypass": True,
                         "otp_destroyer_enabled": False,
                         "otp_forward_enabled": True,
                     },
@@ -1314,9 +1315,15 @@ class ProtectionManager:
                     "temp_passthrough_expiry": "",
                     "otp_temp_original_destroyer_state": "",
                     "otp_temp_original_forward_state": "",
+                    "otp_temp_session_bypass": "",
                 },
             },
         )
+        if account.get("otp_temp_session_bypass"):
+            await ProtectionStorage.update_settings(user_id, {
+                "allow_next": False,
+                "allow_next_until": None,
+            })
         key = (user_id, account_id)
         task = self._temp_bypass_tasks.pop(key, None)
         if task and task is not asyncio.current_task():
@@ -1437,5 +1444,8 @@ class ProtectionManager:
 
     async def allow_next_login(self, user_id: int):
         """Allow the next new session to be trusted"""
-        await ProtectionStorage.update_settings(user_id, {"allow_next": True})
+        await ProtectionStorage.update_settings(user_id, {
+            "allow_next": True,
+            "allow_next_until": datetime.now(timezone.utc) + timedelta(minutes=5),
+        })
         logger.info(f"User {user_id}: Next login allowed once")

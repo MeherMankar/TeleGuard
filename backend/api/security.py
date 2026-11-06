@@ -212,6 +212,9 @@ async def remove_trusted_session(
         await mongodb.db.session_destroyer_pending.delete_many(
             {"user_id": user_id, "hash": payload.session_hash}
         )
+        settings = await ProtectionStorage.get_settings(user_id)
+        if not settings.get("session_destroyer_enabled", False):
+            return {"status": "success", "terminated": False}
         bot_manager = _get_bot_manager()
         if (
             bot_manager
