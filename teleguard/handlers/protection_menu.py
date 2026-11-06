@@ -327,4 +327,9 @@ class ProtectionMenu:
             await mongodb.db.session_destroyer_pending.delete_many(
                 {"user_id": user_id, "hash": session_hash}
             )
+            protection_manager = getattr(self.bot_manager, "protection_manager", None)
+            if protection_manager:
+                await protection_manager.session_destroyer.terminate_session(
+                    user_id, session_hash
+                )
         return True

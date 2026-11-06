@@ -68,6 +68,35 @@ class SessionDestroyer:
         self._lock = asyncio.Lock()
         self.is_shutdown = False
 
+    async def terminate_session(self, user_id: int, session_hash: int) -> bool:
+        """Immediately terminate a live session owned by the user."""
+        terminated = False
+        user_clients = self.bot_manager.user_clients.get(user_id, {})
+
+        for client in user_clients.values():
+            if not client or not client.is_connected():
+                continue
+            try:
+                result = await client(functions.account.GetAuthorizationsRequest())
+                if not any(auth.hash == session_hash for auth in result.authorizations):
+                    continue
+                await client(
+                    functions.account.ResetAuthorizationRequest(hash=session_hash)
+                )
+                terminated = True
+                break
+            except Exception as e:
+                logger.warning(
+                    "Failed to immediately terminate session %s for user %s: %s",
+                    session_hash,
+                    user_id,
+                    e,
+                )
+
+        if terminated:
+            await ProtectionStorage.add_destroyed_hash(user_id, session_hash)
+        return terminated
+
     async def start_all(self):
         """Start watchers for all users with session protection enabled"""
         users = await ProtectionStorage.get_all_active_session_destroyers()

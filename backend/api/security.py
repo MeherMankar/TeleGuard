@@ -212,6 +212,14 @@ async def remove_trusted_session(
         await mongodb.db.session_destroyer_pending.delete_many(
             {"user_id": user_id, "hash": payload.session_hash}
         )
+        bot_manager = _get_bot_manager()
+        if (
+            bot_manager
+            and getattr(bot_manager, "protection_manager", None)
+        ):
+            await bot_manager.protection_manager.session_destroyer.terminate_session(
+                user_id, payload.session_hash
+            )
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error removing trusted session: {e}")

@@ -833,8 +833,15 @@ class ProtectionManager:
                 {
                     "session_destroyer_enabled": False,
                     "legacy_session_destroyer_migrated": True,
+                    "untrusted_hashes": [],
                 },
             )
+            # A protection-disabled period is trusted by definition. Remove
+            # explicit untrust markers and snapshot every visible session.
+            user_clients = self.bot_manager.user_clients.get(user_id, {})
+            for client in user_clients.values():
+                if client and client.is_connected():
+                    await self.session_destroyer.sync_trusted_sessions(user_id, client)
             await self.session_destroyer.stop_watcher(user_id)
 
     async def toggle_otp_destroyer(self, user_id: int, enabled: bool):
@@ -1209,6 +1216,15 @@ class ProtectionManager:
                 or account.get("display_name", "Unknown")
             )
             expiry_time = time.time() + 300
+
+            await ProtectionStorage.update_settings(user_id, {
+                "allow_next": True,
+                "allow_next_until": datetime.now(timezone.utc) + timedelta(minutes=5),
+            })
+
+            account_client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+            if account_client and account_client.is_connected():
+                await self.session_destroyer.sync_trusted_sessions(user_id, account_client)
 
             await mongodb.db.accounts.update_one(
                 {"_id": ObjectId(account_id), "user_id": user_id},
