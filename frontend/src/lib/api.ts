@@ -216,6 +216,12 @@ export interface InlineButton {
   data?: string
 }
 
+export interface MessageReaction {
+  emoji: string
+  count: number
+  chosen: boolean
+}
+
 export interface Dialog {
   id: number
   name: string
@@ -267,6 +273,7 @@ export interface Message {
   } | null
   media: MediaInfo | null
   buttons: InlineButton[][] | null
+  reactions?: MessageReaction[]
   views: number | null
   pinned: boolean
   silent: boolean
@@ -309,6 +316,30 @@ export const chatsApi = {
       `/api/chats/history/${encodeURIComponent(accountName)}/${chatId}?limit=${limit}${
         offsetId ? `&offset_id=${offsetId}` : ""
       }${search ? `&search=${encodeURIComponent(search)}` : ""}`,
+    ),
+  setReaction: (accountName: string, chatId: number, messageId: number, emoji: string | null) =>
+    post<{ status: string }>(
+      `/api/chats/messages/${encodeURIComponent(accountName)}/${chatId}/${messageId}/reaction`,
+      { emoji },
+    ),
+  editMessage: (accountName: string, chatId: number, messageId: number, text: string) =>
+    patch<{ status: string }>(
+      `/api/chats/messages/${encodeURIComponent(accountName)}/${chatId}/${messageId}`,
+      { text },
+    ),
+  forwardMessage: (accountName: string, chatId: number, messageId: number, targetChatId: number) =>
+    post<{ status: string }>(
+      `/api/chats/messages/${encodeURIComponent(accountName)}/${chatId}/${messageId}/forward`,
+      { target_chat_id: targetChatId },
+    ),
+  setMessagePinned: (accountName: string, chatId: number, messageId: number, pinned: boolean) =>
+    post<{ status: string; pinned: boolean }>(
+      `/api/chats/messages/${encodeURIComponent(accountName)}/${chatId}/${messageId}/pin`,
+      { pinned },
+    ),
+  deleteMessage: (accountName: string, chatId: number, messageId: number) =>
+    del<{ status: string }>(
+      `/api/chats/messages/${encodeURIComponent(accountName)}/${chatId}/${messageId}`,
     ),
   clickButton: (
     accountName: string,

@@ -17,6 +17,22 @@ class UpdateMuteRequest(BaseModel):
     muted: bool
 
 
+class MessageReactionRequest(BaseModel):
+    emoji: Optional[str] = None
+
+
+class EditMessageRequest(BaseModel):
+    text: str
+
+
+class ForwardMessageRequest(BaseModel):
+    target_chat_id: int
+
+
+class PinMessageRequest(BaseModel):
+    pinned: bool
+
+
 async def _get_admin_input_peers(client) -> list:
     from telethon.utils import get_input_peer
 
@@ -52,6 +68,25 @@ def _safe_str(v) -> Optional[str]:
         return s if s not in ("None", "") else None
     except Exception:
         return None
+
+
+def _extract_reactions(message) -> List[Dict[str, Any]]:
+    reactions = getattr(message, "reactions", None)
+    if not reactions:
+        return []
+
+    extracted = []
+    for result in getattr(reactions, "results", []) or []:
+        emoji = getattr(getattr(result, "reaction", None), "emoticon", None)
+        if not emoji:
+            continue
+        extracted.append({
+            "emoji": emoji,
+            "count": getattr(result, "count", 0),
+            "chosen": getattr(result, "chosen_order", None) is not None
+            or bool(getattr(result, "chosen", False)),
+        })
+    return extracted
 
 
 def _extract_user_status(entity) -> Optional[str]:
@@ -624,6 +659,7 @@ async def get_chat_history(
                 "forward": _extract_forward_info(message),
                 "media": _extract_media_info(message),
                 "buttons": _extract_buttons(message),
+                "reactions": _extract_reactions(message),
                 "views": getattr(message, "views", None),
                 "pinned": getattr(message, "pinned", False),
                 "silent": getattr(message, "silent", False),
@@ -632,6 +668,167 @@ async def get_chat_history(
     except Exception as e:
         logger.error(f"Error fetching history for {chat_id} on {account_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/{account_name}/{chat_id}/{message_id}/reaction")
+async def set_message_reaction(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    payload: MessageReactionRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Set or clear the current account's reaction to a message."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+    if payload.emoji is not None and not payload.emoji.strip():
+        raise HTTPException(status_code=400, detail="Reaction cannot be empty")
+
+    try:
+        from telethon import functions, types
+
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        peer = await client.get_input_entity(chat_id)
+        reaction = [types.ReactionEmoji(emoticon=payload.emoji)] if payload.emoji else []
+        await client(
+            functions.messages.SendReactionRequest(
+                peer=peer,
+                msg_id=message_id,
+                reaction=reaction,
+            )
+        )
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to react to message {message_id} in {chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update message reaction")
+
+
+@router.patch("/messages/{account_name}/{chat_id}/{message_id}")
+async def edit_chat_message(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    payload: EditMessageRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Edit a message sent by the selected account."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="Message text cannot be empty")
+
+    try:
+        from telethon import functions
+
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        if not message.out:
+            raise HTTPException(status_code=403, detail="You can only edit your own messages")
+        peer = await client.get_input_entity(chat_id)
+        await client(
+            functions.messages.EditMessageRequest(
+                peer=peer,
+                id=message_id,
+                message=payload.text,
+            )
+        )
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to edit message {message_id} in {chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to edit message")
+
+
+@router.post("/messages/{account_name}/{chat_id}/{message_id}/forward")
+async def forward_chat_message(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    payload: ForwardMessageRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Forward a message to another chat using the selected account."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        await client.forward_messages(
+            payload.target_chat_id,
+            message,
+            from_peer=chat_id,
+        )
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to forward message {message_id} from {chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to forward message")
+
+
+@router.post("/messages/{account_name}/{chat_id}/{message_id}/pin")
+async def set_message_pinned(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    payload: PinMessageRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Pin or unpin a message in the current chat."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        if payload.pinned:
+            await client.pin_message(chat_id, message_id, notify=False)
+        else:
+            await client.unpin_message(chat_id, message_id, notify=False)
+        return {"status": "success", "pinned": payload.pinned}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update pin for message {message_id} in {chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update message pin")
+
+
+@router.delete("/messages/{account_name}/{chat_id}/{message_id}")
+async def delete_chat_message(
+    account_name: str,
+    chat_id: int,
+    message_id: int,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Delete a message for all participants where Telegram permits it."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        message = await client.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        await client.delete_messages(chat_id, message_id, revoke=True)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete message {message_id} in {chat_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete message")
 
 
 @router.post("/button/{account_name}/{chat_id}/{message_id}/{row_index}/{button_index}")

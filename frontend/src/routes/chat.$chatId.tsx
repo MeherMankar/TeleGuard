@@ -22,6 +22,8 @@ import {
   Reply,
   X as XIcon,
   ChevronDown,
+  Pencil,
+  Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -83,6 +85,8 @@ function ChatPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showChatDetails, setShowChatDetails] = useState(false)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [forwardMessage, setForwardMessage] = useState<Message | null>(null)
   const [isRecordingVoice, setIsRecordingVoice] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const previousScrollRef = useRef<{ height: number; top: number; pageCount: number } | null>(null)
@@ -202,6 +206,8 @@ function ChatPage() {
     didInitialScrollRef.current = false
     previousScrollRef.current = null
     setReplyTo(null)
+    setEditingMessage(null)
+    setForwardMessage(null)
     setMessageText("")
     discardVoiceRecording()
     setIsRecordingVoice(false)
@@ -318,6 +324,58 @@ function ChatPage() {
     onError: (e) => toast.error((e as Error).message),
   })
 
+  const reactMutation = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string | null }) =>
+      chatsApi.setReaction(effectiveAccount, chatEntityId, messageId, emoji),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] }),
+    onError: (error) => toast.error((error as Error).message),
+  })
+
+  const editMessageMutation = useMutation({
+    mutationFn: ({ messageId, text }: { messageId: number; text: string }) =>
+      chatsApi.editMessage(effectiveAccount, chatEntityId, messageId, text),
+    onSuccess: () => {
+      setEditingMessage(null)
+      setMessageText("")
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+      toast.success("Message edited")
+    },
+    onError: (error) => toast.error((error as Error).message),
+  })
+
+  const pinMessageMutation = useMutation({
+    mutationFn: ({ messageId, pinned }: { messageId: number; pinned: boolean }) =>
+      chatsApi.setMessagePinned(effectiveAccount, chatEntityId, messageId, pinned),
+    onSuccess: (_, { pinned }) => {
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+      toast.success(pinned ? "Message pinned" : "Message unpinned")
+    },
+    onError: (error) => toast.error((error as Error).message),
+  })
+
+  const deleteMessageMutation = useMutation({
+    mutationFn: (messageId: number) =>
+      chatsApi.deleteMessage(effectiveAccount, chatEntityId, messageId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+      qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
+      toast.success("Message deleted")
+    },
+    onError: (error) => toast.error((error as Error).message),
+  })
+
+  const forwardMessageMutation = useMutation({
+    mutationFn: ({ messageId, targetChatId }: { messageId: number; targetChatId: number }) =>
+      chatsApi.forwardMessage(effectiveAccount, chatEntityId, messageId, targetChatId),
+    onSuccess: () => {
+      setForwardMessage(null)
+      qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
+      toast.success("Message forwarded")
+    },
+    onError: (error) => toast.error((error as Error).message),
+  })
+
   useWsEvent(
     "new_message",
     useCallback(
@@ -348,8 +406,12 @@ function ChatPage() {
 
   const handleSend = () => {
     const text = messageText.trim()
-    if (!text || sendMutation.isPending) return
-    sendMutation.mutate(text)
+    if (!text) return
+    if (editingMessage) {
+      editMessageMutation.mutate({ messageId: editingMessage.id, text })
+    } else if (!sendMutation.isPending) {
+      sendMutation.mutate(text)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -510,6 +572,27 @@ function ChatPage() {
                   chatId={chatEntityId}
                   isChannel={isChannel}
                   onReply={!isChannel ? () => setReplyTo(m) : undefined}
+                  onReact={(emoji, chosen) =>
+                    reactMutation.mutate({ messageId: m.id, emoji: chosen ? null : emoji })
+                  }
+                  onEdit={
+                    m.out && m.text
+                      ? () => {
+                          setReplyTo(null)
+                          setEditingMessage(m)
+                          setMessageText(m.text ?? "")
+                        }
+                      : undefined
+                  }
+                  onForward={() => setForwardMessage(m)}
+                  onTogglePin={() =>
+                    pinMessageMutation.mutate({ messageId: m.id, pinned: !m.pinned })
+                  }
+                  onDelete={() => {
+                    if (window.confirm("Delete this message for everyone?")) {
+                      deleteMessageMutation.mutate(m.id)
+                    }
+                  }}
                 />
               </div>
             )
@@ -529,6 +612,23 @@ function ChatPage() {
         {/* Input — hidden for channels */}
         {!isChannel && (
           <div className="sticky bottom-0 z-30 bg-card border-t border-border/40">
+            {editingMessage && (
+              <div className="flex items-center gap-2 border-b border-border/20 bg-primary/10 px-3 py-2">
+                <Pencil className="h-4 w-4 shrink-0 text-primary" />
+                <span className="flex-1 truncate text-xs text-primary">Edit message</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingMessage(null)
+                    setMessageText("")
+                  }}
+                  aria-label="Cancel editing"
+                  className="p-1 text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             {/* Reply banner */}
             {replyTo && (
               <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-border/20">
@@ -562,7 +662,7 @@ function ChatPage() {
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Message"
+                placeholder={editingMessage ? "Edit message" : "Message"}
                 rows={1}
                 className="flex-1 bg-transparent text-foreground text-[15px] outline-none placeholder:text-muted-foreground py-2 resize-none max-h-32"
               />
@@ -590,13 +690,13 @@ function ChatPage() {
                   <Paperclip className="h-6 w-6" />
                 )}
               </button>
-              {messageText.trim() ? (
+              {messageText.trim() || editingMessage ? (
                 <button
                   onClick={handleSend}
-                  disabled={sendMutation.isPending}
+                  disabled={sendMutation.isPending || editMessageMutation.isPending}
                   className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground disabled:opacity-70"
                 >
-                  {sendMutation.isPending ? (
+                  {sendMutation.isPending || editMessageMutation.isPending ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
                     <Send className="h-5 w-5" />
@@ -669,6 +769,51 @@ function ChatPage() {
           </div>
         )}
       </div>
+      {forwardMessage && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forward-message-title"
+            className="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-xl border border-border bg-card p-4"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="forward-message-title" className="text-sm font-medium">
+                Forward message
+              </h2>
+              <button
+                type="button"
+                onClick={() => setForwardMessage(null)}
+                aria-label="Close forward dialog"
+                className="p-1 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+            <ul className="divide-y divide-border/50">
+              {dialogs
+                .filter((target) => target.id !== chatEntityId)
+                .map((target) => (
+                  <li key={target.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        forwardMessageMutation.mutate({
+                          messageId: forwardMessage.id,
+                          targetChatId: target.id,
+                        })
+                      }
+                      disabled={forwardMessageMutation.isPending}
+                      className="w-full truncate py-3 text-left text-sm hover:text-primary disabled:opacity-50"
+                    >
+                      {target.name}
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        </div>
+      )}
       {dialog && (
         <ContactProfilePage
           isOpen={showChatDetails}
@@ -769,16 +914,28 @@ function MessageBubble({
   chatId,
   isChannel,
   onReply,
+  onReact,
+  onEdit,
+  onForward,
+  onTogglePin,
+  onDelete,
 }: {
   message: Message
   accountName: string
   chatId: number
   isChannel: boolean
   onReply?: () => void
+  onReact: (emoji: string, chosen: boolean) => void
+  onEdit?: () => void
+  onForward: () => void
+  onTogglePin: () => void
+  onDelete: () => void
 }) {
+  const [showActions, setShowActions] = useState(false)
   const outgoing = m.out
   const timeStr = m.date ? format(new Date(m.date), "HH:mm") : ""
   const mediaUrl = m.media?.id ? chatsApi.mediaUrl(accountName, chatId, m.id) : null
+  const reactions = m.reactions ?? []
 
   return (
     <div className={cn("flex flex-col group", outgoing ? "items-end" : "items-start")}>
@@ -901,6 +1058,125 @@ function MessageBubble({
           messageId={m.id}
         />
       )}
+
+      {reactions.length > 0 && (
+        <div
+          className={cn("mt-1 flex flex-wrap gap-1", outgoing ? "mr-1" : "ml-1")}
+          aria-label="Message reactions"
+        >
+          {reactions.map((reaction) => (
+            <button
+              key={reaction.emoji}
+              type="button"
+              onClick={() => onReact(reaction.emoji, reaction.chosen)}
+              aria-pressed={reaction.chosen}
+              aria-label={`${reaction.emoji}, ${reaction.count} reactions`}
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                reaction.chosen
+                  ? "border-primary/50 bg-primary/15 text-primary"
+                  : "border-border/50 bg-card text-foreground hover:bg-muted",
+              )}
+            >
+              {reaction.emoji} {reaction.count}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className={cn("relative mt-1 flex items-center gap-1", outgoing ? "mr-1" : "ml-1")}>
+        <button
+          type="button"
+          onClick={() => setShowActions((shown) => !shown)}
+          aria-label="Message actions"
+          aria-expanded={showActions}
+          className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+        {showActions && (
+          <div className="flex items-center gap-1 rounded-lg border border-border/70 bg-card p-1 shadow-lg">
+            {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => {
+              const chosen = reactions.some(
+                (reaction) => reaction.emoji === emoji && reaction.chosen,
+              )
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    onReact(emoji, chosen)
+                    setShowActions(false)
+                  }}
+                  aria-label={`React ${emoji}`}
+                  className="rounded px-1 py-0.5 text-base hover:bg-muted"
+                >
+                  {emoji}
+                </button>
+              )
+            })}
+            {onReply && (
+              <button
+                type="button"
+                onClick={() => {
+                  onReply()
+                  setShowActions(false)
+                }}
+                aria-label="Reply"
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Reply className="h-4 w-4" />
+              </button>
+            )}
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  onEdit()
+                  setShowActions(false)
+                }}
+                aria-label="Edit message"
+                className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                onForward()
+                setShowActions(false)
+              }}
+              aria-label="Forward message"
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <Forward className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onTogglePin()
+                setShowActions(false)
+              }}
+              aria-label={m.pinned ? "Unpin message" : "Pin message"}
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <Pin className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onDelete()
+                setShowActions(false)
+              }}
+              aria-label="Delete message"
+              className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

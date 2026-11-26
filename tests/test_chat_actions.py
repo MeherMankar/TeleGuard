@@ -11,6 +11,29 @@ from telethon import functions, types
 from backend.api import chats, messaging
 
 
+def test_extract_reactions_keeps_standard_emojis_and_chosen_state():
+    message = SimpleNamespace(
+        reactions=SimpleNamespace(
+            results=[
+                SimpleNamespace(
+                    reaction=types.ReactionEmoji(emoticon="👍"),
+                    count=4,
+                    chosen_order=0,
+                ),
+                SimpleNamespace(
+                    reaction=types.ReactionCustomEmoji(document_id=123),
+                    count=2,
+                    chosen_order=None,
+                ),
+            ]
+        )
+    )
+
+    assert chats._extract_reactions(message) == [
+        {"emoji": "👍", "count": 4, "chosen": True},
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("muted", "expected_timestamp"),
@@ -38,6 +61,81 @@ async def test_chat_notification_action_updates_telegram_settings(
         expected_timestamp,
         tz=timezone.utc,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("emoji", "expected"), [("❤️", ["❤️"]), (None, [])])
+async def test_message_reaction_sets_or_clears_telegram_reaction(monkeypatch, emoji, expected):
+    client = AsyncMock()
+    client.get_messages.return_value = SimpleNamespace(id=5)
+    client.get_input_entity.return_value = types.InputPeerUser(user_id=42, access_hash=1)
+    monkeypatch.setattr(chats, "_resolve_client", AsyncMock(return_value=client))
+
+    result = await chats.set_message_reaction(
+        "primary",
+        42,
+        5,
+        chats.MessageReactionRequest(emoji=emoji),
+        user_id=123,
+    )
+
+    request = client.await_args.args[0]
+    assert result == {"status": "success"}
+    assert isinstance(request, functions.messages.SendReactionRequest)
+    assert [reaction.emoticon for reaction in request.reaction] == expected
+
+
+@pytest.mark.asyncio
+async def test_message_edit_is_limited_to_outgoing_messages(monkeypatch):
+    client = AsyncMock()
+    client.get_messages.return_value = SimpleNamespace(out=False)
+    monkeypatch.setattr(chats, "_resolve_client", AsyncMock(return_value=client))
+
+    with pytest.raises(HTTPException) as error:
+        await chats.edit_chat_message(
+            "primary",
+            42,
+            5,
+            chats.EditMessageRequest(text="updated"),
+            user_id=123,
+        )
+
+    assert error.value.status_code == 403
+    client.get_input_entity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_forward_pin_and_delete_delegate_to_telethon(monkeypatch):
+    client = AsyncMock()
+    client.get_messages.return_value = SimpleNamespace(id=5, out=True)
+    monkeypatch.setattr(chats, "_resolve_client", AsyncMock(return_value=client))
+
+    assert await chats.forward_chat_message(
+        "primary",
+        42,
+        5,
+        chats.ForwardMessageRequest(target_chat_id=84),
+        user_id=123,
+    ) == {"status": "success"}
+    client.forward_messages.assert_awaited_once_with(
+        84,
+        client.get_messages.return_value,
+        from_peer=42,
+    )
+
+    assert await chats.set_message_pinned(
+        "primary",
+        42,
+        5,
+        chats.PinMessageRequest(pinned=True),
+        user_id=123,
+    ) == {"status": "success", "pinned": True}
+    client.pin_message.assert_awaited_once_with(42, 5, notify=False)
+
+    assert await chats.delete_chat_message("primary", 42, 5, user_id=123) == {
+        "status": "success"
+    }
+    client.delete_messages.assert_awaited_once_with(42, 5, revoke=True)
 
 
 @pytest.mark.asyncio
