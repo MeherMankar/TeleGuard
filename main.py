@@ -386,6 +386,13 @@ async def _finish_shutdown_if_requested() -> bool:
     return True
 
 
+async def _wait_for_shutdown_request() -> None:
+    while not shutdown_requested:
+        await asyncio.sleep(1)
+    if shutdown_task:
+        await shutdown_task
+
+
 async def main() -> None:
     """Main application entry point with comprehensive error handling."""
     global api_server_task, shutdown_requested, shutdown_task
@@ -526,9 +533,9 @@ async def main() -> None:
                     except Exception as retry_error:
                         logger.error("💥 Retry failed: %s", str(retry_error))
                         print(f"Retry failed: {retry_error}")
-                        # Keep health server running
-                        while True:
-                            await asyncio.sleep(60)
+                        # Keep health server running until a signal requests shutdown.
+                        await _wait_for_shutdown_request()
+                        return
                 else:
                     logger.error("🚨 Could not parse wait time from rate limit error")
                     raise e

@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -64,3 +65,22 @@ async def test_reply_handler_accepts_media_message_without_raw_text(monkeypatch)
     )
 
     await handler._handle_user_reply(event)
+
+
+@pytest.mark.asyncio
+async def test_error_reporting_does_not_swallow_cancellation(monkeypatch):
+    from teleguard.utils.logger import BotLogger
+
+    async def cancel_error_logging(cls, *_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        BotLogger, "log_error", classmethod(cancel_error_logging)
+    )
+    handler = object.__new__(MessageHandlers)
+    event = SimpleNamespace(sender_id=123, reply=AsyncMock())
+
+    with pytest.raises(asyncio.CancelledError):
+        await handler._log_and_notify_error(event, RuntimeError("handler failed"))
+
+    event.reply.assert_not_awaited()

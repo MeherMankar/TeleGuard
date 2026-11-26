@@ -2276,7 +2276,7 @@ class MessageHandlers:
                 user_id=getattr(event, "sender_id", None),
                 context="reply_handler",
             )
-        except BaseException:
+        except Exception:
             pass
         try:
             await event.reply("❌ An error occurred. Please try again or contact support.")

@@ -119,7 +119,7 @@ class AutoReplyHandler:
                             "name_enc": DataEncryption.encrypt_field(account_name),
                         }
                     )
-                except BaseException:
+                except Exception:
                     pass
                 # If not found with encrypted name, try plain name
                 if not account_doc:
@@ -201,7 +201,7 @@ class AutoReplyHandler:
                         return
                 self.last_reply_time[reply_key] = current_time
 
-                contact_type = await self._get_contact_type(sender_id)
+                contact_type = await self._get_contact_type(sender_id, account_name)
                 if contact_type == "family":
                     response = "Hey! " + response
                 elif contact_type == "work":
@@ -231,12 +231,26 @@ class AutoReplyHandler:
         if client and client.is_connected():
             self._setup_client_handler(user_id, account_name, client)
 
-    async def _get_contact_type(self, sender_id: int) -> str:
+    async def _get_contact_type(self, sender_id: int, account_name: str) -> str:
         """Determine contact type"""
         try:
-            contact_data = await mongodb.db.contacts.find_one({"sender_id": sender_id})
+            contact_data = await mongodb.db.contacts.find_one(
+                {"user_id": sender_id, "managed_by_account": account_name}
+            )
             if contact_data:
-                return contact_data.get("type", "general")
+                contact_type = contact_data.get("type")
+                if isinstance(contact_type, str):
+                    contact_type = contact_type.strip().lower()
+                    if contact_type in {"family", "work"}:
+                        return contact_type
+                tags = contact_data.get("tags", [])
+                if isinstance(tags, list):
+                    for tag in tags:
+                        if isinstance(tag, str) and tag.strip().lower() in {
+                            "family",
+                            "work",
+                        }:
+                            return tag.strip().lower()
             return "general"
         except Exception as e:
             logger.error(f"Error getting contact type for {sender_id}: {e}")
@@ -818,7 +832,7 @@ class AutoReplyHandler:
             account_doc = None
             try:
                 account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name_enc": DataEncryption.encrypt_field(account_name)})
-            except BaseException:
+            except Exception:
                 pass
             if not account_doc:
                 account_doc = await mongodb.db.accounts.find_one({"user_id": user_id, "name": account_name})
