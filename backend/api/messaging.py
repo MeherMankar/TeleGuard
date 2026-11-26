@@ -211,6 +211,7 @@ async def send_file_message(
     file: UploadFile = File(...),
     caption: str = Form(""),
     reply_to_message_id: Optional[int] = Form(None),
+    voice_note: bool = Form(False),
     user_id: int = Depends(get_current_user_id),
 ):
     """Send a file (image/document/video) to a target chat."""
@@ -222,6 +223,7 @@ async def send_file_message(
     if not client:
         raise HTTPException(status_code=404, detail="Active client not found")
 
+    tmp_path = None
     try:
         import os
         import tempfile
@@ -237,9 +239,17 @@ async def send_file_message(
             tmp_path,
             caption=caption or None,
             reply_to=reply_to_message_id,
+            voice_note=voice_note,
         )
-        os.unlink(tmp_path)
         return {"status": "success"}
     except Exception as e:
         logger.error(f"send-file error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path:
+            import os
+
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                logger.warning("Unable to remove temporary upload file %s", tmp_path)

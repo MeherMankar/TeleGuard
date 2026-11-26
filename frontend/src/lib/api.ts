@@ -242,6 +242,7 @@ export interface Dialog {
   status: string | null
   is_bot: boolean
   verified: boolean
+  username?: string | null
   participants_count: number | null
   is_saved_messages?: boolean
 }
@@ -333,10 +334,15 @@ export const chatsApi = {
     get<{ entity_id: number; status: string | null; is_online: boolean }>(
       `/api/chats/status/${encodeURIComponent(accountName)}/${entityId}`,
     ),
+  setMuted: (accountName: string, chatId: number, muted: boolean) =>
+    post<{ status: string; muted: boolean }>(
+      `/api/chats/notifications/${encodeURIComponent(accountName)}/${chatId}`,
+      { muted },
+    ),
   // ── Folders ──────────────────────────────────────────────────────────────
   folders: (accountName: string) =>
     get<ChatFolder[]>(`/api/chats/folders/${encodeURIComponent(accountName)}`),
-  createFolder: (accountName: string, folder: Partial<ChatFolder>) =>
+  createFolder: (accountName: string, folder: Partial<ChatFolder> & { is_admin?: boolean }) =>
     post<{ status: string; id: number; title: string }>(
       `/api/chats/folders/${encodeURIComponent(accountName)}`,
       folder,
@@ -403,6 +409,7 @@ export const messagingApi = {
     file: File,
     caption = "",
     reply_to_message_id?: number,
+    voice_note = false,
   ) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("tg_token") : null
     const form = new FormData()
@@ -411,6 +418,7 @@ export const messagingApi = {
     form.append("file", file)
     if (caption) form.append("caption", caption)
     if (reply_to_message_id) form.append("reply_to_message_id", String(reply_to_message_id))
+    if (voice_note) form.append("voice_note", "true")
     return fetch(`${API_URL}/api/messaging/send-file`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},

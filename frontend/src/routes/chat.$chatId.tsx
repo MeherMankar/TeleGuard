@@ -10,7 +10,7 @@ import {
   Send,
   ArrowDown,
   Loader2,
-  File,
+  File as FileIcon,
   Music,
   Play,
   Image,
@@ -31,6 +31,7 @@ import { useUser, UserProvider } from "@/contexts/user-context"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { Toaster } from "@/components/ui/sonner"
+import { ContactProfilePage } from "@/components/telegram/contact-profile-page"
 
 function safeText(v: unknown): string | null {
   if (v === null || v === undefined) return null
@@ -48,9 +49,11 @@ function safeText(v: unknown): string | null {
 }
 
 export const Route = createFileRoute("/chat/$chatId")({
-  validateSearch: (search: Record<string, unknown>): { account?: string } => {
-    if (typeof search.account !== "string") return {}
-    return { account: search.account }
+  validateSearch: (search: Record<string, unknown>): { account?: string; name?: string } => {
+    const result: { account?: string; name?: string } = {}
+    if (typeof search.account === "string") result.account = search.account
+    if (typeof search.name === "string") result.name = search.name
+    return result
   },
   component: ChatPageWrapper,
 })
@@ -66,7 +69,7 @@ function ChatPageWrapper() {
 
 function ChatPage() {
   const { chatId } = Route.useParams()
-  const { account: accountName } = Route.useSearch()
+  const { account: accountName, name: contactName } = Route.useSearch()
   const navigate = useNavigate()
   const { activeAccount } = useUser()
   const qc = useQueryClient()
@@ -79,8 +82,16 @@ function ChatPage() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showChatDetails, setShowChatDetails] = useState(false)
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
   const previousScrollRef = useRef<{ height: number; top: number; pageCount: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null)
+  const voiceStreamRef = useRef<MediaStream | null>(null)
+  const voiceChunksRef = useRef<Blob[]>([])
+  const voiceCancelledRef = useRef(false)
+  const voiceGenerationRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const didInitialScrollRef = useRef(false)
@@ -97,7 +108,7 @@ function ChatPage() {
     chatId === "saved" ? d.is_saved_messages : String(d.id) === chatId,
   ) as Dialog | undefined
   const chatEntityId = dialog?.id ?? resolvedChatId
-  const isPrivate = dialog?.is_user ?? false
+  const isPrivate = dialog?.is_user ?? !!contactName
 
   // Poll status every 30s for private chats
   const { data: statusData } = useQuery({
@@ -149,13 +160,6 @@ function ChatPage() {
   useEffect(() => {
     didInitialScrollRef.current = false
     previousScrollRef.current = null
-    setReplyTo(null)
-    setMessageText("")
-  }, [effectiveAccount, chatId])
-
-  useEffect(() => {
-    didInitialScrollRef.current = false
-    previousScrollRef.current = null
   }, [searchTerm])
 
   const sendMutation = useMutation({
@@ -170,6 +174,129 @@ function ChatPage() {
     },
     onError: (e) => toast.error((e as Error).message),
   })
+
+  const sendVoiceMutation = useMutation({
+    mutationFn: (file: File) =>
+      messagingApi.sendFile(effectiveAccount, String(chatEntityId), file, "", replyTo?.id, true),
+    onSuccess: () => {
+      setReplyTo(null)
+      qc.invalidateQueries({ queryKey: ["messages", effectiveAccount, chatEntityId] })
+      qc.invalidateQueries({ queryKey: ["dialogs", effectiveAccount] })
+      scrollToBottom()
+      toast.success("Voice message sent")
+    },
+    onError: (e) => toast.error((e as Error).message),
+  })
+
+  const discardVoiceRecording = useCallback(() => {
+    voiceGenerationRef.current += 1
+    voiceCancelledRef.current = true
+    const recorder = voiceRecorderRef.current
+    if (recorder && recorder.state !== "inactive") recorder.stop()
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+    voiceStreamRef.current = null
+    voiceRecorderRef.current = null
+  }, [])
+
+  useEffect(() => {
+    didInitialScrollRef.current = false
+    previousScrollRef.current = null
+    setReplyTo(null)
+    setMessageText("")
+    discardVoiceRecording()
+    setIsRecordingVoice(false)
+    setRecordingSeconds(0)
+  }, [effectiveAccount, chatId, discardVoiceRecording])
+
+  const startVoiceRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast.error("Voice recording is not supported in this browser")
+      return
+    }
+
+    try {
+      const generation = ++voiceGenerationRef.current
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (generation !== voiceGenerationRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      voiceStreamRef.current = stream
+      voiceCancelledRef.current = false
+      voiceChunksRef.current = []
+
+      const mimeType = ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/mp4"].find(
+        (type) => MediaRecorder.isTypeSupported(type),
+      )
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+      voiceRecorderRef.current = recorder
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        voiceCancelledRef.current = true
+        toast.error("Voice recording failed")
+        setIsRecordingVoice(false)
+        discardVoiceRecording()
+      }
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop())
+        voiceStreamRef.current = null
+        voiceRecorderRef.current = null
+        if (voiceCancelledRef.current) return
+        setIsRecordingVoice(false)
+
+        const blob = new Blob(voiceChunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm",
+        })
+        if (blob.size === 0) {
+          toast.error("No audio was recorded")
+          return
+        }
+
+        const extension = blob.type.includes("ogg")
+          ? "ogg"
+          : blob.type.includes("mp4")
+            ? "m4a"
+            : "webm"
+        sendVoiceMutation.mutate(
+          new File([blob], `voice-message.${extension}`, { type: blob.type }),
+        )
+      }
+      recorder.start()
+      setRecordingSeconds(0)
+      setIsRecordingVoice(true)
+    } catch (error) {
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+      voiceStreamRef.current = null
+      voiceRecorderRef.current = null
+      setIsRecordingVoice(false)
+      toast.error(error instanceof Error ? error.message : "Could not start voice recording")
+    }
+  }
+
+  const stopVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current
+    if (recorder?.state === "recording") recorder.stop()
+  }
+
+  const cancelVoiceRecording = () => {
+    discardVoiceRecording()
+    setIsRecordingVoice(false)
+    setRecordingSeconds(0)
+  }
+
+  useEffect(() => {
+    if (!isRecordingVoice) return
+    const intervalId = window.setInterval(() => {
+      setRecordingSeconds((seconds) => seconds + 1)
+    }, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [isRecordingVoice])
+
+  useEffect(() => () => discardVoiceRecording(), [discardVoiceRecording])
 
   const sendFileMutation = useMutation({
     mutationFn: (file: File) =>
@@ -232,7 +359,7 @@ function ChatPage() {
     }
   }
 
-  const displayName = dialog?.name || dialog?.title || `Chat ${chatId}`
+  const displayName = dialog?.name || dialog?.title || contactName || `Chat ${chatId}`
   const isChannel = dialog?.is_channel ?? false
   const isGroup = dialog?.is_group ?? false
   const entityId = dialog?.entity_id ?? parseInt(chatId)
@@ -306,14 +433,8 @@ function ChatPage() {
           </button>
           <button
             aria-label="Chat details"
-            onClick={() =>
-              toast.info(
-                `${displayName} · ${isChannel ? "Channel" : isGroup ? "Group" : "Private chat"}`,
-                {
-                  description: `Chat ID: ${chatEntityId}`,
-                },
-              )
-            }
+            onClick={() => setShowChatDetails(true)}
+            disabled={!dialog}
             className="p-2 text-foreground flex-shrink-0"
           >
             <MoreVertical className="h-5 w-5" />
@@ -481,9 +602,42 @@ function ChatPage() {
                     <Send className="h-5 w-5" />
                   )}
                 </button>
+              ) : isRecordingVoice ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs tabular-nums text-red-300" aria-live="polite">
+                    Recording {Math.floor(recordingSeconds / 60)}:
+                    {String(recordingSeconds % 60).padStart(2, "0")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={cancelVoiceRecording}
+                    aria-label="Discard voice message"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground"
+                  >
+                    <XIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopVoiceRecording}
+                    aria-label="Send voice message"
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                  >
+                    <Send className="h-5 w-5" />
+                  </button>
+                </div>
               ) : (
-                <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
-                  <Mic className="h-5 w-5" />
+                <button
+                  type="button"
+                  aria-label="Record voice message"
+                  onClick={startVoiceRecording}
+                  disabled={sendVoiceMutation.isPending}
+                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground disabled:opacity-50"
+                >
+                  {sendVoiceMutation.isPending ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Mic className="h-5 w-5" />
+                  )}
                 </button>
               )}
             </div>
@@ -515,6 +669,14 @@ function ChatPage() {
           </div>
         )}
       </div>
+      {dialog && (
+        <ContactProfilePage
+          isOpen={showChatDetails}
+          onClose={() => setShowChatDetails(false)}
+          dialog={dialog}
+          accountName={effectiveAccount}
+        />
+      )}
     </div>
   )
 }
@@ -879,7 +1041,7 @@ function MediaBlock({
     return (
       <div className="px-3 py-2 flex items-center gap-3">
         <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
-          <File className="h-5 w-5 text-primary" />
+          <FileIcon className="h-5 w-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{media.filename || "File"}</p>

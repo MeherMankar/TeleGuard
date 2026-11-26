@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
 import { contactsApi, chatsApi, type Contact } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
+import { useNavigate } from "@tanstack/react-router"
 
 interface ContactsListPageProps {
   isOpen: boolean
@@ -144,11 +145,22 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
 }
 
 function ContactRow({ contact, accountName }: { contact: Contact; accountName: string }) {
+  const navigate = useNavigate()
   const photoUrl =
     contact.has_photo && accountName ? chatsApi.photoUrl(accountName, contact.id) : null
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors cursor-pointer">
+    <button
+      type="button"
+      onClick={() =>
+        navigate({
+          to: "/chat/$chatId",
+          params: { chatId: String(contact.id) },
+          search: { account: accountName, name: contact.name },
+        })
+      }
+      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5"
+    >
       {/* Avatar */}
       <div
         className={cn(
@@ -180,6 +192,6 @@ function ContactRow({ contact, accountName }: { contact: Contact; accountName: s
       {contact.username && (
         <span className="text-gray-500 text-xs flex-shrink-0">@{contact.username}</span>
       )}
-    </div>
+    </button>
   )
 }

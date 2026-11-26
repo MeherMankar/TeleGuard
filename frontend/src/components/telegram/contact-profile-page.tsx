@@ -12,14 +12,17 @@ import {
   Bot,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { chatsApi, type Dialog, type Message } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
+import { useNavigate } from "@tanstack/react-router"
+import { toast } from "sonner"
 
 interface ContactProfilePageProps {
   isOpen: boolean
   onClose: () => void
   dialog: Dialog
+  accountName?: string
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,21 +67,29 @@ function avatarColor(id: number) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePageProps) {
+export function ContactProfilePage({
+  isOpen,
+  onClose,
+  dialog,
+  accountName,
+}: ContactProfilePageProps) {
   const { activeAccount } = useUser()
+  const selectedAccountName = accountName ?? activeAccount?.name
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<"media" | "links">("media")
 
   // Fetch recent messages to extract real media/links
   const { data: messages = [], isLoading: loadingMsgs } = useQuery({
-    queryKey: ["history", activeAccount?.name, dialog.entity_id],
-    queryFn: () => chatsApi.history(activeAccount!.name, dialog.entity_id, 100),
-    enabled: isOpen && !!activeAccount,
+    queryKey: ["history", selectedAccountName, dialog.entity_id],
+    queryFn: () => chatsApi.history(selectedAccountName!, dialog.entity_id, 100),
+    enabled: isOpen && !!selectedAccountName,
     staleTime: 60_000,
   })
 
   const photoUrl =
-    dialog.has_photo && activeAccount
-      ? chatsApi.photoUrl(activeAccount.name, dialog.entity_id)
+    dialog.has_photo && selectedAccountName
+      ? chatsApi.photoUrl(selectedAccountName, dialog.entity_id)
       : null
 
   // Extract media messages
@@ -89,6 +100,44 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
   const linkMessages = messages.filter((m) => m.media?.type === "webpage" && m.media.url)
 
   const handleClose = useCallback(() => onClose(), [onClose])
+  const muteMutation = useMutation({
+    mutationFn: (muted: boolean) => chatsApi.setMuted(selectedAccountName!, dialog.id, muted),
+    onSuccess: (_, muted) => {
+      toast.success(muted ? "Notifications muted" : "Notifications unmuted")
+      queryClient.invalidateQueries({ queryKey: ["dialogs", selectedAccountName] })
+    },
+    onError: (error) => toast.error((error as Error).message),
+  })
+
+  const openChat = () => {
+    if (!selectedAccountName) return
+    onClose()
+    navigate({
+      to: "/chat/$chatId",
+      params: { chatId: String(dialog.id) },
+      search: { account: selectedAccountName, name: dialog.name },
+    })
+  }
+
+  const shareChat = async () => {
+    const url = dialog.username
+      ? `https://t.me/${dialog.username}`
+      : dialog.is_user
+        ? `tg://openmessage?user_id=${dialog.entity_id}`
+        : `tg://openmessage?chat_id=${dialog.id}`
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: dialog.name, url })
+      } else {
+        await navigator.clipboard.writeText(url)
+        toast.success("Telegram link copied")
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      toast.error(error instanceof Error ? error.message : "Could not share this chat")
+    }
+  }
 
   return (
     <>
@@ -158,19 +207,32 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
 
         {/* Action buttons */}
         <div className="grid grid-cols-3 gap-2 px-4 pb-4">
-          {[
-            { icon: MessageSquare, label: "Message" },
-            { icon: dialog.muted ? BellOff : Bell, label: dialog.muted ? "Unmute" : "Mute" },
-            { icon: Link2, label: "Share" },
-          ].map(({ icon: Icon, label }) => (
-            <button
-              key={label}
-              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-[#242f3d] hover:bg-[#2a3847] transition-colors"
-            >
-              <Icon className="h-5 w-5 text-gray-300" />
-              <span className="text-xs text-gray-300">{label}</span>
-            </button>
-          ))}
+          <button
+            onClick={openChat}
+            className="flex flex-col items-center justify-center gap-1.5 rounded-xl bg-[#242f3d] py-3 transition-colors hover:bg-[#2a3847]"
+          >
+            <MessageSquare className="h-5 w-5 text-gray-300" />
+            <span className="text-xs text-gray-300">Message</span>
+          </button>
+          <button
+            onClick={() => selectedAccountName && muteMutation.mutate(!dialog.muted)}
+            disabled={!selectedAccountName || muteMutation.isPending}
+            className="flex flex-col items-center justify-center gap-1.5 rounded-xl bg-[#242f3d] py-3 transition-colors hover:bg-[#2a3847] disabled:opacity-50"
+          >
+            {dialog.muted ? (
+              <Bell className="h-5 w-5 text-gray-300" />
+            ) : (
+              <BellOff className="h-5 w-5 text-gray-300" />
+            )}
+            <span className="text-xs text-gray-300">{dialog.muted ? "Unmute" : "Mute"}</span>
+          </button>
+          <button
+            onClick={shareChat}
+            className="flex flex-col items-center justify-center gap-1.5 rounded-xl bg-[#242f3d] py-3 transition-colors hover:bg-[#2a3847]"
+          >
+            <Link2 className="h-5 w-5 text-gray-300" />
+            <span className="text-xs text-gray-300">Share</span>
+          </button>
         </div>
 
         {/* Stats — media/links counts from real messages */}

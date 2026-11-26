@@ -68,6 +68,7 @@ interface FolderPreset {
   bots?: boolean
   exclude_read?: boolean
   exclude_archived?: boolean
+  isAdmin?: boolean
 }
 
 const PRESETS: FolderPreset[] = [
@@ -173,7 +174,8 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
   const existingIds = new Set(folders.filter((f) => !f.is_default).map((f) => f.id))
 
   const createMutation = useMutation({
-    mutationFn: (folder: Partial<ChatFolder>) => chatsApi.createFolder(activeAccount!.name, folder),
+    mutationFn: (folder: Partial<ChatFolder> & { is_admin?: boolean }) =>
+      chatsApi.createFolder(activeAccount!.name, folder),
     onSuccess: (res) => {
       toast.success(`"${res.title}" created`)
       setEditingFolder(null)
@@ -229,6 +231,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
       exclude_muted: false,
       exclude_read: preset.exclude_read ?? false,
       exclude_archived: preset.exclude_archived ?? false,
+      is_admin: preset.isAdmin ?? false,
     })
   }
 

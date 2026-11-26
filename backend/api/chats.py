@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -10,6 +11,24 @@ from teleguard.utils.crypto_utils import DataEncryption
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 logger = logging.getLogger(__name__)
+
+
+class UpdateMuteRequest(BaseModel):
+    muted: bool
+
+
+async def _get_admin_input_peers(client) -> list:
+    from telethon.utils import get_input_peer
+
+    peers = []
+    async for dialog in client.iter_dialogs(limit=300):
+        entity = dialog.entity
+        if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
+            try:
+                peers.append(get_input_peer(entity))
+            except Exception:
+                logger.debug("Skipping unsupported admin chat %s", dialog.id)
+    return peers[:100]
 
 
 def _safe_str(v) -> Optional[str]:
@@ -500,7 +519,12 @@ async def get_dialogs(
                 notify = getattr(dialog, "notify_settings", None)
                 if notify:
                     mute_until = getattr(notify, "mute_until", None)
-                    is_muted = mute_until is not None and mute_until > 0
+                    if isinstance(mute_until, datetime):
+                        if mute_until.tzinfo is None:
+                            mute_until = mute_until.replace(tzinfo=timezone.utc)
+                        is_muted = mute_until > datetime.now(timezone.utc)
+                    elif isinstance(mute_until, (int, float)):
+                        is_muted = mute_until > datetime.now(timezone.utc).timestamp()
             except Exception:
                 pass
 
@@ -524,6 +548,7 @@ async def get_dialogs(
                 "status": _extract_user_status(entity) if dialog.is_user and not is_saved_messages else None,
                 "is_bot": bool(getattr(entity, "bot", False)) if dialog.is_user else False,
                 "verified": bool(getattr(entity, "verified", False)),
+                "username": getattr(entity, "username", None),
                 "participants_count": getattr(entity, "participants_count", None),
             })
         return dialogs
@@ -693,6 +718,39 @@ async def get_user_status(
         logger.debug(f"Status fetch failed for {entity_id}: {e}")
         raise HTTPException(status_code=404, detail="Status unavailable")
 
+
+@router.post("/notifications/{account_name}/{chat_id}")
+async def update_chat_notifications(
+    account_name: str,
+    chat_id: int,
+    payload: UpdateMuteRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Mute or unmute notifications for a Telegram chat."""
+    client = await _resolve_client(user_id, account_name)
+    if not client:
+        raise HTTPException(status_code=404, detail="Active client not found")
+
+    try:
+        from telethon import functions, types
+
+        peer = await client.get_input_entity(chat_id)
+        mute_until = datetime.fromtimestamp(
+            2_147_483_647 if payload.muted else 0,
+            tz=timezone.utc,
+        )
+        await client(
+            functions.account.UpdateNotifySettingsRequest(
+                peer=types.InputNotifyPeer(peer=peer),
+                settings=types.InputPeerNotifySettings(mute_until=mute_until),
+            )
+        )
+        return {"status": "success", "muted": payload.muted}
+    except Exception as e:
+        logger.error(f"Failed to update notifications for {chat_id} on {account_name}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update chat notifications")
+
+
 @router.get("/folders/{account_name}")
 async def get_folders(
     account_name: str,
@@ -789,8 +847,13 @@ async def create_folder(
         from telethon.tl.types import DialogFilter
         import random
 
-        folder_id = int(payload.get("id") or random.randint(2, 255))
-        title_str = str(payload.get("title", "New Folder"))
+        is_admin = bool(payload.get("is_admin"))
+        admin_peers = await _get_admin_input_peers(client) if is_admin else []
+        if is_admin and not admin_peers:
+            raise HTTPException(status_code=400, detail="No admin chats found for this account")
+
+        folder_id = int(payload.get("id") or (7 if is_admin else random.randint(2, 255)))
+        title_str = str(payload.get("title", "Admin" if is_admin else "New Folder"))
         emoticon = payload.get("emoji") or None
 
         dialog_filter = DialogFilter(
@@ -805,13 +868,15 @@ async def create_folder(
             exclude_muted=bool(payload.get("exclude_muted", False)) or None,
             exclude_read=bool(payload.get("exclude_read", False)) or None,
             exclude_archived=bool(payload.get("exclude_archived", False)) or None,
-            include_peers=[],
+            include_peers=admin_peers,
             exclude_peers=[],
             pinned_peers=[],
         )
 
         await client(UpdateDialogFilterRequest(id=folder_id, filter=dialog_filter))
         return {"status": "success", "id": folder_id, "title": title_str}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -870,16 +935,7 @@ async def create_preset_folders(
 
         # Admin folder — chats where user is admin
         try:
-            admin_peers = []
-            from telethon.utils import get_input_peer
-            async for dialog in client.iter_dialogs(limit=300):
-                entity = dialog.entity
-                if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
-                    try:
-                        admin_peers.append(get_input_peer(entity))
-                    except Exception:
-                        pass
-
+            admin_peers = await _get_admin_input_peers(client)
             if admin_peers:
                 admin_df = DialogFilter(
                     id=7,
@@ -893,7 +949,7 @@ async def create_preset_folders(
                     exclude_muted=None,
                     exclude_read=None,
                     exclude_archived=None,
-                    include_peers=admin_peers[:100],
+                    include_peers=admin_peers,
                     exclude_peers=[],
                     pinned_peers=[],
                 )
