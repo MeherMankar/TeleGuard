@@ -1,5 +1,8 @@
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+from teleguard.handlers.menu_modules.callback_router import CallbackRouter
 from teleguard.handlers.menu_modules.menu_handlers import MenuHandlers
 
 
@@ -54,4 +57,29 @@ def test_cleanup_account_must_be_active_and_connected():
     )
     assert not handlers._is_cleanup_account_available(
         7, {"name": "connected", "is_active": False}
+    )
+
+
+def test_2fa_back_navigation_opens_the_2fa_menu():
+    send_2fa_menu = AsyncMock()
+    router = object.__new__(CallbackRouter)
+    router.menu = SimpleNamespace(_send_2fa_menu=send_2fa_menu)
+    event = SimpleNamespace(message_id=55, answer=AsyncMock())
+
+    asyncio.run(router.handle_menu_callback(event, 123, "menu:2fa"))
+
+    send_2fa_menu.assert_awaited_once_with(123, 55)
+
+
+def test_unknown_callback_reports_unavailable_instead_of_success():
+    router = object.__new__(CallbackRouter)
+    router.routes = {}
+    event = SimpleNamespace(answer=AsyncMock())
+
+    routed = asyncio.run(router.route_callback(event, 123, "missing:action"))
+
+    assert not routed
+    event.answer.assert_awaited_once_with(
+        "This button is unavailable. Please reopen the menu.",
+        alert=True,
     )

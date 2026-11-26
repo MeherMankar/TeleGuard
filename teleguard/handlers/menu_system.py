@@ -72,6 +72,7 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "raid_coord",
         "stealth_raid",
         "message_flood",
+        "send_all_groups",
         "username_check",
         "group_leave",
         "group_list",
@@ -94,10 +95,14 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "bulk_import",
         "sim_stats",
         "analytics_account",
+        "analytics",
+        "audit",
+        "dump",
         "security_dashboard",
         "security_activity",
         "security_report",
         "messaging_stats",
+        "toggle_otp",
         "transfer_toggle",
         "transfer_select_all",
         "transfer_done",
@@ -115,6 +120,8 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "schedule_new",
         "schedule_account",
         "export_contacts",
+        "backup_menu",
+        "backup_create",
     }
 )
 
@@ -123,6 +130,7 @@ def _is_owned_callback(data: str) -> bool:
     callback_prefix = data.split(":", 1)[0]
     return (
         callback_prefix in _OWNED_CALLBACK_PREFIXES
+        or data.startswith(("prot_", "help_"))
         or data == "contacts:export"
         or (
             data.startswith(("dm_", "captcha_"))
@@ -1189,18 +1197,18 @@ class MenuSystem:
     async def _send_2fa_menu(self, user_id: int, message_id: int):
         """Send 2FA settings menu"""
         try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
-                length=None
-            )
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "is_active": True}
+            ).to_list(length=None)
             if not accounts:
-                text = "🔑 **2FA Settings**\n\nNo accounts found. Add accounts first."
+                text = "🔑 **2FA Settings**\n\nNo active accounts found. Add or reconnect an account first."
                 buttons = [[Button.inline("\ud83d\udd19 Back to Main", "menu:main")]]
             else:
                 text = "🔑 **2FA Settings**\n\nSelect an account to manage 2FA:"
                 buttons = []
                 for account in accounts:
                     has_2fa = "✅" if account.get("twofa_password") else "❌"
-                    button_text = f"{has_2fa} {account['name']}"
+                    button_text = f"{has_2fa} {account.get('name') or account.get('phone') or 'Account'}"
                     buttons.append(
                         [Button.inline(button_text, f"2fa:status:{account['_id']}")]
                     )
@@ -1208,8 +1216,9 @@ class MenuSystem:
                     [Button.inline("\ud83d\udd19 Back to Main", "menu:main")]
                 )
             await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to send 2FA menu: {e}")
+        except Exception:
+            logger.exception("Failed to send 2FA menu for user %s", user_id)
+            raise
 
     async def _send_online_menu(self, user_id: int, message_id: int):
         """Send online maker menu"""

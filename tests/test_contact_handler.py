@@ -24,6 +24,19 @@ def test_contact_menu_callbacks_reach_router_except_dedicated_export():
     assert _is_owned_callback("export_contacts:0")
 
 
+def test_standalone_ui_callbacks_do_not_also_hit_the_generic_router():
+    assert _is_owned_callback("prot_session_settings")
+    assert _is_owned_callback("toggle_otp:123")
+    assert _is_owned_callback("analytics")
+    assert _is_owned_callback("analytics_account:123")
+    assert _is_owned_callback("backup_menu")
+    assert _is_owned_callback("audit:summary:123")
+    assert _is_owned_callback("dump:menu")
+    assert _is_owned_callback("send_all_groups")
+    assert _is_owned_callback("help_main")
+    assert not _is_owned_callback("help:guide")
+
+
 def test_get_user_account_skips_disconnected_clients():
     handler = object.__new__(ContactHandler)
     handler.bot_manager = SimpleNamespace(

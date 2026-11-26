@@ -110,12 +110,14 @@ class CallbackRouter:
                 logger.warning(
                     f"No handler found for callback type: '{callback_type}' in data: '{data}'"
                 )
-                # Catch-all: acknowledge callback to prevent error message
                 try:
-                    await event.answer("✅ Processing...")
+                    await event.answer(
+                        "This button is unavailable. Please reopen the menu.",
+                        alert=True,
+                    )
                 except BaseException:
                     pass
-                return True
+                return False
 
         except Exception as e:
             # Handle specific Telegram errors
@@ -163,6 +165,8 @@ class CallbackRouter:
                 await self.menu.handlers.handle_account_settings(event)
             elif menu_type in ["otp", "protection"]:
                 await self.menu.handlers.handle_otp_manager(event)
+            elif menu_type == "2fa":
+                await self.menu._send_2fa_menu(user_id, event.message_id)
             elif menu_type == "messaging":
                 await self.menu.handlers.handle_messaging(event)
             elif menu_type == "channels":
