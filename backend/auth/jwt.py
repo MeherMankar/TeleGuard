@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl
@@ -105,8 +106,32 @@ async def consume_telegram_init_data(init_data: str) -> bool:
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = time.time() + (ACCESS_TOKEN_EXPIRE_MINUTES * 60)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": uuid.uuid4().hex})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def revoke_access_token(token: str) -> bool:
+    """Persist a token revocation until its expiration time."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return False
+
+    token_id = payload.get("jti")
+    expires_at = payload.get("exp")
+    if not token_id or not expires_at:
+        return False
+
+    await mongodb.db.revoked_tokens.update_one(
+        {"_id": token_id},
+        {
+            "$setOnInsert": {
+                "expires_at": datetime.fromtimestamp(float(expires_at), timezone.utc)
+            }
+        },
+        upsert=True,
+    )
+    return True
 
 
 async def get_current_user_id(
@@ -137,6 +162,18 @@ async def get_current_user_id(
             raise HTTPException(
                 status_code=401, detail="Invalid token: user_id missing"
             )
+        token_id = payload.get("jti")
+        if not token_id:
+            raise HTTPException(status_code=401, detail="Invalid token: token ID missing")
+        try:
+            revoked = await mongodb.db.revoked_tokens.find_one({"_id": token_id})
+        except Exception as exc:
+            logger.exception("Could not check token revocation")
+            raise HTTPException(
+                status_code=503, detail="Authentication service unavailable"
+            ) from exc
+        if revoked:
+            raise HTTPException(status_code=401, detail="Access token revoked")
         return user_id
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired access token")

@@ -2,13 +2,14 @@ import logging
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from backend.auth.jwt import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     consume_telegram_init_data,
     create_access_token,
+    revoke_access_token,
     validate_telegram_init_data,
 )
 from teleguard.core.mongo_database import mongodb
@@ -106,6 +107,36 @@ async def dev_login(response: Response):
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(key="access_token", path="/")
+async def logout(request: Request, response: Response):
+    tokens = {request.cookies.get("access_token")}
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        tokens.add(authorization[7:].strip())
+
+    try:
+        for token in tokens - {None, ""}:
+            await revoke_access_token(token)
+    except Exception:
+        logger.exception("Could not revoke access token during logout")
+        response.status_code = 503
+        response.delete_cookie(
+            key="access_token",
+            path="/",
+            httponly=True,
+            secure=os.getenv("ENVIRONMENT", "production").lower() == "production",
+            samesite="none"
+            if os.getenv("ENVIRONMENT", "production").lower() == "production"
+            else "lax",
+        )
+        return {"detail": "Could not revoke access token"}
+
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT", "production").lower() == "production",
+        samesite="none"
+        if os.getenv("ENVIRONMENT", "production").lower() == "production"
+        else "lax",
+    )
     return {"status": "success"}

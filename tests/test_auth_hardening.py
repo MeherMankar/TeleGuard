@@ -6,9 +6,15 @@ from types import SimpleNamespace
 from urllib.parse import urlencode
 
 import pytest
+from bson import ObjectId
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pymongo.errors import DuplicateKeyError
+from starlette.requests import Request
+from starlette.responses import Response
 
 import backend.auth.jwt as jwt_auth
+from backend.api.auth_router import logout
 from backend.auth.jwt import (
     BOT_TOKEN,
     SECRET_KEY,
@@ -18,6 +24,7 @@ from backend.auth.jwt import (
 from backend.auth.telegram_auth_manager import TelegramAuthManager
 from teleguard.core.config import SecurityConfig
 from teleguard.core.exceptions import ConfigurationError
+from teleguard.core.mongo_database import mongodb
 
 
 def _signed_init_data(user: dict, auth_date: int | None = None) -> str:
@@ -116,3 +123,151 @@ def test_login_session_is_only_available_to_its_owner():
         manager._get_login_data("session", user_id=2)
 
     assert manager._get_login_data("session", user_id=1)["user_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_revoked_access_token_is_rejected(monkeypatch):
+    class RevokedTokens:
+        def __init__(self):
+            self.documents = {}
+
+        async def find_one(self, query):
+            return self.documents.get(query["_id"])
+
+        async def update_one(self, query, update, upsert=False):
+            self.documents.setdefault(
+                query["_id"],
+                {"_id": query["_id"], **update["$setOnInsert"]},
+            )
+
+    collection = RevokedTokens()
+    monkeypatch.setattr(
+        mongodb,
+        "db",
+        SimpleNamespace(revoked_tokens=collection),
+    )
+    token = jwt_auth.create_access_token({"user_id": 123})
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+            "client": ("test", 1),
+            "scheme": "http",
+        }
+    )
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+    assert await jwt_auth.get_current_user_id(request, credentials) == 123
+    assert await jwt_auth.revoke_access_token(token)
+    with pytest.raises(HTTPException) as error:
+        await jwt_auth.get_current_user_id(request, credentials)
+    assert error.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_cookie_token(monkeypatch):
+    class RevokedTokens:
+        def __init__(self):
+            self.documents = {}
+
+        async def find_one(self, query):
+            return self.documents.get(query["_id"])
+
+        async def update_one(self, query, update, upsert=False):
+            self.documents.setdefault(
+                query["_id"],
+                {"_id": query["_id"], **update["$setOnInsert"]},
+            )
+
+    collection = RevokedTokens()
+    monkeypatch.setattr(mongodb, "db", SimpleNamespace(revoked_tokens=collection))
+    token = jwt_auth.create_access_token({"user_id": 123})
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/logout",
+            "query_string": b"",
+            "headers": [(b"cookie", f"access_token={token}".encode())],
+            "server": ("test", 80),
+            "client": ("test", 1),
+            "scheme": "http",
+        }
+    )
+    response = Response()
+
+    assert await logout(request, response) == {"status": "success"}
+    assert "access_token=" in response.headers["set-cookie"]
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    auth_request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+            "server": ("test", 80),
+            "client": ("test", 1),
+            "scheme": "http",
+        }
+    )
+    with pytest.raises(HTTPException) as error:
+        await jwt_auth.get_current_user_id(auth_request, credentials)
+    assert error.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_twofa_password_storage_reads_and_removes_encrypted_field(monkeypatch):
+    from teleguard.utils import crypto_utils
+
+    class Accounts:
+        def __init__(self):
+            self.account = {
+                "_id": ObjectId(),
+                "user_id": 123,
+                "phone": "+123456789",
+            }
+
+        async def find_one(self, query):
+            if (
+                query.get("_id") == self.account["_id"]
+                and query.get("user_id") == self.account["user_id"]
+            ) or (
+                query.get("phone") == self.account["phone"]
+                and query.get("user_id") == self.account["user_id"]
+            ):
+                return self.account.copy()
+            return None
+
+        async def update_one(self, query, update):
+            if query.get("_id") != self.account["_id"]:
+                return SimpleNamespace(matched_count=0)
+            self.account.update(update.get("$set", {}))
+            for key in update.get("$unset", {}):
+                self.account.pop(key, None)
+            return SimpleNamespace(matched_count=1)
+
+    accounts = Accounts()
+    monkeypatch.setattr(mongodb, "db", SimpleNamespace(accounts=accounts))
+    monkeypatch.setattr(
+        crypto_utils.DataEncryption,
+        "encrypt_field",
+        staticmethod(lambda value: f"encrypted:{value}"),
+    )
+    monkeypatch.setattr(
+        crypto_utils.DataEncryption,
+        "decrypt_field",
+        staticmethod(lambda value: value.removeprefix("encrypted:")),
+    )
+
+    account_id = str(accounts.account["_id"])
+    await mongodb.store_2fa_password(123, account_id, "secret")
+    assert accounts.account["twofa_password_enc"] == "encrypted:secret"
+    assert await mongodb.get_2fa_password(123, account_id) == "secret"
+    assert await mongodb.get_2fa_password_by_phone(123, "+123456789") == "secret"
+    assert await mongodb.remove_2fa_password(123, account_id)
+    assert "twofa_password_enc" not in accounts.account

@@ -13,13 +13,16 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.auth.jwt import get_current_user_id
 from teleguard.core.mongo_database import mongodb
 
 router = APIRouter(prefix="/messaging", tags=["Messaging"])
 logger = logging.getLogger(__name__)
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+MAX_BULK_TARGETS = 50
+_active_bulk_users: set[int] = set()
 
 
 def _get_bot_manager():
@@ -33,7 +36,7 @@ def _get_bot_manager():
 class SendMessageRequest(BaseModel):
     account_name: str
     target: str
-    message: str
+    message: str = Field(min_length=1, max_length=4096)
     reply_to_message_id: Optional[int] = None
 
 
@@ -46,8 +49,16 @@ class CreateJobRequest(BaseModel):
 
 class BulkMessageRequest(BaseModel):
     account_name: str
-    targets: List[str]
-    message: str
+    targets: List[str] = Field(min_length=1, max_length=MAX_BULK_TARGETS)
+    message: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("targets")
+    @classmethod
+    def validate_targets(cls, targets: List[str]) -> List[str]:
+        cleaned = [target.strip() for target in targets]
+        if any(not target or len(target) > 256 for target in cleaned):
+            raise ValueError("Targets must contain 1 to 256 non-whitespace characters")
+        return cleaned
 
 
 @router.get("/stats")
@@ -168,15 +179,18 @@ async def delete_job(job_id: str, user_id: int = Depends(get_current_user_id)):
 async def _run_bulk_send(user_id: int, account_name: str, targets: List[str], message: str):
     import asyncio
     bot_manager = _get_bot_manager()
-    for target in targets:
-        try:
-            if bot_manager and bot_manager.messaging_manager:
-                await bot_manager.messaging_manager.send_message(
-                    user_id=user_id, account_name=account_name, target=target, message=message
-                )
-            await asyncio.sleep(3.0)
-        except Exception as e:
-            logger.error(f"Bulk send failed for {target}: {e}")
+    try:
+        for target in targets:
+            try:
+                if bot_manager and bot_manager.messaging_manager:
+                    await bot_manager.messaging_manager.send_message(
+                        user_id=user_id, account_name=account_name, target=target, message=message
+                    )
+                await asyncio.sleep(3.0)
+            except Exception as e:
+                logger.error(f"Bulk send failed for {target}: {e}")
+    finally:
+        _active_bulk_users.discard(user_id)
 
 
 @router.post("/bulk")
@@ -191,7 +205,10 @@ async def send_bulk(
     client = bot_manager.get_client(user_id, {"name": payload.account_name})
     if not client:
         raise HTTPException(status_code=404, detail="Active account client not found")
+    if user_id in _active_bulk_users:
+        raise HTTPException(status_code=409, detail="A bulk send is already running")
 
+    _active_bulk_users.add(user_id)
     background_tasks.add_task(
         _run_bulk_send,
         user_id=user_id,
@@ -209,7 +226,7 @@ async def send_file_message(
     account_name: str = Form(...),
     target: str = Form(...),
     file: UploadFile = File(...),
-    caption: str = Form(""),
+    caption: str = Form("", max_length=1024),
     reply_to_message_id: Optional[int] = Form(None),
     voice_note: bool = Form(False),
     user_id: int = Depends(get_current_user_id),
@@ -228,10 +245,23 @@ async def send_file_message(
         import os
         import tempfile
 
+        if file.size is not None and file.size > MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail="Uploaded file exceeds 50 MiB limit")
+
         suffix = os.path.splitext(file.filename or "file")[1] or ".bin"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
             tmp_path = tmp.name
+            total_size = 0
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > MAX_UPLOAD_SIZE:
+                    raise HTTPException(
+                        status_code=413, detail="Uploaded file exceeds 50 MiB limit"
+                    )
+                tmp.write(chunk)
 
         entity = await client.get_entity(target)
         await client.send_file(
@@ -242,6 +272,8 @@ async def send_file_message(
             voice_note=voice_note,
         )
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"send-file error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

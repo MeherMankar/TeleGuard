@@ -287,7 +287,7 @@ class DatabaseManager:
 
     async def remove_2fa_password(self, user_id: int, account_id: str):
         """Remove 2FA password from account"""
-        await self.mongo.remove_2fa_password(user_id, account_id)
+        return await self.mongo.remove_2fa_password(user_id, account_id)
 
     # Audit Logging (MongoDB - Durable)
     async def add_audit_log(self, user_id: int, action: str, details: dict = None):

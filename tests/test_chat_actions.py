@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException, UploadFile
+from fastapi import BackgroundTasks, HTTPException, UploadFile
 from telethon import functions, types
 
 from backend.api import chats, messaging
@@ -139,6 +139,29 @@ async def test_forward_pin_and_delete_delegate_to_telethon(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_chat_client_resolution_never_falls_back_to_another_account(monkeypatch):
+    class EmptyCursor:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    selected = object()
+    other = object()
+    bot_manager = SimpleNamespace(user_clients={123: {"primary": selected, "other": other}})
+    monkeypatch.setattr(chats, "_get_bot_manager", lambda: bot_manager)
+    monkeypatch.setattr(
+        chats.mongodb,
+        "db",
+        SimpleNamespace(accounts=SimpleNamespace(find=lambda _query: EmptyCursor())),
+    )
+
+    assert await chats._resolve_client(123, "missing-account") is None
+    assert await chats._resolve_client(123, "primary") is selected
+
+
+@pytest.mark.asyncio
 async def test_send_file_can_send_a_telegram_voice_note(monkeypatch):
     client = AsyncMock()
     client.get_entity.return_value = object()
@@ -159,6 +182,61 @@ async def test_send_file_can_send_a_telegram_voice_note(monkeypatch):
     assert client.send_file.await_args.kwargs["voice_note"] is True
     assert uploaded_path.endswith(".webm")
     assert not Path(uploaded_path).exists()
+
+
+@pytest.mark.asyncio
+async def test_send_file_rejects_oversized_upload(monkeypatch):
+    client = AsyncMock()
+    bot_manager = SimpleNamespace(get_client=Mock(return_value=client))
+    monkeypatch.setattr(messaging, "_get_bot_manager", lambda: bot_manager)
+    monkeypatch.setattr(messaging, "MAX_UPLOAD_SIZE", 4)
+    upload = UploadFile(filename="large.bin", file=BytesIO(b"12345"))
+
+    with pytest.raises(HTTPException) as error:
+        await messaging.send_file_message(
+            account_name="primary",
+            target="42",
+            file=upload,
+            user_id=123,
+        )
+
+    assert error.value.status_code == 413
+    client.send_file.assert_not_awaited()
+
+
+def test_bulk_message_request_limits_targets_and_message_length():
+    with pytest.raises(ValueError):
+        messaging.BulkMessageRequest(
+            account_name="primary",
+            targets=[str(index) for index in range(messaging.MAX_BULK_TARGETS + 1)],
+            message="hello",
+        )
+    with pytest.raises(ValueError):
+        messaging.BulkMessageRequest(
+            account_name="primary",
+            targets=["@recipient"],
+            message="x" * 4097,
+        )
+
+
+@pytest.mark.asyncio
+async def test_bulk_send_rejects_a_second_active_job_for_user(monkeypatch):
+    monkeypatch.setattr(messaging, "_active_bulk_users", set())
+    bot_manager = SimpleNamespace(get_client=Mock(return_value=object()))
+    monkeypatch.setattr(messaging, "_get_bot_manager", lambda: bot_manager)
+    background_tasks = BackgroundTasks()
+    payload = messaging.BulkMessageRequest(
+        account_name="primary",
+        targets=["@first"],
+        message="hello",
+    )
+
+    await messaging.send_bulk(payload, background_tasks, user_id=123)
+    with pytest.raises(HTTPException) as error:
+        await messaging.send_bulk(payload, background_tasks, user_id=123)
+
+    assert error.value.status_code == 409
+    assert len(background_tasks.tasks) == 1
 
 
 @pytest.mark.asyncio

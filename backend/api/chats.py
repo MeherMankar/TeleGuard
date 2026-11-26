@@ -187,38 +187,20 @@ async def _resolve_client(user_id: int, account_name: str):
     except Exception as e:
         logger.debug(f"MongoDB lookup failed: {e}")
 
-    # 3. Partial match on phone digits
-    clean = account_name.replace("+", "").replace(" ", "").replace(".", "")
-    if clean:
-        for key, client in user_clients.items():
-            key_clean = str(key).replace("+", "").replace(" ", "")
-            if clean and len(clean) >= 5 and (clean in key_clean or key_clean in clean):
-                return client
+    # Normalize exact aliases only. A partial phone match can select another
+    # account when phone prefixes overlap.
+    def normalize(value: str) -> str:
+        return "".join(char for char in value.casefold() if char.isalnum())
 
-    # 4. If account_name looks like a display name (not a phone), try all clients
-    #    and find which one's get_me() matches — expensive but reliable fallback
-    if not account_name.startswith("+") and len(user_clients) <= 5:
-        for key, client in user_clients.items():
-            if client and client.is_connected():
-                try:
-                    me = await client.get_me()
-                    fn = str(getattr(me, "first_name", "") or "")
-                    ln = str(getattr(me, "last_name", "") or "")
-                    full = f"{fn} {ln}".strip()
-                    uname = str(getattr(me, "username", "") or "")
-                    if account_name in (full, uname, fn, f"@{uname}"):
-                        return client
-                except Exception:
-                    pass
-
-    # 5. Single account — return it regardless
-    if len(user_clients) == 1:
-        return next(iter(user_clients.values()))
-
-    # 6. Return first connected client as last resort
-    for client in user_clients.values():
-        if client and client.is_connected():
-            return client
+    requested = normalize(account_name)
+    if requested:
+        candidates = {
+            id(client): client
+            for key, client in user_clients.items()
+            if client and normalize(str(key)) == requested
+        }
+        if len(candidates) == 1:
+            return next(iter(candidates.values()))
 
     return None
 

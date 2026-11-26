@@ -275,6 +275,7 @@ class MongoDB:
                 self.auto_reply_settings = MockCollection()
                 self.auto_replies_sent_count = MockCollection()
                 self.telegram_init_data_replays = MockReplayCollection()
+                self.revoked_tokens = MockCollection()
                 # Session destroyer related collections (mocked for testing)
                 self.session_destroyer_settings = MockCollection()
                 self.session_destroyer_account_settings = MockCollection()
@@ -330,6 +331,12 @@ class MongoDB:
                 logger.warning(
                     "Could not create TTL index for consumed Telegram login data"
                 )
+            try:
+                await self.db.revoked_tokens.create_index(
+                    "expires_at", expireAfterSeconds=0
+                )
+            except Exception:
+                logger.warning("Could not create TTL index for revoked access tokens")
             # Session Destroyer indexes - wrap in try/except for mock DB
             try:
                 await self.db.session_destroyer_settings.create_index("user_id", unique=True)
@@ -531,24 +538,35 @@ class MongoDB:
             {
                 "_id": ObjectId(account_id),
                 "user_id": user_id,
-                "twofa_password": {"$exists": True},
             }
         )
-        if account and account.get("twofa_password"):
+        encrypted_password = (
+            account.get("twofa_password_enc") or account.get("twofa_password")
+            if account
+            else None
+        )
+        if encrypted_password:
             try:
-                return _DE.decrypt_field(account["twofa_password"])
+                return _DE.decrypt_field(encrypted_password)
             except Exception:
                 return None
         return None
 
     async def remove_2fa_password(self, user_id: int, account_id: str):
-        """Remove 2FA password from account"""
+        """Remove the stored 2FA password from an owned account."""
         from bson import ObjectId
 
-        await self.db.accounts.update_one(
+        result = await self.db.accounts.update_one(
             {"_id": ObjectId(account_id), "user_id": user_id},
-            {"$unset": {"twofa_password": "", "twofa_updated_at": ""}},
+            {
+                "$unset": {
+                    "twofa_password": "",
+                    "twofa_password_enc": "",
+                    "twofa_updated_at": "",
+                }
+            },
         )
+        return result.matched_count > 0
 
     async def get_2fa_password_by_phone(
         self, user_id: int, phone: str
@@ -557,11 +575,16 @@ class MongoDB:
         from ..utils.crypto_utils import DataEncryption as _DE
 
         account = await self.db.accounts.find_one(
-            {"user_id": user_id, "phone": phone, "twofa_password": {"$exists": True}}
+            {"user_id": user_id, "phone": phone}
         )
-        if account and account.get("twofa_password"):
+        encrypted_password = (
+            account.get("twofa_password_enc") or account.get("twofa_password")
+            if account
+            else None
+        )
+        if encrypted_password:
             try:
-                return _DE.decrypt_field(account["twofa_password"])
+                return _DE.decrypt_field(encrypted_password)
             except Exception:
                 return None
         return None

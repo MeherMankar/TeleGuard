@@ -32,7 +32,6 @@ import time
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import NoReturn
 from aiohttp import web
 
 # Ensure stdout/stderr use UTF-8 on Windows so logging can emit emojis
@@ -157,6 +156,10 @@ for mod in ["telethon", "aiosqlite", "pymongo", "redis", "asyncio", "motor", "ur
 logger = get_logger(__name__)
 logger.debug("Logging system configured with UTF-8 support")
 
+api_server_task: asyncio.Task | None = None
+shutdown_task: asyncio.Task | None = None
+shutdown_requested = False
+
 
 
 
@@ -191,20 +194,27 @@ async def graceful_shutdown() -> None:
     start_time = time.time()
 
     try:
-        # Cancel all pending tasks
-        logger.info("🛑 Cancelling pending tasks...")
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for task in tasks:
-            task.cancel()
-        
-        # Wait for tasks to cancel
-        await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Stop task queue
         logger.info("⏹️ Stopping task queue...")
         shutdown_tasks.append(task_queue.stop())
 
-        # Shutdown client manager
+        try:
+            from backend.main import request_api_server_shutdown
+
+            request_api_server_shutdown()
+        except Exception:
+            logger.exception("Could not request API server shutdown")
+
+        try:
+            from teleguard.core.bot_manager import bot_manager
+
+            if bot_manager and bot_manager.bot and bot_manager.bot.is_connected():
+                shutdown_tasks.append(bot_manager.bot.disconnect())
+        except Exception:
+            logger.exception("Could not disconnect the bot client")
+
+        if api_server_task and api_server_task is not asyncio.current_task():
+            shutdown_tasks.append(api_server_task)
+
         logger.info("🔌 Shutting down client manager...")
         client_manager = get_client_manager()
         if client_manager:
@@ -238,20 +248,21 @@ async def graceful_shutdown() -> None:
 def setup_signal_handlers() -> None:
     """Setup signal handlers for graceful shutdown."""
 
-    def signal_handler(signum: int, _) -> NoReturn:
+    def signal_handler(signum: int, _) -> None:
+        global shutdown_requested, shutdown_task
+        shutdown_requested = True
         signal_name = signal.Signals(signum).name
         logger.info("📶 Received %s signal, initiating shutdown", signal_name)
         print(f"\n📶 Received {signal_name} signal, shutting down gracefully...")
 
-        # Create shutdown task
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        if loop and loop.is_running():
-            loop.create_task(graceful_shutdown())
-
-        sys.exit(0)
+        if loop and loop.is_running() and (shutdown_task is None or shutdown_task.done()):
+            shutdown_task = loop.create_task(
+                graceful_shutdown(), name="teleguard_graceful_shutdown"
+            )
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
@@ -367,8 +378,19 @@ def print_startup_banner() -> None:
         print("=" * 60)
 
 
+async def _finish_shutdown_if_requested() -> bool:
+    if not shutdown_requested:
+        return False
+    if shutdown_task:
+        await shutdown_task
+    return True
+
+
 async def main() -> None:
     """Main application entry point with comprehensive error handling."""
+    global api_server_task, shutdown_requested, shutdown_task
+    shutdown_requested = False
+    shutdown_task = None
     # Force rebuild - fixed indentation issue
     startup_time = time.time()
     logger.debug("TeleGuard application starting up")
@@ -390,6 +412,8 @@ async def main() -> None:
         logger.debug("Initializing database connections")
         print("Connecting to database...")
         await init_database_manager()
+        if await _finish_shutdown_if_requested():
+            return
         
         health = await db_manager.health_check()
         if health.get('mongodb') and health.get('redis'):
@@ -403,13 +427,37 @@ async def main() -> None:
         # FastAPI handles /health, /ip, AND all /api/* routes on the single PORT
         try:
             from backend.main import start_api_server
-            api_task = asyncio.create_task(start_api_server())
+
+            api_started = asyncio.Event()
+            api_server_task = asyncio.create_task(
+                start_api_server(api_started), name="teleguard_api_server"
+            )
             logger.info("🌐 FastAPI dashboard server starting on port %s", os.getenv("PORT", "8080"))
-            # Give it a moment to bind before bot starts
-            await asyncio.sleep(1)
+            startup_waiter = asyncio.create_task(api_started.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {api_server_task, startup_waiter},
+                    timeout=15,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    raise TimeoutError("Dashboard API startup timed out")
+                if api_server_task in done and not api_started.is_set():
+                    await api_server_task
+                    raise RuntimeError("Dashboard API stopped before becoming ready")
+            finally:
+                startup_waiter.cancel()
+                await asyncio.gather(startup_waiter, return_exceptions=True)
         except Exception as api_err:
+            if await _finish_shutdown_if_requested():
+                return
+            if api_server_task and not api_server_task.done():
+                api_server_task.cancel()
+                await asyncio.gather(api_server_task, return_exceptions=True)
             logger.error(f"💥 Dashboard API server failed to start: {api_err}")
             raise RuntimeError(f"Cannot start API server: {api_err}")
+        if await _finish_shutdown_if_requested():
+            return
         # ─────────────────────────────────────────────────────────────────────
 
         # Initialize Koyeb optimization
@@ -417,6 +465,8 @@ async def main() -> None:
             logger.debug("Starting Koyeb optimization")
             from teleguard.utils.koyeb_optimizer import koyeb_optimizer
             await koyeb_optimizer.start_optimization()
+        if await _finish_shutdown_if_requested():
+            return
         
         # Initialize session guardian with IP monitoring
         logger.debug("Initializing session guardian")
@@ -427,6 +477,8 @@ async def main() -> None:
         # Start IP monitoring background task (requires running event loop)
         await g.start_monitoring()
         logger.debug("Session guardian active")
+        if await _finish_shutdown_if_requested():
+            return
 
         print("\n" + "="*50)
         logger.debug("Initializing TeleGuard bot")
@@ -434,6 +486,8 @@ async def main() -> None:
         # Start bot without timeout on cloud platforms
         try:
             async with AccountManager() as bot:
+                if await _finish_shutdown_if_requested():
+                    return
                 startup_elapsed = time.time() - startup_time
                 koyeb_status = " + Koyeb optimized" if os.getenv('KOYEB_OPTIMIZATION_ENABLED', 'true').lower() == 'true' else ""
                 print(f"\nTeleGuard is ready! 🌐 Smart IP monitoring active{koyeb_status}")
@@ -441,6 +495,8 @@ async def main() -> None:
 
                 logger.debug("Starting bot main loop")
                 await bot.run()
+            if shutdown_task:
+                await shutdown_task
         except Exception as e:
             # Handle rate limits and other startup errors
             logger.error("🚨 Bot startup error: %s", str(e))
@@ -455,11 +511,15 @@ async def main() -> None:
                     
                     # Keep health server running during wait
                     await asyncio.sleep(min(wait_time, 300))  # Cap at 5 minutes
+                    if await _finish_shutdown_if_requested():
+                        return
                     logger.info("✅ Rate limit wait completed, retrying...")
                     
                     print("Retrying startup...")
                     try:
                         async with AccountManager() as bot:
+                            if await _finish_shutdown_if_requested():
+                                return
                             logger.info("✅ Bot started successfully after rate limit")
                             print("Bot started successfully after rate limit")
                             await bot.run()
