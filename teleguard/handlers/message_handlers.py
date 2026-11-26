@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import time
+import traceback
 
 from telethon import events
 from telethon.errors import FloodWaitError, PhoneNumberInvalidError
@@ -152,7 +153,12 @@ class MessageHandlers:
     async def _handle_user_reply(self, event):
         """Handle user text replies for pending actions"""
         user_id = event.sender_id
-        message = event.raw_text.strip()
+        if not user_id:
+            return
+        raw_text = getattr(event, "raw_text", None)
+        if raw_text is None:
+            raw_text = getattr(event, "text", "") or ""
+        message = str(raw_text).strip()
 
         if message.startswith("/"):
             return
@@ -2227,14 +2233,26 @@ class MessageHandlers:
             )
             await event.reply(ErrorHandler.get_user_friendly_error(e))
         except Exception as e:
-            logger.error(f"Unhandled exception in reply_handler: {e}")
+            logger.exception(
+                "Unhandled exception in reply_handler for user %s",
+                getattr(event, "sender_id", None),
+            )
             await self._log_and_notify_error(event, e)
 
     async def _log_and_notify_error(self, event, error):
         """Log error and notify user"""
+        error_detail = (
+            f"{type(error).__name__}: {error}\n"
+            f"{traceback.format_exc()[-2400:]}"
+        )
         try:
             from ..utils.logger import BotLogger
-            await BotLogger.log_error("Message Handler Error", str(error), user_id=event.sender_id, context="reply_handler")
+            await BotLogger.log_error(
+                "Message Handler Error",
+                error_detail,
+                user_id=getattr(event, "sender_id", None),
+                context="reply_handler",
+            )
         except BaseException:
             pass
         try:
