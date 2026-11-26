@@ -1,12 +1,14 @@
 import logging
 from typing import List, Dict, Any, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
 from teleguard.core.mongo_database import mongodb
 from teleguard.core.proxy_manager import proxy_manager
+from teleguard.utils.crypto_utils import DataEncryption
 
 router = APIRouter(prefix="/proxies", tags=["Proxies"])
 logger = logging.getLogger(__name__)
@@ -57,8 +59,13 @@ async def list_proxies(user_id: int = Depends(get_current_user_id)):
         raw = await proxy_manager.get_user_proxies(user_id)
         result = []
         for p in raw:
+            p = DataEncryption.decrypt_account_data(p)
             p["id"] = str(p["_id"])
             p.pop("_id", None)
+            p.pop("password", None)
+            p.pop("secret", None)
+            p.pop("password_enc", None)
+            p.pop("secret_enc", None)
             result.append(p)
         return result
     except Exception as e:
@@ -158,7 +165,11 @@ async def remove_proxy(payload: RemoveProxyRequest, user_id: int = Depends(get_c
 @router.post("/test")
 async def test_proxy(payload: TestProxyRequest, user_id: int = Depends(get_current_user_id)):
     try:
-        p = await mongodb.db.proxies.find_one({"_id": ObjectId(payload.proxy_id), "user_id": user_id})
+        try:
+            proxy_id = ObjectId(payload.proxy_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Invalid proxy ID")
+        p = await mongodb.db.proxies.find_one({"_id": proxy_id, "user_id": user_id})
         if not p:
             raise HTTPException(status_code=404, detail="Proxy not found")
 
@@ -197,8 +208,13 @@ async def get_default_proxy(user_id: int = Depends(get_current_user_id)):
     try:
         p = await proxy_manager.get_default_proxy(user_id)
         if p:
+            p = DataEncryption.decrypt_account_data(p)
             p["id"] = str(p["_id"])
             p.pop("_id", None)
+            p.pop("password", None)
+            p.pop("secret", None)
+            p.pop("password_enc", None)
+            p.pop("secret_enc", None)
             return p
         return {"status": "no_default"}
     except Exception as e:

@@ -1,6 +1,6 @@
 /**
  * WebSocket client for TeleGuard real-time events.
- * Connects to /ws/events?token=<jwt> and dispatches typed events.
+ * Connects to /ws/events using the secure access-token cookie and dispatches typed events.
  */
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080"
@@ -29,12 +29,14 @@ class TeleGuardSocket {
   private listeners: Map<WsEventType | "*", Set<Listener>> = new Map()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = 2000
+  private token: string | null = null
   private maxDelay = 30000
   private shouldConnect = false
 
-  connect(token: string) {
+  connect(token?: string) {
+    this.token = token ?? null
     this.shouldConnect = true
-    this._open(token)
+    this._open()
   }
 
   disconnect() {
@@ -61,13 +63,13 @@ class TeleGuardSocket {
     this.listeners.get(event)?.delete(listener)
   }
 
-  private _open(token: string) {
+  private _open() {
     if (typeof WebSocket === "undefined") return
     if (this.ws) {
       this.ws.close()
     }
 
-    const url = `${WS_URL}/ws/events?token=${encodeURIComponent(token)}`
+    const url = `${WS_URL}/ws/events`
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {
@@ -96,7 +98,7 @@ class TeleGuardSocket {
       if (!this.shouldConnect) return
       this.reconnectTimer = setTimeout(() => {
         this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxDelay)
-        this._open(token)
+        this._open()
       }, this.reconnectDelay)
     }
 

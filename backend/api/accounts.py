@@ -15,6 +15,7 @@ import time
 from typing import List, Dict, Any, Optional
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -453,8 +454,12 @@ async def qr_password(req: QRPasswordRequest, user_id: int = Depends(get_current
 async def remove_account(account_id: str, user_id: int = Depends(get_current_user_id)):
     """Remove an account from bot and database."""
     try:
+        try:
+            mongo_account_id = ObjectId(account_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Invalid account ID")
         doc = await mongodb.db.accounts.find_one({
-            "_id": ObjectId(account_id),
+            "_id": mongo_account_id,
             "user_id": user_id,
         })
         if not doc:
@@ -474,7 +479,7 @@ async def remove_account(account_id: str, user_id: int = Depends(get_current_use
                 except Exception:
                     pass
 
-        await mongodb.db.accounts.delete_one({"_id": ObjectId(account_id), "user_id": user_id})
+        await mongodb.db.accounts.delete_one({"_id": mongo_account_id, "user_id": user_id})
 
         await ws_manager.send_personal_message(
             {"type": "account_removed", "account_id": account_id, "name": name},

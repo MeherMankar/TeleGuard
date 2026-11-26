@@ -44,6 +44,7 @@ jobs:
         BOT_TOKEN: "12345:test"
         MONGO_URI: "mongodb://localhost:27017/teleguard"
         JWT_SECRET: "ci-only-test-secret-value-at-least-32-chars"
+        FERNET_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
     - name: Set up Node
       uses: actions/setup-node@v4

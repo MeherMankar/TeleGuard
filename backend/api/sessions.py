@@ -3,6 +3,7 @@ import re
 import time
 from typing import List, Dict, Any, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -84,8 +85,12 @@ async def revoke_session(payload: RevokeSessionRequest, user_id: int = Depends(g
         raise HTTPException(status_code=400, detail="Invalid session hash")
 
     try:
+        try:
+            mongo_account_id = ObjectId(payload.account_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Invalid account ID")
         account = await mongodb.db.accounts.find_one({
-            "_id": ObjectId(payload.account_id),
+            "_id": mongo_account_id,
             "user_id": user_id,
         })
         if not account:

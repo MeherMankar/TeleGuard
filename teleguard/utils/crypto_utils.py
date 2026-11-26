@@ -163,20 +163,24 @@ class DataEncryption:
 
     @staticmethod
     def encrypt_field(data: Any) -> Any:
-        if data is None or fernet is None:
+        if data is None:
             return data
+        if fernet is None:
+            raise ValueError("Encryption key is not configured")
         try:
             json_str = json.dumps(data, default=str)
             encrypted_bytes = fernet.encrypt(json_str.encode())
             return encrypted_bytes.decode()
         except Exception as e:
             logger.error(f"Failed to encrypt field: {e}")
-            return data
+            raise
 
     @staticmethod
     def decrypt_field(encrypted_data: Any) -> Any:
-        if encrypted_data is None or fernet is None:
+        if encrypted_data is None:
             return encrypted_data
+        if fernet is None:
+            raise ValueError("Encryption key is not configured")
         try:
             if not isinstance(encrypted_data, str):
                 return encrypted_data
@@ -238,8 +242,6 @@ class DataEncryption:
         they can be used directly in MongoDB query filters without
         encrypt/decrypt gymnastics.
         """
-        if fernet is None:
-            return account_data.copy()
         encrypted_data = account_data.copy()
         sensitive_fields = [
             "session_string",

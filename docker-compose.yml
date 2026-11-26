@@ -7,6 +7,8 @@ services:
     restart: unless-stopped
     env_file:
       - config/.env
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/teleguard
     volumes:
       - ./sessions:/app/sessions
       - ./logs:/app/logs

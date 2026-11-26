@@ -24,11 +24,18 @@
     "ADMIN_IDS": {
       "description": "Comma-separated admin user IDs",
       "required": true
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection URI",
+      "required": true
+    },
+    "JWT_SECRET": {
+      "description": "Random JWT signing secret of at least 32 characters",
+      "required": true
+    },
+    "FERNET_KEY": {
+      "description": "Stable Fernet encryption key",
+      "required": true
     }
-  },
-  "addons": [
-    {
-      "plan": "heroku-postgresql:mini"
-    }
-  ]
+  }
 }

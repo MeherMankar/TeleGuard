@@ -89,25 +89,79 @@ class MongoDB:
         """Create mock database for development"""
 
         class MockCollection:
+            def __init__(self):
+                self.documents = []
+
+            @staticmethod
+            def _matches(document, query):
+                if not query:
+                    return True
+                for key, expected in query.items():
+                    if key not in document or document[key] != expected:
+                        return False
+                return True
+
             async def find_one(self, query):
+                for document in self.documents:
+                    if self._matches(document, query):
+                        return document.copy()
                 return None
 
             async def insert_one(self, doc):
-                class MockResult:
-                    inserted_id = "mock_id"
+                stored = doc.copy()
+                stored.setdefault("_id", SimpleNamespace(__str__=lambda: "mock_id"))
+                self.documents.append(stored)
+                return SimpleNamespace(inserted_id=stored["_id"])
 
-                return MockResult()
-
-            async def update_one(self, query, update, _upsert=False):
-                pass
+            async def update_one(self, query, update, upsert=False, **kwargs):
+                for document in self.documents:
+                    if self._matches(document, query):
+                        for key, value in update.get("$set", {}).items():
+                            document[key] = value
+                        return SimpleNamespace(
+                            matched_count=1,
+                            modified_count=1,
+                            upserted_id=None,
+                        )
+                if upsert:
+                    inserted = query.copy()
+                    inserted.update(update.get("$set", {}))
+                    inserted.setdefault("_id", SimpleNamespace(__str__=lambda: "mock_id"))
+                    self.documents.append(inserted)
+                    return SimpleNamespace(
+                        matched_count=0,
+                        modified_count=0,
+                        upserted_id=inserted["_id"],
+                    )
+                return SimpleNamespace(
+                    matched_count=0, modified_count=0, upserted_id=None
+                )
 
             async def delete_one(self, query):
-                pass
+                for index, document in enumerate(self.documents):
+                    if self._matches(document, query):
+                        del self.documents[index]
+                        return SimpleNamespace(deleted_count=1)
+                return SimpleNamespace(deleted_count=0)
+
+            async def count_documents(self, query=None):
+                return sum(
+                    1
+                    for document in self.documents
+                    if self._matches(document, query or {})
+                )
 
             def find(self, query):
+                collection = self
+
                 class MockCursor:
                     async def to_list(self, length=None):
-                        return []
+                        matches = [
+                            document.copy()
+                            for document in collection.documents
+                            if collection._matches(document, query)
+                        ]
+                        return matches if length is None else matches[:length]
 
                 return MockCursor()
 
@@ -132,11 +186,20 @@ class MongoDB:
                 self.user_settings = MockCollection()
                 self.otp_protections = MockCollection()
                 self.topic_mappings = MockCollection()
+                self.proxies = MockCollection()
+                self.automation_jobs = MockCollection()
+                self.auto_reply_settings = MockCollection()
+                self.auto_replies_sent_count = MockCollection()
                 self.telegram_init_data_replays = MockReplayCollection()
                 # Session destroyer related collections (mocked for testing)
                 self.session_destroyer_settings = MockCollection()
                 self.trusted_sessions = MockCollection()
                 self.session_destroyer_logs = MockCollection()
+                self._extra_collections = {}
+
+            def __getattr__(self, name):
+                collection = self._extra_collections.setdefault(name, MockCollection())
+                return collection
         self.db = MockDB()
         logger.info("Mock database ready")
 
@@ -356,7 +419,7 @@ class MongoDB:
             {"_id": ObjectId(account_id), "user_id": user_id},
             {
                 "$set": {
-                    "twofa_password": encrypted_password,
+                    "twofa_password_enc": encrypted_password,
                     "twofa_updated_at": time.time(),
                 }
             },

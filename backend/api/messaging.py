@@ -3,6 +3,7 @@ import time
 from typing import Any, Dict, List, Literal, Optional
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -111,8 +112,12 @@ async def list_jobs(user_id: int = Depends(get_current_user_id)):
 @router.post("/jobs")
 async def create_job(payload: CreateJobRequest, user_id: int = Depends(get_current_user_id)):
     try:
+        try:
+            account_id = ObjectId(payload.account_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Invalid account ID")
         account = await mongodb.db.accounts.find_one({
-            "_id": ObjectId(payload.account_id),
+            "_id": account_id,
             "user_id": user_id,
         })
         if not account:
@@ -142,8 +147,12 @@ async def create_job(payload: CreateJobRequest, user_id: int = Depends(get_curre
 @router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, user_id: int = Depends(get_current_user_id)):
     try:
+        try:
+            mongo_job_id = ObjectId(job_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Invalid job ID")
         result = await mongodb.db.automation_jobs.delete_one({
-            "_id": ObjectId(job_id),
+            "_id": mongo_job_id,
             "user_id": user_id,
         })
         if result.deleted_count > 0:

@@ -2,10 +2,11 @@ import logging
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from backend.auth.jwt import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
     consume_telegram_init_data,
     create_access_token,
     validate_telegram_init_data,
@@ -21,7 +22,7 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/login")
-async def login(payload: LoginRequest):
+async def login(payload: LoginRequest, response: Response):
     """Validate Telegram WebApp initData and return JWT."""
     try:
         user_info = validate_telegram_init_data(payload.initData)
@@ -51,6 +52,15 @@ async def login(payload: LoginRequest):
             )
 
         token = create_access_token({"user_id": telegram_id})
+        response.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=os.getenv("ENVIRONMENT", "production").lower() == "production",
+            samesite="none" if os.getenv("ENVIRONMENT", "production").lower() == "production" else "lax",
+            max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+        )
         return {
             "token": token,
             "user": {
@@ -68,13 +78,22 @@ async def login(payload: LoginRequest):
 
 
 @router.get("/dev-login")
-async def dev_login():
+async def dev_login(response: Response):
     """Development-only login — returns a JWT for the test user."""
     if os.getenv("ENVIRONMENT", "production").lower() != "development":
         raise HTTPException(status_code=404, detail="Not found")
 
     test_user_id = 6121637257
     token = create_access_token({"user_id": test_user_id})
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
     return {
         "token": token,
         "user": {
@@ -84,3 +103,9 @@ async def dev_login():
             "username": "devuser",
         },
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie(key="access_token", path="/")
+    return {"status": "success"}

@@ -422,8 +422,16 @@ class ConfigManager:
             pass  # No admin users configured
         # Environment-specific validation
         if self.environment == Environment.PRODUCTION:
-            if not self.security.encryption_key:
-                pass  # No encryption key in production
+            fernet_key = os.getenv("FERNET_KEY")
+            if not fernet_key:
+                raise ConfigurationError(
+                    "FERNET_KEY is required in production and must be a stable "
+                    "Fernet key"
+                )
+            try:
+                Fernet(fernet_key.encode())
+            except Exception as exc:
+                raise ConfigurationError("FERNET_KEY is invalid") from exc
             if self.performance.max_accounts > 20:
                 pass  # High account limit in production
 

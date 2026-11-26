@@ -39,6 +39,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
+    credentials: "include",
   })
 
   if (res.status === 401) {
@@ -92,6 +93,7 @@ export interface LoginResponse {
 export const authApi = {
   login: (initData: string) => post<LoginResponse>("/api/auth/login", { initData }),
   devLogin: () => get<LoginResponse>("/api/auth/dev-login"),
+  logout: () => post<{ status: string }>("/api/auth/logout", {}),
 }
 
 export interface BackendHealth {
@@ -288,11 +290,6 @@ export interface ChatFolder {
 
 const API_URL_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080"
 
-function getPhotoToken(): string {
-  if (typeof window === "undefined") return ""
-  return localStorage.getItem("tg_token") ?? ""
-}
-
 export const chatsApi = {
   dialogs: (accountName: string, limit = 50) =>
     get<Dialog[]>(`/api/chats/dialogs/${encodeURIComponent(accountName)}?limit=${limit}`),
@@ -323,17 +320,13 @@ export const chatsApi = {
       `/api/chats/button/${encodeURIComponent(accountName)}/${chatId}/${messageId}/${rowIndex}/${buttonIndex}`,
       {},
     ),
-  /** Returns a URL to proxy the entity's profile photo — includes JWT so <img> works */
+  /** Returns a URL to proxy the entity's profile photo using the secure cookie. */
   photoUrl: (accountName: string, entityId: number): string => {
-    const token = getPhotoToken()
-    const base = `${API_URL_BASE}/api/chats/photo/${encodeURIComponent(accountName)}/${entityId}`
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base
+    return `${API_URL_BASE}/api/chats/photo/${encodeURIComponent(accountName)}/${entityId}`
   },
-  /** Returns a URL to proxy a message's media thumbnail/file */
+  /** Returns a URL to proxy a message's media thumbnail/file using the secure cookie. */
   mediaUrl: (accountName: string, chatId: number, messageId: number): string => {
-    const token = getPhotoToken()
-    const base = `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base
+    return `${API_URL_BASE}/api/chats/media/${encodeURIComponent(accountName)}/${chatId}/${messageId}`
   },
   /** Get real-time online/last-seen status for a user */
   userStatus: (accountName: string, entityId: number) =>
@@ -421,6 +414,7 @@ export const messagingApi = {
     return fetch(`${API_URL}/api/messaging/send-file`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
       body: form,
     }).then(async (res) => {
       if (!res.ok) {

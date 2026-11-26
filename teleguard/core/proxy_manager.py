@@ -182,14 +182,19 @@ class ProxyManager:
                 "type": proxy_type,
                 "server": server,
                 "port": port,
-                "username": proxy_data.get("username"),
-                "password": proxy_data.get("password"),
-                "secret": secret,
                 "status": "untested",
                 "last_check": None,
                 "response_time": None,
                 "created_at": int(time.time()),
             }
+            if proxy_data.get("username"):
+                proxy_doc["username"] = proxy_data["username"]
+            if proxy_data.get("password"):
+                proxy_doc["password_enc"] = DataEncryption.encrypt_field(
+                    proxy_data["password"]
+                )
+            if secret:
+                proxy_doc["secret_enc"] = DataEncryption.encrypt_field(secret)
 
             result = await mongodb.db.proxies.insert_one(proxy_doc)
             return True, str(result.inserted_id)
@@ -338,6 +343,7 @@ class ProxyManager:
             proxy = await mongodb.db.proxies.find_one({"_id": ObjectId(proxy_id)})
             if not proxy:
                 return False, "Proxy not found", None
+            proxy = DataEncryption.decrypt_account_data(proxy)
 
             # Test MTProto proxies using Telethon's native MTProxy connection.
             if proxy["type"] == "mtproto":
@@ -616,7 +622,7 @@ class ProxyManager:
             proxy = await mongodb.db.proxies.find_one(
                 {"_id": ObjectId(account["proxy_id"])}
             )
-            return proxy
+            return DataEncryption.decrypt_account_data(proxy) if proxy else None
         except Exception as e:
             logger.error(f"Failed to get account proxy: {e}")
             return None
@@ -659,7 +665,7 @@ class ProxyManager:
             proxy = await mongodb.db.proxies.find_one(
                 {"_id": ObjectId(settings["default_proxy_id"])}
             )
-            return proxy
+            return DataEncryption.decrypt_account_data(proxy) if proxy else None
         except Exception as e:
             logger.error(f"Failed to get default proxy: {e}")
             return None
@@ -671,6 +677,7 @@ class ProxyManager:
         try:
             if not proxy:
                 return None
+            proxy = DataEncryption.decrypt_account_data(proxy)
 
             proxy_type = proxy.get("type")
             server, port = self._normalize_proxy_endpoint(

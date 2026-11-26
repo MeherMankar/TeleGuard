@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 SECRET_KEY = config.security.jwt_secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 TELEGRAM_INIT_DATA_FUTURE_SKEW_SECONDS = 30
 
@@ -114,10 +114,8 @@ async def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
 ) -> int:
     """
-    Extract user_id from JWT.  Accepts the token from two places:
-      1. Authorization: Bearer <token>  — standard API calls
-      2. ?token=<jwt>                   — used by <img src> for photo proxying
-         (browsers don't send Authorization headers with image requests)
+    Extract user_id from JWT.  Accepts the token from the Authorization header
+    or the secure HTTP-only access_token cookie.
     """
     token: Optional[str] = None
 
@@ -125,9 +123,9 @@ async def get_current_user_id(
     if credentials and credentials.credentials:
         token = credentials.credentials
 
-    # 2. Query param fallback
+    # 2. HTTP-only cookie fallback (used by browser image/media requests)
     if not token:
-        token = request.query_params.get("token")
+        token = request.cookies.get("access_token")
 
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")

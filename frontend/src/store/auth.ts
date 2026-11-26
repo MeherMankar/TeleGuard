@@ -3,7 +3,7 @@
  * Uses a simple module-level reactive store (no Zustand needed).
  */
 
-import { setToken, clearToken, isAuthenticated, type AuthUser } from "@/lib/api"
+import { authApi, setToken, clearToken, isAuthenticated, type AuthUser } from "@/lib/api"
 import { socket } from "@/lib/socket"
 
 interface AuthState {
@@ -61,6 +61,7 @@ export const authStore = {
 
   logout() {
     if (isBrowser) {
+      void authApi.logout().catch(() => {})
       clearToken()
       localStorage.removeItem("tg_user")
       localStorage.removeItem("tg_active_account")

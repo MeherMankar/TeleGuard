@@ -342,7 +342,7 @@ async def get_entity_photo(
 ):
     """
     Download and proxy a Telegram entity's profile photo.
-    JWT accepted via Authorization header OR ?token= query param (for <img> tags).
+    JWT is accepted via the Authorization header or secure access-token cookie.
     """
     client = await _resolve_client(user_id, account_name)
     if not client:

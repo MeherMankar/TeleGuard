@@ -130,7 +130,7 @@ async def ip_status():
 
 
 @app.websocket("/ws/events")
-async def websocket_events(websocket: WebSocket, token: Optional[str] = Query(None)):
+async def websocket_events(websocket: WebSocket):
     """
     Authenticated WebSocket for real-time dashboard events.
     Events pushed by the bot: account_added, account_removed, session_revoked,
@@ -138,6 +138,7 @@ async def websocket_events(websocket: WebSocket, token: Optional[str] = Query(No
     otp_destroyer_toggled, otp_forward_toggled, otp_temp_passthrough.
     """
     user_id = None
+    token = websocket.cookies.get("access_token")
     if token:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
