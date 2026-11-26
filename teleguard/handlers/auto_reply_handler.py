@@ -1,7 +1,7 @@
 """Advanced auto-reply handler with keyword detection and analytics - FIXED VERSION"""
 
 import asyncio
-import html
+import hashlib
 import logging
 import re
 import time as time_module
@@ -18,10 +18,26 @@ logger = logging.getLogger(__name__)
 MIN_KEYWORD_LENGTH = 2
 MIN_MESSAGE_LENGTH = 5
 RECONNECT_DELAY = 1.0
+REPLY_COOLDOWN_SECONDS = 3.0
+TOGGLE_COOLDOWN_SECONDS = 2.0
+MAX_KEYWORDS_PER_USER = 50
+KEYWORD_DELETE_PAGE_SIZE = 40
+KEYWORD_DISPLAY_LIMIT = 20
+DELETE_KEYWORD_CALLBACK_PREFIX = "auto_reply:delete:"
+DELETE_KEYWORD_HASH_CALLBACK_PREFIX = "auto_reply:delete_hash:"
 
 
 class AutoReplyHandler:
     """Advanced auto-reply system with keyword detection and user categorization"""
+
+    @staticmethod
+    def _new_analytics() -> dict:
+        return {
+            "total_messages": 0,
+            "auto_replies_sent": 0,
+            "keyword_hits": {},
+            "unmatched_queries": 0,
+        }
 
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
@@ -35,15 +51,13 @@ class AutoReplyHandler:
             "end": time(17, 0),
             "days": [0, 1, 2, 3, 4],
         }
-        self.analytics = {
-            "total_messages": 0,
-            "auto_replies_sent": 0,
-            "keyword_hits": {},
-            "unmatched_queries": 0,
-        }
+        self.analytics = self._new_analytics()
+        self.user_analytics = {}
         self.pending_actions = {}  # Track user input states
         self.last_toggle_time = {}  # Prevent rapid toggles
+        self._last_toggle_prune_at = 0.0
         self.last_reply_time = {}  # Prevent duplicate replies (cooldown)
+        self._last_reply_prune_at = 0.0
         self.setup_text_handler()
         self.setup_auto_reply_menu()
 
@@ -67,16 +81,15 @@ class AutoReplyHandler:
             ]
             for client_key in clients_to_remove:
                 self.handled_clients.discard(client_key)
-                # Remove the specific handler function if we have a reference
-                old_handler = self._client_handlers.pop(client_key, None)
-                if old_handler and user_id in self.user_clients:
-                    for account_name, client in self.user_clients[user_id].items():
-                        if f"{user_id}:{account_name}" == client_key:
-                            try:
-                                client.remove_event_handler(old_handler)
-                                logger.info(f"Removed auto-reply handler for {client_key}")
-                            except Exception as e:
-                                logger.debug(f"Could not remove handler for {client_key}: {e}")
+                registered = self._client_handlers.pop(client_key, None)
+                if registered:
+                    client, old_handler = registered
+                    try:
+                        client.remove_event_handler(old_handler)
+                        logger.info(f"Removed auto-reply handler for {client_key}")
+                    except Exception as e:
+                        logger.debug(f"Could not remove handler for {client_key}: {e}")
+            self.pending_actions.pop(user_id, None)
             logger.info(f"Force cleanup completed for user {user_id}")
         except Exception as e:
             logger.error(f"Error during force cleanup for user {user_id}: {e}")
@@ -88,9 +101,9 @@ class AutoReplyHandler:
         # Remove any previously registered handler for this client to prevent
         # duplicate replies when this method is called more than once.
         if client_key in self._client_handlers:
-            old_handler = self._client_handlers.pop(client_key)
+            old_client, old_handler = self._client_handlers.pop(client_key)
             try:
-                client.remove_event_handler(old_handler)
+                old_client.remove_event_handler(old_handler)
                 logger.debug(f"Removed old auto-reply handler for {client_key}")
             except Exception as e:
                 logger.debug(f"Could not remove old handler for {client_key}: {e}")
@@ -157,7 +170,9 @@ class AutoReplyHandler:
                 )
                 message_text = event.message.text.lower() if event.message.text else ""
                 sender_id = event.sender_id
+                user_analytics = self._get_user_analytics(user_id)
                 self.analytics["total_messages"] += 1
+                user_analytics["total_messages"] += 1
                 user_keywords = await self._get_user_keywords(user_id)
                 matched_keyword = None
                 response = None
@@ -165,22 +180,20 @@ class AutoReplyHandler:
                 # Keyword replies take priority — check first
                 if settings.get("keyword_replies_enabled", False) and user_keywords:
                     for keyword, reply_msg in user_keywords.items():
-                        escaped_keyword = re.escape(keyword.lower())
-                        try:
-                            if re.search(r"\b" + escaped_keyword + r"\b", message_text):
-                                matched_keyword = keyword
-                                response = html.escape(reply_msg)
-                                break
-                        except re.error:
-                            continue
+                        if self._keyword_matches(keyword, message_text):
+                            matched_keyword = keyword
+                            response = reply_msg
+                            break
 
                 if matched_keyword:
-                    self.analytics["keyword_hits"][matched_keyword] = (
-                        self.analytics["keyword_hits"].get(matched_keyword, 0) + 1
-                    )
+                    for stats in (self.analytics, user_analytics):
+                        stats["keyword_hits"][matched_keyword] = (
+                            stats["keyword_hits"].get(matched_keyword, 0) + 1
+                        )
                 elif settings.get("time_based_replies_enabled", False):
                     # Only fire time-based reply if NO keyword matched
                     self.analytics["unmatched_queries"] += 1
+                    user_analytics["unmatched_queries"] += 1
                     now = datetime.now()
                     is_business_hours = self._is_business_hours(now)
                     if is_business_hours:
@@ -194,26 +207,39 @@ class AutoReplyHandler:
 
                 # Cooldown / Deduplication check to prevent duplicate replies within 3 seconds
                 reply_key = (client_key, sender_id)
-                current_time = time_module.time()
-                if reply_key in self.last_reply_time:
-                    if current_time - self.last_reply_time[reply_key] < 3.0:
-                        logger.debug(f"Skipping duplicate auto-reply to {sender_id} on {client_key} (cooldown active)")
-                        return
-                self.last_reply_time[reply_key] = current_time
-
                 contact_type = await self._get_contact_type(sender_id, account_name)
                 if contact_type == "family":
                     response = "Hey! " + response
                 elif contact_type == "work":
                     response = "Hi, " + response
+
+                current_time = time_module.monotonic()
+                self._prune_reply_cooldowns(current_time)
+                previous_reply = self.last_reply_time.get(reply_key)
+                if (
+                    previous_reply is not None
+                    and current_time - previous_reply < REPLY_COOLDOWN_SECONDS
+                ):
+                    logger.debug(
+                        "Skipping duplicate auto-reply to %s on %s (cooldown active)",
+                        sender_id,
+                        client_key,
+                    )
+                    return
                 if not self.bot_manager.claim_auto_reply(event):
                     logger.debug(
                         "Another auto-reply handler already claimed message %s",
                         event.id,
                     )
                     return
-                await event.reply(response)
+                self.last_reply_time[reply_key] = current_time
+                try:
+                    await event.reply(response, parse_mode=None)
+                except Exception:
+                    self.last_reply_time.pop(reply_key, None)
+                    raise
                 self.analytics["auto_replies_sent"] += 1
+                user_analytics["auto_replies_sent"] += 1
                 from ..services.messaging_stats import MessagingStats
 
                 await MessagingStats().record_auto_reply(
@@ -224,7 +250,7 @@ class AutoReplyHandler:
                 logger.error(f"Auto-reply error for {account_name}: {e}")
 
         # Store the handler reference so we can remove it precisely later
-        self._client_handlers[client_key] = auto_reply_handler
+        self._client_handlers[client_key] = (client, auto_reply_handler)
 
     async def setup_new_client_handler(self, user_id: int, account_name: str, client):
         """Set up auto-reply handler for a newly added client"""
@@ -256,6 +282,31 @@ class AutoReplyHandler:
             logger.error(f"Error getting contact type for {sender_id}: {e}")
             return "general"
 
+    def _get_user_analytics(self, user_id: int) -> dict:
+        return self.user_analytics.setdefault(user_id, self._new_analytics())
+
+    def _prune_reply_cooldowns(self, current_time: float) -> None:
+        if current_time - self._last_reply_prune_at < REPLY_COOLDOWN_SECONDS:
+            return
+        cutoff = current_time - REPLY_COOLDOWN_SECONDS
+        self.last_reply_time = {
+            key: timestamp
+            for key, timestamp in self.last_reply_time.items()
+            if timestamp >= cutoff
+        }
+        self._last_reply_prune_at = current_time
+
+    def _prune_toggle_cooldowns(self, current_time: float) -> None:
+        if current_time - self._last_toggle_prune_at < TOGGLE_COOLDOWN_SECONDS:
+            return
+        cutoff = current_time - TOGGLE_COOLDOWN_SECONDS
+        self.last_toggle_time = {
+            key: timestamp
+            for key, timestamp in self.last_toggle_time.items()
+            if timestamp >= cutoff
+        }
+        self._last_toggle_prune_at = current_time
+
     async def _get_user_keywords(self, user_id: int) -> dict:
         """Get user-specific keywords"""
         try:
@@ -285,9 +336,19 @@ class AutoReplyHandler:
         if not isinstance(stored_keywords, dict):
             return {}
 
+        def flatten_keywords(entries, prefix=""):
+            for key, value in entries.items():
+                if not isinstance(key, str):
+                    continue
+                stored_key = f"{prefix}.{key}" if prefix else key
+                if isinstance(value, dict):
+                    yield from flatten_keywords(value, stored_key)
+                elif isinstance(value, str):
+                    yield stored_key, value
+
         normalized = {}
         entries = sorted(
-            stored_keywords.items(),
+            flatten_keywords(stored_keywords),
             key=lambda item: ("," not in str(item[0]), str(item[0]).lower()),
         )
         for stored_keyword, reply in entries:
@@ -297,6 +358,31 @@ class AutoReplyHandler:
                 normalized[keyword] = reply
         return normalized
 
+    @staticmethod
+    def _keyword_matches(keyword: str, message_text: str) -> bool:
+        pattern = r"(?<!\w)" + re.escape(keyword.lower()) + r"(?!\w)"
+        return re.search(pattern, message_text) is not None
+
+    @staticmethod
+    def _is_valid_keyword(keyword: str) -> bool:
+        return (
+            len(keyword) >= MIN_KEYWORD_LENGTH
+            and "$" not in keyword
+            and "\x00" not in keyword
+            and "," not in keyword
+        )
+
+    @staticmethod
+    def _would_exceed_keyword_limit(existing_keywords: dict, proposed_keywords: list) -> bool:
+        new_keywords = set(proposed_keywords) - set(existing_keywords)
+        return bool(new_keywords) and (
+            len(existing_keywords) + len(new_keywords) > MAX_KEYWORDS_PER_USER
+        )
+
+    @staticmethod
+    def _keyword_callback_token(keyword: str) -> str:
+        return hashlib.sha256(keyword.encode("utf-8")).hexdigest()[:40]
+
     async def _add_user_keyword(self, user_id: int, keyword: str, message: str):
         """Add keyword for specific user"""
         try:
@@ -305,6 +391,8 @@ class AutoReplyHandler:
             safe_message = message.strip()
             if not isinstance(user_id, int):
                 raise ValueError("Invalid user_id")
+            if not self._is_valid_keyword(safe_keyword):
+                raise ValueError("Invalid auto-reply keyword")
             await mongodb.db.auto_reply_settings.update_one(
                 {"user_id": user_id},
                 {"$set": {f"keywords.{safe_keyword}": safe_message}},
@@ -340,6 +428,17 @@ class AutoReplyHandler:
             logger.error(f"Error removing keyword for user {user_id}: {e}")
             raise
 
+    async def _disable_user_auto_reply(self, user_id: int):
+        return await mongodb.db.accounts.update_many(
+            {"user_id": user_id},
+            {
+                "$unset": {
+                    "auto_reply_enabled_enc": "",
+                    "auto_reply_enabled": "",
+                }
+            },
+        )
+
     def setup_text_handler(self):
         """Setup text input handler for custom keywords"""
 
@@ -349,11 +448,10 @@ class AutoReplyHandler:
             try:
                 # Emergency clear all auto-reply data
                 await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id}, {"$unset": {"auto_reply_enabled": ""}}
-                )
+                await self._disable_user_auto_reply(user_id)
                 # Force cleanup handlers
                 await self.force_cleanup_user_handlers(user_id)
+                self.user_analytics.pop(user_id, None)
                 await event.reply(
                     "✅ **Emergency Auto-Reply Clear Complete**\n\nAll auto-reply systems disabled and cleared. Old messages should stop."
                 )
@@ -367,11 +465,10 @@ class AutoReplyHandler:
             try:
                 # 1. Clear all user data
                 await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
-                await mongodb.db.accounts.update_many(
-                    {"user_id": user_id}, {"$unset": {"auto_reply_enabled": ""}}
-                )
+                await self._disable_user_auto_reply(user_id)
                 # 2. Force cleanup handlers
                 await self.force_cleanup_user_handlers(user_id)
+                self.user_analytics.pop(user_id, None)
                 await event.reply(
                     "✅ **Force Restart Complete**\n\nAll auto-reply handlers cleared and reset. Old messages should stop now."
                 )
@@ -433,6 +530,8 @@ class AutoReplyHandler:
                 return
             action_data = self.pending_actions[user_id]
             text = event.message.text
+            if not isinstance(text, str) or not text.strip():
+                return
             if text.lower().strip() in ["cancel", "/cancel", "stop", "/stop"]:
                 del self.pending_actions[user_id]
                 buttons = [
@@ -446,13 +545,32 @@ class AutoReplyHandler:
 
                     # Split on commas, then strip surrounding quotes/spaces from each token
                     raw_parts = [p.strip().strip("'\"").strip().lower() for p in raw.split(",")]
-                    # Filter out empty or too-short tokens
-                    valid_keywords = [k for k in raw_parts if len(k) >= MIN_KEYWORD_LENGTH]
-                    invalid_keywords = [k for k in raw_parts if k and len(k) < MIN_KEYWORD_LENGTH]
+                    valid_keywords = [
+                        keyword for keyword in raw_parts if self._is_valid_keyword(keyword)
+                    ]
+                    invalid_keywords = [
+                        keyword
+                        for keyword in raw_parts
+                        if keyword and not self._is_valid_keyword(keyword)
+                    ]
 
                     if not valid_keywords:
                         await event.reply(
-                            f"❌ No valid keywords found. Each keyword must be at least {MIN_KEYWORD_LENGTH} characters.\n\nPlease try again:"
+                            "❌ No valid keywords found. Keywords must be at least "
+                            f"{MIN_KEYWORD_LENGTH} characters. Commas separate keywords; "
+                            "`$` and null characters are not allowed.\n\n"
+                            "Please try again:"
+                        )
+                        return
+
+                    valid_keywords = list(dict.fromkeys(valid_keywords))
+                    existing_keywords = await self._get_user_keywords(user_id)
+                    if self._would_exceed_keyword_limit(
+                        existing_keywords, valid_keywords
+                    ):
+                        await event.reply(
+                            f"❌ Auto-reply supports up to {MAX_KEYWORDS_PER_USER} "
+                            "keywords. Remove one before adding more."
                         )
                         return
 
@@ -460,13 +578,16 @@ class AutoReplyHandler:
                     action_data["keywords"] = valid_keywords
                     action_data["step"] = "message"
 
-                    kw_preview = ", ".join(f"`{k}`" for k in valid_keywords[:10])
+                    kw_preview = ", ".join(
+                        f"`{k[:40]}{'…' if len(k) > 40 else ''}`"
+                        for k in valid_keywords[:10]
+                    )
                     if len(valid_keywords) > 10:
                         kw_preview += f" … (+{len(valid_keywords) - 10} more)"
 
                     warn = ""
                     if invalid_keywords:
-                        warn = f"\n⚠️ Skipped (too short): {', '.join(invalid_keywords)}"
+                        warn = f"\n⚠️ Skipped {len(invalid_keywords)} invalid keyword(s)."
 
                     await event.reply(
                         f"✅ **{len(valid_keywords)} keyword(s) queued:**\n{kw_preview}{warn}\n\n"
@@ -481,23 +602,44 @@ class AutoReplyHandler:
                         keywords = [action_data["keyword"]]
 
                     if len(text.strip()) < MIN_MESSAGE_LENGTH:
-                        kw_list = ", ".join(f"`{k}`" for k in keywords[:5])
+                        kw_list = ", ".join(
+                            f"`{k[:40]}{'…' if len(k) > 40 else ''}`"
+                            for k in keywords[:5]
+                        )
                         await event.reply(
                             f"❌ Reply message too short (minimum {MIN_MESSAGE_LENGTH} characters).\n\n"
                             f"📝 Send the auto-reply message for: {kw_list}"
                         )
                         return
 
+                    existing_keywords = await self._get_user_keywords(user_id)
+                    if self._would_exceed_keyword_limit(existing_keywords, keywords):
+                        await event.reply(
+                            f"❌ Auto-reply supports up to {MAX_KEYWORDS_PER_USER} "
+                            "keywords. Remove one before adding more."
+                        )
+                        return
+
                     # Save each keyword individually with the same reply message
-                    for kw in keywords:
-                        await self._add_user_keyword(user_id, kw, text)
+                    try:
+                        for kw in keywords:
+                            await self._add_user_keyword(user_id, kw, text)
+                    except Exception:
+                        logger.exception("Failed to save auto-reply keywords for user %s", user_id)
+                        await event.reply(
+                            "❌ Could not save the auto-reply keywords. Please try again."
+                        )
+                        return
 
                     del self.pending_actions[user_id]
                     buttons = [
                         [Button.inline("🔙 Back to Keywords", "auto_reply:keywords")]
                     ]
                     message_preview = text[:50] + "..." if len(text) > 50 else text
-                    kw_summary = ", ".join(f"`{k}`" for k in keywords[:8])
+                    kw_summary = ", ".join(
+                        f"`{k[:40]}{'…' if len(k) > 40 else ''}`"
+                        for k in keywords[:8]
+                    )
                     if len(keywords) > 8:
                         kw_summary += f" … (+{len(keywords) - 8} more)"
                     await event.reply(
@@ -665,10 +807,20 @@ class AutoReplyHandler:
                     )
                 elif data == "auto_reply:remove_keyword":
                     await self._handle_remove_keyword_menu(event, user_id)
-                elif data.startswith("auto_reply:delete:"):
+                elif data.startswith("auto_reply:remove_keyword_page:"):
+                    page_value = data.rsplit(":", 1)[1]
+                    if page_value.isdigit():
+                        await self._handle_remove_keyword_menu(
+                            event, user_id, int(page_value)
+                        )
+                    else:
+                        await event.answer("Invalid keyword page")
+                elif data.startswith(
+                    (DELETE_KEYWORD_HASH_CALLBACK_PREFIX, DELETE_KEYWORD_CALLBACK_PREFIX)
+                ):
                     await self._handle_delete_keyword(event, user_id, data)
                 elif data == "auto_reply:analytics":
-                    await self._handle_analytics(event)
+                    await self._handle_analytics(event, user_id)
                 elif data == "auto_reply:hours":
                     await self._handle_hours(event)
                 elif data.startswith("auto_reply:toggle_account:"):
@@ -751,10 +903,15 @@ class AutoReplyHandler:
             else "🔴 Disabled"
         )
         if user_keywords:
+            displayed_keywords = list(user_keywords.items())[:KEYWORD_DISPLAY_LIMIT]
             keyword_list = "\n".join(
-                f"• {keyword}: {reply[:50]}{'...' if len(reply) > 50 else ''}"
-                for keyword, reply in user_keywords.items()
+                f"• {keyword[:40]}{'…' if len(keyword) > 40 else ''}: "
+                f"{reply[:40]}{'...' if len(reply) > 40 else ''}"
+                for keyword, reply in displayed_keywords
             )
+            remaining_keywords = len(user_keywords) - len(displayed_keywords)
+            if remaining_keywords:
+                keyword_list += f"\n… and {remaining_keywords} more"
         else:
             keyword_list = "No keywords configured."
         buttons = [
@@ -779,32 +936,87 @@ class AutoReplyHandler:
             buttons=buttons,
         )
 
-    async def _handle_remove_keyword_menu(self, event, user_id):
+    async def _handle_remove_keyword_menu(self, event, user_id, offset=0):
         user_keywords = await self._get_user_keywords(user_id)
         if user_keywords:
-            buttons = [[Button.inline(f"❌ {k}", f"auto_reply:delete:{k}")] for k in user_keywords.keys()]
+            keywords = list(user_keywords.keys())
+            max_offset = (
+                (len(keywords) - 1) // KEYWORD_DELETE_PAGE_SIZE
+            ) * KEYWORD_DELETE_PAGE_SIZE
+            offset = min(max(offset, 0), max_offset)
+            visible_keywords = keywords[
+                offset : offset + KEYWORD_DELETE_PAGE_SIZE
+            ]
+            buttons = [
+                [
+                    Button.inline(
+                        f"❌ {k[:40]}{'…' if len(k) > 40 else ''}",
+                        f"{DELETE_KEYWORD_HASH_CALLBACK_PREFIX}"
+                        f"{self._keyword_callback_token(k)}",
+                    )
+                ]
+                for k in visible_keywords
+            ]
+            navigation = []
+            if offset > 0:
+                navigation.append(
+                    Button.inline(
+                        "⬅️ Previous",
+                        f"auto_reply:remove_keyword_page:"
+                        f"{max(0, offset - KEYWORD_DELETE_PAGE_SIZE)}",
+                    )
+                )
+            if offset + KEYWORD_DELETE_PAGE_SIZE < len(keywords):
+                navigation.append(
+                    Button.inline(
+                        "Next ➡️",
+                        f"auto_reply:remove_keyword_page:"
+                        f"{offset + KEYWORD_DELETE_PAGE_SIZE}",
+                    )
+                )
+            if navigation:
+                buttons.append(navigation)
             buttons.append([Button.inline("🔙 Back", "auto_reply:keywords")])
             await event.edit("➖ **Remove Keyword**\n\nSelect keyword to delete:", buttons=buttons)
         else:
             await event.edit("⚠️ No keywords to remove.", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
 
     async def _handle_delete_keyword(self, event, user_id, data):
-        keyword = data.split(":", 2)[2]
         user_keywords = await self._get_user_keywords(user_id)
+        if data.startswith(DELETE_KEYWORD_HASH_CALLBACK_PREFIX):
+            token = data[len(DELETE_KEYWORD_HASH_CALLBACK_PREFIX) :]
+            matching_keywords = [
+                candidate
+                for candidate in user_keywords
+                if self._keyword_callback_token(candidate) == token
+            ]
+            keyword = matching_keywords[0] if len(matching_keywords) == 1 else None
+        else:
+            keyword = data[len(DELETE_KEYWORD_CALLBACK_PREFIX) :]
         if keyword in user_keywords:
             await self._remove_user_keyword(user_id, keyword)
-            await event.edit(f"✅ Keyword '{keyword}' removed!", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
+            displayed_keyword = keyword[:40] + ("…" if len(keyword) > 40 else "")
+            await event.edit(
+                f"✅ Keyword '{displayed_keyword}' removed!",
+                buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]],
+            )
         else:
             await event.edit("❌ Keyword not found.", buttons=[[Button.inline("🔙 Back", "auto_reply:keywords")]])
 
-    async def _handle_analytics(self, event):
+    async def _handle_analytics(self, event, user_id):
+        analytics = self._get_user_analytics(user_id)
         stats = "📊 **Auto-Reply Analytics**\n\n"
-        stats += f"📨 Total Messages: {self.analytics['total_messages']}\n"
-        stats += f"🤖 Auto-Replies Sent: {self.analytics['auto_replies_sent']}\n"
-        stats += f"❓ Unmatched Queries: {self.analytics['unmatched_queries']}\n\n"
+        stats += f"📨 Total Messages: {analytics['total_messages']}\n"
+        stats += f"🤖 Auto-Replies Sent: {analytics['auto_replies_sent']}\n"
+        stats += f"❓ Unmatched Queries: {analytics['unmatched_queries']}\n\n"
         stats += "🔑 **Keyword Hits:**\n"
-        for keyword, count in self.analytics["keyword_hits"].items():
-            stats += f"• {keyword}: {count}\n"
+        displayed_hits = list(analytics["keyword_hits"].items())[:20]
+        for keyword, count in displayed_hits:
+            displayed_keyword = keyword[:40] + ("…" if len(keyword) > 40 else "")
+            stats += f"• {displayed_keyword}: {count}\n"
+        remaining_hits = len(analytics["keyword_hits"]) - len(displayed_hits)
+        if remaining_hits:
+            stats += f"… and {remaining_hits} more keyword(s)\n"
         buttons = [[Button.inline("🔙 Back", "auto_reply:main")]]
         await event.edit(stats, buttons=buttons)
 
@@ -821,10 +1033,14 @@ class AutoReplyHandler:
 
     async def _handle_toggle_account(self, event, user_id, data):
         account_name = data.replace("auto_reply:toggle_account:", "", 1)
-        current_time = time_module.time()
+        current_time = time_module.monotonic()
+        self._prune_toggle_cooldowns(current_time)
         toggle_key = f"{user_id}:{account_name}"
         if toggle_key in self.last_toggle_time:
-            if current_time - self.last_toggle_time[toggle_key] < 2:
+            if (
+                current_time - self.last_toggle_time[toggle_key]
+                < TOGGLE_COOLDOWN_SECONDS
+            ):
                 await event.answer("⏳ Please wait before toggling again...")
                 return
         self.last_toggle_time[toggle_key] = current_time
@@ -849,6 +1065,10 @@ class AutoReplyHandler:
                     update_data = {"$set": {"auto_reply_enabled": new_status}}
                 result = await mongodb.db.accounts.update_one(update_query, update_data)
                 if result.modified_count > 0:
+                    if new_status:
+                        client = self.user_clients.get(user_id, {}).get(account_name)
+                        if client and client.is_connected():
+                            self._setup_client_handler(user_id, account_name, client)
                     logger.info(f"Auto-reply toggle for {account_name}: {current_status} -> {new_status}")
                     status_text = "🟢 enabled" if new_status else "🔴 disabled"
                     await event.answer(f"Auto-reply {status_text} for {account_name}!")
@@ -881,8 +1101,9 @@ class AutoReplyHandler:
     async def _handle_reset(self, event, user_id):
         try:
             await mongodb.db.auto_reply_settings.delete_one({"user_id": user_id})
-            await mongodb.db.accounts.update_many({"user_id": user_id}, {"$unset": {"auto_reply_enabled_enc": "", "auto_reply_enabled": ""}})
+            await self._disable_user_auto_reply(user_id)
             await self.force_cleanup_user_handlers(user_id)
+            self.user_analytics.pop(user_id, None)
             await event.edit("✅ **Complete Auto-Reply Reset**\n\nAll settings, keywords, and handlers cleared. Duplicate replies should stop now.", buttons=[[Button.inline("🔙 Back", "auto_reply:main")]])
         except Exception as reset_error:
             logger.error(f"Error during auto-reply reset for user {user_id}: {reset_error}")
