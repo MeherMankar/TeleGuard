@@ -26,6 +26,16 @@ import {
   VolumeX,
   BadgeCheck,
   Bookmark,
+  FileText,
+  Film,
+  Image as ImageIcon,
+  Link2,
+  Mic,
+  Music2,
+  Paperclip,
+  Smile,
+  Video,
+  type LucideIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -173,10 +183,10 @@ function LoginGate() {
   }
 
   return (
-    <div className="dark">
+    <div className="dark min-h-screen bg-[#17212b]">
       <div className="min-h-screen bg-[#17212b] text-white flex flex-col items-center justify-center px-6 max-w-md mx-auto">
         {/* Logo */}
-        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center mb-6 shadow-2xl">
+        <div className="w-24 h-24 rounded-full bg-[#2AABEE] flex items-center justify-center mb-6">
           <svg viewBox="0 0 24 24" className="w-14 h-14 text-white fill-current">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z" />
           </svg>
@@ -184,20 +194,18 @@ function LoginGate() {
 
         <h1 className="text-3xl font-bold mb-2">TeleGuard</h1>
         <p className="text-gray-400 text-center mb-8 text-sm leading-relaxed">
-          Telegram Security Dashboard
+          Manage connected Telegram accounts
           <br />
-          Multi-account control center
+          and review their security settings
         </p>
 
         {/* If opened in browser, explain how to use properly */}
         {!isTelegramWebApp && (
-          <div className="w-full bg-[#242f3d] border border-[#2AABEE]/30 rounded-xl p-4 mb-6 text-center">
-            <p className="text-[#2AABEE] text-sm font-medium mb-1">Open inside Telegram</p>
+          <div className="w-full bg-[#242f3d] border border-white/10 rounded-xl p-4 mb-6 text-center">
+            <p className="text-gray-200 text-sm font-medium mb-1">Use Telegram to sign in</p>
             <p className="text-gray-400 text-xs leading-relaxed">
-              For automatic login, open TeleGuard via{" "}
-              <span className="text-white font-medium">@TeleGuardRobot</span> → Menu → Dashboard.
-              <br />
-              Your bot accounts will load instantly.
+              Open <span className="text-white font-medium">@TeleGuardRobot</span> in Telegram and
+              choose Menu → Dashboard to sign in automatically.
             </p>
           </div>
         )}
@@ -406,6 +414,7 @@ function TelegramChatList() {
             searchValue={searchValue}
             onSearchChange={setSearchValue}
             onMenuClick={() => setIsSidebarOpen(true)}
+            onFoldersClick={() => setIsChatFoldersOpen(true)}
             title={activeAccount?.name ?? "TeleGuard"}
           />
 
@@ -453,8 +462,10 @@ function TelegramChatList() {
                     {unread > 0 && (
                       <span
                         className={cn(
-                          "text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                          isActive ? "bg-white/30 text-white" : "bg-[#2AABEE] text-white",
+                          "min-w-5 h-5 rounded px-1 text-xs font-medium tabular-nums text-center",
+                          isActive
+                            ? "bg-[#2AABEE]/20 text-[#8fd3f7]"
+                            : "bg-white/[0.08] text-gray-300",
                         )}
                       >
                         {unread > 99 ? "99+" : unread}
@@ -463,15 +474,6 @@ function TelegramChatList() {
                   </button>
                 )
               })}
-              {/* Edit folders */}
-              <button
-                onClick={() => setIsChatFoldersOpen(true)}
-                className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 transition-colors hover:bg-white/[0.05] hover:text-white"
-                title="Manage folders"
-              >
-                <FolderOpen className="h-4 w-4" />
-                <span>Manage</span>
-              </button>
             </div>
           )}
 
@@ -543,13 +545,10 @@ function TelegramChatList() {
         </main>
 
         <aside className="hidden min-w-0 flex-1 flex-col items-center justify-center bg-[#101820] px-8 text-center md:flex">
-          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#2AABEE]/10 text-[#55b8ee]">
-            <MessageSquare className="h-7 w-7" />
-          </div>
-          <h2 className="text-lg font-medium text-white">Your messages, in one place</h2>
+          <MessageSquare className="mb-4 h-6 w-6 text-gray-500" aria-hidden="true" />
+          <h2 className="text-lg font-medium text-white">Select a conversation</h2>
           <p className="mt-2 max-w-sm text-sm leading-relaxed text-gray-400">
-            Choose a conversation to view messages, or use the menu to manage your Telegram
-            accounts.
+            Open a chat from the list to read its messages.
           </p>
         </aside>
       </div>
@@ -590,36 +589,33 @@ function DialogItem({
   const mediaIcon = (() => {
     const t = dialog.last_message?.media_type
     if (!t) return null
-    const icons: Record<string, string> = {
-      photo: "🖼",
-      video: "🎬",
-      gif: "GIF",
-      sticker: "🎭",
-      voice: "🎤",
-      audio: "🎵",
-      file: "📄",
-      webpage: "🔗",
+    const icons: Record<string, { icon: LucideIcon; label: string }> = {
+      photo: { icon: ImageIcon, label: "Photo" },
+      video: { icon: Video, label: "Video" },
+      gif: { icon: Film, label: "GIF" },
+      sticker: { icon: Smile, label: "Sticker" },
+      voice: { icon: Mic, label: "Voice message" },
+      audio: { icon: Music2, label: "Audio" },
+      file: { icon: FileText, label: "File" },
+      webpage: { icon: Link2, label: "Link" },
     }
-    return icons[t] ?? "📎"
+    return icons[t] ?? { icon: Paperclip, label: "Attachment" }
   })()
+  const MediaIcon = mediaIcon?.icon
 
   const previewText = safeText(dialog.last_message?.text)
   const senderName = safeText(dialog.last_message?.sender_name)
 
   // ── Avatar fallback color ─────────────────────────────────────────────
   const colors = [
-    "#E53935",
-    "#D81B60",
-    "#8E24AA",
-    "#5E35B1",
-    "#1E88E5",
-    "#00897B",
-    "#43A047",
-    "#FB8C00",
-    "#F4511E",
-    "#6D4C41",
-    "#039BE5",
-    "#00ACC1",
+    "#405665",
+    "#49616a",
+    "#525d6a",
+    "#5a596b",
+    "#536a65",
+    "#6b5b54",
+    "#4f6174",
+    "#5c6258",
   ]
   const color = colors[Math.abs(dialog.id) % colors.length]
   const initial = displayName.charAt(0).toUpperCase()
@@ -634,8 +630,7 @@ function DialogItem({
       {/* Avatar */}
       <div className="relative flex-shrink-0">
         {dialog.is_saved_messages ? (
-          /* Saved Messages — always shows a bookmark icon on gradient bg */
-          <div className="w-[54px] h-[54px] rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center">
+          <div className="w-[54px] h-[54px] rounded-full bg-[#2AABEE] flex items-center justify-center">
             <Bookmark className="h-6 w-6 text-white fill-white" />
           </div>
         ) : photoUrl && !imgError ? (
@@ -710,12 +705,17 @@ function DialogItem({
             {/* Outgoing indicator */}
             {dialog.last_message?.out && <span className="text-gray-500 mr-1">You:</span>}
             {/* Media icon */}
-            {mediaIcon && <span className="mr-1">{mediaIcon}</span>}
+            {MediaIcon && (
+              <MediaIcon
+                className="mr-1 inline-block h-3.5 w-3.5 align-[-2px] text-gray-400"
+                aria-hidden="true"
+              />
+            )}
             {/* Text preview */}
             {previewText ? (
               <span>{previewText}</span>
-            ) : dialog.last_message?.media_type ? (
-              <span className="capitalize text-gray-500">{dialog.last_message.media_type}</span>
+            ) : mediaIcon ? (
+              <span className="text-gray-500">{mediaIcon.label}</span>
             ) : null}
           </p>
 
@@ -723,7 +723,7 @@ function DialogItem({
           {dialog.unread_count > 0 ? (
             <span
               className={cn(
-                "ml-1 min-w-[20px] h-5 rounded-full text-white text-xs font-bold flex items-center justify-center px-1.5 flex-shrink-0",
+                "ml-1 min-w-[20px] h-5 rounded-full text-white text-xs font-medium tabular-nums flex items-center justify-center px-1.5 flex-shrink-0",
                 dialog.muted ? "bg-gray-600" : "bg-[#2AABEE]",
               )}
             >

@@ -168,9 +168,7 @@
 
   @media (min-width: 768px) {
     body {
-      background:
-        radial-gradient(ellipse at 50% -20%, rgb(42 171 238 / 8%), transparent 48%),
-        #101820;
+      background: #101820;
     }
   }
 
@@ -231,4 +229,8 @@
     height: 100dvh;
     border-radius: 0;
   }
+}
+
+.tg-screen.translate-x-full {
+  translate: calc(100% + 50vw) var(--tw-translate-y);
 }

@@ -1,4 +1,4 @@
-import { Menu, Search, Loader2, FolderOpen, MoreVertical } from "lucide-react"
+import { Menu, Search, Loader2, FolderOpen } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
 interface SearchHeaderProps {
@@ -6,6 +6,7 @@ interface SearchHeaderProps {
   searchValue: string
   onSearchChange: (value: string) => void
   onMenuClick?: () => void
+  onFoldersClick?: () => void
   title?: string
 }
 
@@ -14,6 +15,7 @@ export function SearchHeader({
   searchValue,
   onSearchChange,
   onMenuClick,
+  onFoldersClick,
   title = "People",
 }: SearchHeaderProps) {
   return (
@@ -28,24 +30,15 @@ export function SearchHeader({
           >
             <Menu className="h-6 w-6 text-muted-foreground" />
           </button>
-          <h1 className="max-w-[220px] truncate text-[17px] font-semibold tracking-tight text-foreground">
-            {title}
-          </h1>
+          <h1 className="max-w-[220px] truncate text-base font-medium text-foreground">{title}</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            aria-label="Manage chat folders"
-            className="rounded-full p-2 transition-colors hover:bg-white/[0.06]"
-          >
-            <FolderOpen className="h-5 w-5 text-muted-foreground" />
-          </button>
-          <button
-            aria-label="More chat options"
-            className="rounded-full p-2 transition-colors hover:bg-white/[0.06]"
-          >
-            <MoreVertical className="h-5 w-5 text-muted-foreground" />
-          </button>
-        </div>
+        <button
+          onClick={onFoldersClick}
+          aria-label="Manage chat folders"
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+        >
+          <FolderOpen className="h-5 w-5" />
+        </button>
       </div>
 
       {/* Search bar */}
