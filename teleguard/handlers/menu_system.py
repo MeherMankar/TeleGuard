@@ -10,6 +10,7 @@ import logging
 from typing import List, Optional
 
 from telethon import Button, events
+from telethon.errors import MessageIdInvalidError, MessageNotModifiedError
 
 from ..core.config import ADMIN_IDS
 from ..core.mongo_database import mongodb
@@ -63,7 +64,6 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "dm_",
         "advanced_spam",
         "spam_filters",
-        "spam_master",
         "accept_spam_warning",
         "decline_spam_warning",
         "forward_bomb",
@@ -186,7 +186,7 @@ class MenuSystem:
         return UtilityHelpers.format_display_name(account)
 
     def get_main_menu_keyboard(self, user_id: int) -> List[List[Button]]:
-        """Get enhanced persistent reply keyboard menu"""
+        """Get the inline main-menu keyboard"""
         try:
             return self.builders.get_main_menu_keyboard(user_id)
         except (AttributeError, KeyError, ValueError) as e:
@@ -196,50 +196,77 @@ class MenuSystem:
 
             buttons = [
                 [
-                    Button.text("📱 Account Settings", resize=True),
-                    Button.text("🛡️ Protection Manager", resize=True),
+                    Button.inline("📱 Account Settings", "menu:accounts"),
+                    Button.inline("🛡️ Protection Manager", "menu:protection"),
                 ],
                 [
-                    Button.text("💬 Messaging", resize=True),
-                    Button.text("📢 Channels", resize=True),
+                    Button.inline("💬 Messaging", "menu:messaging"),
+                    Button.inline("📢 Channels", "menu:channels"),
                 ],
                 [
-                    Button.text("👥 Contacts", resize=True),
-                    Button.text("🎯 SpamMaster", resize=True),
+                    Button.inline("👥 Contacts", "menu:contacts"),
+                    Button.inline("🎯 SpamMaster", "advanced_spam"),
                 ],
                 [
-                    Button.text("🧹 Cleanup", resize=True),
-                    Button.text("🌐 Proxy Manager", resize=True),
+                    Button.inline("🧹 Cleanup", "menu:cleanup"),
+                    Button.inline("🌐 Proxy Manager", "proxy:menu"),
                 ],
                 [
-                    Button.text("❓ Help", resize=True),
-                    Button.text("🆘 Support", resize=True),
+                    Button.inline("❓ Help", "menu:help"),
+                    Button.inline("🆘 Support", "menu:support"),
                 ],
             ]
             if user_id in ADMIN_IDS:
-                buttons.append([Button.text("🔧 Developer Panel", resize=True)])
+                buttons.append(
+                    [Button.inline("🔧 Developer Panel", "menu:developer")]
+                )
             return buttons
 
-    async def send_main_menu(self, user_id: int) -> int:
-        """Send persistent reply keyboard menu"""
+    async def send_main_menu(
+        self, user_id: int, edit_message_id: Optional[int] = None
+    ) -> int:
+        """Display the main menu, reusing its existing message when possible."""
         try:
-            # Delete previous menu messages to avoid collision
-            await self._cleanup_old_messages(user_id)
-
             keyboard = self.get_main_menu_keyboard(user_id)
             text = (
                 "🛡️ **TeleGuard Account Manager**\n\n"
                 "⚡ Professional Telegram security & automation\n\n"
                 "Use the menu buttons below to get started:"
             )
-            message = await self.bot.send_message(user_id, text, buttons=keyboard)
-            # Store menu message ID in MongoDB
+            user = None
+            if edit_message_id is None:
+                user = await mongodb.db.users.find_one({"telegram_id": user_id})
+                edit_message_id = (
+                    user.get("main_menu_message_id") if user else None
+                )
+
+            if edit_message_id:
+                try:
+                    await self.bot.edit_message(
+                        user_id, edit_message_id, text, buttons=keyboard
+                    )
+                except MessageNotModifiedError:
+                    pass
+                except MessageIdInvalidError as error:
+                    logger.warning(
+                        "Could not edit main menu message %s for user %s; "
+                        "sending a replacement: %s",
+                        edit_message_id,
+                        user_id,
+                        error,
+                    )
+                    edit_message_id = None
+
+            if not edit_message_id:
+                message = await self.bot.send_message(user_id, text, buttons=keyboard)
+                edit_message_id = message.id
+
             await mongodb.db.users.update_one(
                 {"telegram_id": user_id},
-                {"$set": {"main_menu_message_id": message.id}},
+                {"$set": {"main_menu_message_id": edit_message_id}},
                 upsert=True,
             )
-            return message.id
+            return edit_message_id
         except (ConnectionError, TimeoutError, ValueError) as e:
             logger.error(f"Failed to send main menu: {e}", exc_info=True)
             # Send basic message as fallback
@@ -261,21 +288,6 @@ class MenuSystem:
     def get_otp_account_buttons(self, account_id: str, account) -> List[List[Button]]:
         """Get OTP account management buttons"""
         return self.builders.get_otp_account_buttons(account_id, account)
-
-    async def _cleanup_old_messages(self, user_id: int):
-        """Delete old menu messages to prevent collision"""
-        try:
-            user = await mongodb.db.users.find_one({"telegram_id": user_id})
-            if user and user.get("main_menu_message_id"):
-                try:
-                    try:
-                        await self.bot.edit_message(user_id, user["main_menu_message_id"], "")
-                    except Exception:
-                        await self.bot.delete_messages(user_id, user["main_menu_message_id"])
-                except Exception:
-                    pass  # Message might be service message or already deleted
-        except Exception as e:
-            logger.debug(f"Cleanup old messages error: {e}")
 
     async def send_accounts_list(
         self, user_id: int, edit_message_id: Optional[int] = None

@@ -35,6 +35,7 @@ def test_standalone_ui_callbacks_do_not_also_hit_the_generic_router():
     assert _is_owned_callback("send_all_groups")
     assert _is_owned_callback("help_main")
     assert not _is_owned_callback("help:guide")
+    assert not _is_owned_callback("spam_master")
 
 
 def test_get_user_account_skips_disconnected_clients():

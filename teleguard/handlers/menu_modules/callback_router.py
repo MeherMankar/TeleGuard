@@ -189,13 +189,7 @@ class CallbackRouter:
                 )
                 if pending_actions is not None:
                     pending_actions.pop(user_id, None)
-                # Delete current inline message to prevent orphans
-                try:
-                    await event.delete()
-                except Exception:
-                    pass
-                # Send main menu instead of calling non-existent handle_start
-                await self.menu.send_main_menu(user_id)
+                await self.menu.send_main_menu(user_id, event.message_id)
                 await event.answer("🏠 Main menu")
             else:
                 await event.answer(f"❌ Unknown menu: {menu_type}")
@@ -1256,7 +1250,7 @@ class CallbackRouter:
             if destination == "accounts":
                 await self.menu.handlers.handle_account_settings(event)
             else:
-                await self.menu.send_main_menu(user_id)
+                await self.menu.send_main_menu(user_id, event.message_id)
                 await event.answer("🏠 Main menu")
         except Exception as e:
             logger.error(f"Back callback error: {e}")

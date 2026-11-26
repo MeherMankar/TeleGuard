@@ -110,7 +110,7 @@ class AdvancedSpamHandler:
                 "⚠️ **YOU HAVE BEEN WARNED** ⚠️\n\n"
                 "Only proceed if you **FULLY UNDERSTAND** and **ACCEPT** all risks."
             )
-            await self.bot.send_message(user_id, warning_text, buttons=buttons)
+            await self._display_menu(event, warning_text, buttons)
             return
 
         # Show main menu
@@ -140,12 +140,20 @@ class AdvancedSpamHandler:
         )
 
         try:
-            await self.bot.send_message(user_id, text, buttons=buttons)
+            await self._display_menu(event, text, buttons)
         except Exception as e:
             logger.error(f"Error sending SpamMaster menu: {e}")
             await self.bot.send_message(
                 user_id, f"❌ Error loading SpamMaster menu: {str(e)}"
             )
+
+    async def _display_menu(self, event, text, buttons):
+        from telethon.events import CallbackQuery
+
+        if isinstance(event, CallbackQuery.Event):
+            await event.edit(text, buttons=buttons)
+        else:
+            await self.bot.send_message(event.sender_id, text, buttons=buttons)
 
     def register_handlers(self):
         """Register all spam handler callbacks"""

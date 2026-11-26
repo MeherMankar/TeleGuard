@@ -21,21 +21,39 @@ class MenuHandlers:
 
     async def _render_menu(self, user_id, message_id, text, buttons):
         if not message_id:
-            await self.bot.send_message(user_id, text, buttons=buttons)
-            return
+            user = await mongodb.db.users.find_one({"telegram_id": user_id})
+            message_id = user.get("main_menu_message_id") if user else None
 
-        try:
-            await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except MessageNotModifiedError:
-            return
-        except MessageIdInvalidError as error:
-            logger.warning(
-                "Could not edit menu message %s for user %s; sending a new message: %s",
-                message_id,
-                user_id,
-                error,
-            )
-            await self.bot.send_message(user_id, text, buttons=buttons)
+        if message_id:
+            try:
+                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
+            except MessageNotModifiedError:
+                pass
+            except MessageIdInvalidError as error:
+                logger.warning(
+                    "Could not edit menu message %s for user %s; "
+                    "sending a replacement: %s",
+                    message_id,
+                    user_id,
+                    error,
+                )
+                message_id = None
+
+        if not message_id:
+            message = await self.bot.send_message(user_id, text, buttons=buttons)
+            message_id = message.id
+
+        await mongodb.db.users.update_one(
+            {"telegram_id": user_id},
+            {"$set": {"main_menu_message_id": message_id}},
+            upsert=True,
+        )
+
+    @staticmethod
+    def _callback_message_id(event):
+        if getattr(event, "data", None) is not None:
+            return getattr(event, "message_id", None)
+        return None
 
     @staticmethod
     def _is_temp_bypass_active(account, now):
@@ -70,7 +88,6 @@ class MenuHandlers:
 
     async def handle_account_settings(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         if not accounts:
             text = "📱 **Account Management Center**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚀 **Welcome to TeleGuard!**\n\nNo accounts found. Let's get you started with your first account.\n\n🎯 **Quick Setup:**\n1️⃣ Add your first account\n2️⃣ Enable OTP protection\n3️⃣ Explore advanced features\n\nChoose an option below to begin:"
@@ -126,12 +143,11 @@ class MenuHandlers:
                 ]
             )
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_otp_manager(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         if not accounts:
             text = "🛡️ **Protection Manager**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts found!**\n\nYou need to add accounts first before configuring protection.\n\n🎯 **Available Protections:**\n• 🔥 **Session Destroyer** - Monitors and responds to session changes based on your trust settings\n• 🛡️ **OTP Destroyer** - Handles incoming login codes according to your protection settings\n• 📩 **OTP Forward** - Forwards OTP codes to you\n• ⏰ **Temp Bypass** - Temporarily pauses configured protections\n\nAdd your first account to get started:"
@@ -210,13 +226,14 @@ class MenuHandlers:
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_messaging(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
-        await self.show_messaging_menu(user_id, getattr(event, "message_id", None))
+        await self.show_messaging_menu(
+            user_id, self._callback_message_id(event)
+        )
 
     async def show_messaging_menu(self, user_id, message_id=None):
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
@@ -257,7 +274,6 @@ class MenuHandlers:
 
     async def handle_channels(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         if not accounts:
             text = "📢 **Channel Management Hub**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts available!**\n\nYou need active accounts to manage channels and groups.\n\n🎯 **Channel Features:**\n• 🔗 **Smart Join/Leave** - Bulk channel operations\n• 🆕 **Channel Creation** - Create channels & groups\n• 📋 **Management Tools** - List, organize, moderate\n• 🗑️ **Cleanup Tools** - Mass leave/delete operations\n• 📊 **Analytics** - Channel performance metrics\n\nAdd accounts to unlock channel management:"
@@ -293,12 +309,11 @@ class MenuHandlers:
             if not active_channel_accounts:
                 text += "\n\n⚠️ Activate an account before managing its channels."
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_cleanup(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
         if not accounts:
             text = "🧹 **Professional Account Cleanup**\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🚨 **No accounts available!**\n\nYou need active accounts to use cleanup features.\n\n🎯 **Cleanup Capabilities:**\n• 💬 **Smart Chat Cleanup** - Personal, bot, official chats\n• 🚫 **Spam Removal** - Spambot and unwanted chats\n• 🚪 **Mass Exit** - Leave channels and groups\n• 🗑️ **Ownership Cleanup** - Delete owned channels/groups\n• 📞 **Spam Appeals** - Automated appeal system\n\n⚠️ **Important:** All cleanup actions are irreversible!\n\nAdd accounts to access cleanup tools:"
@@ -348,12 +363,11 @@ class MenuHandlers:
             buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
 
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_help(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         user = await mongodb.db.users.find_one({"telegram_id": user_id})
         account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
         otp_enabled = await mongodb.db.accounts.count_documents(
@@ -405,12 +419,11 @@ class MenuHandlers:
         buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
         
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_support(self, event):
         user_id = event.sender_id
-        await self.menu._cleanup_old_messages(user_id)
         text = (
             "🆘 **TeleGuard Support Center**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -436,7 +449,7 @@ class MenuHandlers:
         ]
 
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )
 
     async def handle_developer(self, event):
@@ -450,7 +463,6 @@ class MenuHandlers:
                 await event.reply("❌ You don't have access to Developer tools.")
             return
 
-        await self.menu._cleanup_old_messages(user_id)
         user = await mongodb.db.users.find_one({"telegram_id": user_id})
         current_mode = user.get("developer_mode", False) if user else False
         account_count = await mongodb.db.accounts.count_documents({})
@@ -492,5 +504,5 @@ class MenuHandlers:
         ]
 
         await self._render_menu(
-            user_id, getattr(event, "message_id", None), text, buttons
+            user_id, self._callback_message_id(event), text, buttons
         )

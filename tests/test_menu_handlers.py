@@ -1,9 +1,11 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+from teleguard.core.mongo_database import mongodb
 from teleguard.handlers.menu_modules.callback_router import CallbackRouter
 from teleguard.handlers.menu_modules.menu_handlers import MenuHandlers
+from teleguard.handlers.menu_system import MenuSystem
 
 
 def test_otp_coverage_excludes_accounts_with_active_temporary_bypass():
@@ -83,3 +85,69 @@ def test_unknown_callback_reports_unavailable_instead_of_success():
         "This button is unavailable. Please reopen the menu.",
         alert=True,
     )
+
+
+def test_main_menu_callback_edits_current_message_instead_of_deleting_it():
+    send_main_menu = AsyncMock()
+    router = object.__new__(CallbackRouter)
+    router.menu = SimpleNamespace(
+        account_manager=SimpleNamespace(pending_actions={}),
+        send_main_menu=send_main_menu,
+    )
+    event = SimpleNamespace(
+        message_id=55,
+        answer=AsyncMock(),
+        delete=AsyncMock(),
+    )
+
+    asyncio.run(router.handle_menu_callback(event, 123, "menu:main"))
+
+    send_main_menu.assert_awaited_once_with(123, 55)
+    event.delete.assert_not_awaited()
+
+
+def test_text_menu_action_reuses_saved_bot_menu_message(monkeypatch):
+    users = SimpleNamespace(
+        find_one=AsyncMock(return_value={"main_menu_message_id": 99}),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(mongodb, "db", SimpleNamespace(users=users))
+    bot = SimpleNamespace(edit_message=AsyncMock(), send_message=AsyncMock())
+    handlers = MenuHandlers(SimpleNamespace(bot=bot, account_manager=None))
+
+    asyncio.run(handlers._render_menu(123, None, "Account menu", []))
+
+    bot.edit_message.assert_awaited_once_with(123, 99, "Account menu", buttons=[])
+    bot.send_message.assert_not_awaited()
+    users.update_one.assert_awaited_once_with(
+        {"telegram_id": 123},
+        {"$set": {"main_menu_message_id": 99}},
+        upsert=True,
+    )
+
+
+def test_send_main_menu_edits_the_saved_message_instead_of_sending_another(
+    monkeypatch,
+):
+    users = SimpleNamespace(
+        find_one=AsyncMock(return_value={"main_menu_message_id": 99}),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(mongodb, "db", SimpleNamespace(users=users))
+    bot = SimpleNamespace(edit_message=AsyncMock(), send_message=AsyncMock())
+    menu = object.__new__(MenuSystem)
+    menu.bot = bot
+    menu.get_main_menu_keyboard = Mock(return_value=[])
+
+    message_id = asyncio.run(MenuSystem.send_main_menu(menu, 123))
+
+    assert message_id == 99
+    bot.edit_message.assert_awaited_once_with(
+        123,
+        99,
+        "🛡️ **TeleGuard Account Manager**\n\n"
+        "⚡ Professional Telegram security & automation\n\n"
+        "Use the menu buttons below to get started:",
+        buttons=[],
+    )
+    bot.send_message.assert_not_awaited()

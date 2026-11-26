@@ -11,14 +11,29 @@ class MenuBuilders:
         from ...core.config import ADMIN_IDS
 
         keyboard = [
-            [Button.text("📱 Account Settings"), Button.text("🛡️ Protection Manager")],
-            [Button.text("💬 Messaging"), Button.text("📢 Channels")],
-            [Button.text("👥 Contacts"), Button.text("🎯 SpamMaster")],
-            [Button.text("🧹 Cleanup"), Button.text("🌐 Proxy Manager")],
-            [Button.text("❓ Help"), Button.text("🆘 Support")],
+            [
+                Button.inline("📱 Account Settings", "menu:accounts"),
+                Button.inline("🛡️ Protection Manager", "menu:protection"),
+            ],
+            [
+                Button.inline("💬 Messaging", "menu:messaging"),
+                Button.inline("📢 Channels", "menu:channels"),
+            ],
+            [
+                Button.inline("👥 Contacts", "menu:contacts"),
+                Button.inline("🎯 SpamMaster", "advanced_spam"),
+            ],
+            [
+                Button.inline("🧹 Cleanup", "menu:cleanup"),
+                Button.inline("🌐 Proxy Manager", "proxy:menu"),
+            ],
+            [
+                Button.inline("❓ Help", "menu:help"),
+                Button.inline("🆘 Support", "menu:support"),
+            ],
         ]
         if user_id in ADMIN_IDS:
-            keyboard.append([Button.text("⚙️ Developer Panel")])
+            keyboard.append([Button.inline("⚙️ Developer Panel", "menu:developer")])
         return keyboard
 
     def get_account_menu_buttons(self, account_id, account=None):
