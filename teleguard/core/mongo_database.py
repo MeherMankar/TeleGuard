@@ -3,8 +3,9 @@
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
@@ -12,6 +13,41 @@ from pymongo.errors import DuplicateKeyError
 from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
+
+MAX_ACCOUNT_AUDIT_ENTRIES = 200
+SESSION_DESTROYER_LOG_RETENTION_SECONDS = 90 * 24 * 60 * 60
+SENSITIVE_ACCOUNT_AUDIT_FIELDS = {
+    "code",
+    "otp",
+    "otp_code",
+    "token",
+    "password",
+    "session_string",
+    "session_string_enc",
+    "twofa_password",
+    "twofa_password_enc",
+    "twofa_password_hash",
+    "api_hash",
+    "api_hash_enc",
+    "phone_code_hash",
+    "auth_key",
+}
+
+
+def sanitize_account_audit_entry(entry: dict) -> dict:
+    def sanitize(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: sanitize(item)
+                for key, item in value.items()
+                if not isinstance(key, str)
+                or key.casefold() not in SENSITIVE_ACCOUNT_AUDIT_FIELDS
+            }
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    return sanitize(entry)
 
 
 class MongoDB:
@@ -46,7 +82,9 @@ class MongoDB:
             db_name = os.getenv("MONGO_DB_NAME", "teleguard")
             self.db = self.client[db_name]
             await self.client.admin.command("ping")
+            await self._migrate_account_audit_logs()
             await self._create_indexes()
+            await self._migrate_legacy_otp_expirations()
             logger.info("Connected to configured MongoDB")
             return
         except Exception as e:
@@ -66,7 +104,9 @@ class MongoDB:
                 )
                 self.db = self.client["teleguard"]
                 await self.client.admin.command("ping")
+                await self._migrate_account_audit_logs()
                 await self._create_indexes()
+                await self._migrate_legacy_otp_expirations()
                 logger.info("Connected to local MongoDB")
                 return
             except Exception as e:
@@ -149,6 +189,24 @@ class MongoDB:
                         return
                 target.pop(parts[-1], None)
 
+            @staticmethod
+            def _project(document, projection):
+                if not projection:
+                    return document.copy()
+                projected = {}
+                if projection.get("_id", 1) and "_id" in document:
+                    projected["_id"] = document["_id"]
+                for key, option in projection.items():
+                    if key == "_id" or not option or key not in document:
+                        continue
+                    value = document[key]
+                    if isinstance(option, dict) and "$slice" in option:
+                        if isinstance(value, list):
+                            limit = option["$slice"]
+                            value = value[:limit] if limit >= 0 else value[limit:]
+                    projected[key] = value
+                return projected
+
             def _apply_update(self, document, update, inserting=False):
                 for key, value in update.get("$set", {}).items():
                     self._set_path(document, key, value)
@@ -168,15 +226,25 @@ class MongoDB:
                     self._set_path(document, key, [item for item in current if item != value])
                 for key, value in update.get("$push", {}).items():
                     current = list(self._get_path(document, key) or [])
-                    current.append(value)
+                    if isinstance(value, dict) and "$each" in value:
+                        current.extend(value["$each"])
+                        slice_count = value.get("$slice")
+                        if slice_count is not None:
+                            current = (
+                                current[:slice_count]
+                                if slice_count >= 0
+                                else current[slice_count:]
+                            )
+                    else:
+                        current.append(value)
                     self._set_path(document, key, current)
                 for key in update.get("$unset", {}):
                     self._unset_path(document, key)
 
-            async def find_one(self, query):
+            async def find_one(self, query, projection=None):
                 for document in self.documents:
                     if self._matches(document, query):
-                        return document.copy()
+                        return self._project(document, projection)
                 return None
 
             async def insert_one(self, doc):
@@ -235,13 +303,13 @@ class MongoDB:
                     if self._matches(document, query or {})
                 )
 
-            def find(self, query):
+            def find(self, query, projection=None):
                 collection = self
 
                 class MockCursor:
                     async def to_list(self, length=None):
                         matches = [
-                            document.copy()
+                            collection._project(document, projection)
                             for document in collection.documents
                             if collection._matches(document, query)
                         ]
@@ -313,46 +381,28 @@ class MongoDB:
             )
             await self.db.topic_mappings.create_index("topic_id")
             
-            # OTP protections: expire documents automatically using a datetime field
-            # We store an `expires_at_dt` datetime when creating protections and
-            # use a TTL index so entries are removed automatically when expired.
-            try:
-                await self.db.otp_protections.create_index(
-                    "expires_at_dt", expireAfterSeconds=0
-                )
-            except Exception:
-                # Index creation may fail on some MongoDB setups; non-fatal
-                logger.warning("Could not create TTL index for otp_protections")
-            try:
-                await self.db.telegram_init_data_replays.create_index(
-                    "expires_at", expireAfterSeconds=0
-                )
-            except Exception:
-                logger.warning(
-                    "Could not create TTL index for consumed Telegram login data"
-                )
-            try:
-                await self.db.revoked_tokens.create_index(
-                    "expires_at", expireAfterSeconds=0
-                )
-            except Exception:
-                logger.warning("Could not create TTL index for revoked access tokens")
-            # Session Destroyer indexes - wrap in try/except for mock DB
+            # These expirations bound persisted OTP and authentication state.
+            await self.db.otp_protections.create_index(
+                "expires_at_dt", expireAfterSeconds=0
+            )
+            await self.db.telegram_init_data_replays.create_index(
+                "expires_at", expireAfterSeconds=0
+            )
+            await self.db.revoked_tokens.create_index(
+                "expires_at", expireAfterSeconds=0
+            )
+            # Keep the legacy user-level settings index best-effort; per-account
+            # settings and trusted-session indexes below are required.
             try:
                 await self.db.session_destroyer_settings.create_index("user_id", unique=True)
             except Exception:
                 logger.debug("session_destroyer_settings collection missing or index creation failed")
-            try:
-                await self.db.session_destroyer_account_settings.create_index(
-                    [("user_id", 1), ("account_id", 1)], unique=True
-                )
-                await self.db.session_destroyer_account_settings.create_index(
-                    [("enabled", 1), ("user_id", 1)]
-                )
-            except Exception:
-                logger.debug(
-                    "Per-account session destroyer indexes could not be created"
-                )
+            await self.db.session_destroyer_account_settings.create_index(
+                [("user_id", 1), ("account_id", 1)], unique=True
+            )
+            await self.db.session_destroyer_account_settings.create_index(
+                [("enabled", 1), ("user_id", 1)]
+            )
 
             # Media dump indexes
             try:
@@ -364,27 +414,120 @@ class MongoDB:
                 await self.db.media_dump_jobs.create_index([("admin_id", 1), ("created_at", -1)])
             except Exception:
                 logger.debug("media_index / media_dump_jobs index creation skipped")
-            try:
-                await self.db.trusted_sessions.create_index(
-                    [("user_id", 1), ("account_id", 1)], unique=True
-                )
-            except Exception:
-                logger.debug("trusted_sessions collection missing or index creation failed")
+            await self.db.trusted_sessions.create_index(
+                [("user_id", 1), ("account_id", 1)], unique=True
+            )
             try:
                 await self.db.session_destroyer_logs.create_index(
                     [("user_id", 1), ("timestamp", -1)]
                 )
             except Exception:
-                logger.debug("session_destroyer_logs collection missing or index creation failed")
+                logger.debug("session_destroyer_logs query index creation failed")
+            await self.db.session_destroyer_logs.create_index(
+                "timestamp",
+                expireAfterSeconds=SESSION_DESTROYER_LOG_RETENTION_SECONDS,
+            )
 
             logger.info("Database indexes created successfully")
         except Exception as e:
-            logger.warning(f"Failed to create some indexes: {e}")
+            logger.exception("Failed to create required MongoDB indexes")
+            raise RuntimeError("MongoDB index initialization failed") from e
+
+    async def _migrate_account_audit_logs(self):
+        """Remove sensitive historical values and cap legacy account audit arrays."""
+        if self.client is None:
+            return
+
+        sensitive_paths = [
+            f"audit_log.{field}" for field in SENSITIVE_ACCOUNT_AUDIT_FIELDS
+        ] + [
+            f"audit_log.details.{field}"
+            for field in SENSITIVE_ACCOUNT_AUDIT_FIELDS
+        ]
+        cursor = self.db.accounts.find(
+            {
+                "$or": [
+                    {f"{path}": {"$exists": True}} for path in sensitive_paths
+                ]
+                + [
+                    {
+                        f"audit_log.{MAX_ACCOUNT_AUDIT_ENTRIES}": {
+                            "$exists": True
+                        }
+                    }
+                ]
+            },
+            {"audit_log": 1},
+        )
+        async for account in cursor:
+            entries = account.get("audit_log", [])
+            if not isinstance(entries, list):
+                entries = []
+            sanitized = []
+            for entry in entries[-MAX_ACCOUNT_AUDIT_ENTRIES:]:
+                if not isinstance(entry, dict):
+                    continue
+                sanitized.append(sanitize_account_audit_entry(entry))
+            if sanitized != entries:
+                await self.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"audit_log": sanitized}},
+                )
+
+    async def _migrate_legacy_otp_expirations(self):
+        """Backfill BSON dates so legacy OTP protections are handled by the TTL index."""
+        if self.client is None:
+            return
+
+        cursor = self.db.otp_protections.find(
+            {
+                "expires_at_dt": {"$exists": False},
+                "expires_at": {"$type": "number"},
+            },
+            {"expires_at": 1},
+        )
+        now = time.time()
+        async for document in cursor:
+            expires_at = int(document["expires_at"])
+            if expires_at <= now:
+                await self.db.otp_protections.delete_one(
+                    {"_id": document["_id"]}
+                )
+                continue
+            await self.db.otp_protections.update_one(
+                {"_id": document["_id"]},
+                {
+                    "$set": {
+                        "expires_at_dt": datetime.fromtimestamp(
+                            expires_at, tz=timezone.utc
+                        )
+                    }
+                },
+            )
+
+    async def append_account_audit_log(
+        self, query: dict, entry: dict, update_fields: Optional[dict] = None
+    ):
+        safe_entry = sanitize_account_audit_entry(entry)
+        update = dict(update_fields or {})
+        update["$push"] = {
+            "audit_log": {
+                "$each": [safe_entry],
+                "$slice": -MAX_ACCOUNT_AUDIT_ENTRIES,
+            }
+        }
+        await self.db.accounts.update_one(
+            query,
+            update,
+        )
 
     async def disconnect(self):
         """Disconnect from MongoDB"""
-        if self.client:
-            self.client.close()
+        client = self.client
+        self.client = None
+        self.db = None
+        if client:
+            client.close()
 
     # User operations
     async def create_user(self, telegram_id: int, **kwargs):

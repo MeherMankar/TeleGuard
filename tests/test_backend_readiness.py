@@ -146,6 +146,9 @@ async def test_websocket_rejects_revoked_access_token(monkeypatch):
         find_one=AsyncMock(return_value={"_id": token_id})
     )
     monkeypatch.setattr(mongodb, "db", SimpleNamespace(revoked_tokens=collection))
+    monkeypatch.setattr(
+        backend_main, "ALLOWED_ORIGINS", ["http://localhost:5173"]
+    )
 
     await backend_main.websocket_events(websocket)
 

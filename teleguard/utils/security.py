@@ -184,17 +184,13 @@ class Secure2FAHandlers:
     ) -> None:
         """Log audit event to database"""
         try:
-            await mongodb.db.accounts.update_one(
+            await mongodb.append_account_audit_log(
                 {"_id": account_id},
                 {
-                    "$push": {
-                        "audit_log": {
-                            "action": action,
-                            "user_id": user_id,
-                            "result": success,
-                            "timestamp": datetime.utcnow(),
-                        }
-                    }
+                    "action": action,
+                    "user_id": user_id,
+                    "result": success,
+                    "timestamp": datetime.utcnow(),
                 },
             )
         except Exception as e:

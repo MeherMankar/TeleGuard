@@ -12,6 +12,7 @@ from telethon.errors import FloodWaitError, PhoneNumberInvalidError
 
 from ..core.cleanup_types import parse_cleanup_types
 from ..core.mongo_database import mongodb
+from ..core.otp_protection import otp_expiry_fields
 from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import retry_async
 
@@ -181,10 +182,20 @@ class MessageHandlers:
             self.pending_actions.pop(user_id, None)
             return
 
-        logger.info(f"=== MESSAGE HANDLER === User {user_id} sent: '{message}'")
+        logger.info(
+            "Message handler received input from user %s (%s characters)",
+            user_id,
+            len(message),
+        )
         logger.info(f"Pending actions keys: {list(self.pending_actions.keys())}")
         if user_id in self.pending_actions:
-            logger.info(f"User {user_id} pending action: {self.pending_actions[user_id]}")
+            pending_action = self.pending_actions[user_id]
+            action_name = (
+                pending_action.get("action") or pending_action.get("type")
+                if isinstance(pending_action, dict)
+                else type(pending_action).__name__
+            )
+            logger.info("User %s has pending action %s", user_id, action_name)
 
         if await self._is_admin_group_message(user_id, event.chat_id):
             return
@@ -239,13 +250,16 @@ class MessageHandlers:
             # invalidating legitimate codes
             try:
                 await mongodb.db.otp_protections.update_one(
-                    {"phone": phone},
+                    {
+                        "phone": phone,
+                        "user_id": user_id,
+                        "reason": "account_addition",
+                    },
                     {
                         "$set": {
                             "phone": phone,
                             "wildcard": True,  # Protect all codes for this phone
-                            "expires_at": int(time.time())
-                            + 600,  # 10 minutes protection
+                            **otp_expiry_fields(int(time.time()) + 600),
                             "reason": "account_addition",
                             "user_id": user_id,
                         }
@@ -297,7 +311,7 @@ class MessageHandlers:
 
             if otp_code:
                 # Auto-complete — no user interaction needed
-                logger.info(f"Auto-fetched OTP {otp_code} for {phone}, completing auth")
+                logger.info("Auto-fetched OTP for %s; completing authentication", phone)
                 await event.reply(f"✅ OTP auto-fetched. Verifying...")
                 # Reuse _process_verify_otp logic directly
                 await self._process_verify_otp(event, user_id, otp_code, None)
@@ -363,7 +377,7 @@ class MessageHandlers:
         # Normalize OTP code format - handle "12345", "1-2-3-4-5", and "/12345" formats
         normalized_code = code.replace("-", "").replace(" ", "").strip().lstrip("/")
 
-        logger.info(f"User is verifying OTP code: {normalized_code}")
+        logger.info("User is verifying an OTP code")
         await event.reply(f"Verifying OTP {normalized_code}...")
         try:
             session_string = await self.auth_manager.complete_auth(
@@ -395,7 +409,11 @@ class MessageHandlers:
             # Remove OTP protection after successful account addition
             try:
                 await mongodb.db.otp_protections.delete_one(
-                    {"phone": phone, "reason": "account_addition"}
+                    {
+                        "phone": phone,
+                        "user_id": user_id,
+                        "reason": "account_addition",
+                    }
                 )
                 logger.info(
                     f"Removed OTP protection for {phone} after successful addition"
@@ -457,7 +475,11 @@ class MessageHandlers:
                 # Cleanup pending actions and OTP protection on other errors
                 try:
                     await mongodb.db.otp_protections.delete_one(
-                        {"phone": phone, "reason": "account_addition"}
+                        {
+                            "phone": phone,
+                            "user_id": user_id,
+                            "reason": "account_addition",
+                        }
                     )
                     logger.info(
                         f"Removed OTP protection for {phone} after auth failure"
@@ -1680,13 +1702,14 @@ class MessageHandlers:
 
         try:
             if user_id in handler.pending_transfers:
-                logger.info(f"[TRANSFER] User {user_id} in pending_transfers, processing input: '{message}'")
-                logger.info(f"[TRANSFER] Transfer state: {handler.pending_transfers[user_id]}")
+                logger.info(
+                    "[TRANSFER] Processing input for user %s", user_id
+                )
                 await handler.process_user_input(event, user_id, message)
                 logger.info(f"[TRANSFER] process_user_input completed for user {user_id}")
                 return True
             elif user_id in handler.pending_coowner:
-                logger.info(f"[COOWNER] User {user_id} in pending_coowner, processing input: '{message}'")
+                logger.info("[COOWNER] Processing input for user %s", user_id)
                 await handler.process_user_input(event, user_id, message)
                 logger.info(f"[COOWNER] process_user_input completed for user {user_id}")
                 return True
@@ -1772,7 +1795,7 @@ class MessageHandlers:
         import re
         otp_code = message.strip().lstrip("/")
         if re.match(r"^\d{5,7}$", otp_code):
-            logger.info(f"Processing manual OTP {otp_code} for user {user_id}")
+            logger.info("Processing a manual OTP for user %s", user_id)
             success = await self.bot_manager.session_export_handler.process_fresh_session_otp(
                 user_id, otp_code
             )
@@ -1813,7 +1836,7 @@ class MessageHandlers:
         import re
         otp_code = message.strip().lstrip("/")
         if re.match(r"^\d{5,7}$", otp_code):
-            logger.info(f"Auto-processing OTP code {otp_code} for session login")
+            logger.info("Auto-processing an OTP for session login")
             success, msg = await self.bot_manager.session_login_handler.process_verification_code(
                 user_id, otp_code
             )
@@ -2192,7 +2215,7 @@ class MessageHandlers:
             otp_code = self._extract_otp_code(message)
             
             if otp_code:
-                logger.info(f"Detected OTP code: {otp_code} from Telegram")
+                logger.info("Detected a Telegram OTP for a pending session")
                 await self._process_pending_fresh_sessions(otp_code)
         except Exception as e:
             logger.error(f"OTP fetch error: {e}")
@@ -2279,7 +2302,7 @@ class MessageHandlers:
             if message.text:
                 otp_code = self._extract_otp_code(message.text)
                 if otp_code:
-                    logger.info(f"Found recent OTP {otp_code} from {account_id}")
+                    logger.info("Found a recent OTP from %s", account_id)
                     success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
                     if success:
                         return True
@@ -2295,7 +2318,7 @@ class MessageHandlers:
                         if message.text:
                             otp_code = self._extract_otp_code(message.text)
                             if otp_code:
-                                logger.info(f"Found unread OTP {otp_code} from {account_id}")
+                                logger.info("Found an unread OTP from %s", account_id)
                                 success = await self.bot_manager.session_export_handler.process_fresh_session_otp(user_id, otp_code)
                                 if success:
                                     return True

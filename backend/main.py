@@ -17,7 +17,7 @@ import time
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
@@ -34,7 +34,7 @@ from backend.api.proxies import router as proxies_router
 from backend.api.security import router as security_router
 from backend.api.sessions import router as sessions_router
 from backend.api.spam import router as spam_router
-from backend.auth.jwt import ALGORITHM, SECRET_KEY
+from backend.auth.jwt import ALGORITHM, SECRET_KEY, get_current_user_id
 from backend.websocket.manager import manager as ws_manager
 from teleguard.core.mongo_database import mongodb
 
@@ -124,15 +124,21 @@ app = FastAPI(
     description="TeleGuard backend — bot and webapp share the same process and MongoDB",
 )
 
-# CORS — allow the frontend dev server and production domain
+environment = os.getenv("ENVIRONMENT", "production").lower()
+default_origins = (
+    "http://localhost:3000,http://localhost:5173,http://localhost:4173"
+    if environment in {"development", "testing"}
+    else ""
+)
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://localhost:4173",
+        "ALLOWED_ORIGINS", default_origins
     ).split(",")
     if origin.strip()
 ]
+if not ALLOWED_ORIGINS:
+    logger.error("ALLOWED_ORIGINS is empty; browser and WebSocket origins are denied")
 
 app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(
@@ -206,7 +212,7 @@ async def health_check():
 
 
 @app.get("/ip")
-async def ip_status():
+async def ip_status(user_id: int = Depends(get_current_user_id)):
     try:
         from teleguard.core.session_guardian import get_guardian
         guardian = get_guardian()
@@ -226,6 +232,18 @@ async def ip_status():
     return {"status": "guardian_not_initialized"}
 
 
+async def _decode_websocket_identity(token: str):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    user_id = payload.get("user_id")
+    token_id = payload.get("jti")
+    if not user_id or not token_id:
+        return None
+    revoked = await mongodb.db.revoked_tokens.find_one({"_id": token_id})
+    if revoked:
+        return None
+    return user_id, token_id
+
+
 @app.websocket("/ws/events")
 async def websocket_events(websocket: WebSocket):
     """
@@ -238,42 +256,60 @@ async def websocket_events(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
-    user_id = None
     token = websocket.cookies.get("access_token")
-    if token:
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_id = payload.get("user_id")
-            token_id = payload.get("jti")
-            if not token_id:
-                user_id = None
-            else:
-                revoked = await mongodb.db.revoked_tokens.find_one(
-                    {"_id": token_id}
-                )
-                if revoked:
-                    user_id = None
-        except JWTError:
-            pass
-        except Exception:
-            logger.exception("Could not validate WebSocket token revocation")
-            await websocket.close(code=1011)
-            return
+    try:
+        identity = await _decode_websocket_identity(token) if token else None
+    except JWTError:
+        identity = None
+    except Exception:
+        logger.exception("Could not validate WebSocket token revocation")
+        await websocket.close(code=1011)
+        return
 
-    if not user_id:
+    if not identity:
         await websocket.close(code=4001)
         return
 
+    user_id, token_id = identity
     await ws_manager.connect(user_id, websocket)
+    last_validation = time.monotonic()
     try:
         while True:
-            data = await websocket.receive_text()
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=30
+                )
+            except asyncio.TimeoutError:
+                data = None
+
+            now = time.monotonic()
+            if now - last_validation >= 30:
+                try:
+                    refreshed_identity = await _decode_websocket_identity(token)
+                except JWTError:
+                    refreshed_identity = None
+                except Exception:
+                    logger.exception(
+                        "Could not revalidate WebSocket token for user %s",
+                        user_id,
+                    )
+                    await websocket.close(code=1011)
+                    break
+                if (
+                    not refreshed_identity
+                    or refreshed_identity != (user_id, token_id)
+                ):
+                    await websocket.close(code=4001)
+                    break
+                last_validation = now
+
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        ws_manager.disconnect(user_id, websocket)
+        pass
     except Exception as e:
         logger.error(f"WebSocket error for user {user_id}: {e}")
+    finally:
         ws_manager.disconnect(user_id, websocket)
 
 

@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -404,7 +404,7 @@ async def get_entity_photo(
         return Response(
             content=photo_bytes,
             media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": "private, no-store"},
         )
     except HTTPException:
         raise
@@ -473,7 +473,7 @@ async def get_message_media(
 @router.get("/dialogs/{account_name}")
 async def get_dialogs(
     account_name: str,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=300),
     user_id: int = Depends(get_current_user_id),
 ):
     """Fetch dialog list with profile photo URLs."""

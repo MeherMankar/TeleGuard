@@ -123,17 +123,13 @@ class CleanupOperations:
 
                 # Log cleanup
                 try:
-                    await mongodb.db.accounts.update_one(
+                    await mongodb.append_account_audit_log(
                         {"_id": account["_id"]},
                         {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "bulk_cleanup_completed",
-                                    "cleanup_types": selected_types,
-                                    "timestamp": int(time.time()),
-                                    "result": result_status,
-                                }
-                            }
+                            "action": "bulk_cleanup_completed",
+                            "cleanup_types": selected_types,
+                            "timestamp": int(time.time()),
+                            "result": result_status,
                         },
                     )
                 except Exception as e:
@@ -310,17 +306,13 @@ class CleanupOperations:
 
         # Add audit log
         try:
-            await mongodb.db.accounts.update_one(
+            await mongodb.append_account_audit_log(
                 {"_id": ObjectId(account_id)},
                 {
-                    "$push": {
-                        "audit_log": {
-                            "action": "cleanup_completed",
-                            "cleanup_types": selected_types,
-                            "timestamp": int(time.time()),
-                            "result": "success" if succeeded else "partial_failure",
-                        }
-                    }
+                    "action": "cleanup_completed",
+                    "cleanup_types": selected_types,
+                    "timestamp": int(time.time()),
+                    "result": "success" if succeeded else "partial_failure",
                 },
             )
         except Exception as e:

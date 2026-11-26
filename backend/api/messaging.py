@@ -65,7 +65,9 @@ class BulkMessageRequest(BaseModel):
 async def get_stats(user_id: int = Depends(get_current_user_id)):
     bot_manager = _get_bot_manager()
     if not bot_manager or not bot_manager.messaging_manager:
-        return {"total_messages_sent": 0, "auto_replies_sent": 0, "active_accounts": 0, "dm_topics_created": 0}
+        raise HTTPException(
+            status_code=503, detail="Messaging manager not initialized"
+        )
     try:
         stats = await bot_manager.messaging_manager.get_messaging_statistics(user_id)
         auto_replies = await mongodb.db.auto_replies_sent_count.find_one({"user_id": user_id})
@@ -74,7 +76,9 @@ async def get_stats(user_id: int = Depends(get_current_user_id)):
         return stats
     except Exception as e:
         logger.error(f"Error fetching messaging stats: {e}")
-        return {"total_messages_sent": 0, "auto_replies_sent": 0, "active_accounts": 0, "dm_topics_created": 0}
+        raise HTTPException(
+            status_code=500, detail="Could not fetch messaging statistics"
+        ) from e
 
 
 @router.post("/send")

@@ -94,6 +94,8 @@ MONGO_DB_NAME=teleguard
 JWT_SECRET=
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4173
 ADMIN_IDS=123456789,987654321
+# Required in production:
+FERNET_KEY=
 
 # Optional
 SESSION_BACKUP_ENABLED=false
@@ -111,8 +113,10 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 In production, use a unique secret and set `ALLOWED_ORIGINS` to the exact
-origin(s) serving the frontend. The frontend build also needs `VITE_API_URL`
-and `VITE_WS_URL` set to the backend's HTTPS and WSS URLs, respectively.
+origin(s) serving the frontend, plus a stable `FERNET_KEY`. The backend denies
+all browser and WebSocket origins when a production allowlist is missing. The
+frontend build also needs `VITE_API_URL` and `VITE_WS_URL` set to the backend's
+HTTPS and WSS URLs, respectively.
 
 ### Run
 
@@ -202,7 +206,8 @@ teleguard/
 ## 🔒 Security Features
 
 ### Encryption
-- Session backups use Fernet encryption when configured with a stable `FERNET_KEY`.
+- Production startup requires a stable `FERNET_KEY`; session backups also use
+  Fernet encryption when enabled.
 - The optional public GitHub data mirror encrypts complete MongoDB user/account
   documents before upload; its public index contains counts, opaque record IDs,
   and keyed fingerprints rather than plaintext data.
@@ -251,7 +256,7 @@ koyeb app create teleguard \
 
 Configure all required values as Koyeb **service environment variables**. The
 manifest expects project-scoped values for `API_ID`, `API_HASH`, `BOT_TOKEN`,
-`MONGO_URI`, `JWT_SECRET`, and `ALLOWED_ORIGINS`. Never use a placeholder
+`MONGO_URI`, `JWT_SECRET`, `ALLOWED_ORIGINS`, and `FERNET_KEY`. Never use a placeholder
 secret in a deployed service.
 
 ### Docker
@@ -281,7 +286,7 @@ docker run -d \
 | `ALLOWED_ORIGINS` | ✅ in production | Comma-separated frontend origins allowed by backend CORS |
 | `ADMIN_IDS` | Optional | Comma-separated admin user IDs |
 | `MAX_ACCOUNTS` | Optional | Maximum accounts per user |
-| `FERNET_KEY` | ❌ | Stable secret Fernet key; required for the encrypted public data mirror and encrypted session backups |
+| `FERNET_KEY` | ✅ in production | Stable Fernet key required at startup in production and for encrypted data mirrors/backups |
 | `GITHUB_DATA_MIRROR_ENABLED` | ❌ | Set to `true` to mirror MongoDB user/account records to GitHub (default: `false`) |
 | `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`) |
 | `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write access to the data repository |

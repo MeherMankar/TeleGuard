@@ -173,7 +173,7 @@ export const accountsApi = {
     post<{ status: "success" | "requires_2fa" }>("/api/accounts/verify-code", { session_id, code }),
   verifyPassword: (session_id: string, password: string) =>
     post<{ status: "success" }>("/api/accounts/verify-password", { session_id, password }),
-  qrLogin: () => get<{ session_id: string; url: string }>("/api/accounts/qr-login"),
+  qrLogin: () => post<{ session_id: string; url: string }>("/api/accounts/qr-login", {}),
   qrStatus: (session_id: string) =>
     get<{ status: "pending" | "success" | "failed" | "requires_2fa"; error?: string }>(
       `/api/accounts/qr-status/${session_id}`,

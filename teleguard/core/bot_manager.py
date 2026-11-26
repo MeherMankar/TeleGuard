@@ -637,6 +637,7 @@ class BotManager:
                         raise ValueError(
                             f"Assigned proxy {account['proxy_id']} could not be loaded"
                         )
+                    proxy = await proxy_manager.resolve_public_proxy(proxy)
                     proxy_dict = await proxy_manager.build_telethon_proxy(
                         proxy, str(account["_id"])
                     )
@@ -1615,6 +1616,7 @@ class BotManager:
         """Remove account by ID with proper session termination"""
         try:
             from bson import ObjectId
+            from telethon.tl.functions.auth import LogOutRequest
 
             account = await mongodb.db.accounts.find_one(
                 {"_id": ObjectId(account_id), "user_id": user_id}
@@ -1622,49 +1624,102 @@ class BotManager:
             if not account:
                 return False, "Account not found"
 
-            account_name = account.get("name", "Unknown")
+            account = DataEncryption.decrypt_account_data(account)
+            account_name = account.get("name") or account.get("phone") or "Unknown"
+            aliases = {
+                str(value)
+                for value in (
+                    account.get("name"),
+                    account.get("display_name"),
+                    account.get("phone"),
+                )
+                if value
+            }
 
             activity_simulator = getattr(self, "activity_simulator", None)
             if activity_simulator:
                 await activity_simulator.stop_account_simulation(user_id, account_id)
 
-            # Remove stored 2FA password for security
+            user_clients = self.user_clients.get(user_id, {})
+            matching_clients = {
+                id(client): client
+                for alias, client in user_clients.items()
+                if alias in aliases
+            }
+            if len(matching_clients) > 1:
+                return False, "Multiple clients match this account; account was not removed"
+
+            client = next(iter(matching_clients.values()), None)
+            temporary_client = False
+            if client is None:
+                session_string = account.get("session_string")
+                if not session_string:
+                    return False, "Account session is unavailable; account was not removed"
+                client = TelegramClient(
+                    StringSession(session_string),
+                    config.telegram.api_id,
+                    config.telegram.api_hash,
+                )
+                temporary_client = True
+
             try:
-                from .database_manager import db_manager
-
-                await db_manager.remove_2fa_password(user_id, account_id)
-                logger.info(f"Removed stored 2FA password for account {account_name}")
+                if not client.is_connected():
+                    await client.connect()
+                await client(LogOutRequest())
             except Exception as e:
-                logger.warning(f"Failed to remove 2FA password for {account_name}: {e}")
+                logger.error("Telegram logout failed for %s: %s", account_name, e)
+                return False, f"Telegram logout failed: {e}"
+            finally:
+                if temporary_client or client.is_connected():
+                    await client.disconnect()
 
-            # Terminate Telegram session and disconnect client
-            if user_id in self.user_clients:
-                for key in list(self.user_clients[user_id].keys()):
-                    if key in [
-                        account.get("name"),
-                        account.get("phone"),
-                        account.get("display_name"),
-                    ]:
-                        client = self.user_clients[user_id].pop(key, None)
-                        if client and client.is_connected():
-                            try:
-                                # Terminate all active sessions for this account
-                                from telethon.tl.functions.auth import LogOutRequest
+            if hasattr(self, "session_monitor") and self.session_monitor:
+                self.session_monitor.remove_client_from_monitor(user_id, account_name)
 
-                                await client(LogOutRequest())
-                                logger.info(
-                                    f"Terminated Telegram session for {account_name}"
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to terminate session for {account_name}: {e}"
-                                )
-                            finally:
-                                # Always disconnect the client
-                                await client.disconnect()
+            protection_manager = getattr(self, "protection_manager", None)
+            if protection_manager:
+                for alias in aliases:
+                    protection_manager.unregister_handler_for_client(
+                        user_id, alias, client
+                    )
 
-            # Remove from database
-            await mongodb.db.accounts.delete_one({"_id": ObjectId(account_id)})
+            for key, registered_client in list(user_clients.items()):
+                if key in aliases or registered_client is client:
+                    user_clients.pop(key, None)
+                    self._client_tg_ids.pop((user_id, key), None)
+            fullclient_manager = getattr(self, "fullclient_manager", None)
+            if fullclient_manager:
+                for alias in aliases:
+                    await fullclient_manager.remove_managed_client(user_id, alias)
+
+            account_id_string = str(account["_id"])
+            phone = account.get("phone")
+            await mongodb.db.accounts.delete_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+            await mongodb.db.session_destroyer_account_settings.delete_many(
+                {"user_id": user_id, "account_id": account_id_string}
+            )
+            await mongodb.db.trusted_sessions.delete_many(
+                {"user_id": user_id, "account_id": account_id_string}
+            )
+            await mongodb.db.session_destroyer_logs.delete_many(
+                {"user_id": user_id, "account_id": account_id_string}
+            )
+            await mongodb.db.session_destroyer_pending.delete_many(
+                {"user_id": user_id, "account_id": account_id_string}
+            )
+            if phone:
+                await mongodb.db.otp_protections.delete_many(
+                    {"phone": phone, "user_id": user_id}
+                )
+            if account.get("telegram_id"):
+                await mongodb.db.topic_mappings.delete_many(
+                    {
+                        "user_id": user_id,
+                        "account_id": account["telegram_id"],
+                    }
+                )
 
             logger.info(
                 f"Removed account {account_name} for user {user_id} with session termination"
@@ -1755,7 +1810,7 @@ class BotManager:
                     me_id = account.get("telegram_id")
                     if me_id:
                         result = await mongodb.db.topic_mappings.delete_many(
-                            {"account_id": me_id}
+                            {"user_id": user_id, "account_id": me_id}
                         )
                         if result.deleted_count > 0:
                             logger.info(f"Cleaned up {result.deleted_count} topic mappings for {account_name}")

@@ -4,7 +4,9 @@ import asyncio
 import base64
 import binascii
 import html
+import ipaddress
 import logging
+import socket
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -34,6 +36,43 @@ class ProxyManager:
         if not 1 <= port_number <= 65535:
             raise ValueError("Proxy port must be between 1 and 65535.")
         return server.strip(), port_number
+
+    @staticmethod
+    async def resolve_public_proxy_server(server: str, port: int) -> str:
+        """Resolve a proxy endpoint and reject private or otherwise non-public IPs."""
+        try:
+            literal = ipaddress.ip_address(server.split("%", 1)[0])
+            addresses = [literal]
+        except ValueError:
+            loop = asyncio.get_running_loop()
+            records = await asyncio.wait_for(
+                loop.getaddrinfo(
+                    server,
+                    port,
+                    type=socket.SOCK_STREAM,
+                ),
+                timeout=5,
+            )
+            addresses = [
+                ipaddress.ip_address(record[4][0].split("%", 1)[0])
+                for record in records
+            ]
+
+        unique_addresses = list(dict.fromkeys(addresses))
+        if not unique_addresses or any(
+            not address.is_global for address in unique_addresses
+        ):
+            raise ValueError("Proxy server must resolve only to public IP addresses")
+        return str(unique_addresses[0])
+
+    async def resolve_public_proxy(self, proxy: Dict) -> Dict:
+        resolved = DataEncryption.decrypt_account_data(proxy).copy()
+        server, port = self._normalize_proxy_endpoint(
+            resolved.get("server"), resolved.get("port")
+        )
+        resolved["server"] = await self.resolve_public_proxy_server(server, port)
+        resolved["port"] = port
+        return resolved
 
     @staticmethod
     def normalize_mtproto_secret(secret: str) -> str:
@@ -172,6 +211,7 @@ class ProxyManager:
             server, port = self._normalize_proxy_endpoint(
                 proxy_data.get("server"), proxy_data.get("port")
             )
+            await self.resolve_public_proxy_server(server, port)
             secret = None
             if proxy_type == "mtproto":
                 secret = self.normalize_mtproto_secret(proxy_data.get("secret"))
@@ -343,7 +383,7 @@ class ProxyManager:
             proxy = await mongodb.db.proxies.find_one({"_id": ObjectId(proxy_id)})
             if not proxy:
                 return False, "Proxy not found", None
-            proxy = DataEncryption.decrypt_account_data(proxy)
+            proxy = await self.resolve_public_proxy(proxy)
 
             # Test MTProto proxies using Telethon's native MTProxy connection.
             if proxy["type"] == "mtproto":

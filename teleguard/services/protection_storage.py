@@ -8,8 +8,19 @@ from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
 
+MAX_RETAINED_SESSION_HASHES = 5000
+
 class ProtectionStorage:
     """Handle persistence for OTP and Session Protection"""
+
+    @staticmethod
+    def _bound_session_hash_fields(data: Dict[str, Any]) -> Dict[str, Any]:
+        bounded = dict(data)
+        for field in ("trusted_hashes", "untrusted_hashes", "destroyed_hashes"):
+            hashes = bounded.get(field)
+            if isinstance(hashes, list):
+                bounded[field] = hashes[-MAX_RETAINED_SESSION_HASHES:]
+        return bounded
 
     @staticmethod
     async def get_account_settings(user_id: int, account_id: str) -> Dict[str, Any]:
@@ -33,7 +44,21 @@ class ProtectionStorage:
             upsert=True,
         )
         settings = await mongodb.db.session_destroyer_account_settings.find_one(
-            {"user_id": user_id, "account_id": str(account_id)}
+            {"user_id": user_id, "account_id": str(account_id)},
+            {
+                "user_id": 1,
+                "account_id": 1,
+                "enabled": 1,
+                "enabled_at": 1,
+                "trusted_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "untrusted_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "destroyed_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "allow_next": 1,
+                "allow_next_until": 1,
+                "pause_until": 1,
+                "last_check": 1,
+                "stats": 1,
+            },
         )
         if settings is None:
             raise RuntimeError(
@@ -48,7 +73,7 @@ class ProtectionStorage:
         await ProtectionStorage.get_account_settings(user_id, account_id)
         await mongodb.db.session_destroyer_account_settings.update_one(
             {"user_id": user_id, "account_id": str(account_id)},
-            {"$set": update_data},
+            {"$set": ProtectionStorage._bound_session_hash_fields(update_data)},
             upsert=True,
         )
 
@@ -58,9 +83,18 @@ class ProtectionStorage:
     ):
         await ProtectionStorage.get_account_settings(user_id, account_id)
         await mongodb.db.session_destroyer_account_settings.update_one(
-            {"user_id": user_id, "account_id": str(account_id)},
             {
-                "$addToSet": {"trusted_hashes": session_hash},
+                "user_id": user_id,
+                "account_id": str(account_id),
+                "trusted_hashes": {"$ne": session_hash},
+            },
+            {
+                "$push": {
+                    "trusted_hashes": {
+                        "$each": [session_hash],
+                        "$slice": -MAX_RETAINED_SESSION_HASHES,
+                    }
+                },
                 "$pull": {"untrusted_hashes": session_hash},
             },
         )
@@ -71,10 +105,19 @@ class ProtectionStorage:
     ):
         await ProtectionStorage.get_account_settings(user_id, account_id)
         await mongodb.db.session_destroyer_account_settings.update_one(
-            {"user_id": user_id, "account_id": str(account_id)},
+            {
+                "user_id": user_id,
+                "account_id": str(account_id),
+                "untrusted_hashes": {"$ne": session_hash},
+            },
             {
                 "$pull": {"trusted_hashes": session_hash},
-                "$addToSet": {"untrusted_hashes": session_hash},
+                "$push": {
+                    "untrusted_hashes": {
+                        "$each": [session_hash],
+                        "$slice": -MAX_RETAINED_SESSION_HASHES,
+                    }
+                },
             },
         )
 
@@ -90,7 +133,12 @@ class ProtectionStorage:
                 "destroyed_hashes": {"$ne": session_hash},
             },
             {
-                "$addToSet": {"destroyed_hashes": session_hash},
+                "$push": {
+                    "destroyed_hashes": {
+                        "$each": [session_hash],
+                        "$slice": -MAX_RETAINED_SESSION_HASHES,
+                    }
+                },
                 "$inc": {"stats.sessions_destroyed": 1},
                 "$set": {"stats.last_threat": datetime.now(timezone.utc)},
                 "$pull": {
@@ -113,7 +161,24 @@ class ProtectionStorage:
     async def get_settings(user_id: int) -> Dict[str, Any]:
         """Get protection settings for a user"""
         try:
-            settings = await mongodb.db.protection_settings.find_one({"user_id": user_id})
+            settings_projection = {
+                "user_id": 1,
+                "otp_destroyer_enabled": 1,
+                "session_destroyer_enabled": 1,
+                "trusted_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "untrusted_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "destroyed_hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES},
+                "allow_next": 1,
+                "allow_next_until": 1,
+                "pause_until": 1,
+                "enabled_at": 1,
+                "last_check": 1,
+                "stats": 1,
+                "legacy_session_destroyer_migrated": 1,
+            }
+            settings = await mongodb.db.protection_settings.find_one(
+                {"user_id": user_id}, settings_projection
+            )
             if not settings:
                 await mongodb.db.protection_settings.update_one(
                     {"user_id": user_id},
@@ -138,7 +203,7 @@ class ProtectionStorage:
                     upsert=True,
                 )
                 settings = await mongodb.db.protection_settings.find_one(
-                    {"user_id": user_id}
+                    {"user_id": user_id}, settings_projection
                 )
             if settings is None:
                 raise RuntimeError(
@@ -151,11 +216,16 @@ class ProtectionStorage:
                 migration = {"legacy_session_destroyer_migrated": True}
                 if legacy and legacy.get("enabled"):
                     trusted_docs = await mongodb.db.trusted_sessions.find(
-                        {"user_id": user_id}
-                    ).to_list(length=None)
+                        {"user_id": user_id},
+                        {"hashes": {"$slice": -MAX_RETAINED_SESSION_HASHES}},
+                    ).to_list(length=200)
                     trusted_hashes = set(settings.get("trusted_hashes", []))
                     for trusted_doc in trusted_docs:
-                        trusted_hashes.update(trusted_doc.get("hashes", []))
+                        trusted_hashes.update(
+                            (trusted_doc.get("hashes") or [])[
+                                -MAX_RETAINED_SESSION_HASHES:
+                            ]
+                        )
                     migration.update(
                         {
                             "session_destroyer_enabled": True,
@@ -167,6 +237,10 @@ class ProtectionStorage:
                     {"user_id": user_id}, {"$set": migration}
                 )
                 settings.update(migration)
+            for field in ("trusted_hashes", "untrusted_hashes", "destroyed_hashes"):
+                hashes = settings.get(field)
+                if isinstance(hashes, list):
+                    settings[field] = hashes[-MAX_RETAINED_SESSION_HASHES:]
             return settings
         except Exception as e:
             logger.error(f"Error getting protection settings for {user_id}: {e}")
@@ -178,7 +252,11 @@ class ProtectionStorage:
         try:
             await mongodb.db.protection_settings.update_one(
                 {"user_id": user_id},
-                {"$set": update_data},
+                {
+                    "$set": ProtectionStorage._bound_session_hash_fields(
+                        update_data
+                    )
+                },
                 upsert=True
             )
         except Exception as e:
@@ -190,9 +268,14 @@ class ProtectionStorage:
         """Add a session hash to trusted list"""
         try:
             await mongodb.db.protection_settings.update_one(
-                {"user_id": user_id},
+                {"user_id": user_id, "trusted_hashes": {"$ne": session_hash}},
                 {
-                    "$addToSet": {"trusted_hashes": session_hash},
+                    "$push": {
+                        "trusted_hashes": {
+                            "$each": [session_hash],
+                            "$slice": -MAX_RETAINED_SESSION_HASHES,
+                        }
+                    },
                     "$pull": {"untrusted_hashes": session_hash},
                 },
             )
@@ -205,10 +288,15 @@ class ProtectionStorage:
         """Explicitly mark a session as untrusted across watcher restarts."""
         try:
             await mongodb.db.protection_settings.update_one(
-                {"user_id": user_id},
+                {"user_id": user_id, "untrusted_hashes": {"$ne": session_hash}},
                 {
                     "$pull": {"trusted_hashes": session_hash},
-                    "$addToSet": {"untrusted_hashes": session_hash},
+                    "$push": {
+                        "untrusted_hashes": {
+                            "$each": [session_hash],
+                            "$slice": -MAX_RETAINED_SESSION_HASHES,
+                        }
+                    },
                 },
             )
         except Exception as e:
@@ -225,7 +313,12 @@ class ProtectionStorage:
                     "destroyed_hashes": {"$ne": session_hash},
                 },
                 {
-                    "$addToSet": {"destroyed_hashes": session_hash},
+                    "$push": {
+                        "destroyed_hashes": {
+                            "$each": [session_hash],
+                            "$slice": -MAX_RETAINED_SESSION_HASHES,
+                        }
+                    },
                     "$inc": {"stats.sessions_destroyed": 1},
                     "$set": {"stats.last_threat": datetime.now(timezone.utc)},
                     "$pull": {

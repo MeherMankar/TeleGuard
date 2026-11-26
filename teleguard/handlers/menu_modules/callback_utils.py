@@ -59,11 +59,11 @@ class CallbackUtils:
                 "timestamp": int(time.time()),
             }
 
-            result = await mongodb.db.accounts.update_one(
+            result = await mongodb.append_account_audit_log(
                 {"_id": ObjectId(account_id), "user_id": user_id},
-                {"$push": {"audit_log": log_entry}},
+                log_entry,
             )
-            return result.modified_count > 0
+            return bool(result.modified_count)
         except Exception as e:
             logger.error(f"Error logging action {action}: {e}")
             return False

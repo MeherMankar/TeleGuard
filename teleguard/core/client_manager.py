@@ -384,8 +384,8 @@ class FullClientManager:
                 "event_data": event_data,
                 "timestamp": time.time(),
             }
-            await mongodb.db.accounts.update_one(
-                {"_id": ObjectId(account_id)}, {"$push": {"audit_log": audit_event}}
+            await mongodb.append_account_audit_log(
+                {"_id": ObjectId(account_id)}, audit_event
             )
         except Exception as e:
             logger.error(f"Failed to log audit event: {e}")

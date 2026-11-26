@@ -63,7 +63,7 @@ class UnifiedMessagingSystem:
                 
                 # Skip bot commands
                 if event.text and event.text.startswith('/'):
-                    logger.debug(f"Skipping bot command: {event.text}")
+                    logger.debug("Skipping bot command from account %s", client_key)
                     return
                 
                 message_id = f"{event.chat_id}_{event.id}_{client_key}"

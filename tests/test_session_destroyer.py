@@ -15,7 +15,10 @@ from teleguard.core.session_destroyer import (
 from teleguard.core.protection_manager import ProtectionManager
 from teleguard.core.mongo_database import MongoDB, mongodb
 from teleguard.handlers.protection_menu import ProtectionMenu
-from teleguard.services.protection_storage import ProtectionStorage
+from teleguard.services.protection_storage import (
+    MAX_RETAINED_SESSION_HASHES,
+    ProtectionStorage,
+)
 from teleguard.sync.session_destroyer_db import SessionDestroyerDB
 
 
@@ -124,11 +127,17 @@ def test_account_trust_write_is_scoped_to_account(monkeypatch):
 
     asyncio.run(ProtectionStorage.add_account_trusted_hash(123, account_id, 456))
 
-    assert update_one.await_args.args[0] == {
+    query, update = update_one.await_args.args[:2]
+    assert query == {
         "user_id": 123,
         "account_id": account_id,
+        "trusted_hashes": {"$ne": 456},
     }
-    assert update_one.await_args.args[1]["$addToSet"] == {"trusted_hashes": 456}
+    assert update["$push"]["trusted_hashes"] == {
+        "$each": [456],
+        "$slice": -MAX_RETAINED_SESSION_HASHES,
+    }
+    assert update["$pull"] == {"untrusted_hashes": 456}
 
 
 def test_security_api_toggle_passes_selected_account(monkeypatch):

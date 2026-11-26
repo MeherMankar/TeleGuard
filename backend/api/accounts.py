@@ -20,9 +20,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
-from backend.auth.telegram_auth_manager import telegram_auth_manager
+from backend.api.account_client_resolver import resolve_account_client
+from backend.auth.telegram_auth_manager import (
+    LoginCapacityError,
+    telegram_auth_manager,
+)
 from backend.websocket.manager import manager as ws_manager
-from teleguard.core.mongo_database import mongodb
+from teleguard.core.mongo_database import (
+    MAX_ACCOUNT_AUDIT_ENTRIES,
+    mongodb,
+    sanitize_account_audit_entry,
+)
 from teleguard.utils.crypto_utils import DataEncryption
 from teleguard.core.client_manager import get_client_manager
 
@@ -180,7 +188,18 @@ async def list_accounts(user_id: int = Depends(get_current_user_id)):
     Works for accounts added via bot AND via webapp — both use the same MongoDB collection.
     """
     try:
-        cursor = mongodb.db.accounts.find({"user_id": user_id})
+        cursor = mongodb.db.accounts.find(
+            {"user_id": user_id},
+            {
+                "session_string": 0,
+                "session_string_enc": 0,
+                "api_hash": 0,
+                "api_hash_enc": 0,
+                "twofa_password": 0,
+                "twofa_password_enc": 0,
+                "twofa_password_hash": 0,
+            },
+        )
         docs = await cursor.to_list(length=200)
 
         result = []
@@ -193,6 +212,14 @@ async def list_accounts(user_id: int = Depends(get_current_user_id)):
                 decrypted.pop("session_string", None)
                 decrypted.pop("api_hash", None)
                 decrypted.pop("twofa_password", None)
+                decrypted.pop("twofa_password_hash", None)
+                audit_log = decrypted.get("audit_log")
+                if isinstance(audit_log, list):
+                    decrypted["audit_log"] = [
+                        sanitize_account_audit_entry(entry)
+                        for entry in audit_log[-MAX_ACCOUNT_AUDIT_ENTRIES:]
+                        if isinstance(entry, dict)
+                    ]
                 # Normalise user_id type
                 if "user_id" in decrypted:
                     decrypted["user_id"] = int(decrypted["user_id"])
@@ -336,6 +363,8 @@ async def send_code(req: SendCodeRequest, user_id: int = Depends(get_current_use
             user_id, req.phone
         )
         return {"session_id": session_id, "phone_code_hash": phone_code_hash}
+    except LoginCapacityError as e:
+        raise HTTPException(status_code=429, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -393,11 +422,15 @@ async def verify_password(req: VerifyPasswordRequest, user_id: int = Depends(get
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/qr-login")
+@router.post("/qr-login")
 async def qr_login(user_id: int = Depends(get_current_user_id)):
     """Start QR login — returns session_id and QR URL."""
     try:
         return await telegram_auth_manager.start_qr_login(user_id)
+    except LoginCapacityError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error starting QR login: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -468,18 +501,14 @@ async def remove_account(account_id: str, user_id: int = Depends(get_current_use
         decrypted = DataEncryption.decrypt_account_data(doc)
         name = decrypted.get("name") or decrypted.get("phone")
 
-        # Disconnect from bot_manager
         bot_manager = _get_bot_manager()
-        if bot_manager and name:
-            user_clients = bot_manager.user_clients.get(user_id, {})
-            client = user_clients.pop(name, None)
-            if client:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-
-        await mongodb.db.accounts.delete_one({"_id": mongo_account_id, "user_id": user_id})
+        if not bot_manager:
+            raise HTTPException(status_code=503, detail="Bot manager not initialized")
+        removed, detail = await bot_manager.remove_account_by_id(
+            user_id, account_id
+        )
+        if not removed:
+            raise HTTPException(status_code=502, detail=detail)
 
         await ws_manager.send_personal_message(
             {"type": "account_removed", "account_id": account_id, "name": name},
@@ -505,19 +534,11 @@ async def get_profile(account_name: str, user_id: int = Depends(get_current_user
     if not bot_manager:
         raise HTTPException(status_code=503, detail="Bot manager not initialized")
 
-    # Resolve client
     user_clients = bot_manager.user_clients.get(user_id, {})
-    client = user_clients.get(account_name)
-    if not client:
-        # Try phone / partial match
-        clean = account_name.replace("+", "").replace(" ", "")
-        for key, c in user_clients.items():
-            if clean in str(key).replace("+", "").replace(" ", ""):
-                client = c
-                break
-    if not client:
-        if len(user_clients) == 1:
-            client = next(iter(user_clients.values()))
+    try:
+        client = resolve_account_client(user_clients, account_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     if not client:
         raise HTTPException(status_code=404, detail=f"No active client for '{account_name}'")
@@ -585,16 +606,10 @@ async def update_profile(
         raise HTTPException(status_code=503, detail="Bot not running")
 
     user_clients = bot_manager.user_clients.get(user_id, {})
-    client = user_clients.get(account_name)
-    if not client:
-        clean = account_name.replace("+", "").replace(" ", "")
-        for key, c in user_clients.items():
-            if clean in str(key).replace("+", "").replace(" ", ""):
-                client = c
-                break
-    if not client:
-        if len(user_clients) == 1:
-            client = next(iter(user_clients.values()))
+    try:
+        client = resolve_account_client(user_clients, account_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     if not client:
         raise HTTPException(status_code=404, detail=f"No active client for '{account_name}'")
 

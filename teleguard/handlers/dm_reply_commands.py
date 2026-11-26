@@ -321,7 +321,9 @@ class DMReplyCommands:
                 if account:
                     me_id = account.get("telegram_id")
                     if me_id:
-                        deleted = await mongodb.db.topic_mappings.delete_many({"account_id": me_id})
+                        deleted = await mongodb.db.topic_mappings.delete_many(
+                            {"user_id": user_id, "account_id": me_id}
+                        )
                         await mongodb.db.dm_senders.delete_many({"account_id": me_id})
                         logger.info(f"Deleted {deleted.deleted_count} topics for account {account_name}")
                 await event.edit(

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.auth.jwt import get_current_user_id
+from backend.api.account_client_resolver import resolve_account_client
 
 router = APIRouter(prefix="/privacy", tags=["Privacy"])
 logger = logging.getLogger(__name__)
@@ -31,13 +32,10 @@ async def _resolve_client(user_id: int, account_name: str):
     if not bm:
         return None
     clients = bm.user_clients.get(user_id, {})
-    client = clients.get(account_name)
-    if not client:
-        clean = account_name.replace("+", "").replace(" ", "")
-        for key, c in clients.items():
-            if clean in str(key).replace("+", "").replace(" ", ""):
-                return c
-    return client
+    try:
+        return resolve_account_client(clients, account_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 # Telethon privacy key type → friendly name mapping

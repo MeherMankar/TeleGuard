@@ -7,11 +7,13 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Set
-from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
+
+MAX_TRUSTED_SESSION_HASHES = 5000
 
 class SessionDestroyerDB:
     """Handles MongoDB persistence for the Session Destroyer feature"""
@@ -32,7 +34,7 @@ class SessionDestroyerDB:
             return settings
         except Exception as e:
             logger.error(f"Error getting session destroyer settings: {e}")
-            return {"enabled": False}
+            raise
 
     @staticmethod
     async def update_settings(user_id: int, enabled: bool):
@@ -45,18 +47,22 @@ class SessionDestroyerDB:
             )
         except Exception as e:
             logger.error(f"Error updating session destroyer settings: {e}")
+            raise
 
     @staticmethod
     async def get_trusted_sessions(user_id: int, account_id: str) -> Set[int]:
         """Get set of trusted session hashes for an account"""
         try:
-            doc = await mongodb.db.trusted_sessions.find_one({"user_id": user_id, "account_id": account_id})
+            doc = await mongodb.db.trusted_sessions.find_one(
+                {"user_id": user_id, "account_id": account_id},
+                {"hashes": {"$slice": -MAX_TRUSTED_SESSION_HASHES}},
+            )
             if doc:
-                return set(doc.get("hashes", []))
+                return set((doc.get("hashes") or [])[-MAX_TRUSTED_SESSION_HASHES:])
             return set()
         except Exception as e:
             logger.error(f"Error getting trusted sessions: {e}")
-            return set()
+            raise
 
     @staticmethod
     async def save_trusted_sessions(user_id: int, account_id: str, hashes: List[int]):
@@ -64,51 +70,91 @@ class SessionDestroyerDB:
         try:
             await mongodb.db.trusted_sessions.update_one(
                 {"user_id": user_id, "account_id": account_id},
-                {"$set": {"hashes": hashes, "updated_at": time.time()}},
+                {
+                    "$set": {
+                        "hashes": hashes[-MAX_TRUSTED_SESSION_HASHES:],
+                        "updated_at": time.time(),
+                    }
+                },
                 upsert=True
             )
         except Exception as e:
             logger.error(f"Error saving trusted sessions: {e}")
+            raise
 
     @staticmethod
     async def add_trusted_hash(user_id: int, account_id: str, session_hash: int):
         """Add a single hash to trusted list"""
         try:
-            await mongodb.db.trusted_sessions.update_one(
-                {"user_id": user_id, "account_id": account_id},
-                {"$addToSet": {"hashes": session_hash}},
-                upsert=True
+            collection = mongodb.db.trusted_sessions
+            identity = {"user_id": user_id, "account_id": account_id}
+            try:
+                await collection.update_one(
+                    identity,
+                    {
+                        "$setOnInsert": {
+                            **identity,
+                            "hashes": [],
+                        }
+                    },
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                # Another concurrent writer created the unique account record.
+                pass
+
+            await collection.update_one(
+                {
+                    **identity,
+                    "hashes": {"$ne": session_hash},
+                },
+                {
+                    "$push": {
+                        "hashes": {
+                            "$each": [session_hash],
+                            "$slice": -MAX_TRUSTED_SESSION_HASHES,
+                        }
+                    }
+                },
             )
         except Exception as e:
             logger.error(f"Error adding trusted hash: {e}")
+            raise
 
     @staticmethod
     async def log_destruction(user_id: int, account_id: str, session_info: Dict[str, Any]):
         """Log a session destruction event and push WebSocket alert to webapp."""
+        log_entry = {
+            "user_id": user_id,
+            "account_id": account_id,
+            "device": session_info.get("device", "Unknown"),
+            "ip": session_info.get("ip", "Unknown"),
+            "platform": session_info.get("platform", "Unknown"),
+            "app_version": session_info.get("app_version", "Unknown"),
+            "country": session_info.get("country", "Unknown"),
+            "hash": session_info.get("hash"),
+            "timestamp": datetime.now(timezone.utc),
+            "success": session_info.get("success", True),
+        }
         try:
-            log_entry = {
-                "user_id": user_id,
-                "account_id": account_id,
-                "device": session_info.get("device", "Unknown"),
-                "ip": session_info.get("ip", "Unknown"),
-                "platform": session_info.get("platform", "Unknown"),
-                "app_version": session_info.get("app_version", "Unknown"),
-                "country": session_info.get("country", "Unknown"),
-                "hash": session_info.get("hash"),
-                "timestamp": datetime.now(timezone.utc),
-                "success": session_info.get("success", True)
-            }
             await mongodb.db.session_destroyer_logs.insert_one(log_entry)
-            
             await mongodb.db.users.update_one(
                 {"telegram_id": user_id},
-                {"$inc": {"destroyed_sessions_count": 1}, "$set": {"last_destroyed_session_time": time.time()}}
+                {
+                    "$inc": {"destroyed_sessions_count": 1},
+                    "$set": {"last_destroyed_session_time": time.time()},
+                },
             )
+        except Exception:
+            logger.exception("Could not persist session destruction log")
+            raise
 
-            # Push real-time alert to webapp
-            try:
-                from backend.notifier import notify
-                await notify(user_id, {
+        try:
+            from backend.notifier import notify
+
+            await notify(
+                user_id,
+                {
                     "type": "security_alert",
                     "subtype": "session_destroyed",
                     "account_id": account_id,
@@ -117,22 +163,21 @@ class SessionDestroyerDB:
                     "country": session_info.get("country", "Unknown"),
                     "hash": session_info.get("hash"),
                     "message": f"Unauthorized session destroyed: {session_info.get('device', 'Unknown')} ({session_info.get('ip', 'Unknown')})",
-                })
-            except Exception:
-                pass
-
-        except Exception as e:
-            logger.error(f"Error logging destruction: {e}")
+                },
+            )
+        except Exception:
+            logger.exception("Could not notify user about session destruction")
 
     @staticmethod
     async def get_logs(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent destruction logs for a user"""
         try:
+            limit = min(max(int(limit), 1), 200)
             cursor = mongodb.db.session_destroyer_logs.find({"user_id": user_id}).sort("timestamp", -1).limit(limit)
             return await cursor.to_list(length=limit)
         except Exception as e:
             logger.error(f"Error getting destruction logs: {e}")
-            return []
+            raise
 
     @staticmethod
     async def get_stats(user_id: int) -> Dict[str, Any]:
@@ -157,4 +202,4 @@ class SessionDestroyerDB:
             }
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
-            return {"destroyed_count": 0, "last_time": None, "protected_accounts": 0}
+            raise

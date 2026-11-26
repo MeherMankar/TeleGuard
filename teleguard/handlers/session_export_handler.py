@@ -11,6 +11,7 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 
 from ..core.mongo_database import mongodb
+from ..core.otp_protection import otp_expiry_fields
 from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
@@ -563,17 +564,23 @@ class SessionExportHandler:
         except Exception:
             pass
 
-    async def _create_otp_protection_entry(self, phone):
+    async def _create_otp_protection_entry(self, phone, user_id):
         """Create cross-process OTP protection entry"""
         try:
             await mongodb.db.otp_protections.update_one(
-                {"phone": phone, "wildcard": True},
+                {
+                    "phone": phone,
+                    "user_id": user_id,
+                    "wildcard": True,
+                    "reason": "session_creation",
+                },
                 {
                     "$set": {
                         "phone": phone,
+                        "user_id": user_id,
                         "wildcard": True,
-                        "expires_at": int(time.time()) + 60,
-                        "expires_at_dt": datetime.utcfromtimestamp(int(time.time()) + 60),
+                        "reason": "session_creation",
+                        **otp_expiry_fields(int(time.time()) + 60),
                     }
                 },
                 upsert=True,
@@ -586,7 +593,7 @@ class SessionExportHandler:
         try:
             sent_code = await temp_client.send_code_request(phone)
             logger.info(f"OTP request sent successfully for {phone}")
-            await self._create_otp_protection_entry(phone)
+            await self._create_otp_protection_entry(phone, user_id)
             return sent_code, None
         except Exception as send_err:
             if isinstance(send_err, FloodWaitError):
@@ -727,7 +734,7 @@ class SessionExportHandler:
                         match = re.search(pattern, msg.text, re.IGNORECASE)
                         if match:
                             otp = match.group(1)
-                            logger.info(f"Found OTP: {otp}")
+                            logger.info("Found an OTP")
                             await event.edit(f"✅ **OTP: {otp}**\n\nProcessing...")
                             await self.process_fresh_session_otp(user_id, otp)
                             return True
@@ -1094,7 +1101,7 @@ class SessionExportHandler:
                 sent_code = session_data.get("sent_code")
                 authenticated = False
                 try:
-                    logger.info(f"Attempting sign-in for {account_name} with OTP: {otp_code}")
+                    logger.info("Attempting sign-in for %s with an OTP", account_name)
                     authenticated = await self._sign_in_with_otp(client, phone, otp_code, sent_code, account_name)
                 except Exception as e:
                     if type(e).__name__ == "SessionPasswordNeededError":

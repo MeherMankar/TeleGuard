@@ -267,7 +267,12 @@ class DMReplyHandler:
                 if not event.text and not event.media:
                     return
                 topic_id = self._extract_topic_id(event)
-                logger.info(f"Topic reply detected: topic_id={topic_id}, chat={event.chat_id}, text={event.text[:50]}")
+                logger.info(
+                    "Topic reply detected: topic_id=%s, chat=%s, has_text=%s",
+                    topic_id,
+                    event.chat_id,
+                    bool(event.text),
+                )
                 if not topic_id:
                     logger.debug("No topic_id found, skipping")
                     return

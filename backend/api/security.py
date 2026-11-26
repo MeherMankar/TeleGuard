@@ -6,7 +6,7 @@ so bot and webapp changes are visible to the same watcher.
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -17,6 +17,9 @@ from teleguard.services.protection_storage import ProtectionStorage
 
 router = APIRouter(prefix="/security", tags=["Security"])
 logger = logging.getLogger(__name__)
+
+MAX_SECURITY_ACCOUNT_ROWS = 200
+MAX_SESSION_HASHES_PER_ACCOUNT = 5000
 
 
 def _get_bot_manager():
@@ -86,10 +89,21 @@ async def get_settings(user_id: int = Depends(get_current_user_id)):
         # Count destroyed sessions from stats sub-document
         stats = settings.get("stats", {})
         destroyed_count = stats.get("sessions_destroyed", 0)
+        for field in ("trusted_hashes", "untrusted_hashes", "destroyed_hashes"):
+            hashes = settings.get(field)
+            if isinstance(hashes, list):
+                settings[field] = hashes[-MAX_SESSION_HASHES_PER_ACCOUNT:]
 
         account_settings = await mongodb.db.session_destroyer_account_settings.find(
-            {"user_id": user_id}
-        ).to_list(length=None)
+            {"user_id": user_id},
+            {
+                "account_id": 1,
+                "enabled": 1,
+                "allow_next": 1,
+                "allow_next_until": 1,
+                "trusted_hashes": {"$slice": -MAX_SESSION_HASHES_PER_ACCOUNT},
+            },
+        ).to_list(length=MAX_SECURITY_ACCOUNT_ROWS)
         for account_setting in account_settings:
             allow_next_until = account_setting.get("allow_next_until")
             if isinstance(allow_next_until, str):
@@ -224,7 +238,10 @@ async def allow_next_login(
 # ── Security logs ─────────────────────────────────────────────────────────────
 
 @router.get("/logs", response_model=List[Dict[str, Any]])
-async def get_logs(limit: int = 15, user_id: int = Depends(get_current_user_id)):
+async def get_logs(
+    limit: int = Query(default=15, ge=1, le=200),
+    user_id: int = Depends(get_current_user_id),
+):
     """Get recent session destruction logs."""
     try:
         from teleguard.sync.session_destroyer_db import SessionDestroyerDB
@@ -249,12 +266,18 @@ async def get_trusted_sessions(user_id: int = Depends(get_current_user_id)):
     """Get protected session hashes grouped by account."""
     try:
         rows = await mongodb.db.session_destroyer_account_settings.find(
-            {"user_id": user_id}
-        ).to_list(length=None)
+            {"user_id": user_id},
+            {
+                "account_id": 1,
+                "trusted_hashes": {"$slice": -MAX_SESSION_HASHES_PER_ACCOUNT},
+            },
+        ).to_list(length=MAX_SECURITY_ACCOUNT_ROWS)
         return [
             {
                 "account_id": row["account_id"],
-                "hashes": row.get("trusted_hashes", []),
+                "hashes": (row.get("trusted_hashes") or [])[
+                    -MAX_SESSION_HASHES_PER_ACCOUNT:
+                ],
             }
             for row in rows
         ]

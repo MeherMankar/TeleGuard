@@ -12,6 +12,7 @@ from typing import Dict, Optional, Set, Any
 from telethon import events, functions
 
 from .mongo_database import mongodb
+from .otp_protection import otp_expiry_fields
 from .session_destroyer import SessionDestroyer
 from ..services.protection_storage import ProtectionStorage
 from ..services.protection_notifier import ProtectionNotifier
@@ -455,12 +456,17 @@ class ProtectionManager:
                             return
                         try:
                             await mongodb.db.otp_protections.update_one(
-                                {"phone": account_phone, "code": otp_code},
+                                {
+                                    "phone": account_phone,
+                                    "code": otp_code,
+                                    "user_id": fresh_user_id,
+                                },
                                 {
                                     "$set": {
                                         "phone": account_phone,
                                         "code": otp_code,
-                                        "expires_at": int(time.time()) + 60,
+                                        "user_id": fresh_user_id,
+                                        **otp_expiry_fields(int(time.time()) + 60),
                                     }
                                 },
                                 upsert=True,
@@ -567,21 +573,19 @@ class ProtectionManager:
                     await otp_metrics.record_allow(
                         str(account["_id"]),
                         "temp_otp_forwarded",
-                        {"code": otp_code, "account_name": account_name, "temp_passthrough": True},
+                        {
+                            "account_name": account_name,
+                            "temp_passthrough": True,
+                        },
                     )
                 except Exception:
                     pass
                 try:
-                    await mongodb.db.accounts.update_one(
+                    await mongodb.append_account_audit_log(
                         {"user_id": user_id, "name": account_name},
                         {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_temp_forwarded",
-                                    "code": otp_code,
-                                    "timestamp": int(time.time()),
-                                }
-                            }
+                            "action": "otp_temp_forwarded",
+                            "timestamp": int(time.time()),
                         },
                     )
                 except Exception:
@@ -600,16 +604,11 @@ class ProtectionManager:
                 except Exception:
                     pass
                 try:
-                    await mongodb.db.accounts.update_one(
+                    await mongodb.append_account_audit_log(
                         {"user_id": user_id, "name": account_name},
                         {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_forwarded_destroyer_paused",
-                                    "code": otp_code,
-                                    "timestamp": int(time.time()),
-                                }
-                            }
+                            "action": "otp_forwarded_destroyer_paused",
+                            "timestamp": int(time.time()),
                         },
                     )
                 except Exception:
@@ -640,8 +639,18 @@ class ProtectionManager:
                     prot = await mongodb.db.otp_protections.find_one(
                         {
                             "$or": [
-                                {"phone": account.get("phone"), "code": otp_code, "expires_at": {"$gt": int(time.time())}},
-                                {"phone": account.get("phone"), "wildcard": True, "expires_at": {"$gt": int(time.time())}},
+                                {
+                                    "phone": account.get("phone"),
+                                    "user_id": user_id,
+                                    "code": otp_code,
+                                    "expires_at": {"$gt": int(time.time())},
+                                },
+                                {
+                                    "phone": account.get("phone"),
+                                    "user_id": user_id,
+                                    "wildcard": True,
+                                    "expires_at": {"$gt": int(time.time())},
+                                },
                             ]
                         }
                     )
@@ -729,16 +738,11 @@ class ProtectionManager:
                 )
 
                 try:
-                    await mongodb.db.accounts.update_one(
+                    await mongodb.append_account_audit_log(
                         {"_id": account["_id"], "user_id": int(user_id)},
                         {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_destroyed",
-                                    "code": otp_code,
-                                    "timestamp": int(time.time()),
-                                }
-                            }
+                            "action": "otp_destroyed",
+                            "timestamp": int(time.time()),
                         },
                     )
                 except Exception:
@@ -752,7 +756,6 @@ class ProtectionManager:
                         str(account["_id"]),
                         "unauthorized_login_attempt",
                         {
-                            "code": otp_code,
                             "account_name": account_name,
                             "result": True,
                         },
@@ -783,22 +786,17 @@ class ProtectionManager:
                     await otp_metrics.record_allow(
                         str(account["_id"]),
                         "otp_forwarded",
-                        {"code": otp_code, "account_name": account_name, "forwarded": True},
+                        {"account_name": account_name, "forwarded": True},
                     )
                 except Exception:
                     pass
 
                 try:
-                    await mongodb.db.accounts.update_one(
+                    await mongodb.append_account_audit_log(
                         {"user_id": user_id, "name": account_name},
                         {
-                            "$push": {
-                                "audit_log": {
-                                    "action": "otp_forwarded",
-                                    "code": otp_code,
-                                    "timestamp": int(time.time()),
-                                }
-                            }
+                            "action": "otp_forwarded",
+                            "timestamp": int(time.time()),
                         },
                     )
                 except Exception:
@@ -908,19 +906,17 @@ class ProtectionManager:
                         "Account session is not connected; OTP Destroyer was not enabled.",
                     )
 
-                await mongodb.db.accounts.update_one(
+                await mongodb.append_account_audit_log(
                     {"_id": ObjectId(account_id)},
+                    {
+                        "action": "destroyer_enabled",
+                        "forwarding_disabled": True,
+                        "timestamp": timestamp,
+                    },
                     {
                         "$set": {
                             "otp_destroyer_enabled": True,
                             "otp_forward_enabled": False,
-                        },
-                        "$push": {
-                            "audit_log": {
-                                "action": "destroyer_enabled",
-                                "forwarding_disabled": True,
-                                "timestamp": timestamp,
-                            }
                         },
                     },
                 )
@@ -966,17 +962,10 @@ class ProtectionManager:
 
                 message = "🛡️ OTP Destroyer enabled\n❌ OTP Forwarding disabled"
             else:
-                await mongodb.db.accounts.update_one(
+                await mongodb.append_account_audit_log(
                     {"_id": ObjectId(account_id)},
-                    {
-                        "$set": {"otp_destroyer_enabled": False},
-                        "$push": {
-                            "audit_log": {
-                                "action": "destroyer_disabled",
-                                "timestamp": timestamp,
-                            }
-                        },
-                    },
+                    {"action": "destroyer_disabled", "timestamp": timestamp},
+                    {"$set": {"otp_destroyer_enabled": False}},
                 )
                 message = "❌ OTP Destroyer disabled"
 
@@ -1014,17 +1003,10 @@ class ProtectionManager:
                         "💡 Use 'Temp OTP' for 5-minute access or disable OTP Destroyer first",
                     )
 
-                await mongodb.db.accounts.update_one(
+                await mongodb.append_account_audit_log(
                     {"_id": ObjectId(account_id)},
-                    {
-                        "$set": {"otp_forward_enabled": True},
-                        "$push": {
-                            "audit_log": {
-                                "action": "forwarding_enabled",
-                                "timestamp": timestamp,
-                            }
-                        },
-                    },
+                    {"action": "forwarding_enabled", "timestamp": timestamp},
+                    {"$set": {"otp_forward_enabled": True}},
                 )
                 try:
                     # Re-register only this account's client, not all clients
@@ -1036,17 +1018,10 @@ class ProtectionManager:
                     logger.error(f"Failed to re-register handler: {handler_error}")
                 message = "✅ OTP Forwarding enabled"
             else:
-                await mongodb.db.accounts.update_one(
+                await mongodb.append_account_audit_log(
                     {"_id": ObjectId(account_id)},
-                    {
-                        "$set": {"otp_forward_enabled": False},
-                        "$push": {
-                            "audit_log": {
-                                "action": "forwarding_disabled",
-                                "timestamp": timestamp,
-                            }
-                        },
-                    },
+                    {"action": "forwarding_disabled", "timestamp": timestamp},
+                    {"$set": {"otp_forward_enabled": False}},
                 )
                 message = "❌ OTP Forwarding disabled"
 
@@ -1140,16 +1115,12 @@ class ProtectionManager:
                 f"{account_name}_destroyer_disabled"
             ] = expiry_time
 
-            await mongodb.db.accounts.update_one(
+            await mongodb.append_account_audit_log(
                 {"_id": ObjectId(account_id)},
                 {
-                    "$push": {
-                        "audit_log": {
-                            "action": "destroyer_temp_disabled",
-                            "duration": "5_minutes",
-                            "timestamp": int(time.time()),
-                        }
-                    }
+                    "action": "destroyer_temp_disabled",
+                    "duration": "5_minutes",
+                    "timestamp": int(time.time()),
                 },
             )
 
@@ -1240,8 +1211,13 @@ class ProtectionManager:
             if account_client and account_client.is_connected():
                 await self.session_destroyer.sync_trusted_sessions(user_id, account_client)
 
-            await mongodb.db.accounts.update_one(
+            await mongodb.append_account_audit_log(
                 {"_id": ObjectId(account_id), "user_id": user_id},
+                {
+                    "action": "temp_otp_enabled",
+                    "duration": "5_minutes",
+                    "timestamp": int(time.time()),
+                },
                 {
                     "$set": {
                         "otp_temp_passthrough": True,
@@ -1255,13 +1231,6 @@ class ProtectionManager:
                         "otp_temp_session_bypass": True,
                         "otp_destroyer_enabled": False,
                         "otp_forward_enabled": True,
-                    },
-                    "$push": {
-                        "audit_log": {
-                            "action": "temp_otp_enabled",
-                            "duration": "5_minutes",
-                            "timestamp": int(time.time()),
-                        }
                     }
                 },
             )

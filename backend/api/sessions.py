@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from backend.auth.jwt import get_current_user_id
 from backend.websocket.manager import manager as ws_manager
 from teleguard.core.mongo_database import mongodb
+from teleguard.core.otp_protection import otp_expiry_fields
 from teleguard.utils.crypto_utils import DataEncryption
 from teleguard.core.client_manager import get_client_manager
 
@@ -136,11 +137,11 @@ async def request_otp(payload: AddSessionRequest, user_id: int = Depends(get_cur
         # OTP protection
         try:
             await mongodb.db.otp_protections.update_one(
-                {"phone": phone},
+                {"phone": phone, "user_id": user_id, "reason": "account_addition"},
                 {"$set": {
                     "phone": phone,
                     "wildcard": True,
-                    "expires_at": int(time.time()) + 600,
+                    **otp_expiry_fields(int(time.time()) + 600),
                     "reason": "account_addition",
                     "user_id": user_id,
                 }},
@@ -221,7 +222,9 @@ async def confirm_otp(payload: ConfirmSessionRequest, user_id: int = Depends(get
 
         # Cleanup
         try:
-            await db.db.otp_protections.delete_one({"phone": phone, "reason": "account_addition"})
+            await db.db.otp_protections.delete_one(
+                {"phone": phone, "user_id": user_id, "reason": "account_addition"}
+            )
         except Exception:
             pass
         bot_manager.pending_actions.pop(user_id, None)

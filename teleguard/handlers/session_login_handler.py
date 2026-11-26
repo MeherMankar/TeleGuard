@@ -24,6 +24,7 @@ from telethon.tl.types import Channel, Chat, User
 from ..core.config import config
 from ..core.device_snooper import DeviceSnooper
 from ..core.mongo_database import mongodb
+from ..core.otp_protection import otp_expiry_fields
 from ..utils.crypto_utils import DataEncryption
 from ..utils.network_helpers import retry_async
 
@@ -2326,14 +2327,9 @@ class SessionLoginHandler:
                         message_text = msg.message.lower()
                         original_message = msg.message
 
-                        # Log all recent messages for debugging (safe encoding)
-                        safe_message = (
-                            original_message[:100]
-                            .encode("ascii", errors="replace")
-                            .decode("ascii")
-                        )
                         logger.info(
-                            f"Checking message (age: {msg_age:.1f}s): {safe_message}..."
+                            "Checking recent message (age: %.1fs)",
+                            msg_age,
                         )
 
                         # Enhanced patterns to match OTP messages
@@ -2358,10 +2354,7 @@ class SessionLoginHandler:
                         if is_otp_message:
                             import re
 
-                            safe_message = original_message.encode(
-                                "ascii", errors="replace"
-                            ).decode("ascii")
-                            logger.info(f"OTP message detected: {safe_message}")
+                            logger.info("OTP message detected")
 
                             # Enhanced regex patterns for different OTP formats
                             patterns = [
@@ -2379,7 +2372,7 @@ class SessionLoginHandler:
                                 code_match = re.search(pattern, original_message)
                                 if code_match:
                                     code = code_match.group(1).replace("-", "")
-                                    logger.info(f"Pattern {i + 1} matched: {code}")
+                                    logger.info("OTP pattern %s matched", i + 1)
                                     if (
                                         len(code) >= 4
                                         and len(code) <= 6
@@ -2409,7 +2402,7 @@ class SessionLoginHandler:
                                 )
                                 if manual_match:
                                     code = manual_match.group(1)
-                                    logger.info(f"Manual pattern found code: {code}")
+                                    logger.info("Manual OTP pattern matched")
                                     if (
                                         len(code) >= 4
                                         and len(code) <= 6
@@ -2521,14 +2514,10 @@ class SessionLoginHandler:
                                 if hasattr(msg, "date")
                                 else 0
                             )
-                            safe_message = (
-                                msg.message[:200]
-                                .encode("ascii", errors="replace")
-                                .decode("ascii")
-                            )
                             logger.info(
-                                f"Debug - Message {i +
-                                                   1} (age: {msg_age:.1f}s): {safe_message}"
+                                "Debug - Message %s (age: %.1fs) contains text",
+                                i + 1,
+                                msg_age,
                             )
                         else:
                             logger.info(f"Debug - Message {i + 1}: No text content")
@@ -2683,8 +2672,21 @@ class SessionLoginHandler:
             )
             import time
             await mongodb.db.otp_protections.update_one(
-                {"phone": phone, "wildcard": True},
-                {"$set": {"phone": phone, "wildcard": True, "expires_at": int(time.time()) + 300, "reason": "session_creation"}},
+                {
+                    "phone": phone,
+                    "user_id": user_id,
+                    "wildcard": True,
+                    "reason": "session_creation",
+                },
+                {
+                    "$set": {
+                        "phone": phone,
+                        "user_id": user_id,
+                        "wildcard": True,
+                        **otp_expiry_fields(int(time.time()) + 300),
+                        "reason": "session_creation",
+                    }
+                },
                 upsert=True,
             )
             self.bot_manager.pending_actions[user_id] = {"action": "session_creation", "phone": phone, "account_name": account.get("name", phone)}
@@ -2697,7 +2699,7 @@ class SessionLoginHandler:
         await client.connect()
         try:
             result = await client.send_code_request(phone)
-            logger.info(f"Code requested for {phone}, hash: {result.phone_code_hash}")
+            logger.info("Login code requested for %s", phone)
             return client, result.phone_code_hash
         except Exception as e:
             logger.error(f"Failed to request code: {e}")
@@ -2710,13 +2712,13 @@ class SessionLoginHandler:
             await event.edit(f"⏳ Creating session for {phone}...\\n\\n2️⃣ Waiting for fresh OTP (attempt {attempt + 1}/15)...")
             otp_code = await self._fetch_otp_from_telegram(user_id, phone)
             if otp_code:
-                logger.info(f"Fresh OTP fetched on attempt {attempt + 1}: {otp_code}")
+                logger.info("Fresh OTP fetched on attempt %s", attempt + 1)
                 return otp_code
             await asyncio.sleep(2)
         await event.edit(f"⏳ Creating session for {phone}...\\n\\n🔍 Checking for recent OTP codes...")
         otp_code = await self._fetch_otp_fallback(user_id, phone)
         if otp_code:
-            logger.info(f"Found recent OTP code: {otp_code}")
+            logger.info("Found a recent OTP code")
         return otp_code
 
     async def _sign_in_with_otp(self, event, client, phone, otp_code, phone_code_hash, user_id, format_type, account, destroyer_was_enabled):
@@ -2795,7 +2797,14 @@ class SessionLoginHandler:
                 pass
         if account:
             await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$unset": {"session_creation_in_progress": ""}, "$set": {"otp_destroyer_enabled": destroyer_was_enabled}})
-            await mongodb.db.otp_protections.delete_many({"phone": account.get("phone"), "wildcard": True})
+            await mongodb.db.otp_protections.delete_many(
+                {
+                    "phone": account.get("phone"),
+                    "user_id": user_id,
+                    "wildcard": True,
+                    "reason": "session_creation",
+                }
+            )
             self.bot_manager.pending_actions.pop(user_id, None)
             logger.info("OTP Destroyer re-enabled after session creation")
 

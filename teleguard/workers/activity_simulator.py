@@ -641,16 +641,12 @@ class ActivitySimulator:
             from ..core.mongo_database import mongodb
             from bson import ObjectId
 
-            await mongodb.db.accounts.update_one(
+            await mongodb.append_account_audit_log(
                 {"_id": ObjectId(account_id)},
                 {
-                    "$push": {
-                        "audit_log": {
-                            "action": f"Simulation: {action_type}",
-                            "details": action_desc,
-                            "timestamp": int(time.time()),
-                        }
-                    }
+                    "action": f"Simulation: {action_type}",
+                    "details": action_desc,
+                    "timestamp": int(time.time()),
                 },
             )
 
