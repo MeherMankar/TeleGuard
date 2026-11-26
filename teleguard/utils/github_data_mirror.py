@@ -105,6 +105,12 @@ class GitHubDataMirror:
             status = error.code
             response_body = error.read()
 
+        if status == 404 and method == "GET" and not endpoint:
+            raise RuntimeError(
+                f"GitHub data mirror repository '{self.repository}' was not "
+                "found or is inaccessible to GITHUB_DATA_TOKEN. Verify "
+                "GITHUB_DATA_REPO and the token's access to the public repository."
+            )
         if not 200 <= status < 300 and status not in allow_status:
             raise RuntimeError(
                 f"GitHub data mirror request failed with HTTP {status}"

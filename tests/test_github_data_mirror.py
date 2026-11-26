@@ -1,6 +1,8 @@
 import base64
+import io
 import json
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 from cryptography.fernet import Fernet
@@ -47,7 +49,9 @@ def test_prepare_records_encrypts_documents_and_uses_opaque_ids(mirror):
 def test_public_mirror_rejects_private_repositories(mirror, monkeypatch):
     instance, _ = mirror
     instance.api_url = "https://api.github.com/repos/owner/database"
+    instance.repository = "owner/database"
     instance.headers = {}
+
     def private_repo_request(method, endpoint):
         assert (method, endpoint) == ("GET", "")
         return 200, {"private": True}
@@ -56,6 +60,30 @@ def test_public_mirror_rejects_private_repositories(mirror, monkeypatch):
 
     with pytest.raises(ValueError, match="must be a public repository"):
         instance._ensure_public_branch()
+
+
+def test_repository_404_reports_configuration_and_access_guidance(mirror, monkeypatch):
+    instance, _ = mirror
+    instance.api_url = "https://api.github.com/repos/owner/database"
+    instance.repository = "owner/database"
+    instance.headers = {}
+
+    def missing_repository(*args, **kwargs):
+        raise HTTPError(
+            instance.api_url,
+            404,
+            "Not Found",
+            {},
+            io.BytesIO(b'{"message":"Not Found"}'),
+        )
+
+    monkeypatch.setattr(github_data_mirror, "urlopen", missing_repository)
+
+    with pytest.raises(RuntimeError, match="owner/database") as error:
+        instance._request("GET", "")
+
+    assert "GITHUB_DATA_REPO" in str(error.value)
+    assert "GITHUB_DATA_TOKEN" in str(error.value)
 
 
 def test_legacy_db_github_variables_configure_encrypted_mirror(monkeypatch):

@@ -309,6 +309,10 @@ backup repositories must remain private. Configure these as **service
 environment variables** on Koyeb—GitHub Actions repository secrets are not
 automatically passed to the running service. GitHub commit history retains
 previous encrypted payloads after updates/deletions.
+If mirror startup reports HTTP 404 while looking up the repository, verify
+`GITHUB_DATA_REPO` names the intended public repository and `GITHUB_DATA_TOKEN`
+has access to it; GitHub also returns 404 for repositories the token cannot
+access.
 For compatibility, `USE_GITHUB_DB=true` and `DB_WRITE_ALLOWED=true` enable the
 encrypted mirror when `GITHUB_DATA_MIRROR_ENABLED` is unset. `DB_GITHUB_OWNER`,
 `DB_GITHUB_REPO`, `DB_GITHUB_BRANCH`, and `DB_GITHUB_TOKEN` configure its target.
