@@ -56,6 +56,29 @@ class ActivitySimulator:
                 task.cancel()
             self.simulation_tasks.clear()
 
+    async def add_account(
+        self, user_id: int, account_name: str, client: Any
+    ) -> None:
+        """Start simulation for a newly available account when it is enabled."""
+        if not self.running or not client or not client.is_connected():
+            return
+
+        account = await mongodb.db.accounts.find_one(
+            {"user_id": user_id, "name": account_name}
+        )
+        if not account:
+            return
+
+        account = DataEncryption.decrypt_account_data(account)
+        if not account.get("is_active") or not account.get("simulation_enabled"):
+            return
+
+        await self._start_account_simulation(
+            user_id,
+            account["_id"],
+            account.get("name", account_name),
+        )
+
     async def enable_simulation(
         self, user_id: int, account_id: int
     ) -> tuple[bool, str]:

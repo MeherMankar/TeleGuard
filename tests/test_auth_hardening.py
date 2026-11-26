@@ -113,6 +113,16 @@ def test_jwt_secret_must_meet_minimum_length():
         SecurityConfig(jwt_secret="too-short")
 
 
+def test_session_backup_encryption_warning_uses_fernet_key(caplog):
+    SecurityConfig(
+        jwt_secret=SECRET_KEY,
+        fernet_key="configured-fernet-key",
+        session_backup_enabled=True,
+    )
+
+    assert "Session backup enabled but FERNET_KEY is not configured" not in caplog.text
+
+
 def test_login_session_is_only_available_to_its_owner():
     manager = object.__new__(TelegramAuthManager)
     manager.pending_logins = {

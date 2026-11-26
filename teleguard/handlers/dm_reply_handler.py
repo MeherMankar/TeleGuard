@@ -340,7 +340,7 @@ class DMReplyHandler:
             import random
 
             result = await self.bot(
-                functions.channels.CreateForumTopicRequest(
+                functions.messages.CreateForumTopicRequest(
                     channel=group_id,
                     title=topic_title,
                     icon_color=0x6FB9F0,

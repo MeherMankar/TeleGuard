@@ -514,7 +514,7 @@ class DumpHandler:
             return None
 
         try:
-            from telethon.tl.functions.channels import CreateForumTopicRequest
+            from telethon.tl.functions.messages import CreateForumTopicRequest
             result = await self.bot(
                 CreateForumTopicRequest(
                     channel=dest_entity,

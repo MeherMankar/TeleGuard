@@ -123,7 +123,7 @@ class TopicDMHandler:
             # Create new topic
             topic_title = self._get_topic_title(sender, account_id)
             result = await self.bot(
-                functions.channels.CreateForumTopicRequest(
+                functions.messages.CreateForumTopicRequest(
                     channel=admin_group_id,
                     title=topic_title,
                     random_id=hash(f"{sender_id}_{account_id}"),

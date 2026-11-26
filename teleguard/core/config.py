@@ -82,8 +82,8 @@ class SecurityConfig:
         """Validate security configuration"""
         if not self.jwt_secret or len(self.jwt_secret) < 32:
             raise ConfigurationError("JWT_SECRET must be at least 32 characters long")
-        if self.session_backup_enabled and not self.backup_encryption_key:
-            logger.warning("Session backup enabled but no encryption key provided")
+        if self.session_backup_enabled and not self.fernet_key:
+            logger.warning("Session backup enabled but FERNET_KEY is not configured")
 
 
 @dataclass
