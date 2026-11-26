@@ -1201,21 +1201,14 @@ class SessionLoginHandler:
                 "• Check spam status\n"
                 "• View account details\n\n"
                 "**📢 Channel Operations**\n"
-                "• Subscribe to channels\n"
-                "• Leave channels\n"
-                "• Manage subscriptions\n\n"
+                "• Subscribe to a channel\n\n"
                 "**💬 Messaging**\n"
-                "• Send messages\n"
-                "• Bulk messaging\n"
-                "• Message templates\n\n"
+                "• Send a message\n\n"
                 "**🗑️ Cleanup**\n"
-                "• Delete dialogs\n"
-                "• Clean conversations\n"
-                "• Remove contacts\n\n"
+                "• Delete selected dialog types\n\n"
                 "**📤 Export**\n"
                 "• Export contacts\n"
-                "• Generate TData\n"
-                "• Backup session"
+                "• Export your session string"
             )
 
             buttons = [
@@ -1241,7 +1234,7 @@ class SessionLoginHandler:
                 ],
                 [
                     Button.inline(
-                        "💾 Generate TData", f"session_op:tdata:{account_id}"
+                        "ℹ️ TData Help", f"session_op:tdata:{account_id}"
                     ),
                     Button.inline("💰 Check Wallet", f"session_op:wallet:{account_id}"),
                 ],

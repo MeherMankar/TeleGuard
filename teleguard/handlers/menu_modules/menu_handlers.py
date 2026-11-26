@@ -97,6 +97,7 @@ class MenuHandlers:
                     Button.inline("🔐 Session Login", "session_login"),
                     Button.inline("📥 Import Sessions", "import_sessions"),
                 ],
+                [Button.inline("💾 Backup / Restore", "backup_menu")],
                 [Button.inline("❓ Setup Guide", "help:guide")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
@@ -139,6 +140,7 @@ class MenuHandlers:
                         Button.inline("🔄 Refresh Status", "account:refresh"),
                         Button.inline("📋 Detailed List", "account:list"),
                     ],
+                    [Button.inline("💾 Backup / Restore", "backup_menu")],
                     [Button.inline("🔙 Back to Main Menu", "menu:main")],
                 ]
             )
@@ -154,6 +156,7 @@ class MenuHandlers:
             buttons = [
                 [Button.inline("🚀 Add First Account", "account:add")],
                 [Button.inline("❓ Security Guide", "help:security")],
+                [Button.inline("🔐 Security Dashboard", "security_dashboard")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         else:
@@ -223,6 +226,7 @@ class MenuHandlers:
                     Button.inline("🔴 Disable All OTP Protection", "otp:disable_all"),
                 ],
                 [Button.inline("📋 Security Audit Log", "otp:audit_all")],
+                [Button.inline("🔐 Security Dashboard", "security_dashboard")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],
             ]
         await self._render_menu(

@@ -390,10 +390,59 @@ class SpamFiltersHandler:
             )
             await settings_menu(event)
 
+        @self.bot.on(events.CallbackQuery(pattern=b"set_max_users"))
+        async def set_max_users(event):
+            user_id = event.sender_id
+            await mongodb.db.temp_data.update_one(
+                {"user_id": user_id, "type": "max_users_wait"},
+                {"$set": {"field": "max_users"}},
+                upsert=True,
+            )
+            await event.answer()
+            await self.bot.send_message(
+                user_id,
+                "Send the maximum users per campaign (1-500), or /cancel:",
+            )
+
     def _register_message_handler(self):
         @self.bot.on(events.NewMessage(incoming=True))
         async def handle_filter_inputs(msg_event):
+            if not msg_event.is_private or not msg_event.raw_text:
+                return
             user_id = msg_event.sender_id
+
+            max_users_state = await mongodb.db.temp_data.find_one(
+                {"user_id": user_id, "type": "max_users_wait"}
+            )
+            if max_users_state:
+                value_text = msg_event.raw_text.strip()
+                if value_text.lower() == "/cancel":
+                    await mongodb.db.temp_data.delete_one(
+                        {"user_id": user_id, "type": "max_users_wait"}
+                    )
+                    await msg_event.reply("Maximum users update cancelled.")
+                    return
+
+                try:
+                    value = int(value_text)
+                except ValueError:
+                    await msg_event.reply("Send a whole number between 1 and 500.")
+                    return
+
+                if not 1 <= value <= 500:
+                    await msg_event.reply("Value must be between 1 and 500.")
+                    return
+
+                await mongodb.db.spam_config.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"max_users": value}},
+                    upsert=True,
+                )
+                await mongodb.db.temp_data.delete_one(
+                    {"user_id": user_id, "type": "max_users_wait"}
+                )
+                await msg_event.reply(f"✅ Maximum users per campaign set to {value}.")
+                return
 
             # Handle delay settings
             delay_state = await mongodb.db.temp_data.find_one(

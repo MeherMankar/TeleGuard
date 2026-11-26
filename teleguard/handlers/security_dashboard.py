@@ -29,6 +29,10 @@ class SecurityDashboard:
             self._show_security_report,
             events.CallbackQuery(pattern=r"^security_report$"),
         )
+        self.bot.add_event_handler(
+            self._show_security_alerts,
+            events.CallbackQuery(pattern=r"^security_alerts$"),
+        )
 
     async def _show_security_dashboard(self, event):
         """Show security dashboard"""
@@ -105,3 +109,47 @@ class SecurityDashboard:
         except Exception as e:
             logger.error(f"Security report error: {e}")
             await event.answer("❌ Error loading report", alert=True)
+
+    async def _show_security_alerts(self, event):
+        user_id = event.sender_id
+
+        try:
+            report = await security_monitor.get_security_report(user_id)
+            alerts = [
+                item
+                for item in report.get("recent_events", [])
+                if str(item.get("severity", "")).lower() in {"high", "medium"}
+            ]
+            if not alerts:
+                text = "🔔 **Security Alerts**\n\nNo recent security alerts."
+            else:
+                lines = ["🔔 **Recent Security Alerts**\n"]
+                for alert in alerts[:10]:
+                    timestamp = alert.get("timestamp")
+                    if hasattr(timestamp, "strftime"):
+                        timestamp = timestamp.strftime("%Y-%m-%d %H:%M")
+                    else:
+                        timestamp = "Unknown time"
+                    details = alert.get("details", {})
+                    activity = (
+                        details.get("activity")
+                        if isinstance(details, dict)
+                        else None
+                    )
+                    description = str(
+                        activity or alert.get("event_type", "Security event")
+                    )[:180]
+                    lines.append(
+                        f"• [{alert.get('severity', 'unknown').upper()}] "
+                        f"{timestamp} — {description}"
+                    )
+                text = "\n".join(lines)
+
+            await event.answer()
+            await event.edit(
+                text,
+                buttons=[[Button.inline("🔙 Back", "security_dashboard")]],
+            )
+        except Exception as e:
+            logger.error(f"Security alerts error: {e}")
+            await event.answer("❌ Error loading alerts", alert=True)

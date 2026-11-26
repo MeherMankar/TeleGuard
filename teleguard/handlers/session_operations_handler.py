@@ -13,10 +13,10 @@ import logging
 import os
 import tempfile
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from telethon import Button, events
-from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.types import Channel, Chat, InputPhoneContact, User
 
@@ -32,7 +32,6 @@ class SessionOperationsHandler:
         self.bot = bot_manager.bot
         self.bot_manager = bot_manager
         self.user_clients = bot_manager.user_clients
-        self.pending_operations = {}
 
     def register_handlers(self):
         """Register session operation handlers"""
@@ -67,6 +66,194 @@ class SessionOperationsHandler:
             user_id = event.sender_id
             account_id = event.pattern_match.group(1).decode()
             await self._show_session_automation(event, user_id, account_id)
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^confirm_delete:([^:]+):(.+)$"))
+        async def confirm_delete(event):
+            user_id = event.sender_id
+            dialog_type = event.pattern_match.group(1).decode()
+            account_id = event.pattern_match.group(2).decode()
+            await self._execute_dialog_deletion(
+                event, user_id, account_id, dialog_type
+            )
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^session_operation_cancel:(.+)$"))
+        async def cancel_operation(event):
+            user_id = event.sender_id
+            account_id = event.pattern_match.group(1).decode()
+            await event.answer("Cancelled")
+            login_handler = getattr(self.bot_manager, "session_login_handler", None)
+            if login_handler:
+                await login_handler._show_session_operations(
+                    event, user_id, account_id
+                )
+            else:
+                await event.edit(
+                    "Operation cancelled.",
+                    buttons=[
+                        [
+                            Button.inline(
+                                "Back to Session Operations",
+                                f"session_operations:{account_id}",
+                            )
+                        ]
+                    ],
+                )
+
+        @self.bot.on(
+            events.CallbackQuery(
+                pattern=r"^(bulk_subscribe|bulk_messages|extract_members|"
+                r"scrape_messages|monitor_keywords):.+$"
+            )
+        )
+        async def disabled_bulk_operation(event):
+            await event.answer(
+                "This bulk or data-collection action is unavailable.",
+                alert=True,
+            )
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^auto_cleanup:(.+)$"))
+        async def auto_cleanup(event):
+            account_id = event.pattern_match.group(1).decode()
+            await event.answer()
+            await event.edit(
+                "⚠️ **Confirm Auto Cleanup**\n\n"
+                "This leaves groups with no activity for at least 30 days. "
+                "This action cannot be undone.",
+                buttons=[
+                    [
+                        Button.inline(
+                            "Yes, leave inactive groups",
+                            f"auto_cleanup_confirm:{account_id}",
+                        )
+                    ],
+                    [
+                        Button.inline(
+                            "Cancel", f"session_operation_cancel:{account_id}"
+                        )
+                    ],
+                ],
+            )
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^auto_cleanup_confirm:(.+)$"))
+        async def confirm_auto_cleanup(event):
+            user_id = event.sender_id
+            account_id = event.pattern_match.group(1).decode()
+            await event.answer("Cleaning inactive groups...")
+            result = await self.auto_leave_inactive_groups(
+                user_id, account_id, days_inactive=30
+            )
+            text = (
+                result.get("message", "Cleanup completed.")
+                if result.get("success")
+                else f"❌ {result.get('error', 'Cleanup failed.')}"
+            )
+            await event.edit(
+                text,
+                buttons=[
+                    [
+                        Button.inline(
+                            "Back to Session Operations",
+                            f"session_operations:{account_id}",
+                        )
+                    ]
+                ],
+            )
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^detailed_stats:(.+)$"))
+        async def detailed_stats(event):
+            user_id = event.sender_id
+            account_id = event.pattern_match.group(1).decode()
+            await self._show_detailed_stats(event, user_id, account_id)
+
+        @self.bot.on(events.CallbackQuery(pattern=r"^export_analytics:(.+)$"))
+        async def export_analytics(event):
+            user_id = event.sender_id
+            account_id = event.pattern_match.group(1).decode()
+            await self._export_analytics(event, user_id, account_id)
+
+    async def _owned_account(self, user_id, account_id):
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
+        try:
+            object_id = ObjectId(account_id)
+        except (InvalidId, TypeError):
+            return None
+        return await mongodb.db.accounts.find_one(
+            {"_id": object_id, "user_id": user_id}
+        )
+
+    async def _execute_dialog_deletion(
+        self, event, user_id, account_id, dialog_type
+    ):
+        allowed_types = {"channels", "groups", "bots", "private"}
+        if dialog_type not in allowed_types:
+            await event.answer("❌ Invalid dialog type", alert=True)
+            return
+
+        account = await self._owned_account(user_id, account_id)
+        client = (
+            self.user_clients.get(user_id, {}).get(account.get("name"))
+            if account
+            else None
+        )
+        if not account or not client or not client.is_connected():
+            await event.answer("❌ Account not available", alert=True)
+            return
+
+        await event.answer("Deleting selected dialogs...")
+        deleted = 0
+        try:
+            for dialog in await client.get_dialogs():
+                entity = dialog.entity
+                if dialog_type == "channels":
+                    matches = isinstance(entity, Channel) and getattr(
+                        entity, "broadcast", False
+                    )
+                elif dialog_type == "groups":
+                    matches = isinstance(entity, Chat) or (
+                        isinstance(entity, Channel)
+                        and not getattr(entity, "broadcast", False)
+                    )
+                elif dialog_type == "bots":
+                    matches = isinstance(entity, User) and getattr(
+                        entity, "bot", False
+                    )
+                else:
+                    matches = isinstance(entity, User) and not getattr(
+                        entity, "bot", False
+                    )
+                if matches:
+                    await client.delete_dialog(entity)
+                    deleted += 1
+            await event.edit(
+                f"✅ Deleted {deleted} {dialog_type} dialogs.",
+                buttons=[
+                    [
+                        Button.inline(
+                            "Back to Session Operations",
+                            f"session_operations:{account_id}",
+                        )
+                    ]
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "Dialog deletion failed for user %s account %s",
+                user_id,
+                account_id,
+            )
+            await event.edit(
+                f"❌ Deletion stopped after {deleted} dialogs. Check the bot logs.",
+                buttons=[
+                    [
+                        Button.inline(
+                            "Back to Session Operations",
+                            f"session_operations:{account_id}",
+                        )
+                    ]
+                ],
+            )
 
     async def _delete_dialogs_by_type(self, event, user_id, account_id, dialog_type):
         """Delete dialogs by type with confirmation"""
@@ -158,6 +345,7 @@ class SessionOperationsHandler:
     async def _show_bulk_operations(self, event, user_id, account_id):
         """Show bulk operations menu"""
         try:
+            await event.answer()
             from bson import ObjectId
 
             account = await mongodb.db.accounts.find_one(
@@ -169,44 +357,17 @@ class SessionOperationsHandler:
                 return
 
             text = (
-                f"📊 **Bulk Operations: {account['name']}**\n\n"
-                "Perform bulk operations on your account:\n\n"
-                "**📢 Channel Operations**\n"
-                "• Bulk subscribe to channels\n"
-                "• Mass leave channels\n"
-                "• Channel member extraction\n\n"
-                "**💬 Message Operations**\n"
-                "• Bulk message sending\n"
-                "• Message scraping\n"
-                "• Auto-reply setup\n\n"
-                "**👥 Contact Operations**\n"
-                "• Bulk contact import\n"
-                "• Contact list management\n"
-                "• Contact synchronization\n\n"
-                "**🔍 Data Mining**\n"
-                "• Member list extraction\n"
-                "• Message history export\n"
-                "• Activity monitoring"
+                f"🧹 **Session Maintenance: {account['name']}**\n\n"
+                "Leave groups with no activity for at least 30 days. "
+                "This removes the account from those groups and cannot be undone. "
+                "Review the confirmation before proceeding."
             )
 
             buttons = [
                 [
-                    Button.inline("📢 Bulk Subscribe", f"bulk_subscribe:{account_id}"),
-                    Button.inline("📤 Bulk Messages", f"bulk_messages:{account_id}"),
-                ],
-                [
                     Button.inline(
-                        "👥 Extract Members", f"extract_members:{account_id}"
-                    ),
-                    Button.inline(
-                        "📋 Scrape Messages", f"scrape_messages:{account_id}"
-                    ),
-                ],
-                [
-                    Button.inline(
-                        "🔍 Monitor Keywords", f"monitor_keywords:{account_id}"
-                    ),
-                    Button.inline("🧹 Auto Cleanup", f"auto_cleanup:{account_id}"),
+                        "🧹 Leave Inactive Groups", f"auto_cleanup:{account_id}"
+                    )
                 ],
                 [Button.inline("🔙 Back", f"session_operations:{account_id}")],
             ]
@@ -220,6 +381,7 @@ class SessionOperationsHandler:
     async def _show_session_analytics(self, event, user_id, account_id):
         """Show session analytics"""
         try:
+            await event.answer()
             from bson import ObjectId
 
             account = await mongodb.db.accounts.find_one(
@@ -232,6 +394,18 @@ class SessionOperationsHandler:
 
             # Get analytics data
             analytics = await self._get_session_analytics(user_id, account)
+            if analytics.get("error"):
+                await event.edit(
+                    f"❌ Could not load analytics: {analytics['error']}",
+                    buttons=[
+                        [
+                            Button.inline(
+                                "🔙 Back", f"session_operations:{account_id}"
+                            )
+                        ]
+                    ],
+                )
+                return
 
             text = (
                 f"📊 **Session Analytics: {account['name']}**\n\n"
@@ -241,16 +415,12 @@ class SessionOperationsHandler:
                 f"• Groups: {analytics.get('groups', 0)}\n"
                 f"• Private Chats: {analytics.get('private_chats', 0)}\n"
                 f"• Bots: {analytics.get('bots', 0)}\n\n"
-                f"**📅 Activity Data**\n"
-                f"• Account Age: {analytics.get('account_age', 'Unknown')}\n"
-                f"• Last Active: {analytics.get('last_active', 'Unknown')}\n"
-                f"• Messages Sent: {analytics.get('messages_sent', 0)}\n"
-                f"• Messages Received: {analytics.get('messages_received', 0)}\n\n"
                 f"**🔒 Security Status**\n"
-                f"• 2FA Enabled: {analytics.get('has_2fa', 'Unknown')}\n"
-                f"• Sessions Count: {analytics.get('active_sessions', 0)}\n"
-                f"• Premium Status: {analytics.get('is_premium', False)}\n"
-                f"• Verified: {analytics.get('is_verified', False)}"
+                f"• 2FA Enabled: {self._display_status(analytics.get('has_2fa'))}\n"
+                f"• Active Sessions: {analytics.get('active_sessions', 'Unknown')}\n"
+                f"• Premium: {self._display_status(analytics.get('is_premium'))}\n"
+                f"• Verified: {self._display_status(analytics.get('is_verified'))}\n"
+                f"• Managed Since: {analytics.get('managed_since', 'Not recorded')}"
             )
 
             buttons = [
@@ -260,7 +430,6 @@ class SessionOperationsHandler:
                 ],
                 [
                     Button.inline("📈 Export Report", f"export_analytics:{account_id}"),
-                    Button.inline("⚙️ Configure", f"config_analytics:{account_id}"),
                 ],
                 [Button.inline("🔙 Back", f"session_operations:{account_id}")],
             ]
@@ -274,6 +443,7 @@ class SessionOperationsHandler:
     async def _show_session_automation(self, event, user_id, account_id):
         """Show session automation options"""
         try:
+            await event.answer()
             from bson import ObjectId
 
             account = await mongodb.db.accounts.find_one(
@@ -284,48 +454,40 @@ class SessionOperationsHandler:
                 await event.edit("❌ Account not found")
                 return
 
-            # Get automation status
             automation_status = await self._get_automation_status(user_id, account_id)
+            online_status = self._display_status(
+                automation_status.get("online_maker")
+            )
+            simulation_status = self._display_status(
+                automation_status.get("activity_sim")
+            )
+            auto_reply_status = self._display_status(
+                automation_status.get("auto_reply")
+            )
 
             text = (
                 f"🤖 **Session Automation: {account['name']}**\n\n"
-                "Configure automated tasks for your account:\n\n"
-                f"**🟢 Online Maker**\n"
-                f"Status: {
-                    '✅ Active' if automation_status.get('online_maker') else '❌ Inactive'}\n"
-                f"Keep account online automatically\n\n"
-                f"**🎭 Activity Simulator**\n"
-                f"Status: {
-                    '✅ Active' if automation_status.get('activity_sim') else '❌ Inactive'}\n"
-                f"Simulate human-like activity\n\n"
-                f"**🤖 Auto-Reply**\n"
-                f"Status: {
-                    '✅ Active' if automation_status.get('auto_reply') else '❌ Inactive'}\n"
-                f"Automatic message responses\n\n"
-                f"**📢 Auto-Subscribe**\n"
-                f"Status: {
-                    '✅ Active' if automation_status.get('auto_subscribe') else '❌ Inactive'}\n"
-                f"Automatic channel subscriptions\n\n"
-                f"**🧹 Auto-Cleanup**\n"
-                f"Status: {
-                    '✅ Active' if automation_status.get('auto_cleanup') else '❌ Inactive'}\n"
-                f"Automatic dialog cleanup"
+                "Manage the available automation features:\n\n"
+                f"• Online Maker: {online_status}\n"
+                f"• Activity Simulation: {simulation_status}\n"
+                f"• Auto-Reply: {auto_reply_status}\n\n"
+                "Use the controls below to open or toggle each feature. "
+                "Group cleanup is available from Session Maintenance."
             )
 
             buttons = [
                 [
-                    Button.inline("🟢 Online Maker", f"toggle_online:{account_id}"),
-                    Button.inline("🎭 Activity Sim", f"toggle_activity:{account_id}"),
+                    Button.inline("🟢 Online Maker", f"online:toggle:{account_id}"),
+                    Button.inline("🎭 Activity Sim", f"simulate:toggle:{account_id}"),
                 ],
                 [
-                    Button.inline("🤖 Auto-Reply", f"toggle_reply:{account_id}"),
+                    Button.inline("🤖 Auto-Reply Settings", "auto_reply:main"),
+                    Button.inline("⏰ Scheduled Messages", "schedule_msg"),
+                ],
+                [
                     Button.inline(
-                        "📢 Auto-Subscribe", f"toggle_subscribe:{account_id}"
+                        "🧹 Session Maintenance", f"session_bulk_ops:{account_id}"
                     ),
-                ],
-                [
-                    Button.inline("🧹 Auto-Cleanup", f"toggle_cleanup:{account_id}"),
-                    Button.inline("⚙️ Schedule Tasks", f"schedule_tasks:{account_id}"),
                 ],
                 [Button.inline("🔙 Back", f"session_operations:{account_id}")],
             ]
@@ -370,27 +532,40 @@ class SessionOperationsHandler:
                 elif isinstance(entity, Chat):
                     stats["groups"] += 1
 
-            # Calculate account age
-            account_age = "Unknown"
-            if hasattr(me, "id") and me.id:
-                # Rough estimate based on user ID (not accurate but gives an idea)
-                if me.id < 1000000:
-                    account_age = "Very Old (2013-2014)"
-                elif me.id < 100000000:
-                    account_age = "Old (2015-2017)"
-                elif me.id < 1000000000:
-                    account_age = "Medium (2018-2020)"
-                else:
-                    account_age = "New (2021+)"
+            active_sessions = "Unknown"
+            has_2fa = None
+            try:
+                from telethon.tl.functions.account import (
+                    GetAuthorizationsRequest,
+                    GetPasswordRequest,
+                )
+
+                authorizations = await client(GetAuthorizationsRequest())
+                active_sessions = len(authorizations.authorizations)
+                password_state = await client(GetPasswordRequest())
+                has_2fa = bool(password_state.has_password)
+            except Exception:
+                logger.warning(
+                    "Could not load authorization or 2FA analytics for account %s",
+                    account.get("name", "Unknown"),
+                    exc_info=True,
+                )
+
+            created_at = account.get("created_at")
+            if isinstance(created_at, (int, float)):
+                managed_since = datetime.fromtimestamp(
+                    created_at, tz=timezone.utc
+                ).strftime("%Y-%m-%d")
+            elif isinstance(created_at, datetime):
+                managed_since = created_at.strftime("%Y-%m-%d")
+            else:
+                managed_since = "Not recorded"
 
             return {
                 "total_dialogs": len(dialogs),
-                "account_age": account_age,
-                "last_active": "Recently",
-                "messages_sent": 0,  # Would need message history analysis
-                "messages_received": 0,  # Would need message history analysis
-                "has_2fa": "Unknown",  # Would need to check 2FA status
-                "active_sessions": 1,  # Current session
+                "managed_since": managed_since,
+                "has_2fa": has_2fa,
+                "active_sessions": active_sessions,
                 "is_premium": getattr(me, "premium", False),
                 "is_verified": getattr(me, "verified", False),
                 **stats,
@@ -416,13 +591,90 @@ class SessionOperationsHandler:
                 "online_maker": account.get("online_maker_enabled", False),
                 "activity_sim": account.get("simulation_enabled", False),
                 "auto_reply": account.get("auto_reply_enabled", False),
-                "auto_subscribe": account.get("auto_subscribe_enabled", False),
-                "auto_cleanup": account.get("auto_cleanup_enabled", False),
             }
 
         except Exception as e:
             logger.error(f"Get automation status error: {e}")
             return {}
+
+    @staticmethod
+    def _display_status(value):
+        if value is True:
+            return "Yes"
+        if value is False:
+            return "No"
+        return "Unknown"
+
+    async def _show_detailed_stats(self, event, user_id, account_id):
+        try:
+            account = await self._owned_account(user_id, account_id)
+            if not account:
+                await event.answer("❌ Account not found", alert=True)
+                return
+            analytics = await self._get_session_analytics(user_id, account)
+            if analytics.get("error"):
+                await event.answer("❌ Could not load analytics", alert=True)
+                return
+
+            text = (
+                f"📊 **Detailed Stats: {account['name']}**\n\n"
+                f"Dialogs: {analytics['total_dialogs']}\n"
+                f"Channels: {analytics['channels']}\n"
+                f"Groups: {analytics['groups']}\n"
+                f"Private chats: {analytics['private_chats']}\n"
+                f"Bots: {analytics['bots']}\n\n"
+                f"Premium: {self._display_status(analytics['is_premium'])}\n"
+                f"Verified: {self._display_status(analytics['is_verified'])}\n"
+                f"2FA: {self._display_status(analytics['has_2fa'])}\n"
+                f"Active sessions: {analytics['active_sessions']}\n"
+                f"Managed since: {analytics['managed_since']}"
+            )
+            await event.answer()
+            await event.edit(
+                text,
+                buttons=[
+                    [Button.inline("🔄 Refresh", f"detailed_stats:{account_id}")],
+                    [Button.inline("🔙 Back", f"session_analytics:{account_id}")],
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "Could not load detailed analytics for account %s", account_id
+            )
+            await event.answer("❌ Could not load analytics", alert=True)
+
+    async def _export_analytics(self, event, user_id, account_id):
+        try:
+            account = await self._owned_account(user_id, account_id)
+            if not account:
+                await event.answer("❌ Account not found", alert=True)
+                return
+            analytics = await self._get_session_analytics(user_id, account)
+            if analytics.get("error"):
+                await event.answer("❌ Could not load analytics", alert=True)
+                return
+
+            report = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "account": {
+                    "name": account.get("name"),
+                    "phone": account.get("phone"),
+                },
+                "analytics": analytics,
+            }
+            report_file = io.BytesIO(json.dumps(report, indent=2).encode("utf-8"))
+            report_file.name = f"session_analytics_{account_id}.json"
+            await event.answer("Preparing report…")
+            await self.bot.send_file(
+                user_id, report_file, caption="📊 Session analytics export"
+            )
+        except Exception:
+            logger.exception(
+                "Could not export analytics for account %s", account_id
+            )
+            await self.bot.send_message(
+                user_id, "❌ Could not export analytics. Check the bot logs."
+            )
 
     async def bulk_subscribe_to_channels(
         self, user_id, account_id, channel_links, delay=5
@@ -704,22 +956,27 @@ class SessionOperationsHandler:
 
             client = self.user_clients[user_id][account["name"]]
             dialogs = await client.get_dialogs()
-            cutoff_date = datetime.now() - timedelta(days=days_inactive)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_inactive)
             left_count = 0
 
             for dialog in dialogs:
-                if isinstance(dialog.entity, (Channel, Chat)) and not getattr(
-                    dialog.entity, "broadcast", False
-                ):
-                    if dialog.date < cutoff_date:
-                        try:
-                            await client(LeaveChannelRequest(dialog.entity))
-                            left_count += 1
-                            await asyncio.sleep(2)  # Rate limiting
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to leave group {dialog.entity.id}: {e}"
-                            )
+                entity = dialog.entity
+                is_group = isinstance(entity, Chat) or (
+                    isinstance(entity, Channel)
+                    and not getattr(entity, "broadcast", False)
+                )
+                dialog_date = dialog.date
+                if dialog_date and dialog_date.tzinfo is None:
+                    dialog_date = dialog_date.replace(tzinfo=timezone.utc)
+                if is_group and dialog_date and dialog_date < cutoff_date:
+                    try:
+                        await client.delete_dialog(entity)
+                        left_count += 1
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to leave group {entity.id}: {e}"
+                        )
 
             return {
                 "success": True,

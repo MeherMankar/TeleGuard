@@ -183,7 +183,13 @@ class CommandHandlers:
             buttons = []
             for account in accounts[:8]:
                 button_text = f"📱 {account.get('name', 'Unknown')}"
-                buttons.append([Button.inline(button_text, f"appeal:{account['_id']}")])
+                buttons.append(
+                    [
+                        Button.inline(
+                            button_text, f"appeal_account_id:{account['_id']}"
+                        )
+                    ]
+                )
             buttons.append([Button.inline("🔙 Back", "menu:main")])
             await event.reply(text, buttons=buttons)
         except Exception as e:
