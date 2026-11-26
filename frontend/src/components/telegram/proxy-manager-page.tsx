@@ -287,7 +287,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 aria-expanded={showAddForm}
                 className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-gray-300">
                   <Plus className="h-[18px] w-[18px]" />
                 </span>
                 <span>
@@ -306,7 +306,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 aria-expanded={showLinkForm}
                 className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-gray-300">
                   <Link2 className="h-[18px] w-[18px]" />
                 </span>
                 <span>
@@ -325,7 +325,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 aria-expanded={showWebshareForm}
                 className="flex items-center gap-3 rounded-lg border border-white/[0.08] bg-[#1d2935] px-3 py-3 text-left transition-colors hover:border-white/15 hover:bg-[#222f3d]"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2AABEE]/15 text-[#55b8ee]">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-gray-300">
                   <Globe className="h-[18px] w-[18px]" />
                 </span>
                 <span>
@@ -339,7 +339,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
           {showLinkForm && (
             <div className="space-y-3 rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
               <h3 className="text-sm font-semibold">Telegram proxy link</h3>
-              <p className="mb-3 mt-1 text-xs leading-relaxed text-gray-400">
+              <p className="text-xs leading-relaxed text-gray-400">
                 Paste a t.me/proxy, tg://proxy, SOCKS, or MTProto link.
               </p>
               <input
@@ -350,7 +350,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 autoComplete="off"
                 className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
-              <div className="mt-3 flex justify-end gap-2">
+              <div className="flex justify-end gap-2">
                 <button
                   onClick={() => {
                     setShowLinkForm(false)
@@ -373,9 +373,9 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
           )}
 
           {showWebshareForm && (
-            <div className="rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
+            <div className="space-y-3 rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
               <h3 className="text-sm font-semibold">Import from Webshare</h3>
-              <p className="mb-3 mt-1 text-xs leading-relaxed text-gray-400">
+              <p className="text-xs leading-relaxed text-gray-400">
                 The API key is used only to fetch your proxy list and is not saved.
               </p>
               <input
@@ -386,7 +386,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                 autoComplete="off"
                 className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-gray-500 focus:border-[#2AABEE]"
               />
-              <div className="mt-3 flex justify-end gap-2">
+              <div className="flex justify-end gap-2">
                 <button
                   onClick={() => {
                     setShowWebshareForm(false)
@@ -410,8 +410,8 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
 
           {/* Add Form */}
           {showAddForm && (
-            <div className="rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
-              <h3 className="mb-3 text-sm font-semibold">Proxy details</h3>
+            <div className="space-y-3 rounded-lg border border-white/[0.08] bg-[#1d2935] p-4">
+              <h3 className="text-sm font-semibold">Proxy details</h3>
               <input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -467,7 +467,7 @@ export function ProxyManagerPage({ isOpen, onClose }: ProxyManagerPageProps) {
                   className="w-full rounded-md border border-white/[0.12] bg-[#17212b] px-3 py-2.5 text-sm text-white outline-none placeholder:text-gray-500 focus:border-[#2AABEE]"
                 />
               )}
-              <div className="mt-3 flex justify-end gap-2">
+              <div className="flex justify-end gap-2">
                 <button
                   onClick={() => {
                     setShowAddForm(false)

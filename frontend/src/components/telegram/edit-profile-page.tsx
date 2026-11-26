@@ -124,7 +124,7 @@ export function EditProfilePage({ isOpen, onClose, onBack }: EditProfilePageProp
           {/* Avatar + name */}
           <div className="flex flex-col items-center pt-8 pb-6 bg-card">
             <div className="relative mb-4">
-              <div className="w-28 h-28 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-4xl font-bold text-white overflow-hidden border-4 border-card">
+              <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[#2AABEE] text-3xl font-medium text-white">
                 {photoUrl ? (
                   <img src={photoUrl} alt={displayName} className="w-full h-full object-cover" />
                 ) : (

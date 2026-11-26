@@ -189,7 +189,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
-          <h1 className="text-xl font-medium text-white">Active Sessions</h1>
+          <h1 className="text-lg font-medium text-white">Active sessions</h1>
           <button
             onClick={() => {
               setShowImport(true)
@@ -225,8 +225,8 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
 
           {Object.entries(grouped).map(([accountId, accountSessions]) => (
             <div key={accountId}>
-              <div className="px-4 py-3 bg-[#0e1621]">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <div className="border-b border-white/10 bg-[#0e1621] px-4 py-3">
+                <p className="text-xs font-medium text-gray-400">
                   {accountSessions[0]?.account_name ?? "Unknown"}
                 </p>
               </div>
@@ -241,13 +241,13 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                       key={`${session.account_id}-${session.hash ?? i}`}
                       className="border-b border-white/10"
                     >
-                      <div className="flex items-center gap-4 px-4 py-4">
-                        <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
+                      <div className="flex items-center gap-3 px-4 py-4">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/5">
                           {session.platform?.toLowerCase().includes("android") ||
                           session.platform?.toLowerCase().includes("ios") ? (
-                            <Smartphone className="h-5 w-5 text-[#2AABEE]" />
+                            <Smartphone className="h-4 w-4 text-gray-400" />
                           ) : (
-                            <Monitor className="h-5 w-5 text-[#2AABEE]" />
+                            <Monitor className="h-4 w-4 text-gray-400" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -266,7 +266,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
                           {session.hash != null && (
                             <p
                               className={cn(
-                                "text-xs mt-1",
+                                "mt-1 text-xs",
                                 isProtected ? "text-emerald-400" : "text-gray-500",
                               )}
                             >

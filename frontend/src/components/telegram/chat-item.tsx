@@ -1,5 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { VolumeX, CheckCheck, BadgeCheck, ImageIcon, Camera } from "lucide-react"
+import { VolumeX, CheckCheck, BadgeCheck, ImageIcon, Camera, Sticker } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Link } from "@tanstack/react-router"
 
@@ -51,22 +51,22 @@ export function ChatItem({
       case "photo":
         return (
           <span className="flex items-center gap-1">
-            <ImageIcon className="h-4 w-4 text-sky-400" />
-            <span className="text-sky-400">Photo</span>
+            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+            <span>Photo</span>
           </span>
         )
       case "sticker":
         return (
           <span className="flex items-center gap-1">
-            <span className="text-base">👋</span>
-            <span className="text-sky-400">Sticker</span>
+            <Sticker className="h-4 w-4 text-muted-foreground" />
+            <span>Sticker</span>
           </span>
         )
       case "video":
         return (
           <span className="flex items-center gap-1">
-            <Camera className="h-4 w-4 text-sky-400" />
-            <span className="text-sky-400">Video</span>
+            <Camera className="h-4 w-4 text-muted-foreground" />
+            <span>Video</span>
           </span>
         )
       default:
@@ -78,7 +78,7 @@ export function ChatItem({
     <Link
       to="/chat/$chatId"
       params={{ chatId: id }}
-      className="flex items-center gap-3 px-4 py-2.5 hover:bg-[#202b36] cursor-pointer transition-colors"
+      className="flex min-h-[76px] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-white/[0.03]"
     >
       {/* Avatar with online indicator */}
       <div className="relative shrink-0">

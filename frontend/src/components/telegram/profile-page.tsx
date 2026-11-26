@@ -8,7 +8,7 @@ import {
   Server,
   Loader2,
   BadgeCheck,
-  Sparkles,
+  Star,
   Copy,
   CheckCheck,
 } from "lucide-react"
@@ -96,8 +96,8 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
       {profile && !isLoading && (
         <>
           {/* Avatar + name */}
-          <div className="flex flex-col items-center py-8 bg-[#17212b]">
-            <div className="w-28 h-28 rounded-full overflow-hidden mb-4 border-4 border-[#2AABEE]/30">
+          <div className="flex flex-col items-center py-8">
+            <div className="mb-4 h-24 w-24 overflow-hidden rounded-full border border-white/10">
               {photoUrl ? (
                 <img
                   src={photoUrl}
@@ -108,7 +108,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
                   }}
                 />
               ) : (
-                <div className="w-full h-full bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-4xl font-bold text-white">
+                <div className="flex h-full w-full items-center justify-center bg-[#2AABEE] text-3xl font-medium text-white">
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )}
@@ -117,7 +117,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             <div className="flex items-center gap-2 mb-1">
               <h1 className="text-xl font-semibold text-white">{displayName}</h1>
               {profile.verified && <BadgeCheck className="h-5 w-5 text-[#2AABEE]" />}
-              {profile.premium && <Sparkles className="h-5 w-5 text-amber-400" />}
+              {profile.premium && <Star className="h-4 w-4 text-[#a3a9b8]" />}
             </div>
 
             {profile.username && <p className="text-[#2AABEE] text-sm">@{profile.username}</p>}
@@ -128,7 +128,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             {/* Phone */}
             {profile.phone && (
               <InfoRow
-                icon={<Phone className="h-5 w-5 text-[#2AABEE]" />}
+                icon={<Phone className="h-4 w-4 text-[#7a8296]" />}
                 label="Mobile"
                 value={`+${profile.phone}`}
                 onCopy={() => copyToClipboard(`+${profile.phone}`, "Phone")}
@@ -139,7 +139,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             {/* Bio */}
             {profile.bio && (
               <InfoRow
-                icon={<User className="h-5 w-5 text-[#2AABEE]" />}
+                icon={<User className="h-4 w-4 text-[#7a8296]" />}
                 label="Bio"
                 value={profile.bio}
                 multiline
@@ -149,7 +149,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             {/* Username */}
             {profile.username && (
               <InfoRow
-                icon={<AtSign className="h-5 w-5 text-[#2AABEE]" />}
+                icon={<AtSign className="h-4 w-4 text-[#7a8296]" />}
                 label="Username"
                 value={`@${profile.username}`}
                 onCopy={() => copyToClipboard(`@${profile.username}`, "Username")}
@@ -159,7 +159,7 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
 
             {/* Telegram ID */}
             <InfoRow
-              icon={<Server className="h-5 w-5 text-[#2AABEE]" />}
+              icon={<Server className="h-4 w-4 text-[#7a8296]" />}
               label={
                 profile.dc_id
                   ? `DC${profile.dc_id} · ${DC_LOCATIONS[profile.dc_id] ?? "Unknown"}`
@@ -171,19 +171,20 @@ export function ProfilePage({ isOpen, onClose }: ProfilePageProps) {
             />
 
             {/* Account status badges */}
-            <div className="bg-[#242f3d] rounded-xl p-4 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-[#242f3d] p-4">
               {profile.premium && (
-                <span className="flex items-center gap-1 bg-amber-500/20 text-amber-400 text-xs font-medium px-3 py-1.5 rounded-full border border-amber-500/30">
-                  <Sparkles className="h-3.5 w-3.5" /> Telegram Premium
+                <span className="flex items-center gap-1.5 text-sm text-[#a3a9b8]">
+                  <Star className="h-4 w-4" /> Telegram Premium
                 </span>
               )}
               {profile.verified && (
-                <span className="flex items-center gap-1 bg-sky-500/20 text-sky-400 text-xs font-medium px-3 py-1.5 rounded-full border border-sky-500/30">
-                  <BadgeCheck className="h-3.5 w-3.5" /> Verified
+                <span className="flex items-center gap-1.5 text-sm text-[#a3a9b8]">
+                  <BadgeCheck className="h-4 w-4" /> Verified
                 </span>
               )}
-              <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-xs font-medium px-3 py-1.5 rounded-full border border-green-500/30">
-                ● Connected
+              <span className="flex items-center gap-1.5 text-sm text-[#4cc38a]">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
+                Connected
               </span>
             </div>
           </div>

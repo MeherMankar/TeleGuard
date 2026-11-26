@@ -164,7 +164,7 @@ export function QRLoginPage({
         </div>
 
         <h2 className="text-xl font-semibold text-foreground mb-5 text-center">
-          Scan From Mobile Telegram
+          Scan from Telegram on your phone
         </h2>
 
         <ol className="text-sm text-muted-foreground space-y-2 mb-8 text-left w-full max-w-xs">

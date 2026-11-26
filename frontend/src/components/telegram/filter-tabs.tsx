@@ -22,8 +22,8 @@ const iconMap = {
 
 export function FilterTabs({ tabs, activeTab, onTabChange }: FilterTabsProps) {
   return (
-    <div className="flex items-center px-4 py-2 bg-[#17212b]">
-      <div className="flex items-center bg-[#242f3d] rounded-full p-1 w-full">
+    <div className="flex items-center bg-[#0b0d14] px-4 py-2">
+      <div className="flex w-full items-center gap-1 rounded-lg border border-white/10 bg-[#11141c] p-1">
         {tabs.map((tab) => {
           const Icon = iconMap[tab.icon]
           const isActive = activeTab === tab.id
@@ -32,16 +32,16 @@ export function FilterTabs({ tabs, activeTab, onTabChange }: FilterTabsProps) {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "flex items-center justify-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors flex-1",
+                "flex min-h-9 flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-[#3e546a] text-white"
+                  ? "bg-[#232733] text-white"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
               <span
                 className={cn(
-                  "text-xs font-medium",
+                  "text-xs font-medium tabular-nums",
                   isActive ? "text-white" : "text-muted-foreground",
                 )}
               >

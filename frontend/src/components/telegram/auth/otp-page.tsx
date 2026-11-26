@@ -153,7 +153,7 @@ export function OTPPage({
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               className={cn(
-                "w-12 h-14 text-center text-xl font-bold rounded-xl border-2 bg-transparent text-foreground transition-all focus:outline-none",
+                "h-12 w-12 rounded-lg border bg-transparent text-center text-xl font-medium text-foreground transition-colors focus:outline-none",
                 digit ? "border-primary bg-primary/10" : "border-border/50",
                 loading && "opacity-50",
               )}
@@ -169,14 +169,14 @@ export function OTPPage({
           onClick={handleSubmit}
           disabled={!isComplete || loading}
           className={cn(
-            "w-full py-4 rounded-xl font-medium text-base transition-all flex items-center justify-center gap-2",
+            "flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-colors",
             isComplete && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/40 text-primary-foreground/60 cursor-not-allowed",
           )}
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          {loading ? "Verifying..." : "Next"}
+          {loading ? "Verifying…" : "Next"}
         </button>
       </div>
     </div>

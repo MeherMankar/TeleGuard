@@ -181,7 +181,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
-          <h1 className="text-xl font-medium text-white">Automation</h1>
+          <h1 className="text-lg font-medium text-white">Automation</h1>
         </header>
 
         {/* Tabs */}
@@ -191,13 +191,13 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
-                "flex-1 py-3 text-sm font-medium capitalize transition-colors",
+                "min-h-11 flex-1 border-b-2 py-3 text-sm font-medium transition-colors",
                 activeTab === tab
-                  ? "text-[#2AABEE] border-b-2 border-[#2AABEE]"
-                  : "text-gray-400 hover:text-white",
+                  ? "border-[#2AABEE] text-white"
+                  : "border-transparent text-gray-400 hover:text-white",
               )}
             >
-              {tab === "keywords" ? "Auto Reply" : tab === "bulk" ? "Bulk Send" : "Jobs"}
+              {tab === "keywords" ? "Auto reply" : tab === "bulk" ? "Bulk send" : "Jobs"}
             </button>
           ))}
         </div>
@@ -222,8 +222,8 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
 
               {/* Add keyword form */}
               <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
-                <p className="text-sky-400 text-sm font-medium flex items-center gap-2">
-                  <MessageSquareReply className="h-4 w-4" /> Add Auto-Reply Keyword
+                <p className="flex items-center gap-2 text-sm font-medium text-white">
+                  <MessageSquareReply className="h-4 w-4 text-gray-400" /> Add auto-reply keyword
                 </p>
                 <input
                   value={newKeyword}
@@ -240,7 +240,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 <button
                   onClick={() => addKeywordMutation.mutate()}
                   disabled={!newKeyword.trim() || !newReply.trim() || addKeywordMutation.isPending}
-                  className="w-full py-2 bg-[#2AABEE] text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2AABEE] py-2 text-sm font-medium text-white transition-colors hover:bg-[#229ed9] disabled:opacity-50"
                 >
                   {addKeywordMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -261,10 +261,11 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                   No keywords yet. Add one above.
                 </p>
               ) : (
-                <div className="bg-[#242f3d] rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/10">
-                    <span className="text-sky-400 text-sm font-medium">
-                      Active Keywords ({Object.keys(keywords).length})
+                <div className="overflow-hidden rounded-xl bg-[#242f3d]">
+                  <div className="flex items-center border-b border-white/10 px-4 py-3">
+                    <span className="text-sm font-medium text-white">Active keywords</span>
+                    <span className="ml-auto text-xs tabular-nums text-gray-500">
+                      {Object.keys(keywords).length}
                     </span>
                   </div>
                   <ul role="list">
@@ -308,7 +309,7 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
               {activeAccount && (
                 <button
                   onClick={() => setShowCreateJob(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#2AABEE]/10 border border-[#2AABEE]/30 text-[#2AABEE] rounded-xl text-sm font-medium hover:bg-[#2AABEE]/20 transition-colors"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/10"
                 >
                   <Plus className="h-4 w-4" /> Create Automation Job
                 </button>
@@ -324,9 +325,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                   <p className="text-gray-400 text-sm">No automation jobs configured</p>
                 </div>
               ) : (
-                <div className="bg-[#242f3d] rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-white/10">
-                    <span className="text-sky-400 text-sm font-medium">Jobs ({jobs.length})</span>
+                <div className="overflow-hidden rounded-xl bg-[#242f3d]">
+                  <div className="flex items-center border-b border-white/10 px-4 py-3">
+                    <span className="text-sm font-medium text-white">Jobs</span>
+                    <span className="ml-auto text-xs tabular-nums text-gray-500">
+                      {jobs.length}
+                    </span>
                   </div>
                   <ul role="list">
                     {jobs.map((job, i) => (
@@ -384,12 +388,12 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
                 </div>
               )}
               <div className="bg-[#242f3d] rounded-xl p-4 space-y-3">
-                <p className="text-sky-400 text-sm font-medium flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Bulk Message
+                <p className="flex items-center gap-2 text-sm font-medium text-white">
+                  <Users className="h-4 w-4 text-gray-400" /> Bulk message
                 </p>
                 <div>
                   <label className="text-gray-400 text-xs block mb-1">
-                    Targets (one per line — @username, +phone, or chat ID)
+                    Targets: @username, phone number, or chat ID (one per line)
                   </label>
                   <textarea
                     value={bulkTargets}
@@ -442,10 +446,10 @@ export function AutomationPage({ isOpen, onClose }: AutomationPageProps) {
           onClick={() => setShowCreateJob(false)}
         >
           <div
-            className="bg-[#17212b] w-full max-w-md rounded-t-2xl p-5 space-y-4"
+            className="w-full max-w-md space-y-4 rounded-t-2xl border border-white/10 bg-[#11141c] p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-white font-semibold text-lg">Create Automation Job</h2>
+            <h2 className="text-white text-lg font-medium">Create automation job</h2>
             <div>
               <label className="text-gray-400 text-xs block mb-1">Job Type</label>
               <select

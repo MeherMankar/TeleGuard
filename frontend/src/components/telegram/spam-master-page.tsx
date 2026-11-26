@@ -81,15 +81,15 @@ function MenuView({
       {/* Web tools */}
       <div className="bg-[#242f3d] rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-white/10">
-          <p className="text-sky-400 text-sm font-medium">Available via Dashboard</p>
+          <p className="text-foreground text-sm font-medium">Web app tools</p>
         </div>
         <button
           disabled={!activeAccount}
           onClick={() => onSelect("scraper")}
           className="w-full flex items-center gap-4 px-4 py-4 hover:bg-white/5 transition-colors disabled:opacity-40 border-b border-white/5"
         >
-          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-            <Users className="h-5 w-5 text-green-400" />
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/5">
+            <Users className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex-1 text-left">
             <p className="text-white text-sm font-medium">Contact Scraper</p>
@@ -105,8 +105,8 @@ function MenuView({
           onClick={() => onSelect("username")}
           className="w-full flex items-center gap-4 px-4 py-4 hover:bg-white/5 transition-colors disabled:opacity-40"
         >
-          <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-            <AtSign className="h-5 w-5 text-purple-400" />
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/5">
+            <AtSign className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex-1 text-left">
             <p className="text-white text-sm font-medium">Username Checker</p>
@@ -123,9 +123,7 @@ function MenuView({
             <Bot className="h-4 w-4 text-gray-400" />
             <p className="text-gray-400 text-sm font-medium">Bot-only tools</p>
           </div>
-          <p className="text-gray-600 text-xs mt-0.5">
-            Use these via the Telegram bot (require ToS acceptance)
-          </p>
+          <p className="text-gray-600 text-xs mt-0.5">Use these through the Telegram bot</p>
         </div>
         {[
           { label: "Mass Inviter", desc: "Bulk invite scraped users to groups" },
@@ -253,7 +251,7 @@ function ScraperTool({ accountName }: { accountName: string }) {
           <ul className="divide-y divide-white/5 max-h-80 overflow-y-auto">
             {result.slice(0, 100).map((m) => (
               <li key={m.id} className="flex items-center gap-3 px-4 py-2.5">
-                <div className="w-8 h-8 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 text-xs font-bold">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/5 text-xs font-medium text-gray-300">
                   {(m.first_name || m.username || "?").charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">

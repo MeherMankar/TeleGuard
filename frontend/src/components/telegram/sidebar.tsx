@@ -212,12 +212,12 @@ export function Sidebar({
       <aside
         aria-label="Navigation menu"
         className={cn(
-          "fixed top-0 left-0 z-50 h-screen w-80 flex flex-col bg-card text-card-foreground shadow-2xl transition-transform duration-300 ease-in-out",
+          "fixed top-0 left-0 z-50 flex h-screen w-80 flex-col border-r border-border bg-card text-card-foreground transition-transform duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         {/* Profile Header */}
-        <div className="relative bg-primary px-6 pt-8 pb-4">
+        <div className="relative border-b border-border/50 bg-card px-5 pb-4 pt-8">
           <button
             onClick={onClose}
             aria-label="Close menu"
@@ -226,7 +226,7 @@ export function Sidebar({
             <X className="h-6 w-6" />
           </button>
 
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center text-2xl font-bold text-white mb-3 flex-shrink-0 overflow-hidden">
+          <div className="mb-3 flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2AABEE] text-xl font-medium text-white">
             {profile.avatarUrl ? (
               <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
@@ -281,7 +281,7 @@ export function Sidebar({
                         {/* Live connection dot */}
                         <span
                           className={cn(
-                            "absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-primary",
+                            "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card",
                             isConnected ? "bg-green-400" : "bg-gray-500",
                           )}
                         />
@@ -302,8 +302,9 @@ export function Sidebar({
                     <button
                       onClick={() => removeMutation.mutate(acc.id)}
                       disabled={removeMutation.isPending}
-                      className="p-1 text-red-400/60 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                      className="flex-shrink-0 p-1 text-red-400/60 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100 group-focus-within:opacity-100"
                       title="Remove account"
+                      aria-label={`Remove ${acc.name || acc.phone}`}
                     >
                       {removeMutation.isPending ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -338,14 +339,12 @@ export function Sidebar({
                 <button
                   onClick={() => handleAction(action)}
                   className={cn(
-                    "w-full flex items-center gap-4 px-6 py-3.5 hover:bg-secondary/50 transition-colors group active:bg-secondary/70",
+                    "group flex min-h-9 w-full items-center gap-3 px-5 py-2 text-left transition-colors hover:bg-secondary/50 active:bg-secondary/70",
                     !action && "opacity-50 cursor-default",
                   )}
                 >
-                  <Icon className="h-5 w-5 text-[#2AABEE] transition-colors flex-shrink-0" />
-                  <span className="flex-1 text-left text-[15px] text-foreground font-medium">
-                    {label}
-                  </span>
+                  <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  <span className="flex-1 text-[15px] font-medium text-foreground">{label}</span>
                 </button>
               </li>
             ))}

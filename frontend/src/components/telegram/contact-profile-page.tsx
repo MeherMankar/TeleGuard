@@ -167,7 +167,7 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
               key={label}
               className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-[#242f3d] hover:bg-[#2a3847] transition-colors"
             >
-              <Icon className="h-5 w-5 text-sky-400" />
+              <Icon className="h-5 w-5 text-gray-300" />
               <span className="text-xs text-gray-300">{label}</span>
             </button>
           ))}
@@ -181,7 +181,7 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
             {loadingMsgs ? (
               <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
             ) : (
-              <span className="text-[15px] text-sky-400">{mediaMessages.length}</span>
+              <span className="tabular-nums text-sm text-gray-300">{mediaMessages.length}</span>
             )}
           </div>
           <div className="flex items-center gap-3 px-4 py-3">
@@ -190,7 +190,7 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
             {loadingMsgs ? (
               <Loader2 className="h-4 w-4 text-gray-500 animate-spin" />
             ) : (
-              <span className="text-[15px] text-sky-400">{linkMessages.length}</span>
+              <span className="tabular-nums text-sm text-gray-300">{linkMessages.length}</span>
             )}
           </div>
         </div>
@@ -202,8 +202,8 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
-                "px-5 py-1.5 rounded-full text-sm font-medium transition-colors",
-                activeTab === tab ? "bg-sky-500/20 text-sky-400" : "text-gray-500",
+                "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                activeTab === tab ? "bg-white/[0.06] text-white" : "text-gray-500",
               )}
             >
               {tab === "media" ? "Media" : "Links"}
@@ -216,7 +216,7 @@ export function ContactProfilePage({ isOpen, onClose, dialog }: ContactProfilePa
         {/* Loading */}
         {loadingMsgs && (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 text-sky-400 animate-spin" />
+            <Loader2 className="h-6 w-6 text-gray-400 animate-spin" />
           </div>
         )}
 

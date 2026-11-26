@@ -3,10 +3,10 @@ import { Outlet, Link, createRootRouteWithContext, useRouter } from "@tanstack/r
 
 function NotFoundComponent() {
   return (
-    <div className="dark flex min-h-screen items-center justify-center bg-[#17212b] px-4">
+    <div className="dark flex min-h-screen items-center justify-center bg-[#0b0d14] px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-white">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-white">Page not found</h2>
+        <h1 className="text-6xl font-medium text-white">404</h1>
+        <h2 className="mt-4 text-lg font-medium text-white">Page not found</h2>
         <p className="mt-2 text-sm text-gray-400">The page you're looking for doesn't exist.</p>
         <div className="mt-6">
           <Link
@@ -34,9 +34,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   }
 
   return (
-    <div className="dark flex min-h-screen items-center justify-center bg-[#17212b] px-4">
+    <div className="dark flex min-h-screen items-center justify-center bg-[#0b0d14] px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold text-white">Something went wrong</h1>
+        <h1 className="text-lg font-medium text-white">Something went wrong</h1>
         <p className="mt-2 text-sm text-gray-400">{error.message}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button

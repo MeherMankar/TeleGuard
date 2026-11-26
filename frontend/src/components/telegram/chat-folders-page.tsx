@@ -36,20 +36,20 @@ import { toast } from "sonner"
 
 // Icon options for folder customization
 const FOLDER_ICONS = [
-  { id: "folder", Icon: Folder, label: "Folder", color: "text-sky-400" },
-  { id: "star", Icon: Star, label: "Starred", color: "text-amber-400" },
-  { id: "users", Icon: Users, label: "Groups", color: "text-green-400" },
-  { id: "radio", Icon: Radio, label: "Channels", color: "text-blue-400" },
-  { id: "bot", Icon: Bot, label: "Bots", color: "text-red-400" },
-  { id: "chat", Icon: MessageSquare, label: "Chats", color: "text-purple-400" },
-  { id: "bell", Icon: Bell, label: "Unread", color: "text-orange-400" },
-  { id: "crown", Icon: Crown, label: "Admin", color: "text-yellow-400" },
-  { id: "briefcase", Icon: Briefcase, label: "Work", color: "text-slate-400" },
-  { id: "home", Icon: Home, label: "Personal", color: "text-cyan-400" },
-  { id: "music", Icon: Music, label: "Music", color: "text-pink-400" },
-  { id: "book", Icon: BookOpen, label: "Reading", color: "text-lime-400" },
-  { id: "game", Icon: Gamepad2, label: "Gaming", color: "text-indigo-400" },
-  { id: "user", Icon: User, label: "Contacts", color: "text-teal-400" },
+  { id: "folder", Icon: Folder, label: "Folder", color: "text-muted-foreground" },
+  { id: "star", Icon: Star, label: "Starred", color: "text-muted-foreground" },
+  { id: "users", Icon: Users, label: "Groups", color: "text-muted-foreground" },
+  { id: "radio", Icon: Radio, label: "Channels", color: "text-muted-foreground" },
+  { id: "bot", Icon: Bot, label: "Bots", color: "text-muted-foreground" },
+  { id: "chat", Icon: MessageSquare, label: "Chats", color: "text-muted-foreground" },
+  { id: "bell", Icon: Bell, label: "Unread", color: "text-muted-foreground" },
+  { id: "crown", Icon: Crown, label: "Admin", color: "text-muted-foreground" },
+  { id: "briefcase", Icon: Briefcase, label: "Work", color: "text-muted-foreground" },
+  { id: "home", Icon: Home, label: "Personal", color: "text-muted-foreground" },
+  { id: "music", Icon: Music, label: "Music", color: "text-muted-foreground" },
+  { id: "book", Icon: BookOpen, label: "Reading", color: "text-muted-foreground" },
+  { id: "game", Icon: Gamepad2, label: "Gaming", color: "text-muted-foreground" },
+  { id: "user", Icon: User, label: "Contacts", color: "text-muted-foreground" },
 ]
 
 function getIconDef(id: string | null | undefined) {
@@ -271,9 +271,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Name + icon */}
           <div className="bg-[#242f3d] rounded-xl p-4">
-            <p className="text-sky-400 text-xs font-medium uppercase tracking-wider mb-3">
-              Folder Name
-            </p>
+            <p className="mb-3 text-xs font-medium text-muted-foreground">Folder Name</p>
             <div className="flex items-center gap-3">
               <div className="relative">
                 <button
@@ -321,7 +319,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
           {/* Include types */}
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
-              <p className="text-sky-400 text-xs font-medium uppercase tracking-wider">Include</p>
+              <p className="text-xs font-medium text-muted-foreground">Include</p>
             </div>
             {[
               { key: "contacts" as const, label: "Contacts", Icon: User, color: "text-blue-400" },
@@ -361,7 +359,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
           {/* Exclude */}
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
-              <p className="text-sky-400 text-xs font-medium uppercase tracking-wider">Exclude</p>
+              <p className="text-xs font-medium text-muted-foreground">Exclude</p>
             </div>
             {[
               { key: "exclude_muted" as const, label: "Muted", Icon: VolumeX },
@@ -422,7 +420,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <div>
-                <p className="text-sky-400 text-sm font-medium">Preset Folders</p>
+                <p className="text-foreground text-sm font-medium">Preset folders</p>
                 <p className="text-gray-500 text-xs mt-0.5">Tap to add or remove each folder</p>
               </div>
               <button
@@ -504,7 +502,7 @@ export function ChatFoldersPage({ isOpen, onClose }: ChatFoldersPageProps) {
             0 && (
             <div className="bg-[#242f3d] rounded-xl overflow-hidden">
               <div className="px-4 py-3 border-b border-white/10">
-                <p className="text-sky-400 text-sm font-medium">Custom Folders</p>
+                <p className="text-foreground text-sm font-medium">Custom folders</p>
               </div>
               {folders
                 .filter((f) => !f.is_default && !PRESETS.find((p) => p.id === f.id))

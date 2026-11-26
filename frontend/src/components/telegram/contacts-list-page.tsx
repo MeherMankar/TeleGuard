@@ -10,25 +10,6 @@ interface ContactsListPageProps {
   onClose: () => void
 }
 
-const AVATAR_COLORS = [
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-violet-500",
-  "bg-pink-500",
-  "bg-sky-500",
-  "bg-indigo-500",
-  "bg-emerald-500",
-  "bg-orange-500",
-  "bg-teal-500",
-  "bg-cyan-500",
-  "bg-lime-600",
-  "bg-fuchsia-500",
-]
-
-function avatarColor(id: number) {
-  return AVATAR_COLORS[Math.abs(id) % AVATAR_COLORS.length]
-}
-
 function formatLastSeen(ls: string | null): string {
   if (!ls) return "last seen a long time ago"
   if (ls === "online") return "online"
@@ -92,7 +73,7 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
         </button>
         <h1 className="text-xl font-medium text-white">Contacts</h1>
         {activeAccount && (
-          <span className="ml-auto text-gray-500 text-xs truncate max-w-[120px]">
+          <span className="ml-auto max-w-[120px] truncate text-xs text-gray-500">
             {activeAccount.name}
           </span>
         )}
@@ -100,7 +81,7 @@ export function ContactsListPage({ isOpen, onClose }: ContactsListPageProps) {
 
       {/* Search */}
       <div className="px-4 py-3 border-b border-white/5">
-        <div className="flex items-center gap-3 bg-[#1e2c3a] rounded-xl px-4 py-2.5">
+        <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#1e2c3a] px-4 py-2.5">
           <Search className="h-4 w-4 text-gray-400 flex-shrink-0" />
           <input
             type="text"
@@ -172,7 +153,7 @@ function ContactRow({ contact, accountName }: { contact: Contact; accountName: s
       <div
         className={cn(
           "w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-white font-bold text-base overflow-hidden",
-          !photoUrl && avatarColor(contact.id),
+          !photoUrl && "bg-[#2AABEE]",
         )}
       >
         {photoUrl ? (

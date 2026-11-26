@@ -15,6 +15,7 @@ import {
   AlertCircle,
   PhoneCall,
   Mic,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -82,8 +83,8 @@ function PrivacyPicker({ label, current, onSave, onBack, loading }: PickerProps)
                 {opt.label}
               </span>
               {selected === opt.value && (
-                <span className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                  <span className="w-2 h-2 rounded-full bg-white" />
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-3 w-3" />
                 </span>
               )}
             </button>
@@ -147,16 +148,15 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
     icon: React.ElementType
     label: string
     key: keyof PrivacySettings
-    iconBg: string
   }[] = [
-    { icon: Eye, label: "Last Seen & Online", key: "last_seen", iconBg: "bg-sky-500" },
-    { icon: Phone, label: "Phone Number", key: "phone", iconBg: "bg-emerald-500" },
-    { icon: Users, label: "Profile Photo", key: "profile_photo", iconBg: "bg-rose-500" },
-    { icon: AtSign, label: "Bio", key: "bio", iconBg: "bg-cyan-500" },
-    { icon: Link2, label: "Forwarded Messages", key: "forwards", iconBg: "bg-indigo-500" },
-    { icon: UserPlus, label: "Who can add me to groups", key: "groups", iconBg: "bg-violet-500" },
-    { icon: PhoneCall, label: "Calls", key: "calls", iconBg: "bg-orange-500" },
-    { icon: Mic, label: "Voice Messages", key: "voice_messages", iconBg: "bg-teal-500" },
+    { icon: Eye, label: "Last seen and online", key: "last_seen" },
+    { icon: Phone, label: "Phone number", key: "phone" },
+    { icon: Users, label: "Profile photo", key: "profile_photo" },
+    { icon: AtSign, label: "Bio", key: "bio" },
+    { icon: Link2, label: "Forwarded messages", key: "forwards" },
+    { icon: UserPlus, label: "Who can add me to groups", key: "groups" },
+    { icon: PhoneCall, label: "Calls", key: "calls" },
+    { icon: Mic, label: "Voice messages", key: "voice_messages" },
   ]
 
   return (
@@ -196,7 +196,7 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
             <div className="mx-4 mt-6 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl p-4">
               <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
               <p className="text-red-400 text-sm">
-                Failed to load privacy settings. Is the bot running?
+                Could not load privacy settings. Check your connection.
               </p>
             </div>
           )}
@@ -205,32 +205,25 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
             <>
               {/* Privacy */}
               <div className="mx-3 mt-4">
-                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">
-                  Privacy
-                </p>
-                <div className="rounded-2xl bg-card overflow-hidden border border-border/40">
-                  {privacyRows.map(({ icon: Icon, label, key, iconBg }, i) => (
+                <p className="px-4 pb-2 text-[#a3a9b8] text-[13px] font-medium">Privacy</p>
+                <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+                  {privacyRows.map(({ icon: Icon, label, key }, i) => (
                     <button
                       key={key}
                       onClick={() => setPicker({ key, label })}
                       className={cn(
-                        "w-full flex items-center gap-3.5 px-4 py-3 hover:bg-secondary/30 transition-colors text-left",
+                        "w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors text-left",
                         i < privacyRows.length - 1 && "border-b border-border/30",
                       )}
                     >
-                      <div
-                        className={cn(
-                          "w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0",
-                          iconBg,
-                        )}
-                      >
-                        <Icon className="h-5 w-5 text-white" />
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <span className="flex-1 text-[15px] text-foreground font-medium">
-                        {label}
+                      <span className="flex-1 text-[15px] text-foreground">{label}</span>
+                      <span className="mr-1 text-sm text-muted-foreground">
+                        {optionLabel(s[key])}
                       </span>
-                      <span className="text-[14px] text-sky-400 mr-1">{optionLabel(s[key])}</span>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                      <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                     </button>
                   ))}
                 </div>
@@ -241,13 +234,11 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
 
               {/* Security */}
               <div className="mx-3 mt-4">
-                <p className="px-4 pb-2 text-sky-400 text-[13px] font-semibold uppercase tracking-wide">
-                  Security
-                </p>
-                <div className="rounded-2xl bg-card overflow-hidden border border-border/40">
+                <p className="px-4 pb-2 text-[#a3a9b8] text-[13px] font-medium">Security</p>
+                <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
                   <div className="flex items-center gap-3.5 px-4 py-3 border-b border-border/30">
-                    <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                      <Key className="h-5 w-5 text-white" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
+                      <Key className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <span className="flex-1 text-[15px] text-foreground font-medium">
                       Two-Step Verification
@@ -265,8 +256,8 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
                     onClick={() => setIsSessionsOpen(true)}
                     className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-secondary/30 transition-colors text-left"
                   >
-                    <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center flex-shrink-0">
-                      <Smartphone className="h-5 w-5 text-white" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
+                      <Smartphone className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <span className="flex-1 text-[15px] text-foreground font-medium">
                       Active Sessions
@@ -278,10 +269,10 @@ export function PrivacySecurityPage({ isOpen, onClose }: PrivacySecurityPageProp
 
               {/* Danger zone */}
               <div className="mx-3 mt-4">
-                <div className="rounded-2xl bg-card overflow-hidden border border-border/40">
+                <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
                   <button className="w-full flex items-center gap-3.5 px-4 py-3 hover:bg-secondary/30 transition-colors text-left opacity-50 cursor-not-allowed">
-                    <div className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
-                      <Trash2 className="h-5 w-5 text-white" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-secondary">
+                      <Trash2 className="h-4 w-4 text-red-400" />
                     </div>
                     <div className="flex-1">
                       <p className="text-[15px] text-red-500 font-medium">Delete My Account</p>

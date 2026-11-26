@@ -25,30 +25,12 @@ export function LoginSuccessPage({ isOpen, onComplete }: LoginSuccessPageProps) 
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
-      {/* Success Icon */}
-      <div className="w-24 h-24 rounded-full bg-green-500 flex items-center justify-center mb-6 animate-bounce">
-        <Check className="h-12 w-12 text-white" strokeWidth={3} />
+      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#4cc38a]/15 text-[#4cc38a]">
+        <Check className="h-8 w-8" strokeWidth={2} />
       </div>
 
-      {/* Success Text */}
-      <h1 className="text-2xl font-semibold text-foreground mb-2">Login Successful!</h1>
-      <p className="text-muted-foreground text-sm">Redirecting to your chats...</p>
-
-      {/* Loading dots */}
-      <div className="flex gap-1 mt-8">
-        <div
-          className="w-2 h-2 rounded-full bg-primary animate-pulse"
-          style={{ animationDelay: "0ms" }}
-        />
-        <div
-          className="w-2 h-2 rounded-full bg-primary animate-pulse"
-          style={{ animationDelay: "150ms" }}
-        />
-        <div
-          className="w-2 h-2 rounded-full bg-primary animate-pulse"
-          style={{ animationDelay: "300ms" }}
-        />
-      </div>
+      <h1 className="mb-2 text-2xl font-medium text-foreground">Signed in</h1>
+      <p className="text-sm text-muted-foreground">Opening your chats</p>
     </div>
   )
 }

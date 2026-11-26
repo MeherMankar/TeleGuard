@@ -38,17 +38,49 @@ const cleanupItems = [
   {
     icon: MessageSquare,
     label: "personal",
+    title: "Personal chats",
     description: "Delete all direct message conversations",
   },
-  { icon: Bot, label: "bots", description: "Delete all bot conversations" },
-  { icon: Send, label: "telegram", description: "Delete Telegram service chats" },
-  { icon: AlertCircle, label: "spambot", description: "Delete @spambot conversation" },
-  { icon: Mail, label: "my_messages", description: "Delete your sent messages from groups" },
-  { icon: LogOut, label: "channels", description: "Leave all channels" },
-  { icon: Users, label: "groups", description: "Leave all groups" },
-  { icon: Trash2, label: "owned_groups", description: "Delete groups you own" },
-  { icon: Radio, label: "owned_channels", description: "Delete channels you own" },
-  { icon: Flame, label: "all", description: "Everything above — full cleanup", danger: true },
+  { icon: Bot, label: "bots", title: "Bot chats", description: "Delete all bot conversations" },
+  {
+    icon: Send,
+    label: "telegram",
+    title: "Telegram service chats",
+    description: "Delete Telegram service chats",
+  },
+  {
+    icon: AlertCircle,
+    label: "spambot",
+    title: "@spambot",
+    description: "Delete the @spambot conversation",
+  },
+  {
+    icon: Mail,
+    label: "my_messages",
+    title: "Your sent messages",
+    description: "Delete your sent messages from groups",
+  },
+  { icon: LogOut, label: "channels", title: "Channels", description: "Leave all channels" },
+  { icon: Users, label: "groups", title: "Groups", description: "Leave all groups" },
+  {
+    icon: Trash2,
+    label: "owned_groups",
+    title: "Groups you own",
+    description: "Delete groups you own",
+  },
+  {
+    icon: Radio,
+    label: "owned_channels",
+    title: "Channels you own",
+    description: "Delete channels you own",
+  },
+  {
+    icon: Flame,
+    label: "all",
+    title: "Full cleanup",
+    description: "Everything above — full cleanup",
+    danger: true,
+  },
 ]
 
 export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
@@ -125,7 +157,7 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
 
           {/* Cleanup items */}
           <ul role="list" className="mt-1">
-            {cleanupItems.map(({ icon: Icon, label, description, danger }) => (
+            {cleanupItems.map(({ icon: Icon, label, title, description, danger }) => (
               <li key={label} className="border-b border-white/5">
                 <button
                   onClick={() => setConfirmTarget(label)}
@@ -152,7 +184,7 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
                         danger ? "text-red-400" : "text-white",
                       )}
                     >
-                      {label}
+                      {title}
                     </p>
                     <p className="text-[13px] text-gray-500 mt-0.5">{description}</p>
                   </div>
@@ -180,7 +212,7 @@ export function CleanupPage({ isOpen, onClose }: CleanupPageProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Cleanup</AlertDialogTitle>
             <AlertDialogDescription>
-              Run <strong>{targetItem?.label}</strong> cleanup on{" "}
+              Run <strong>{targetItem?.title}</strong> cleanup on{" "}
               <strong>{activeAccount?.name}</strong>? {targetItem?.description}. This action{" "}
               <strong>cannot be undone</strong>.
             </AlertDialogDescription>

@@ -16,7 +16,10 @@ const navItems = [
 
 export function BottomNav({ activeTab, onTabChange, unreadCount = 0 }: BottomNavProps) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 mx-auto max-w-md border-t border-white/[0.08] bg-[#17212b]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+    <nav
+      aria-label="Main navigation"
+      className="fixed bottom-0 left-0 right-0 z-30 mx-auto max-w-md border-t border-white/[0.08] bg-[#0b0d14] pb-[env(safe-area-inset-bottom)] md:hidden"
+    >
       <div className="flex items-center justify-around py-2">
         {navItems.map((item) => {
           const Icon = item.icon
@@ -27,12 +30,13 @@ export function BottomNav({ activeTab, onTabChange, unreadCount = 0 }: BottomNav
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className="flex flex-col items-center gap-1 px-4 py-1 relative"
+              aria-current={isActive ? "page" : undefined}
+              className="relative flex min-w-16 flex-col items-center gap-1 px-3 py-1"
             >
               <div className="relative">
                 <Icon
                   className={cn(
-                    "h-6 w-6 transition-colors",
+                    "h-5 w-5 transition-colors",
                     isActive ? "text-sky-400" : "text-muted-foreground",
                   )}
                 />
@@ -54,6 +58,6 @@ export function BottomNav({ activeTab, onTabChange, unreadCount = 0 }: BottomNav
           )
         })}
       </div>
-    </div>
+    </nav>
   )
 }

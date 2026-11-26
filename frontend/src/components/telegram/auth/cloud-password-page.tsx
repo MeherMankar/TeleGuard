@@ -84,14 +84,14 @@ export function CloudPasswordPage({
           onClick={handleSubmit}
           disabled={password.trim().length === 0 || loading}
           className={cn(
-            "w-full py-4 rounded-xl font-medium text-base transition-all flex items-center justify-center gap-2",
+            "flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-colors",
             password.trim().length > 0 && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/50 text-primary-foreground/70 cursor-not-allowed",
           )}
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-          {loading ? "Verifying..." : "Submit"}
+          {loading ? "Verifying…" : "Submit"}
         </button>
       </div>
     </div>

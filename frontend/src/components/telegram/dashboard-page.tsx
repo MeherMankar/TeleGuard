@@ -1,22 +1,25 @@
-import {
-  ArrowLeft,
-  Users,
-  Activity,
-  MessageSquare,
-  Shield,
-  TrendingUp,
-  Clock,
-  Globe,
-  Server,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
+import { ArrowLeft, Activity, Clock, Globe, Server, TriangleAlert } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { analyticsApi, messagingApi, systemApi } from "@/lib/api"
-import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 interface DashboardPageProps {
   isOpen: boolean
   onClose: () => void
+}
+
+function formatActivityTimestamp(timestamp: string | null) {
+  if (!timestamp) return null
+
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return null
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)
 }
 
 export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
@@ -31,21 +34,33 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
     refetchInterval: isOpen ? 30_000 : false,
   })
 
-  const { data: msgStats, isLoading: msgLoading } = useQuery({
+  const {
+    data: msgStats,
+    isLoading: msgLoading,
+    isError: msgError,
+  } = useQuery({
     queryKey: ["messaging-stats"],
     queryFn: messagingApi.stats,
     enabled: isOpen,
     refetchInterval: isOpen ? 30_000 : false,
   })
 
-  const { data: backendHealth, isError: backendError } = useQuery({
+  const {
+    data: backendHealth,
+    isLoading: backendLoading,
+    isError: backendError,
+  } = useQuery({
     queryKey: ["backend-health"],
     queryFn: systemApi.health,
     enabled: isOpen,
     refetchInterval: isOpen ? 30_000 : false,
   })
 
-  const { data: sessionNetwork } = useQuery({
+  const {
+    data: sessionNetwork,
+    isLoading: networkLoading,
+    isError: networkError,
+  } = useQuery({
     queryKey: ["session-network"],
     queryFn: systemApi.sessionNetwork,
     enabled: isOpen,
@@ -54,35 +69,57 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
 
   const stats = dashboard?.stats
   const activities = dashboard?.recentActivities ?? []
+  const messageCount = stats?.messagesSent ?? msgStats?.total_messages_sent
 
   const statCards = [
+    { label: "Total accounts", value: stats?.totalAccounts, loading: dashLoading },
     {
-      icon: Users,
-      label: "Total Accounts",
-      value: stats?.totalAccounts ?? 0,
-      color: "text-blue-400",
-      bg: "bg-blue-500/10",
+      label: "Active sessions",
+      value: stats?.activeSessions,
+      loading: dashLoading,
+      featured: true,
     },
     {
-      icon: Activity,
-      label: "Active Sessions",
-      value: stats?.activeSessions ?? 0,
-      color: "text-green-400",
-      bg: "bg-green-500/10",
+      label: "Messages sent",
+      value: messageCount,
+      loading: messageCount === undefined && (dashLoading || msgLoading),
+    },
+    { label: "Sessions destroyed", value: stats?.destroyedSessions, loading: dashLoading },
+  ]
+
+  const backendStatus = backendLoading
+    ? "Checking"
+    : backendError
+      ? "Unavailable"
+      : backendHealth?.status === "healthy"
+        ? "Connected"
+        : "Unknown"
+  const networkStatus = networkLoading
+    ? "Checking"
+    : networkError
+      ? "Unavailable"
+      : sessionNetwork && "current_ip" in sessionNetwork
+        ? `${sessionNetwork.stability[0].toUpperCase()}${sessionNetwork.stability.slice(1)} stability · ${sessionNetwork.ip_changes.toLocaleString()} IP changes`
+        : sessionNetwork?.status === "guardian_not_initialized"
+          ? "Monitor not initialized"
+          : "Unknown"
+
+  const statuses = [
+    {
+      icon: Server,
+      label: "Backend service",
+      value: backendStatus,
+      tone: backendError
+        ? "text-[#e5484d]"
+        : backendStatus === "Connected"
+          ? "text-[#4cc38a]"
+          : "text-[#a3a9b8]",
     },
     {
-      icon: MessageSquare,
-      label: "Messages Sent",
-      value: stats?.messagesSent ?? msgStats?.total_messages_sent ?? 0,
-      color: "text-sky-400",
-      bg: "bg-sky-500/10",
-    },
-    {
-      icon: Shield,
-      label: "Sessions Destroyed",
-      value: stats?.destroyedSessions ?? 0,
-      color: "text-red-400",
-      bg: "bg-red-500/10",
+      icon: Globe,
+      label: "Session network",
+      value: networkStatus,
+      tone: networkError ? "text-[#e5484d]" : "text-[#a3a9b8]",
     },
   ]
 
@@ -90,146 +127,171 @@ export function DashboardPage({ isOpen, onClose }: DashboardPageProps) {
     <div
       style={{ zIndex: 75 }}
       className={cn(
-        "tg-screen fixed inset-0 bg-[#17212b] flex flex-col transition-transform duration-300 ease-in-out",
+        "tg-screen fixed inset-0 flex flex-col bg-[#0b0d14] text-[#eef0f5] transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
-      <header className="flex items-center gap-4 px-4 py-3 bg-[#17212b] border-b border-white/10">
+      <header className="flex min-h-14 items-center gap-3 border-b border-white/10 bg-[#0b0d14] px-4 py-2 sm:px-5">
         <button
           onClick={onClose}
-          className="p-2 -ml-2 text-gray-400 hover:text-white transition-colors"
+          className="rounded-lg p-2 text-[#a3a9b8] transition-colors hover:bg-white/5 hover:text-[#eef0f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2AABEE]"
           aria-label="Go back"
         >
-          <ArrowLeft className="h-6 w-6" />
+          <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-medium text-white">Dashboard</h1>
+        <h1 className="text-lg font-medium">Dashboard</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Error banner */}
-        {dashError && !dashLoading && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
-            ⚠️ Could not load stats. Check your connection or restart the bot.
-          </div>
-        )}
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          {statCards.map(({ icon: Icon, label, value, color, bg }) => (
-            <div key={label} className="bg-[#242f3d] rounded-xl p-4">
-              {dashLoading || msgLoading ? (
-                <Skeleton className="h-16 w-full bg-white/5" />
-              ) : (
-                <>
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center mb-3",
-                      bg,
-                    )}
-                  >
-                    <Icon className={cn("h-5 w-5", color)} />
-                  </div>
-                  <p className="text-2xl font-bold text-white">{value.toLocaleString()}</p>
-                  <p className="text-gray-400 text-xs mt-1">{label}</p>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center gap-3 rounded-xl bg-[#242f3d] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-              <Server className="h-5 w-5 text-green-400" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white">Backend service</p>
-              <p className={cn("text-xs", backendError ? "text-red-400" : "text-gray-400")}>
-                {backendError
-                  ? "Unavailable"
-                  : backendHealth?.status === "healthy"
-                    ? "Connected"
-                    : "Checking…"}
+      <div className="flex-1 overflow-y-auto" aria-busy={dashLoading || msgLoading}>
+        <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6">
+          {(dashError || msgError) && (
+            <div
+              role="alert"
+              className="flex items-start gap-3 rounded-xl border border-[#e5484d]/20 bg-[#e5484d]/10 px-4 py-3 text-sm text-[#e5484d]"
+            >
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {dashError && msgError
+                  ? "Dashboard and messaging data are unavailable. Check your connection."
+                  : dashError
+                    ? "Dashboard data is unavailable. Check your connection."
+                    : "Messaging data is unavailable. Check your connection."}
               </p>
             </div>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl bg-[#242f3d] p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/10">
-              <Globe className="h-5 w-5 text-sky-400" />
+          )}
+
+          <section aria-labelledby="dashboard-overview">
+            <h2 id="dashboard-overview" className="mb-3 text-sm font-medium text-[#a3a9b8]">
+              Overview
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {statCards.map(({ label, value, loading, featured }) => (
+                <article
+                  key={label}
+                  className="min-w-0 rounded-xl border border-white/10 bg-[#11141c] p-4"
+                >
+                  <p className="text-sm text-[#a3a9b8]">{label}</p>
+                  {loading ? (
+                    <div className="mt-3 h-8 w-16 rounded-md bg-white/5" aria-hidden="true" />
+                  ) : (
+                    <p
+                      className={cn(
+                        "mt-2 text-2xl font-medium tabular-nums",
+                        featured && "text-[#2AABEE]",
+                      )}
+                    >
+                      {value === undefined ? "—" : value.toLocaleString()}
+                    </p>
+                  )}
+                </article>
+              ))}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-white">Session network</p>
-              {sessionNetwork && "current_ip" in sessionNetwork ? (
-                <p className="truncate text-xs text-gray-400">
-                  {sessionNetwork.stability} stability · {sessionNetwork.ip_changes} IP changes
-                </p>
-              ) : sessionNetwork?.status === "guardian_not_initialized" ? (
-                <p className="text-xs text-gray-400">Network monitor not initialized</p>
+          </section>
+
+          <section aria-label="Service status" className="grid gap-3 sm:grid-cols-2">
+            {statuses.map(({ icon: Icon, label, value, tone }) => (
+              <article
+                key={label}
+                className="flex min-h-20 items-center gap-3 rounded-xl border border-white/10 bg-[#11141c] px-4 py-3"
+              >
+                <Icon className="h-4 w-4 shrink-0 text-[#7a8296]" />
+                <div className="min-w-0">
+                  <h2 className="text-sm font-medium">{label}</h2>
+                  <p className={cn("mt-1 truncate text-sm", tone)}>{value}</p>
+                </div>
+              </article>
+            ))}
+          </section>
+
+          <section aria-labelledby="messaging-heading">
+            <div className="mb-3 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-[#7a8296]" />
+              <h2 id="messaging-heading" className="text-sm font-medium">
+                Messaging
+              </h2>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[#11141c] px-4">
+              {msgStats ? (
+                [
+                  ["Auto replies sent", msgStats.auto_replies_sent],
+                  ["Active accounts", msgStats.active_accounts],
+                  ["DM topics created", msgStats.dm_topics_created],
+                ].map(([label, value], index, rows) => (
+                  <div
+                    key={label}
+                    className={cn(
+                      "flex min-h-12 items-center justify-between gap-4 py-3",
+                      index < rows.length - 1 && "border-b border-white/10",
+                    )}
+                  >
+                    <span className="text-sm text-[#a3a9b8]">{label}</span>
+                    <span className="text-sm font-medium tabular-nums">
+                      {typeof value === "number" ? value.toLocaleString() : value}
+                    </span>
+                  </div>
+                ))
+              ) : msgLoading ? (
+                <div className="space-y-3 py-4" aria-label="Loading messaging stats">
+                  <div className="h-4 w-2/3 rounded bg-white/5" />
+                  <div className="h-4 w-1/2 rounded bg-white/5" />
+                  <div className="h-4 w-3/5 rounded bg-white/5" />
+                </div>
               ) : (
-                <p className="text-xs text-gray-400">Checking…</p>
+                <p className="py-4 text-sm text-[#a3a9b8]">
+                  {msgError ? "Messaging data unavailable" : "No messaging data"}
+                </p>
               )}
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* Messaging Stats */}
-        {msgStats && (
-          <div className="bg-[#242f3d] rounded-xl p-4">
-            <p className="text-sky-400 text-sm font-medium mb-3 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" /> Messaging Stats
-            </p>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400 text-sm">Auto Replies Sent</span>
-                <span className="text-white font-medium">{msgStats.auto_replies_sent}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400 text-sm">Active Accounts</span>
-                <span className="text-white font-medium">{msgStats.active_accounts}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-400 text-sm">DM Topics Created</span>
-                <span className="text-white font-medium">{msgStats.dm_topics_created}</span>
-              </div>
+          <section aria-labelledby="activity-heading">
+            <div className="mb-3 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-[#7a8296]" />
+              <h2 id="activity-heading" className="text-sm font-medium">
+                Recent activity
+              </h2>
             </div>
-          </div>
-        )}
+            <div className="rounded-xl border border-white/10 bg-[#11141c]">
+              {dashLoading ? (
+                <div className="space-y-3 p-4" aria-label="Loading recent activity">
+                  <div className="h-4 w-4/5 rounded bg-white/5" />
+                  <div className="h-3 w-1/3 rounded bg-white/5" />
+                </div>
+              ) : activities.length > 0 ? (
+                <ul role="list">
+                  {activities.map((activity, index) => {
+                    const timestamp = formatActivityTimestamp(activity.timestamp)
 
-        {/* Recent Activity */}
-        {activities.length > 0 && (
-          <div className="bg-[#242f3d] rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/10">
-              <span className="text-sky-400 text-sm font-medium">Recent Activity</span>
+                    return (
+                      <li
+                        key={`${activity.type}-${activity.timestamp ?? index}-${index}`}
+                        className={cn(
+                          "flex items-start gap-3 px-4 py-3",
+                          index < activities.length - 1 && "border-b border-white/10",
+                        )}
+                      >
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2AABEE]" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm">{activity.message}</p>
+                          {timestamp && (
+                            <p className="mt-1 text-xs tabular-nums text-[#7a8296]">{timestamp}</p>
+                          )}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <div className="flex items-center gap-3 px-4 py-5">
+                  <Activity className="h-4 w-4 shrink-0 text-[#7a8296]" />
+                  <p className="text-sm text-[#a3a9b8]">
+                    {dashError ? "Activity data unavailable" : "No recent activity"}
+                  </p>
+                </div>
+              )}
             </div>
-            <ul role="list">
-              {activities.map((activity, i) => (
-                <li
-                  key={i}
-                  className={cn(
-                    "px-4 py-3 flex items-start gap-3",
-                    i < activities.length - 1 && "border-b border-white/5",
-                  )}
-                >
-                  <Clock className="h-4 w-4 text-gray-500 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm">{activity.message}</p>
-                    {activity.timestamp && (
-                      <p className="text-gray-500 text-xs mt-0.5">
-                        {new Date(activity.timestamp).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {!dashLoading && activities.length === 0 && (
-          <div className="text-center py-8">
-            <Activity className="h-10 w-10 text-gray-600 mx-auto mb-2" />
-            <p className="text-gray-400 text-sm">No recent activity</p>
-          </div>
-        )}
+          </section>
+        </main>
       </div>
     </div>
   )

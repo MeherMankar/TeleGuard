@@ -216,7 +216,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <h1 className="text-xl font-medium text-white flex-1">Protection Manager</h1>
+        <h1 className="flex-1 text-lg font-medium text-white">Protection manager</h1>
         {(destroyedCount > 0 || otpDestroyedCount > 0) && (
           <div className="flex items-center gap-2">
             {destroyedCount > 0 && (
@@ -237,7 +237,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
         {/* ── Session Destroyer ─────────────────────────────────────────────── */}
         <div className="bg-[#242f3d] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10">
-            <p className="text-sky-400 text-sm font-medium">Session Destroyer — Per Account</p>
+            <p className="text-sm font-medium text-white">Session Destroyer by account</p>
             <p className="text-gray-500 text-xs mt-0.5">
               Each account has its own protection and device list. Devices present when enabled are
               kept.
@@ -296,7 +296,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                           disabled={allowNextMutation.isPending || allowNext}
                           className="flex-1 py-2 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 disabled:opacity-60"
                         >
-                          {allowNext ? "Next login will be kept ✓" : "Trust next login"}
+                          {allowNext ? "Next login will be kept" : "Keep the next login"}
                         </button>
                         <button
                           onClick={() => syncTrustedMutation.mutate(acc.id)}
@@ -318,7 +318,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
         {accounts.length > 0 && (
           <div className="bg-[#242f3d] rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/10">
-              <p className="text-sky-400 text-sm font-medium">OTP Protection — Per Account</p>
+              <p className="text-sm font-medium text-white">OTP protection by account</p>
               <p className="text-gray-500 text-xs mt-0.5">
                 Destroyer invalidates codes · Forward sends them to your bot chat
               </p>
@@ -338,7 +338,7 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
                   >
                     {/* Account header */}
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400 font-bold text-sm">
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white/5 text-sm font-medium text-gray-300">
                         {(acc.name || acc.phone || "?").charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">

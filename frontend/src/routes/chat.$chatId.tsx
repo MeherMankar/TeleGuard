@@ -324,7 +324,7 @@ function ChatPage() {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 px-3 py-4 space-y-1 bg-[oklch(0.18_0.02_260)] overflow-y-auto"
+          className="flex-1 space-y-1 overflow-y-auto bg-[#101216] px-3 py-4"
           style={{ minHeight: 0 }}
         >
           {isLoading && (
@@ -769,7 +769,7 @@ function MediaBlock({
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-48 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
+          <div className="flex h-48 w-full items-center justify-center bg-[#17191f]">
             <Image className="h-10 w-10 text-white/40" />
           </div>
         )}
@@ -787,7 +787,7 @@ function MediaBlock({
     return (
       <div
         className={cn(
-          "relative bg-gradient-to-br from-slate-700 to-slate-900",
+          "relative bg-[#17191f]",
           media.round ? "w-40 h-40 rounded-full overflow-hidden mx-auto" : "w-full h-52",
         )}
       >
@@ -826,7 +826,7 @@ function MediaBlock({
   // GIF
   if (media.type === "gif") {
     return (
-      <div className="relative w-full h-40 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
+      <div className="relative flex h-40 w-full items-center justify-center bg-[#17191f]">
         {mediaUrl && !imgError ? (
           <img
             src={mediaUrl}

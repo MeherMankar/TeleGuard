@@ -149,7 +149,7 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
           onClick={handleNext}
           disabled={!isPhoneValid || loading}
           className={cn(
-            "w-full py-4 rounded-lg font-medium text-base transition-all flex items-center justify-center gap-2",
+            "flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-colors",
             isPhoneValid && !loading
               ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "bg-primary/50 text-primary-foreground/70 cursor-not-allowed",
@@ -163,7 +163,7 @@ export function PhoneLoginPage({ isOpen, onBack, onNext, onQRLogin }: PhoneLogin
           onClick={onQRLogin}
           className="mt-6 text-primary hover:text-primary/80 transition-colors text-sm font-medium text-center"
         >
-          Quick log in using QR code
+          Log in with QR code
         </button>
       </div>
 
