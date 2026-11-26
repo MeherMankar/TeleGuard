@@ -1,22 +1,17 @@
 import {
   ArrowLeft,
   Shield,
-  Zap,
   Loader2,
   AlertTriangle,
   Clock,
-  CheckCircle2,
   Eye,
   Timer,
   ShieldOff,
   Forward,
-  RefreshCw,
-  LogIn,
-  Bell,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { securityApi, accountsApi, type Account } from "@/lib/api"
+import { securityApi, type Account } from "@/lib/api"
 import { useUser } from "@/contexts/user-context"
 import { useWsEvent } from "@/hooks/use-ws-event"
 import { toast } from "sonner"
@@ -30,6 +25,7 @@ interface ProtectionManagerPageProps {
 
 export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPageProps) {
   const { accounts } = useUser()
+  const activeAccounts = accounts.filter((account) => account.is_active)
   const queryClient = useQueryClient()
 
   const { data: security, isLoading } = useQuery({
@@ -91,10 +87,12 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const sessionDestroyerMutation = useMutation({
-    mutationFn: (enabled: boolean) => securityApi.updateSettings(enabled),
-    onSuccess: (_, enabled) => {
-      toast.success(`Session Destroyer ${enabled ? "enabled" : "disabled"}`)
+    mutationFn: ({ account_id, enabled }: { account_id: string; enabled: boolean }) =>
+      securityApi.updateSettings(account_id, enabled),
+    onSuccess: (_, { enabled }) => {
+      toast.success(`Session Destroyer ${enabled ? "enabled" : "disabled"} for this account`)
       queryClient.invalidateQueries({ queryKey: ["security"] })
+      queryClient.invalidateQueries({ queryKey: ["trusted-sessions"] })
     },
     onError: (e) => {
       const msg = (e as Error).message
@@ -107,8 +105,11 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
   })
 
   const allowNextMutation = useMutation({
-    mutationFn: () => securityApi.allowNextLogin(),
-    onSuccess: (res) => toast.success(res.message),
+    mutationFn: (account_id: string) => securityApi.allowNextLogin(account_id),
+    onSuccess: (res) => {
+      toast.success(res.message)
+      queryClient.invalidateQueries({ queryKey: ["security"] })
+    },
     onError: (e) => {
       const msg = (e as Error).message
       toast.error(
@@ -120,8 +121,12 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
   })
 
   const syncTrustedMutation = useMutation({
-    mutationFn: () => securityApi.syncTrustedSessions(),
-    onSuccess: (res) => toast.success(`Synced ${res.trusted_count} trusted sessions`),
+    mutationFn: (account_id: string) => securityApi.syncTrustedSessions(account_id),
+    onSuccess: (res) => {
+      toast.success(`Synced ${res.trusted_count} protected devices`)
+      queryClient.invalidateQueries({ queryKey: ["security"] })
+      queryClient.invalidateQueries({ queryKey: ["trusted-sessions"] })
+    },
     onError: (e) => {
       const msg = (e as Error).message
       toast.error(
@@ -192,11 +197,9 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
     },
   })
 
-  const isSessionDestroyerEnabled =
-    security?.settings?.session_destroyer_enabled ?? security?.enabled ?? false
+  const sessionProtections = security?.settings?.session_destroyer_accounts ?? []
   const destroyedCount = security?.stats?.destroyed_count ?? 0
   const otpDestroyedCount = security?.stats?.otp_destroyed ?? 0
-  const allowNext = security?.settings?.allow_next ?? false
 
   return (
     <div
@@ -234,73 +237,80 @@ export function ProtectionManagerPage({ isOpen, onClose }: ProtectionManagerPage
         {/* ── Session Destroyer ─────────────────────────────────────────────── */}
         <div className="bg-[#242f3d] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10">
-            <p className="text-sky-400 text-sm font-medium">Session Destroyer</p>
+            <p className="text-sky-400 text-sm font-medium">Session Destroyer — Per Account</p>
             <p className="text-gray-500 text-xs mt-0.5">
-              Terminates unauthorized Telegram sessions automatically
+              Each account has its own protection and device list. Devices present when enabled are
+              kept.
             </p>
           </div>
-
-          <div className="px-4 py-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
-              <Zap className="h-5 w-5 text-red-400" />
-            </div>
-            <div className="flex-1">
-              <p className="text-white font-medium text-sm">Auto-terminate unauthorized sessions</p>
-              {isSessionDestroyerEnabled && destroyedCount > 0 && (
-                <p className="text-red-400 text-xs mt-0.5">{destroyedCount} sessions terminated</p>
-              )}
-            </div>
-            {isLoading ? (
-              <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
-            ) : (
-              <Switch
-                checked={isSessionDestroyerEnabled}
-                onCheckedChange={(v) => sessionDestroyerMutation.mutate(v)}
-                disabled={sessionDestroyerMutation.isPending}
-              />
-            )}
-          </div>
-
-          {isSessionDestroyerEnabled && (
-            <div className="px-4 pb-4 space-y-2">
-              <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2">
-                <CheckCircle2 className="h-4 w-4 text-green-400 flex-shrink-0" />
-                <p className="text-green-400 text-xs flex-1">Active — watching for new sessions</p>
-              </div>
-
-              {/* Allow next login */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => allowNextMutation.mutate()}
-                  disabled={allowNextMutation.isPending || allowNext}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium transition-colors",
-                    allowNext
-                      ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                      : "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/20",
-                  )}
-                >
-                  {allowNextMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <LogIn className="h-3.5 w-3.5" />
-                  )}
-                  {allowNext ? "Next login trusted ✓" : "Trust next login"}
-                </button>
-                <button
-                  onClick={() => syncTrustedMutation.mutate()}
-                  disabled={syncTrustedMutation.isPending}
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10 transition-colors"
-                >
-                  {syncTrustedMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  Sync trusted
-                </button>
-              </div>
-            </div>
+          {activeAccounts.length === 0 ? (
+            <p className="px-4 py-4 text-gray-400 text-sm">
+              Add an active account to configure session protection.
+            </p>
+          ) : (
+            <ul role="list">
+              {activeAccounts.map((acc: Account, i) => {
+                const protection = sessionProtections.find((item) => item.account_id === acc.id)
+                const enabled = protection?.enabled ?? false
+                const allowNext = protection?.allow_next ?? false
+                return (
+                  <li
+                    key={acc.id}
+                    className={cn(
+                      "px-4 py-3 space-y-2.5",
+                      i < activeAccounts.length - 1 && "border-b border-white/5",
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 text-red-400 font-bold text-sm">
+                        {(acc.name || acc.phone || "?").charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">
+                          {acc.name || acc.phone}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {enabled ? "Watching this account" : "Protection off"}
+                          {protection?.trusted_hashes_count
+                            ? ` · ${protection.trusted_hashes_count} protected devices`
+                            : ""}
+                        </p>
+                      </div>
+                      {isLoading ? (
+                        <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
+                      ) : (
+                        <Switch
+                          checked={enabled}
+                          onCheckedChange={(v) =>
+                            sessionDestroyerMutation.mutate({ account_id: acc.id, enabled: v })
+                          }
+                          disabled={sessionDestroyerMutation.isPending}
+                          aria-label={`Session Destroyer for ${acc.name || acc.phone}`}
+                        />
+                      )}
+                    </div>
+                    {enabled && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => allowNextMutation.mutate(acc.id)}
+                          disabled={allowNextMutation.isPending || allowNext}
+                          className="flex-1 py-2 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 disabled:opacity-60"
+                        >
+                          {allowNext ? "Next login will be kept ✓" : "Trust next login"}
+                        </button>
+                        <button
+                          onClick={() => syncTrustedMutation.mutate(acc.id)}
+                          disabled={syncTrustedMutation.isPending}
+                          className="flex-1 py-2 rounded-lg text-xs font-medium bg-white/5 text-gray-300 border border-white/10 disabled:opacity-60"
+                        >
+                          Sync protected devices
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </div>
 

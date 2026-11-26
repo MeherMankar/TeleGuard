@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Iterable, Set
 
 from telethon import functions, errors
+from bson import ObjectId
 
 from ..core.mongo_database import mongodb as _mdb
 from ..services.protection_storage import ProtectionStorage
@@ -64,59 +65,60 @@ class SessionDestroyer:
     def __init__(self, bot_manager):
         self.bot_manager = bot_manager
         self.notifier = ProtectionNotifier(bot_manager.bot)
-        self.active_watchers: Dict[int, asyncio.Task] = {}
+        self.active_watchers: Dict[tuple[int, str], asyncio.Task] = {}
         self._lock = asyncio.Lock()
         self.is_shutdown = False
 
-    async def terminate_session(self, user_id: int, session_hash: int) -> bool:
-        """Immediately terminate a live session owned by the user."""
-        settings = await ProtectionStorage.get_settings(user_id)
-        if not settings.get("session_destroyer_enabled"):
+    async def terminate_session(
+        self, user_id: int, account_id: str, session_hash: int
+    ) -> bool:
+        """Immediately terminate a live session on the selected Telegram account."""
+        settings = await ProtectionStorage.get_account_settings(user_id, account_id)
+        if not settings.get("enabled"):
             return False
-        terminated = False
-        user_clients = self.bot_manager.user_clients.get(user_id, {})
+        try:
+            account = await _mdb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+        except Exception:
+            return False
+        if not account:
+            return False
+        from ..utils.crypto_utils import DataEncryption
 
-        for client in user_clients.values():
-            if not client or not client.is_connected():
-                continue
-            try:
-                result = await client(functions.account.GetAuthorizationsRequest())
-                if not any(auth.hash == session_hash for auth in result.authorizations):
-                    continue
-                authorization = next(
-                    auth for auth in result.authorizations if auth.hash == session_hash
-                )
-                if getattr(authorization, "current", False):
-                    await ProtectionStorage.add_trusted_hash(user_id, session_hash)
-                    logger.warning(
-                        "Refused to terminate TeleGuard's current session %s for user %s",
-                        session_hash,
-                        user_id,
-                    )
-                    return False
-                await client(
-                    functions.account.ResetAuthorizationRequest(hash=session_hash)
-                )
-                terminated = True
-                break
-            except Exception as e:
-                logger.warning(
-                    "Failed to immediately terminate session %s for user %s: %s",
-                    session_hash,
-                    user_id,
-                    e,
-                )
-
-        if terminated:
-            await ProtectionStorage.add_destroyed_hash(user_id, session_hash)
-        return terminated
+        account = DataEncryption.decrypt_account_data(account)
+        client = self._get_account_client(user_id, account)
+        if not client or not client.is_connected():
+            return False
+        result = await client(functions.account.GetAuthorizationsRequest())
+        authorization = next(
+            (auth for auth in result.authorizations if auth.hash == session_hash),
+            None,
+        )
+        if not authorization:
+            return False
+        if getattr(authorization, "current", False):
+            await ProtectionStorage.add_account_trusted_hash(
+                user_id, account_id, session_hash
+            )
+            logger.warning(
+                "Refused to terminate current session %s for account %s",
+                session_hash,
+                account_id,
+            )
+            return False
+        await client(functions.account.ResetAuthorizationRequest(hash=session_hash))
+        await ProtectionStorage.add_account_destroyed_hash(
+            user_id, account_id, session_hash
+        )
+        return True
 
     async def start_all(self):
         """Start watchers for all users with session protection enabled"""
         users = await ProtectionStorage.get_all_active_session_destroyers()
         for user_settings in users:
             user_id = user_settings["user_id"]
-            await self.start_watcher(user_id)
+            await self.start_watcher(user_id, user_settings["account_id"])
 
     async def stop_all(self):
         """Stop all active watchers"""
@@ -128,28 +130,46 @@ class SessionDestroyer:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def start_watcher(self, user_id: int):
-        """Start a background watcher task for a specific user"""
+    async def start_watcher(self, user_id: int, account_id: str):
+        """Start a background watcher for one Telegram account."""
+        key = (user_id, str(account_id))
         async with self._lock:
             self.is_shutdown = False
-            if user_id in self.active_watchers:
-                if not self.active_watchers[user_id].done():
+            if key in self.active_watchers:
+                if not self.active_watchers[key].done():
                     return
-            task = asyncio.create_task(self._watcher_loop(user_id))
-            self.active_watchers[user_id] = task
-            logger.info(f"Started Session Destroyer watcher for user {user_id}")
+            task = asyncio.create_task(self._watcher_loop(user_id, str(account_id)))
+            self.active_watchers[key] = task
+            logger.info(
+                "Started Session Destroyer watcher for user %s account %s",
+                user_id,
+                account_id,
+            )
 
-    async def stop_watcher(self, user_id: int):
-        """Stop watcher for a specific user"""
+    async def stop_watcher(self, user_id: int, account_id: str):
+        """Stop watcher for one Telegram account."""
+        key = (user_id, str(account_id))
         async with self._lock:
-            task = self.active_watchers.pop(user_id, None)
+            task = self.active_watchers.pop(key, None)
             if task:
                 task.cancel()
-                logger.info(f"Stopped Session Destroyer watcher for user {user_id}")
+                logger.info(
+                    "Stopped Session Destroyer watcher for user %s account %s",
+                    user_id,
+                    account_id,
+                )
         if task:
             await asyncio.gather(task, return_exceptions=True)
 
-    async def _watcher_loop(self, user_id: int):
+    def _get_account_client(self, user_id: int, account: Dict[str, Any]):
+        account_name = (
+            account.get("name") or account.get("phone") or account.get("display_name")
+        )
+        if not account_name:
+            return None
+        return self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+
+    async def _watcher_loop(self, user_id: int, account_id: str):
         """Main loop that polls for new sessions every 5 seconds."""
         # On Koyeb (and other cloud platforms) a rolling restart keeps the old
         # instance alive for ~30 s while the new one starts.  Both instances
@@ -166,12 +186,34 @@ class SessionDestroyer:
         # On first run, sync ALL current sessions as trusted
         # so we never destroy pre-existing sessions
         first_run = True
+        try:
+            from ..utils.crypto_utils import DataEncryption
+
+            account_doc = await _mdb.db.accounts.find_one(
+                {"_id": ObjectId(account_id), "user_id": user_id}
+            )
+            account = (
+                DataEncryption.decrypt_account_data(account_doc)
+                if account_doc
+                else None
+            )
+        except Exception:
+            logger.exception(
+                "Could not load Session Destroyer account %s for user %s",
+                account_id,
+                user_id,
+            )
+            return
+        if not account:
+            return
 
         while not self.is_shutdown:
             try:
                 # 1. Check if still enabled and not paused
-                settings = await ProtectionStorage.get_settings(user_id)
-                if not settings.get("session_destroyer_enabled"):
+                settings = await ProtectionStorage.get_account_settings(
+                    user_id, account_id
+                )
+                if not settings.get("enabled"):
                     break
 
                 pause_until = settings.get("pause_until")
@@ -180,31 +222,20 @@ class SessionDestroyer:
                     await asyncio.sleep(15)
                     continue
 
-                # 2. Find a connected client
-                user_clients = self.bot_manager.user_clients.get(user_id, {})
-                if not user_clients:
-                    await asyncio.sleep(15)
-                    continue
-
-                target_clients = [
-                    client
-                    for client in user_clients.values()
-                    if client and client.is_connected()
-                ]
-                if not target_clients:
+                # 2. Find the client for this account only.
+                target_client = self._get_account_client(user_id, account)
+                if not target_client or not target_client.is_connected():
                     await asyncio.sleep(15)
                     continue
 
                 # 3. Fetch current sessions
                 try:
-                    current_sessions = []
-                    for target_client in target_clients:
-                        result = await target_client(
-                            functions.account.GetAuthorizationsRequest()
-                        )
-                        current_sessions.extend(
-                            (target_client, auth) for auth in result.authorizations
-                        )
+                    result = await target_client(
+                        functions.account.GetAuthorizationsRequest()
+                    )
+                    current_sessions = [
+                        (target_client, auth) for auth in result.authorizations
+                    ]
                 except errors.FloodWaitError as e:
                     logger.warning(f"FloodWait in Session Destroyer for {user_id}: {e.seconds}s")
                     await asyncio.sleep(min(e.seconds, 60))
@@ -253,7 +284,7 @@ class SessionDestroyer:
                     pending_on_first_run = {
                         doc["hash"]
                         for doc in await _mdb.db.session_destroyer_pending.find(
-                            {"user_id": user_id}
+                            {"user_id": user_id, "account_id": account_id}
                         ).to_list(None)
                     }
 
@@ -264,17 +295,22 @@ class SessionDestroyer:
                         existing_trusted,
                         explicitly_untrusted,
                     )
-                    await ProtectionStorage.update_settings(
-                        user_id, {"trusted_hashes": list(combined)}
+                    await ProtectionStorage.update_account_settings(
+                        user_id, account_id, {"trusted_hashes": list(combined)}
                     )
                     # Remove from pending any session that is now trusted —
                     # these were queued before the trusted-hash fix took effect.
                     if combined:
                         await _mdb.db.session_destroyer_pending.delete_many(
-                            {"user_id": user_id, "hash": {"$in": list(combined)}}
+                            {
+                                "user_id": user_id,
+                                "account_id": account_id,
+                                "hash": {"$in": list(combined)},
+                            }
                         )
                     logger.info(
-                        f"Session Destroyer first run for user {user_id}: "
+                        f"Session Destroyer first run for account {account_id} "
+                        f"(user {user_id}): "
                         f"trusted {len(combined)} existing sessions"
                         + (f", skipped {len(pending_on_first_run)} pending" if pending_on_first_run else "")
                     )
@@ -282,7 +318,9 @@ class SessionDestroyer:
                     continue
 
                 # 5. Reload settings after possible first-run update
-                settings = await ProtectionStorage.get_settings(user_id)
+                settings = await ProtectionStorage.get_account_settings(
+                    user_id, account_id
+                )
                 trusted_hashes = set(settings.get("trusted_hashes", []))
                 untrusted_hashes = set(settings.get("untrusted_hashes", []))
                 destroyed_hashes = set(settings.get("destroyed_hashes", []))
@@ -293,8 +331,10 @@ class SessionDestroyer:
                     allow_next_until = _as_utc(settings.get("allow_next_until"))
                     if allow_next_until:
                         if allow_next_until and datetime.now(timezone.utc) > allow_next_until:
-                            await ProtectionStorage.update_settings(
-                                user_id, {"allow_next": False, "allow_next_until": None}
+                            await ProtectionStorage.update_account_settings(
+                                user_id,
+                                account_id,
+                                {"allow_next": False, "allow_next_until": None},
                             )
                             allow_next = False
 
@@ -302,7 +342,7 @@ class SessionDestroyer:
                 # loop so they are excluded from newly_detected on every cycle.
                 now = datetime.now(timezone.utc)
                 pending_docs = await _mdb.db.session_destroyer_pending.find(
-                    {"user_id": user_id}
+                    {"user_id": user_id, "account_id": account_id}
                 ).to_list(None)
                 pending_hashes = {doc["hash"] for doc in pending_docs}
 
@@ -330,11 +370,14 @@ class SessionDestroyer:
 
                     # If 'allow next login' is active, trust this new session
                     if allow_next:
-                        await ProtectionStorage.add_trusted_hash(user_id, auth.hash)
-                        await ProtectionStorage.update_settings(user_id, {
-                            "allow_next": False,
-                            "allow_next_until": None,
-                        })
+                        await ProtectionStorage.add_account_trusted_hash(
+                            user_id, account_id, auth.hash
+                        )
+                        await ProtectionStorage.update_account_settings(
+                            user_id,
+                            account_id,
+                            {"allow_next": False, "allow_next_until": None},
+                        )
                         allow_next = False
                         logger.info(
                             f"User {user_id}: New session {auth.hash} trusted via 'Allow Next Login'"
@@ -349,15 +392,19 @@ class SessionDestroyer:
                     async def _kill(client, auth):
                         try:
                             if getattr(auth, "current", False):
-                                await ProtectionStorage.add_trusted_hash(user_id, auth.hash)
+                                await ProtectionStorage.add_account_trusted_hash(
+                                    user_id, account_id, auth.hash
+                                )
                                 logger.warning(
                                     "Refused to terminate TeleGuard's current session %s for user %s",
                                     auth.hash,
                                     user_id,
                                 )
                                 return
-                            settings = await ProtectionStorage.get_settings(user_id)
-                            if not settings.get("session_destroyer_enabled"):
+                            settings = await ProtectionStorage.get_account_settings(
+                                user_id, account_id
+                            )
+                            if not settings.get("enabled"):
                                 return
                             await client(
                                 functions.account.ResetAuthorizationRequest(hash=auth.hash)
@@ -370,10 +417,15 @@ class SessionDestroyer:
                             ):
                                 retry_after = now + timedelta(hours=25)
                                 await _mdb.db.session_destroyer_pending.update_one(
-                                    {"user_id": user_id, "hash": auth.hash},
+                                    {
+                                        "user_id": user_id,
+                                        "account_id": account_id,
+                                        "hash": auth.hash,
+                                    },
                                     {
                                         "$set": {
                                             "user_id": user_id,
+                                            "account_id": account_id,
                                             "hash": auth.hash,
                                             "retry_after": retry_after,
                                             "device": getattr(
@@ -395,8 +447,8 @@ class SessionDestroyer:
                             return
 
                         try:
-                            await ProtectionStorage.add_destroyed_hash(
-                                user_id, auth.hash
+                            await ProtectionStorage.add_account_destroyed_hash(
+                                user_id, account_id, auth.hash
                             )
                         except Exception:
                             logger.exception(
@@ -407,7 +459,7 @@ class SessionDestroyer:
 
                             await SessionDestroyerDB.log_destruction(
                                 user_id,
-                                "",
+                                account_id,
                                 {
                                     "device": getattr(auth, "device_model", "Unknown"),
                                     "ip": getattr(auth, "ip", "Unknown"),
@@ -460,13 +512,15 @@ class SessionDestroyer:
                         client, auth = live
                         try:
                             if getattr(auth, "current", False):
-                                await ProtectionStorage.add_trusted_hash(
-                                    user_id, auth.hash
+                                await ProtectionStorage.add_account_trusted_hash(
+                                    user_id, account_id, auth.hash
                                 )
                                 remove_pending = True
                                 continue
-                            settings = await ProtectionStorage.get_settings(user_id)
-                            if not settings.get("session_destroyer_enabled"):
+                            settings = await ProtectionStorage.get_account_settings(
+                                user_id, account_id
+                            )
+                            if not settings.get("enabled"):
                                 remove_pending = True
                                 continue
                             await client(
@@ -479,13 +533,17 @@ class SessionDestroyer:
                                 f"(device: {auth.device_model})"
                             )
                             try:
-                                await ProtectionStorage.add_destroyed_hash(
-                                    user_id, auth.hash
+                                await ProtectionStorage.add_account_destroyed_hash(
+                                    user_id, account_id, auth.hash
                                 )
                             except Exception:
                                 remove_pending = False
                                 await _mdb.db.session_destroyer_pending.update_one(
-                                    {"user_id": user_id, "hash": auth.hash},
+                                    {
+                                        "user_id": user_id,
+                                        "account_id": account_id,
+                                        "hash": auth.hash,
+                                    },
                                     {
                                         "$set": {
                                             "retry_after": now + timedelta(minutes=5)
@@ -501,7 +559,7 @@ class SessionDestroyer:
                             try:
                                 await SessionDestroyerDB.log_destruction(
                                     user_id,
-                                    "",
+                                    account_id,
                                     {
                                         "device": getattr(
                                             auth, "device_model", "Unknown"
@@ -543,7 +601,11 @@ class SessionDestroyer:
                             ):
                                 retry_after = now + timedelta(hours=25)
                             await _mdb.db.session_destroyer_pending.update_one(
-                                {"user_id": user_id, "hash": auth.hash},
+                                {
+                                    "user_id": user_id,
+                                    "account_id": account_id,
+                                    "hash": auth.hash,
+                                },
                                 {"$set": {"retry_after": retry_after}},
                             )
                             logger.error(
@@ -557,30 +619,49 @@ class SessionDestroyer:
                         )
                     if remove_pending:
                         await _mdb.db.session_destroyer_pending.delete_one(
-                            {"user_id": user_id, "hash": doc["hash"]}
+                            {
+                                "user_id": user_id,
+                                "account_id": account_id,
+                                "hash": doc["hash"],
+                            }
                         )
 
-                await ProtectionStorage.update_settings(
-                    user_id, {"last_check": datetime.now(timezone.utc)}
+                await ProtectionStorage.update_account_settings(
+                    user_id,
+                    account_id,
+                    {"last_check": datetime.now(timezone.utc)},
                 )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Unexpected error in Session Destroyer loop for {user_id}: {e}")
+                logger.exception(
+                    "Unexpected Session Destroyer error for user %s account %s: %s",
+                    user_id,
+                    account_id,
+                    e,
+                )
 
             # Poll every 5 seconds for near-instant detection
             await asyncio.sleep(5)
 
-    async def sync_trusted_sessions(self, user_id: int, client):
+    async def sync_trusted_sessions(
+        self, user_id: int, client, account_id: str | None = None
+    ):
         """
         Fetch all current sessions and save them as trusted.
         Call this when first enabling Session Destroyer so existing
         sessions are never destroyed.
         """
         try:
+            if account_id is None:
+                account_id = await self._find_account_id(user_id, client)
+            if account_id is None:
+                raise ValueError("Could not identify the Telegram account to sync")
             result = await client(functions.account.GetAuthorizationsRequest())
-            settings = await ProtectionStorage.get_settings(user_id)
+            settings = await ProtectionStorage.get_account_settings(
+                user_id, account_id
+            )
             explicitly_untrusted = set(settings.get("untrusted_hashes", []))
             hashes = set(settings.get("trusted_hashes", [])) - explicitly_untrusted
             hashes.update(
@@ -591,18 +672,51 @@ class SessionDestroyer:
             trusted_count = sum(
                 auth.hash in hashes for auth in result.authorizations
             )
-            await ProtectionStorage.update_settings(
-                user_id, {"trusted_hashes": list(hashes)}
+            await ProtectionStorage.update_account_settings(
+                user_id, account_id, {"trusted_hashes": list(hashes)}
             )
             logger.info(
-                f"Synced {trusted_count} trusted sessions for user {user_id}"
+                "Synced %s protected sessions for user %s account %s",
+                trusted_count,
+                user_id,
+                account_id,
             )
             return trusted_count
         except Exception as e:
             logger.error(f"Error syncing trusted sessions for {user_id}: {e}")
-            return 0
+            raise
 
-    async def sync_trusted_for_new_client(self, user_id: int, client) -> int:
+    async def _find_account_id(self, user_id: int, client) -> str | None:
+        account_name = next(
+            (
+                name
+                for name, account_client in self.bot_manager.user_clients.get(
+                    user_id, {}
+                ).items()
+                if account_client is client
+            ),
+            None,
+        )
+        if account_name is None:
+            return None
+        from ..utils.crypto_utils import DataEncryption
+
+        accounts = await _mdb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(length=None)
+        for doc in accounts:
+            account = DataEncryption.decrypt_account_data(doc)
+            if account_name in {
+                account.get("name"),
+                account.get("phone"),
+                account.get("display_name"),
+            }:
+                return str(doc["_id"])
+        return None
+
+    async def sync_trusted_for_new_client(
+        self, user_id: int, client, account_id: str | None = None
+    ) -> int:
         """
         Merge all sessions visible through *client* into the trusted-hashes list.
 
@@ -615,10 +729,16 @@ class SessionDestroyer:
         Returns the number of newly-trusted hashes added.
         """
         try:
-            settings = await ProtectionStorage.get_settings(user_id)
-            if not settings.get("session_destroyer_enabled"):
+            if account_id is None:
+                account_id = await self._find_account_id(user_id, client)
+            if account_id is None:
                 return 0  # SD not active — nothing to do
 
+            settings = await ProtectionStorage.get_account_settings(
+                user_id, account_id
+            )
+            if not settings.get("enabled"):
+                return 0
             result = await client(functions.account.GetAuthorizationsRequest())
             explicitly_untrusted = set(settings.get("untrusted_hashes", []))
             new_hashes = {
@@ -632,7 +752,9 @@ class SessionDestroyer:
 
             if to_add:
                 merged = list(existing_trusted | to_add)
-                await ProtectionStorage.update_settings(user_id, {"trusted_hashes": merged})
+                await ProtectionStorage.update_account_settings(
+                    user_id, account_id, {"trusted_hashes": merged}
+                )
                 logger.info(
                     f"Session Destroyer: trusted {len(to_add)} pre-existing session(s) "
                     f"for newly-added account of user {user_id}"

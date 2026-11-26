@@ -114,11 +114,14 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
     refetchInterval: isOpen ? 30_000 : false,
   })
 
-  const { data: trustedHashes = [] } = useQuery({
+  const { data: trustedSessions = [] } = useQuery({
     queryKey: ["trusted-sessions"],
     queryFn: securityApi.trustedSessions,
     enabled: isOpen,
   })
+  const trustedHashesByAccount = new Map(
+    trustedSessions.map(({ account_id, hashes }) => [account_id, hashes]),
+  )
 
   // Auto-refresh when bot destroys a session
   const handleSessionRevoked = useCallback(() => {
@@ -138,13 +141,23 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
   })
 
   const trustMutation = useMutation({
-    mutationFn: ({ hash, trusted }: { hash: number; trusted: boolean }) =>
-      trusted ? securityApi.addTrusted(hash) : securityApi.removeTrusted(hash),
+    mutationFn: ({
+      account_id,
+      hash,
+      trusted,
+    }: {
+      account_id: string
+      hash: number
+      trusted: boolean
+    }) =>
+      trusted
+        ? securityApi.addTrusted(account_id, hash)
+        : securityApi.removeTrusted(account_id, hash),
     onSuccess: (_, { trusted }) => {
       toast.success(
         trusted
-          ? "Session marked trusted"
-          : "Session marked untrusted; it will be terminated if Session Destroyer is enabled",
+          ? "Device protected for this account"
+          : "Protection removed; this device may be terminated if Session Destroyer is on",
       )
       queryClient.invalidateQueries({ queryKey: ["trusted-sessions"] })
       queryClient.invalidateQueries({ queryKey: ["security"] })
@@ -153,7 +166,7 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
   })
 
   const grouped = sessions.reduce<Record<string, Session[]>>((acc, s) => {
-    const key = s.account_name ?? "Unknown"
+    const key = s.account_id
     if (!acc[key]) acc[key] = []
     acc[key].push(s)
     return acc
@@ -210,89 +223,107 @@ export function SessionManagerPage({ isOpen, onClose }: SessionManagerPageProps)
             </div>
           )}
 
-          {Object.entries(grouped).map(([accountName, accountSessions]) => (
-            <div key={accountName}>
+          {Object.entries(grouped).map(([accountId, accountSessions]) => (
+            <div key={accountId}>
               <div className="px-4 py-3 bg-[#0e1621]">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  {accountName}
+                  {accountSessions[0]?.account_name ?? "Unknown"}
                 </p>
               </div>
               <ul role="list">
-                {accountSessions.map((session, i) => (
-                  <li key={i} className="border-b border-white/10">
-                    <div className="flex items-center gap-4 px-4 py-4">
-                      <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
-                        {session.platform?.toLowerCase().includes("android") ||
-                        session.platform?.toLowerCase().includes("ios") ? (
-                          <Smartphone className="h-5 w-5 text-[#2AABEE]" />
-                        ) : (
-                          <Monitor className="h-5 w-5 text-[#2AABEE]" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-medium text-sm truncate">
-                          {session.device_model ?? session.app_name ?? "Unknown Device"}
-                        </p>
-                        <p className="text-gray-400 text-xs truncate">
-                          {session.platform} {session.system_version}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Globe className="h-3 w-3 text-gray-500" />
-                          <span className="text-gray-500 text-xs">
-                            {session.ip ?? "Unknown IP"} · {session.country ?? ""}
-                          </span>
+                {accountSessions.map((session, i) => {
+                  const isProtected =
+                    trustedHashesByAccount
+                      .get(session.account_id)
+                      ?.includes(session.hash ?? Number.NaN) ?? false
+                  return (
+                    <li
+                      key={`${session.account_id}-${session.hash ?? i}`}
+                      className="border-b border-white/10"
+                    >
+                      <div className="flex items-center gap-4 px-4 py-4">
+                        <div className="w-10 h-10 rounded-full bg-[#2AABEE]/20 flex items-center justify-center flex-shrink-0">
+                          {session.platform?.toLowerCase().includes("android") ||
+                          session.platform?.toLowerCase().includes("ios") ? (
+                            <Smartphone className="h-5 w-5 text-[#2AABEE]" />
+                          ) : (
+                            <Monitor className="h-5 w-5 text-[#2AABEE]" />
+                          )}
                         </div>
-                        {session.date_active && (
-                          <p className="text-gray-600 text-xs mt-0.5">
-                            Last active: {new Date(session.date_active).toLocaleDateString()}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-medium text-sm truncate">
+                            {session.device_model ?? session.app_name ?? "Unknown Device"}
                           </p>
+                          <p className="text-gray-400 text-xs truncate">
+                            {session.platform} {session.system_version}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Globe className="h-3 w-3 text-gray-500" />
+                            <span className="text-gray-500 text-xs">
+                              {session.ip ?? "Unknown IP"} · {session.country ?? ""}
+                            </span>
+                          </div>
+                          {session.hash != null && (
+                            <p
+                              className={cn(
+                                "text-xs mt-1",
+                                isProtected ? "text-emerald-400" : "text-gray-500",
+                              )}
+                            >
+                              {isProtected ? "Protected from Session Destroyer" : "Not protected"}
+                            </p>
+                          )}
+                          {session.date_active && (
+                            <p className="text-gray-600 text-xs mt-0.5">
+                              Last active: {new Date(session.date_active).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                        {session.hash != null && (
+                          <div className="flex flex-shrink-0 items-center gap-1">
+                            <button
+                              onClick={() =>
+                                trustMutation.mutate({
+                                  account_id: session.account_id,
+                                  hash: session.hash!,
+                                  trusted: !isProtected,
+                                })
+                              }
+                              disabled={trustMutation.isPending}
+                              className={cn(
+                                "p-2 transition-colors",
+                                isProtected
+                                  ? "text-emerald-400 hover:text-emerald-300"
+                                  : "text-gray-400 hover:text-emerald-300",
+                              )}
+                              aria-label={
+                                isProtected ? "Remove device protection" : "Protect device"
+                              }
+                              title={
+                                isProtected
+                                  ? "Protected — removing protection may terminate this device while Session Destroyer is on"
+                                  : "Protect this device from Session Destroyer"
+                              }
+                            >
+                              {isProtected ? (
+                                <ShieldCheck className="h-5 w-5" />
+                              ) : (
+                                <Shield className="h-5 w-5" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setRevokeTarget(session)}
+                              className="p-2 text-red-400 transition-colors hover:text-red-300"
+                              aria-label="Revoke session"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </button>
+                          </div>
                         )}
                       </div>
-                      {session.hash != null && (
-                        <div className="flex flex-shrink-0 items-center gap-1">
-                          <button
-                            onClick={() =>
-                              trustMutation.mutate({
-                                hash: session.hash!,
-                                trusted: !trustedHashes.includes(session.hash!),
-                              })
-                            }
-                            disabled={trustMutation.isPending}
-                            className={cn(
-                              "p-2 transition-colors",
-                              trustedHashes.includes(session.hash)
-                                ? "text-emerald-400 hover:text-emerald-300"
-                                : "text-gray-400 hover:text-emerald-300",
-                            )}
-                            aria-label={
-                              trustedHashes.includes(session.hash)
-                                ? "Remove trusted status"
-                                : "Mark session trusted"
-                            }
-                            title={
-                              trustedHashes.includes(session.hash)
-                                ? "Trusted session"
-                                : "Mark as trusted"
-                            }
-                          >
-                            {trustedHashes.includes(session.hash) ? (
-                              <ShieldCheck className="h-5 w-5" />
-                            ) : (
-                              <Shield className="h-5 w-5" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => setRevokeTarget(session)}
-                            className="p-2 text-red-400 transition-colors hover:text-red-300"
-                            aria-label="Revoke session"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           ))}

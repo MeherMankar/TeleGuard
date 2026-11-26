@@ -810,39 +810,53 @@ class ProtectionManager:
 
     # --- New Management Methods ---
 
-    async def toggle_session_destroyer(self, user_id: int, enabled: bool):
-        """Enable/Disable Session Destroyer for a user"""
-        await ProtectionStorage.get_settings(user_id)
+    async def toggle_session_destroyer(
+        self, user_id: int, enabled: bool, account_id: str
+    ):
+        """Enable or disable Session Destroyer for one account."""
+        from bson import ObjectId
+
+        account = await mongodb.db.accounts.find_one(
+            {"_id": ObjectId(account_id), "user_id": user_id, "is_active": True}
+        )
+        if not account:
+            raise ValueError("Account not found or inactive")
+
+        current = await ProtectionStorage.get_account_settings(user_id, account_id)
+        if current.get("enabled") == enabled:
+            return
+
         if enabled:
-            # Record the exact moment it was enabled so the watcher can trust
-            # any session that already existed before this point.
-            await ProtectionStorage.update_settings(user_id, {
-                "session_destroyer_enabled": True,
-                "enabled_at": datetime.now(timezone.utc),
-                "legacy_session_destroyer_migrated": True,
-            })
-            # Sync all currently visible sessions as trusted immediately.
-            user_clients = self.bot_manager.user_clients.get(user_id, {})
-            for client in user_clients.values():
-                if client and client.is_connected():
-                    await self.session_destroyer.sync_trusted_sessions(user_id, client)
-            await self.session_destroyer.start_watcher(user_id)
-        else:
-            await ProtectionStorage.update_settings(
+            await ProtectionStorage.update_account_settings(
                 user_id,
+                account_id,
                 {
-                    "session_destroyer_enabled": False,
-                    "legacy_session_destroyer_migrated": True,
-                    "untrusted_hashes": [],
+                    "enabled": True,
+                    "enabled_at": datetime.now(timezone.utc),
+                    "allow_next": False,
+                    "allow_next_until": None,
                 },
             )
-            # A protection-disabled period is trusted by definition. Remove
-            # explicit untrust markers and snapshot every visible session.
-            user_clients = self.bot_manager.user_clients.get(user_id, {})
-            for client in user_clients.values():
-                if client and client.is_connected():
-                    await self.session_destroyer.sync_trusted_sessions(user_id, client)
-            await self.session_destroyer.stop_watcher(user_id)
+            account = DataEncryption.decrypt_account_data(account)
+            account_name = (
+                account.get("name")
+                or account.get("phone")
+                or account.get("display_name")
+            )
+            client = self.bot_manager.user_clients.get(user_id, {}).get(account_name)
+            if client and client.is_connected():
+                await self.session_destroyer.sync_trusted_sessions(
+                    user_id, client, account_id
+                )
+            await self.session_destroyer.start_watcher(user_id, account_id)
+        else:
+            await ProtectionStorage.update_account_settings(
+                user_id, account_id, {"enabled": False}
+            )
+            await self.session_destroyer.stop_watcher(user_id, account_id)
+            await mongodb.db.session_destroyer_pending.delete_many(
+                {"user_id": user_id, "account_id": account_id}
+            )
 
     async def toggle_otp_destroyer(self, user_id: int, enabled: bool):
         """Enable/Disable OTP Destroyer for a user (global toggle)"""
@@ -1440,12 +1454,28 @@ class ProtectionManager:
         """Pause both protection systems for a specific duration"""
         pause_time = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=minutes)
         await ProtectionStorage.update_settings(user_id, {"pause_until": pause_time})
+        enabled_accounts = await mongodb.db.session_destroyer_account_settings.find(
+            {"user_id": user_id, "enabled": True}
+        ).to_list(length=None)
+        for account_settings in enabled_accounts:
+            await ProtectionStorage.update_account_settings(
+                user_id,
+                account_settings["account_id"],
+                {"pause_until": pause_time},
+            )
         logger.info(f"User {user_id}: Protection paused until {pause_time}")
 
-    async def allow_next_login(self, user_id: int):
-        """Allow the next new session to be trusted"""
-        await ProtectionStorage.update_settings(user_id, {
-            "allow_next": True,
-            "allow_next_until": datetime.now(timezone.utc) + timedelta(minutes=5),
-        })
-        logger.info(f"User {user_id}: Next login allowed once")
+    async def allow_next_login(self, user_id: int, account_id: str):
+        """Allow the next new session on one account to be trusted."""
+        await ProtectionStorage.update_account_settings(
+            user_id,
+            account_id,
+            {
+                "allow_next": True,
+                "allow_next_until": datetime.now(timezone.utc)
+                + timedelta(minutes=5),
+            },
+        )
+        logger.info(
+            "User %s: next login allowed once for account %s", user_id, account_id
+        )

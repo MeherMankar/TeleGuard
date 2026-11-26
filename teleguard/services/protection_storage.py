@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from ..core.mongo_database import mongodb
 
@@ -10,6 +10,104 @@ logger = logging.getLogger(__name__)
 
 class ProtectionStorage:
     """Handle persistence for OTP and Session Protection"""
+
+    @staticmethod
+    async def get_account_settings(user_id: int, account_id: str) -> Dict[str, Any]:
+        defaults = {
+            "user_id": user_id,
+            "account_id": str(account_id),
+            "enabled": False,
+            "enabled_at": None,
+            "trusted_hashes": [],
+            "untrusted_hashes": [],
+            "destroyed_hashes": [],
+            "allow_next": False,
+            "allow_next_until": None,
+            "pause_until": None,
+            "last_check": None,
+            "stats": {"sessions_destroyed": 0, "last_threat": None},
+        }
+        await mongodb.db.session_destroyer_account_settings.update_one(
+            {"user_id": user_id, "account_id": str(account_id)},
+            {"$setOnInsert": defaults},
+            upsert=True,
+        )
+        settings = await mongodb.db.session_destroyer_account_settings.find_one(
+            {"user_id": user_id, "account_id": str(account_id)}
+        )
+        if settings is None:
+            raise RuntimeError(
+                f"Session Destroyer settings missing for account {account_id}"
+            )
+        return settings
+
+    @staticmethod
+    async def update_account_settings(
+        user_id: int, account_id: str, update_data: Dict[str, Any]
+    ):
+        await ProtectionStorage.get_account_settings(user_id, account_id)
+        await mongodb.db.session_destroyer_account_settings.update_one(
+            {"user_id": user_id, "account_id": str(account_id)},
+            {"$set": update_data},
+            upsert=True,
+        )
+
+    @staticmethod
+    async def add_account_trusted_hash(
+        user_id: int, account_id: str, session_hash: int
+    ):
+        await ProtectionStorage.get_account_settings(user_id, account_id)
+        await mongodb.db.session_destroyer_account_settings.update_one(
+            {"user_id": user_id, "account_id": str(account_id)},
+            {
+                "$addToSet": {"trusted_hashes": session_hash},
+                "$pull": {"untrusted_hashes": session_hash},
+            },
+        )
+
+    @staticmethod
+    async def add_account_untrusted_hash(
+        user_id: int, account_id: str, session_hash: int
+    ):
+        await ProtectionStorage.get_account_settings(user_id, account_id)
+        await mongodb.db.session_destroyer_account_settings.update_one(
+            {"user_id": user_id, "account_id": str(account_id)},
+            {
+                "$pull": {"trusted_hashes": session_hash},
+                "$addToSet": {"untrusted_hashes": session_hash},
+            },
+        )
+
+    @staticmethod
+    async def add_account_destroyed_hash(
+        user_id: int, account_id: str, session_hash: int
+    ):
+        await ProtectionStorage.get_account_settings(user_id, account_id)
+        result = await mongodb.db.session_destroyer_account_settings.update_one(
+            {
+                "user_id": user_id,
+                "account_id": str(account_id),
+                "destroyed_hashes": {"$ne": session_hash},
+            },
+            {
+                "$addToSet": {"destroyed_hashes": session_hash},
+                "$inc": {"stats.sessions_destroyed": 1},
+                "$set": {"stats.last_threat": datetime.now(timezone.utc)},
+                "$pull": {
+                    "trusted_hashes": session_hash,
+                    "untrusted_hashes": session_hash,
+                },
+            },
+        )
+        if result.modified_count:
+            await ProtectionStorage.get_settings(user_id)
+            await mongodb.db.protection_settings.update_one(
+                {"user_id": user_id},
+                {
+                    "$inc": {"stats.sessions_destroyed": 1},
+                    "$set": {"stats.last_threat": datetime.now(timezone.utc)},
+                },
+            )
 
     @staticmethod
     async def get_settings(user_id: int) -> Dict[str, Any]:
@@ -157,17 +255,69 @@ class ProtectionStorage:
 
     @staticmethod
     async def get_all_active_session_destroyers() -> List[Dict[str, Any]]:
-        """Get all users who have session destroyer enabled"""
+        """Return enabled per-account destroyers, migrating legacy global settings."""
         try:
-            legacy_users = await mongodb.db.session_destroyer_settings.find(
-                {"enabled": True}
-            ).to_list(length=None)
-            for legacy_user in legacy_users:
-                await ProtectionStorage.get_settings(legacy_user["user_id"])
-            cursor = mongodb.db.protection_settings.find(
+            legacy_users = await mongodb.db.protection_settings.find(
                 {"session_destroyer_enabled": True}
+            ).to_list(length=None)
+            legacy_users.extend(
+                await mongodb.db.session_destroyer_settings.find(
+                    {"enabled": True}
+                ).to_list(length=None)
             )
-            return await cursor.to_list(length=None)
+            for legacy in legacy_users:
+                user_id = legacy["user_id"]
+                accounts = await mongodb.db.accounts.find(
+                    {"user_id": user_id, "is_active": True}
+                ).to_list(length=None)
+                legacy_enabled_at = legacy.get("enabled_at") or datetime.now(
+                    timezone.utc
+                )
+                for account in accounts:
+                    account_id = str(account["_id"])
+                    existing = await mongodb.db.session_destroyer_account_settings.find_one(
+                        {"user_id": user_id, "account_id": account_id}
+                    )
+                    if existing:
+                        await mongodb.db.session_destroyer_account_settings.update_one(
+                            {"user_id": user_id, "account_id": account_id},
+                            {
+                                "$set": {
+                                    "enabled": True,
+                                    "enabled_at": existing.get("enabled_at")
+                                    or legacy_enabled_at,
+                                }
+                            },
+                        )
+                    else:
+                        await ProtectionStorage.update_account_settings(
+                            user_id,
+                            account_id,
+                            {
+                                "enabled": True,
+                                "enabled_at": legacy_enabled_at,
+                            },
+                        )
+                await ProtectionStorage.update_settings(
+                    user_id,
+                    {
+                        "session_destroyer_enabled": False,
+                        "legacy_session_destroyer_migrated": True,
+                    },
+                )
+                await mongodb.db.session_destroyer_settings.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"enabled": False}},
+                )
+            cursor = mongodb.db.session_destroyer_account_settings.find(
+                {"enabled": True}
+            )
+            active = await cursor.to_list(length=None)
+            for settings in active:
+                await ProtectionStorage.get_account_settings(
+                    settings["user_id"], settings["account_id"]
+                )
+            return active
         except Exception as e:
             logger.error(f"Error getting active session destroyers: {e}")
             raise

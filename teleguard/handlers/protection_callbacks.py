@@ -1,10 +1,9 @@
 """Protection Manager Callbacks - Handle button interactions"""
 
 import logging
-from telethon import events, Button
+from telethon import events
 from .protection_menu import ProtectionMenu
 from ..core.mongo_database import mongodb
-from ..services.protection_storage import ProtectionStorage
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +49,12 @@ class ProtectionCallbacks:
                 await event.answer(f"OTP Destroyer {'Enabled' if not current else 'Disabled'}")
 
             elif data == "prot_session_settings":
-                settings = await ProtectionStorage.get_settings(user_id)
-                current = settings.get("session_destroyer_enabled", False)
-                await self.protection_manager.toggle_session_destroyer(user_id, not current)
-                await self.menu.send_main_menu(event, user_id, edit=True)
-                await event.answer(f"Session Destroyer {'Enabled' if not current else 'Disabled'}")
+                from .session_destroyer_handler import SessionDestroyerHandler
+
+                await SessionDestroyerHandler(
+                    self.bot_manager.menu_system
+                ).show_submenu(user_id, event.message_id)
+                await event.answer("Choose an account to change protection")
 
             elif data == "prot_pause_menu":
                 await self.menu.send_pause_menu(event, user_id)
@@ -69,9 +69,12 @@ class ProtectionCallbacks:
                 await event.answer(f"Protection paused for {minutes}m")
 
             elif data == "prot_allow_next":
-                await self.protection_manager.allow_next_login(user_id)
-                await event.answer("🔓 Next login will be trusted automatically", alert=True)
-                await self.menu.send_main_menu(event, user_id, edit=True)
+                from .session_destroyer_handler import SessionDestroyerHandler
+
+                await SessionDestroyerHandler(
+                    self.bot_manager.menu_system
+                ).show_submenu(user_id, event.message_id)
+                await event.answer("Choose the account for the next login")
 
             elif data == "prot_stats":
                 await self.menu.send_stats(event, user_id)
@@ -81,30 +84,14 @@ class ProtectionCallbacks:
                 await event.answer()
 
             elif data == "prot_trusted":
-                await self.menu.send_trusted_sessions(event, user_id)
+                await self.menu.send_trusted_sessions(
+                    event, user_id, callback_prefix="sd"
+                )
                 await event.answer()
 
             elif data.startswith(("prot_trust_", "prot_untrust_")):
-                is_trusted = data.startswith("prot_trust_")
-                prefix = "prot_trust_" if is_trusted else "prot_untrust_"
-                try:
-                    session_hash = int(data.removeprefix(prefix))
-                except ValueError:
-                    await event.answer("⚠️ Invalid session selection", alert=True)
-                    return
-                updated = await self.menu.set_session_trust(
-                    user_id, session_hash, is_trusted
-                )
-                if not updated:
-                    await event.answer(
-                        "⚠️ Session is no longer available or cannot be changed.",
-                        alert=True,
-                    )
-                else:
-                    await event.answer(
-                        "✅ Session trusted" if is_trusted else "🔓 Session untrusted"
-                    )
                 await self.menu.send_trusted_sessions(event, user_id)
+                await event.answer("Choose an account to review devices")
 
         except Exception as e:
             logger.error(f"Error handling protection callback {data}: {e}")

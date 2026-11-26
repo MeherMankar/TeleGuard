@@ -1,17 +1,15 @@
-"""
-Security / Protection Manager API
-==================================
-Single source of truth: ALL reads and writes go through ProtectionStorage
-(protection_settings collection) — the same collection the bot uses.
+"""Security API for shared user settings and account-scoped session protection.
 
-This ensures webapp toggles affect the running bot immediately and bot
-changes are visible in the webapp.
+Session Destroyer state is stored per Telegram account through ProtectionStorage,
+so bot and webapp changes are visible to the same watcher.
 """
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from bson import ObjectId
+from bson.errors import InvalidId
 
 from backend.auth.jwt import get_current_user_id
 from teleguard.core.mongo_database import mongodb
@@ -32,7 +30,29 @@ def _get_bot_manager():
 # ── Session Destroyer ─────────────────────────────────────────────────────────
 
 class ToggleSessionDestroyerRequest(BaseModel):
+    account_id: str
     enabled: bool
+
+
+class AccountSessionRequest(BaseModel):
+    account_id: str
+
+
+class TrustedHashRequest(AccountSessionRequest):
+    session_hash: int
+
+
+async def _require_owned_account(user_id: int, account_id: str):
+    try:
+        mongo_account_id = ObjectId(account_id)
+    except (InvalidId, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid account ID")
+    account = await mongodb.db.accounts.find_one(
+        {"_id": mongo_account_id, "user_id": user_id, "is_active": True}
+    )
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
 
 
 @router.get("/settings")
@@ -67,14 +87,46 @@ async def get_settings(user_id: int = Depends(get_current_user_id)):
         stats = settings.get("stats", {})
         destroyed_count = stats.get("sessions_destroyed", 0)
 
+        account_settings = await mongodb.db.session_destroyer_account_settings.find(
+            {"user_id": user_id}
+        ).to_list(length=None)
+        for account_setting in account_settings:
+            allow_next_until = account_setting.get("allow_next_until")
+            if isinstance(allow_next_until, str):
+                try:
+                    allow_next_until = datetime.fromisoformat(allow_next_until)
+                except ValueError:
+                    allow_next_until = None
+            if allow_next_until and allow_next_until.tzinfo is None:
+                allow_next_until = allow_next_until.replace(tzinfo=timezone.utc)
+            if (
+                account_setting.get("allow_next")
+                and allow_next_until
+                and datetime.now(timezone.utc) > allow_next_until
+            ):
+                await ProtectionStorage.update_account_settings(
+                    user_id,
+                    account_setting["account_id"],
+                    {"allow_next": False, "allow_next_until": None},
+                )
+                account_setting["allow_next"] = False
         return {
             "settings": {
-                "session_destroyer_enabled": settings.get("session_destroyer_enabled", False),
+                "session_destroyer_enabled": False,
                 "otp_destroyer_enabled": settings.get("otp_destroyer_enabled", False),
-                "allow_next": allow_next,
+                "allow_next": False,
                 "last_check": settings.get("last_check"),
                 "pause_until": settings.get("pause_until"),
-                "trusted_hashes_count": len(settings.get("trusted_hashes", [])),
+                "trusted_hashes_count": 0,
+                "session_destroyer_accounts": [
+                    {
+                        "account_id": row["account_id"],
+                        "enabled": bool(row.get("enabled")),
+                        "allow_next": bool(row.get("allow_next")),
+                        "trusted_hashes_count": len(row.get("trusted_hashes", [])),
+                    }
+                    for row in account_settings
+                ],
             },
             "stats": {
                 "destroyed_count": destroyed_count,
@@ -82,8 +134,10 @@ async def get_settings(user_id: int = Depends(get_current_user_id)):
                 "last_threat": stats.get("last_threat"),
             },
             # Legacy field for frontend compatibility
-            "enabled": settings.get("session_destroyer_enabled", False),
+            "enabled": False,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching security settings: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -94,59 +148,74 @@ async def update_session_destroyer(
     payload: ToggleSessionDestroyerRequest,
     user_id: int = Depends(get_current_user_id),
 ):
-    """Toggle Session Destroyer — syncs existing sessions as trusted on enable."""
+    """Toggle Session Destroyer for one owned account."""
     try:
+        await _require_owned_account(user_id, payload.account_id)
         bot_manager = _get_bot_manager()
-
-        if payload.enabled:
-            # First sync all current sessions as trusted so we don't destroy them
-            if bot_manager and hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:
-                await bot_manager.protection_manager.toggle_session_destroyer(user_id, True)
-            else:
-                # Bot not running yet — just save the setting
-                await ProtectionStorage.update_settings(user_id, {
-                    "session_destroyer_enabled": True
-                })
+        protection_manager = getattr(bot_manager, "protection_manager", None)
+        if protection_manager:
+            await protection_manager.toggle_session_destroyer(
+                user_id, payload.enabled, payload.account_id
+            )
         else:
-            if bot_manager and hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:
-                await bot_manager.protection_manager.toggle_session_destroyer(user_id, False)
-            else:
-                await ProtectionStorage.update_settings(user_id, {
-                    "session_destroyer_enabled": False
-                })
+            current = await ProtectionStorage.get_account_settings(
+                user_id, payload.account_id
+            )
+            changes = {"enabled": payload.enabled}
+            if payload.enabled and not current.get("enabled"):
+                changes.update(
+                    {
+                        "enabled_at": datetime.now(timezone.utc),
+                        "allow_next": False,
+                        "allow_next_until": None,
+                    }
+                )
+            await ProtectionStorage.update_account_settings(
+                user_id, payload.account_id, changes
+            )
+            if not payload.enabled:
+                await mongodb.db.session_destroyer_pending.delete_many(
+                    {"user_id": user_id, "account_id": payload.account_id}
+                )
 
-        return {"status": "success", "enabled": payload.enabled}
+        return {
+            "status": "success",
+            "enabled": payload.enabled,
+            "account_id": payload.account_id,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error toggling session destroyer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/session-destroyer/allow-next")
-async def allow_next_login(user_id: int = Depends(get_current_user_id)):
+async def allow_next_login(
+    payload: AccountSessionRequest,
+    user_id: int = Depends(get_current_user_id),
+):
     """
     Allow the next new login to be trusted automatically.
     Use this when you're about to log in on a new device and don't want
     Session Destroyer to kill it.
     """
     try:
-        import asyncio
+        await _require_owned_account(user_id, payload.account_id)
         from datetime import datetime, timezone, timedelta
 
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
-        await ProtectionStorage.update_settings(user_id, {
-            "allow_next": True,
-            "allow_next_until": expires_at,
-        })
-
-        # Best-effort in-memory auto-clear (survives the normal case)
-        async def _clear():
-            await asyncio.sleep(300)
-            await ProtectionStorage.update_settings(user_id, {
-                "allow_next": False,
-                "allow_next_until": None,
-            })
-        asyncio.create_task(_clear())
-        return {"status": "success", "message": "Next login will be trusted (5 min window)"}
+        await ProtectionStorage.update_account_settings(
+            user_id,
+            payload.account_id,
+            {"allow_next": True, "allow_next_until": expires_at},
+        )
+        return {
+            "status": "success",
+            "message": "Next login for this account will be kept for 5 minutes",
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error setting allow_next: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -165,6 +234,8 @@ async def get_logs(limit: int = 15, user_id: int = Depends(get_current_user_id))
             if log.get("timestamp"):
                 log["timestamp"] = log["timestamp"].isoformat()
         return logs
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching security logs: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -172,16 +243,21 @@ async def get_logs(limit: int = 15, user_id: int = Depends(get_current_user_id))
 
 # ── Trusted sessions ──────────────────────────────────────────────────────────
 
-class TrustedHashRequest(BaseModel):
-    session_hash: int
 
-
-@router.get("/trusted", response_model=List[int])
+@router.get("/trusted")
 async def get_trusted_sessions(user_id: int = Depends(get_current_user_id)):
-    """Get all trusted session hashes."""
+    """Get protected session hashes grouped by account."""
     try:
-        settings = await ProtectionStorage.get_settings(user_id)
-        return settings.get("trusted_hashes", [])
+        rows = await mongodb.db.session_destroyer_account_settings.find(
+            {"user_id": user_id}
+        ).to_list(length=None)
+        return [
+            {
+                "account_id": row["account_id"],
+                "hashes": row.get("trusted_hashes", []),
+            }
+            for row in rows
+        ]
     except Exception as e:
         logger.error(f"Error fetching trusted sessions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -194,8 +270,13 @@ async def add_trusted_session(
 ):
     """Manually mark a session hash as trusted."""
     try:
-        await ProtectionStorage.add_trusted_hash(user_id, payload.session_hash)
+        await _require_owned_account(user_id, payload.account_id)
+        await ProtectionStorage.add_account_trusted_hash(
+            user_id, payload.account_id, payload.session_hash
+        )
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error adding trusted session: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -208,12 +289,21 @@ async def remove_trusted_session(
 ):
     """Mark a session hash untrusted so Session Destroyer can act on it."""
     try:
-        await ProtectionStorage.add_untrusted_hash(user_id, payload.session_hash)
-        await mongodb.db.session_destroyer_pending.delete_many(
-            {"user_id": user_id, "hash": payload.session_hash}
+        await _require_owned_account(user_id, payload.account_id)
+        await ProtectionStorage.add_account_untrusted_hash(
+            user_id, payload.account_id, payload.session_hash
         )
-        settings = await ProtectionStorage.get_settings(user_id)
-        if not settings.get("session_destroyer_enabled", False):
+        await mongodb.db.session_destroyer_pending.delete_many(
+            {
+                "user_id": user_id,
+                "account_id": payload.account_id,
+                "hash": payload.session_hash,
+            }
+        )
+        settings = await ProtectionStorage.get_account_settings(
+            user_id, payload.account_id
+        )
+        if not settings.get("enabled", False):
             return {"status": "success", "terminated": False}
         bot_manager = _get_bot_manager()
         if (
@@ -221,36 +311,48 @@ async def remove_trusted_session(
             and getattr(bot_manager, "protection_manager", None)
         ):
             await bot_manager.protection_manager.session_destroyer.terminate_session(
-                user_id, payload.session_hash
+                user_id, payload.account_id, payload.session_hash
             )
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error removing trusted session: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/trusted/sync")
-async def sync_trusted_sessions(user_id: int = Depends(get_current_user_id)):
+async def sync_trusted_sessions(
+    payload: AccountSessionRequest,
+    user_id: int = Depends(get_current_user_id),
+):
     """
     Sync all current Telegram sessions as trusted.
     Useful after enabling Session Destroyer if you have existing sessions
     you want to keep.
     """
     try:
+        await _require_owned_account(user_id, payload.account_id)
         bot_manager = _get_bot_manager()
         if not bot_manager:
             raise HTTPException(status_code=503, detail="Bot not running")
 
         user_clients = bot_manager.user_clients.get(user_id, {})
-        client = next(
-            (c for c in user_clients.values() if c and c.is_connected()), None
+        account = await _require_owned_account(user_id, payload.account_id)
+        from teleguard.utils.crypto_utils import DataEncryption
+        account_data = DataEncryption.decrypt_account_data(account)
+        account_name = (
+            account_data.get("name")
+            or account_data.get("phone")
+            or account_data.get("display_name")
         )
+        client = user_clients.get(account_name)
         if not client:
             raise HTTPException(status_code=404, detail="No connected client")
 
         if hasattr(bot_manager, "protection_manager") and bot_manager.protection_manager:
             count = await bot_manager.protection_manager.session_destroyer.sync_trusted_sessions(
-                user_id, client
+                user_id, client, payload.account_id
             )
             return {"status": "success", "trusted_count": count}
         raise HTTPException(status_code=503, detail="Protection manager not initialized")

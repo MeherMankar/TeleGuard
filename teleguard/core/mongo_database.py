@@ -97,9 +97,81 @@ class MongoDB:
                 if not query:
                     return True
                 for key, expected in query.items():
-                    if key not in document or document[key] != expected:
+                    value = document
+                    for part in key.split("."):
+                        value = value.get(part) if isinstance(value, dict) else None
+                    if isinstance(expected, dict):
+                        if "$ne" in expected and (
+                            value == expected["$ne"]
+                            or isinstance(value, list) and expected["$ne"] in value
+                        ):
+                            return False
+                        if "$in" in expected and not (
+                            value in expected["$in"]
+                            or isinstance(value, list)
+                            and any(item in expected["$in"] for item in value)
+                        ):
+                            return False
+                        if "$nin" in expected and (
+                            value in expected["$nin"]
+                            or isinstance(value, list)
+                            and any(item in expected["$nin"] for item in value)
+                        ):
+                            return False
+                    elif value != expected and not (
+                        isinstance(value, list) and expected in value
+                    ):
                         return False
                 return True
+
+            @staticmethod
+            def _set_path(document, key, value):
+                parts = key.split(".")
+                target = document
+                for part in parts[:-1]:
+                    target = target.setdefault(part, {})
+                target[parts[-1]] = value
+
+            @staticmethod
+            def _get_path(document, key):
+                value = document
+                for part in key.split("."):
+                    value = value.get(part) if isinstance(value, dict) else None
+                return value
+
+            @staticmethod
+            def _unset_path(document, key):
+                parts = key.split(".")
+                target = document
+                for part in parts[:-1]:
+                    target = target.get(part)
+                    if not isinstance(target, dict):
+                        return
+                target.pop(parts[-1], None)
+
+            def _apply_update(self, document, update, inserting=False):
+                for key, value in update.get("$set", {}).items():
+                    self._set_path(document, key, value)
+                if inserting:
+                    for key, value in update.get("$setOnInsert", {}).items():
+                        self._set_path(document, key, value)
+                for key, value in update.get("$inc", {}).items():
+                    current = self._get_path(document, key) or 0
+                    self._set_path(document, key, current + value)
+                for key, value in update.get("$addToSet", {}).items():
+                    current = list(self._get_path(document, key) or [])
+                    values = value.get("$each", []) if isinstance(value, dict) else [value]
+                    current.extend(item for item in values if item not in current)
+                    self._set_path(document, key, current)
+                for key, value in update.get("$pull", {}).items():
+                    current = list(self._get_path(document, key) or [])
+                    self._set_path(document, key, [item for item in current if item != value])
+                for key, value in update.get("$push", {}).items():
+                    current = list(self._get_path(document, key) or [])
+                    current.append(value)
+                    self._set_path(document, key, current)
+                for key in update.get("$unset", {}):
+                    self._unset_path(document, key)
 
             async def find_one(self, query):
                 for document in self.documents:
@@ -116,16 +188,19 @@ class MongoDB:
             async def update_one(self, query, update, upsert=False, **kwargs):
                 for document in self.documents:
                     if self._matches(document, query):
-                        for key, value in update.get("$set", {}).items():
-                            document[key] = value
+                        self._apply_update(document, update)
                         return SimpleNamespace(
                             matched_count=1,
                             modified_count=1,
                             upserted_id=None,
                         )
                 if upsert:
-                    inserted = query.copy()
-                    inserted.update(update.get("$set", {}))
+                    inserted = {
+                        key: value
+                        for key, value in query.items()
+                        if not isinstance(value, dict)
+                    }
+                    self._apply_update(inserted, update, inserting=True)
                     inserted.setdefault("_id", SimpleNamespace(__str__=lambda: "mock_id"))
                     self.documents.append(inserted)
                     return SimpleNamespace(
@@ -143,6 +218,15 @@ class MongoDB:
                         del self.documents[index]
                         return SimpleNamespace(deleted_count=1)
                 return SimpleNamespace(deleted_count=0)
+
+            async def delete_many(self, query):
+                before = len(self.documents)
+                self.documents = [
+                    document
+                    for document in self.documents
+                    if not self._matches(document, query)
+                ]
+                return SimpleNamespace(deleted_count=before - len(self.documents))
 
             async def count_documents(self, query=None):
                 return sum(
@@ -193,6 +277,7 @@ class MongoDB:
                 self.telegram_init_data_replays = MockReplayCollection()
                 # Session destroyer related collections (mocked for testing)
                 self.session_destroyer_settings = MockCollection()
+                self.session_destroyer_account_settings = MockCollection()
                 self.trusted_sessions = MockCollection()
                 self.session_destroyer_logs = MockCollection()
                 self._extra_collections = {}
@@ -250,6 +335,17 @@ class MongoDB:
                 await self.db.session_destroyer_settings.create_index("user_id", unique=True)
             except Exception:
                 logger.debug("session_destroyer_settings collection missing or index creation failed")
+            try:
+                await self.db.session_destroyer_account_settings.create_index(
+                    [("user_id", 1), ("account_id", 1)], unique=True
+                )
+                await self.db.session_destroyer_account_settings.create_index(
+                    [("enabled", 1), ("user_id", 1)]
+                )
+            except Exception:
+                logger.debug(
+                    "Per-account session destroyer indexes could not be created"
+                )
 
             # Media dump indexes
             try:

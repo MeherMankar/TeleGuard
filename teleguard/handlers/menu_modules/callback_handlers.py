@@ -246,14 +246,18 @@ class CallbackHandlers:
                 return
 
             await protection_manager.toggle_otp_destroyer(user_id, enabled)
-            await protection_manager.toggle_session_destroyer(user_id, enabled)
             if enabled:
                 await event.answer(
-                    "🛡️ All accounts secured with Protection Manager!",
+                    "🛡️ OTP protection enabled for all accounts. "
+                    "Session Destroyer settings are unchanged.",
                     alert=True,
                 )
             else:
-                await event.answer("🔴 All protections disabled.", alert=True)
+                await event.answer(
+                    "🔴 OTP protection disabled for all accounts. "
+                    "Session Destroyer settings are unchanged.",
+                    alert=True,
+                )
 
             # Refresh the menu
             await self.menu.handlers.handle_otp_manager(event)

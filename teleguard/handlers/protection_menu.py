@@ -35,7 +35,9 @@ class ProtectionMenu:
         """Display the premium protection dashboard"""
         settings = await ProtectionStorage.get_settings(user_id)
         stats = settings.get("stats") or {}
-        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(
+        accounts = await mongodb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(
             length=None
         )
         otp_enabled = sum(
@@ -45,8 +47,6 @@ class ProtectionMenu:
         
         # Determine status indicators
         otp_status = f"Enabled for {otp_enabled}/{len(accounts)} accounts"
-        session_status = "Enabled ✅" if settings.get("session_destroyer_enabled") else "Disabled ❌"
-        
         now = datetime.now(timezone.utc)
         pause_until = _as_utc(settings.get("pause_until"))
         if pause_until and pause_until > now:
@@ -55,7 +55,15 @@ class ProtectionMenu:
         else:
             status_text = "Active 🛡"
 
-        trusted_count = len(settings.get("trusted_hashes") or [])
+        account_ids = {str(account["_id"]) for account in accounts}
+        enabled_settings = await mongodb.db.session_destroyer_account_settings.find(
+            {"user_id": user_id, "enabled": True}
+        ).to_list(length=None)
+        enabled_count = sum(
+            1
+            for account_setting in enabled_settings
+            if account_setting.get("account_id") in account_ids
+        )
         
         last_threat_time = _as_utc(stats.get("last_threat"))
         if last_threat_time:
@@ -73,8 +81,7 @@ class ProtectionMenu:
             "🛡 **TeleGuard Protection Manager**\n\n"
             f"**Status:** {status_text}\n\n"
             f"**OTP Destroyer:**\n{otp_status}\n\n"
-            f"**Session Destroyer:**\n{session_status}\n\n"
-            f"👤 **Trusted Sessions:** {trusted_count} Devices\n"
+            f"**Session Destroyer:** {enabled_count}/{len(accounts)} accounts protected\n\n"
             f"⚠️ **Last Threat:** {last_threat}\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "💡 _Advanced protection is monitoring your accounts 24/7._"
@@ -88,22 +95,16 @@ class ProtectionMenu:
                     else "🟢 Enable OTP Destroyer",
                     data="prot_otp_settings",
                 ),
-                Button.inline(
-                    "🔴 Disable Session Destroyer"
-                    if settings.get("session_destroyer_enabled")
-                    else "🟢 Enable Session Destroyer",
-                    data="prot_session_settings",
-                ),
+                Button.inline("🔥 Session Destroyer — Per Account", data="prot_session_settings"),
             ],
             [
                 Button.inline("⏳ Pause Protection", data="prot_pause_menu"),
-                Button.inline("🔓 Allow Next Login", data="prot_allow_next")
             ],
             [
                 Button.inline("📊 Statistics", data="prot_stats"),
                 Button.inline("📝 Logs", data="prot_logs")
             ],
-            [Button.inline("🔐 Manage Trusted Sessions", data="prot_trusted")],
+            [Button.inline("🔐 Review Protected Devices", data="prot_trusted")],
             [
                 Button.inline("🔄 Refresh", data="prot_refresh"),
                 Button.inline("🔙 Protection Manager", data="menu:protection"),
@@ -137,14 +138,34 @@ class ProtectionMenu:
         """Display protection statistics"""
         settings = await ProtectionStorage.get_settings(user_id)
         stats = settings.get("stats", {})
-        
-        enabled_at = _as_utc(settings.get("enabled_at"))
-        active_since = enabled_at.strftime("%Y-%m-%d") if enabled_at else "Not enabled"
+        accounts = await mongodb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(length=None)
+        account_ids = {str(account["_id"]) for account in accounts}
+        account_settings = await mongodb.db.session_destroyer_account_settings.find(
+            {"user_id": user_id, "enabled": True}
+        ).to_list(length=None)
+        enabled_settings = [
+            item
+            for item in account_settings
+            if item.get("account_id") in account_ids
+        ]
+        enabled_dates = [
+            date
+            for date in (_as_utc(item.get("enabled_at")) for item in enabled_settings)
+            if date
+        ]
+        active_since = (
+            min(enabled_dates).strftime("%Y-%m-%d")
+            if enabled_dates
+            else "Not enabled"
+        )
         text = (
             "📊 **Protection Statistics**\n\n"
             f"🔥 **OTP Destroyed:** {stats.get('otp_destroyed', 0)}\n"
             f"🚫 **Sessions Terminated:** {stats.get('sessions_destroyed', 0)}\n"
-            f"📅 **Session Destroyer Enabled Since:** {active_since}\n"
+            f"🛡 **Session Destroyer:** {len(enabled_settings)}/{len(accounts)} active accounts\n"
+            f"📅 **Monitoring Since (earliest active account):** {active_since}\n"
             f"🛡 **Trust Score:** High ✅\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "Generated by TeleGuard Sentinel"
@@ -173,43 +194,90 @@ class ProtectionMenu:
         await event.edit(text, buttons=[[Button.inline("🔙 Back", data="prot_main")]])
 
     async def send_trusted_sessions(
-        self, event, user_id: int, callback_prefix: str = "prot"
+        self,
+        event,
+        user_id: int,
+        callback_prefix: str = "prot",
+        account_id: str | None = None,
     ):
-        """Display live sessions and controls to trust or untrust each session."""
+        """Display session protection for a selected account."""
         from telethon.tl.functions.account import GetAuthorizationsRequest
         from ..utils.crypto_utils import DataEncryption
 
-        settings = await ProtectionStorage.get_settings(user_id)
-        trusted_hashes = set(settings.get("trusted_hashes", []))
         accounts = await mongodb.db.accounts.find(
             {"user_id": user_id, "is_active": True}
         ).to_list(length=None)
+        if account_id is None:
+            buttons = []
+            lines = [
+                "🔐 **Choose an account**",
+                "",
+                "Device protection is configured separately for each account.",
+            ]
+            for account_doc in accounts:
+                account = DataEncryption.decrypt_account_data(account_doc)
+                name = account.get("name") or account.get("phone") or "Account"
+                account_settings = await ProtectionStorage.get_account_settings(
+                    user_id, str(account_doc["_id"])
+                )
+                state = "🟢 Protected" if account_settings.get("enabled") else "⚪ Off"
+                lines.append(f"• {name}: {state}")
+                buttons.append(
+                    [
+                        Button.inline(
+                            f"{state} · {name[:25]}",
+                            data=f"{callback_prefix}:trusted:{account_doc['_id']}",
+                        )
+                    ]
+                )
+            if not accounts:
+                lines.append("No active accounts.")
+            buttons.append(
+                [Button.inline("🔙 Back", data=f"{callback_prefix}:main")]
+            )
+            await event.edit("\n".join(lines), buttons=buttons)
+            return
+
+        selected_doc = next(
+            (
+                account_doc
+                for account_doc in accounts
+                if str(account_doc.get("_id")) == str(account_id)
+            ),
+            None,
+        )
+        if not selected_doc:
+            await event.answer("Account not found.", alert=True)
+            return
+        account_settings = await ProtectionStorage.get_account_settings(
+            user_id, account_id
+        )
+        trusted_hashes = set(account_settings.get("trusted_hashes", []))
+        untrusted_hashes = set(account_settings.get("untrusted_hashes", []))
         session_rows = []
         failed_accounts = 0
 
-        for account_doc in accounts:
-            account = DataEncryption.decrypt_account_data(account_doc)
-            client = self.bot_manager.get_client(user_id, account)
-            if not client or not client.is_connected():
-                continue
+        account = DataEncryption.decrypt_account_data(selected_doc)
+        client = self.bot_manager.get_client(user_id, account)
+        if client and client.is_connected():
             try:
                 result = await client(GetAuthorizationsRequest())
             except Exception:
                 failed_accounts += 1
                 logger.exception(
-                    "Failed to load sessions for protection settings (user %s)",
+                    "Failed to load sessions for account %s (user %s)",
+                    account_id,
                     user_id,
                 )
-                continue
-
-            account_name = account.get("name") or account.get("phone") or "Account"
-            session_rows.extend(
-                (account_name, authorization)
-                for authorization in result.authorizations
-            )
+            else:
+                account_name = account.get("name") or account.get("phone") or "Account"
+                session_rows.extend(
+                    (account_name, authorization)
+                    for authorization in result.authorizations
+                )
 
         if not session_rows:
-            text = "🔐 **Trusted Sessions**\n\n"
+            text = "🔐 **Protected Devices**\n\n"
             if failed_accounts:
                 text += (
                     f"Could not load sessions for {failed_accounts} account(s). "
@@ -226,30 +294,45 @@ class ProtectionMenu:
             )
             return
 
-        lines = ["🔐 **Trusted Sessions**", ""]
+        account_name = account.get("name") or account.get("phone") or "Account"
+        protection_state = "ON" if account_settings.get("enabled") else "OFF"
+        lines = [
+            f"🔐 **Devices for {account_name}**",
+            f"Session Destroyer: **{protection_state} for this account only**",
+            "",
+            "Protected devices are kept. Unprotected devices may be terminated while Session Destroyer is ON.",
+            "",
+        ]
         buttons = []
-        for account_name, authorization in session_rows[:20]:
+        for _account_name, authorization in session_rows[:20]:
             is_current = bool(authorization.current)
-            is_trusted = is_current or authorization.hash in trusted_hashes
+            is_trusted = (
+                is_current
+                or authorization.hash in trusted_hashes
+                and authorization.hash not in untrusted_hashes
+            )
             if is_current:
-                state = "🛡 Current session (always kept)"
+                state = "🛡 This session (always kept)"
             elif is_trusted:
-                state = "🛡 Trusted"
+                state = "🛡 Protected — will be kept"
             else:
-                state = "⚠️ Untrusted"
+                state = "⚠️ Not protected"
             device = getattr(authorization, "device_model", None) or "Unknown device"
             platform = getattr(authorization, "platform", None) or "Unknown platform"
             lines.append(
-                f"• **{account_name}** — {device} ({platform})\n  {state}"
+                f"• **{device}** ({platform})\n  {state}"
             )
             if not is_current:
-                action = "untrust" if is_trusted else "trust"
-                label = "🔓 Untrust" if is_trusted else "🛡 Trust"
+                action = "unprotect" if is_trusted else "protect"
+                label = "Remove protection" if is_trusted else "Protect device"
                 buttons.append(
                     [
                         Button.inline(
-                            f"{label}: {device[:24]}",
-                            data=f"{callback_prefix}:{action}:{authorization.hash}",
+                            f"{'🔓' if is_trusted else '🛡'} {label}: {device[:20]}",
+                            data=(
+                                f"{callback_prefix}:{action}:{account_id}:"
+                                f"{authorization.hash}"
+                            ),
                         )
                     ]
                 )
@@ -263,26 +346,48 @@ class ProtectionMenu:
         lines.extend(
             [
                 "",
-                "Trust sessions you recognize. Untrusted sessions may be "
-                "terminated when Session Destroyer is enabled.",
+                "Only devices under this account are affected. "
+                "Your current TeleGuard session can never be removed here.",
             ]
         )
         buttons.extend(
             [
-                [Button.inline("🔄 Refresh", data=f"{callback_prefix}:trusted")],
+                [
+                    Button.inline(
+                        "🔄 Refresh",
+                        data=f"{callback_prefix}:trusted:{account_id}",
+                    )
+                ],
+                [
+                    Button.inline(
+                        "⬅️ Choose another account",
+                        data=f"{callback_prefix}:trusted",
+                    )
+                ],
                 [Button.inline("🔙 Back", data=f"{callback_prefix}:main")],
             ]
         )
         await event.edit("\n".join(lines), buttons=buttons)
 
-    async def set_session_trust(self, user_id: int, session_hash: int, trusted: bool):
+    async def set_session_trust(
+        self, user_id: int, account_id: str, session_hash: int, trusted: bool
+    ):
         """Change trust only for a live session belonging to this user."""
         from telethon.tl.functions.account import GetAuthorizationsRequest
         from ..utils.crypto_utils import DataEncryption
 
-        accounts = await mongodb.db.accounts.find(
-            {"user_id": user_id, "is_active": True}
-        ).to_list(length=None)
+        from bson import ObjectId
+
+        account_doc = await mongodb.db.accounts.find_one(
+            {
+                "_id": ObjectId(account_id),
+                "user_id": user_id,
+                "is_active": True,
+            }
+        )
+        if not account_doc:
+            return False
+        accounts = [account_doc]
         lookup_failed = False
         found = False
         target_is_current = False
@@ -297,7 +402,9 @@ class ProtectionMenu:
             except Exception:
                 lookup_failed = True
                 logger.exception(
-                    "Failed to verify session trust action (user %s)", user_id
+                    "Failed to verify session protection action (user %s account %s)",
+                    user_id,
+                    account_id,
                 )
                 continue
 
@@ -318,19 +425,33 @@ class ProtectionMenu:
             return False
 
         if trusted:
-            await ProtectionStorage.add_trusted_hash(user_id, session_hash)
+            await ProtectionStorage.add_account_trusted_hash(
+                user_id, account_id, session_hash
+            )
             await mongodb.db.session_destroyer_pending.delete_many(
-                {"user_id": user_id, "hash": session_hash}
+                {
+                    "user_id": user_id,
+                    "account_id": account_id,
+                    "hash": session_hash,
+                }
             )
         else:
-            await ProtectionStorage.add_untrusted_hash(user_id, session_hash)
+            await ProtectionStorage.add_account_untrusted_hash(
+                user_id, account_id, session_hash
+            )
             await mongodb.db.session_destroyer_pending.delete_many(
-                {"user_id": user_id, "hash": session_hash}
+                {
+                    "user_id": user_id,
+                    "account_id": account_id,
+                    "hash": session_hash,
+                }
             )
             protection_manager = getattr(self.bot_manager, "protection_manager", None)
-            settings = await ProtectionStorage.get_settings(user_id)
-            if protection_manager and settings.get("session_destroyer_enabled", False):
+            settings = await ProtectionStorage.get_account_settings(
+                user_id, account_id
+            )
+            if protection_manager and settings.get("enabled", False):
                 await protection_manager.session_destroyer.terminate_session(
-                    user_id, session_hash
+                    user_id, account_id, session_hash
                 )
         return True

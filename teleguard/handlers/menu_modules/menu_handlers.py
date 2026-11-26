@@ -155,13 +155,19 @@ class MenuHandlers:
             }
             temp_active = len(bypassed_account_ids)
             
-            from ...services.protection_storage import ProtectionStorage
-
-            protection_settings = await ProtectionStorage.get_settings(user_id)
-            session_destroyer_enabled = protection_settings.get(
-                "session_destroyer_enabled", False
+            active_accounts = [
+                account for account in accounts if account.get("is_active", False)
+            ]
+            account_ids = {str(account["_id"]) for account in active_accounts}
+            enabled_sd_settings = await mongodb.db.session_destroyer_account_settings.find(
+                {"user_id": user_id, "enabled": True}
+            ).to_list(length=None)
+            enabled_sd_accounts = sum(
+                1
+                for setting in enabled_sd_settings
+                if setting.get("account_id") in account_ids
             )
-            sd_enabled = "🔥" if session_destroyer_enabled else "⚪"
+            sd_enabled = "🔥" if enabled_sd_accounts else "⚪"
             
             security_score = self._otp_coverage(
                 accounts, bypassed_account_ids
@@ -176,7 +182,7 @@ class MenuHandlers:
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"📊 **Security Dashboard:**\n"
                 f"• {security_emoji} **Configured OTP Coverage (excluding bypasses):** {security_score}%\n"
-                f"• {sd_enabled} **Session Destroyer:** {'Enabled' if session_destroyer_enabled else 'Disabled'}\n"
+                f"• {sd_enabled} **Session Destroyer:** {enabled_sd_accounts}/{len(active_accounts)} active accounts\n"
                 f"• 🛡️ **OTP Destroyer:** {destroyer_enabled}/{len(accounts)} accounts\n"
                 f"• 📩 **OTP Forward:** {forward_enabled}/{len(accounts)} accounts\n\n"
                 f"• ⏰ **Temporary Bypass:** {temp_active}/{len(accounts)} accounts\n\n"
@@ -197,8 +203,8 @@ class MenuHandlers:
                     Button.inline("📊 Statistics", "otp:stats"),
                 ],
                 [
-                    Button.inline("🟢 Enable All Protection", "otp:enable_all"),
-                    Button.inline("🔴 Disable All Protection", "otp:disable_all"),
+                    Button.inline("🟢 Enable All OTP Protection", "otp:enable_all"),
+                    Button.inline("🔴 Disable All OTP Protection", "otp:disable_all"),
                 ],
                 [Button.inline("📋 Security Audit Log", "otp:audit_all")],
                 [Button.inline("🔙 Back to Main Menu", "menu:main")],

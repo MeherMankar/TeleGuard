@@ -501,6 +501,18 @@ export interface SecurityLog {
   action?: string
 }
 
+export interface SessionDestroyerAccountSettings {
+  account_id: string
+  enabled: boolean
+  allow_next: boolean
+  trusted_hashes_count: number
+}
+
+export interface TrustedSessionsByAccount {
+  account_id: string
+  hashes: number[]
+}
+
 export const securityApi = {
   settings: () =>
     get<{
@@ -509,22 +521,28 @@ export const securityApi = {
         otp_destroyer_enabled: boolean
         allow_next: boolean
         trusted_hashes_count: number
+        session_destroyer_accounts: SessionDestroyerAccountSettings[]
       }
       stats: { destroyed_count: number; otp_destroyed: number }
       enabled: boolean
     }>("/api/security/settings"),
-  updateSettings: (enabled: boolean) =>
-    post<{ status: string; enabled: boolean }>("/api/security/settings", { enabled }),
-  allowNextLogin: () =>
-    post<{ status: string; message: string }>("/api/security/session-destroyer/allow-next", {}),
-  syncTrustedSessions: () =>
-    post<{ status: string; trusted_count: number }>("/api/security/trusted/sync", {}),
+  updateSettings: (account_id: string, enabled: boolean) =>
+    post<{ status: string; enabled: boolean; account_id: string }>("/api/security/settings", {
+      account_id,
+      enabled,
+    }),
+  allowNextLogin: (account_id: string) =>
+    post<{ status: string; message: string }>("/api/security/session-destroyer/allow-next", {
+      account_id,
+    }),
+  syncTrustedSessions: (account_id: string) =>
+    post<{ status: string; trusted_count: number }>("/api/security/trusted/sync", { account_id }),
   logs: (limit = 15) => get<SecurityLog[]>(`/api/security/logs?limit=${limit}`),
-  trustedSessions: () => get<number[]>("/api/security/trusted"),
-  addTrusted: (session_hash: number) =>
-    post<{ status: string }>("/api/security/trusted/add", { session_hash }),
-  removeTrusted: (session_hash: number) =>
-    post<{ status: string }>("/api/security/trusted/remove", { session_hash }),
+  trustedSessions: () => get<TrustedSessionsByAccount[]>("/api/security/trusted"),
+  addTrusted: (account_id: string, session_hash: number) =>
+    post<{ status: string }>("/api/security/trusted/add", { account_id, session_hash }),
+  removeTrusted: (account_id: string, session_hash: number) =>
+    post<{ status: string }>("/api/security/trusted/remove", { account_id, session_hash }),
   // OTP Destroyer per-account
   toggleOtpDestroyer: (account_id: string, enabled: boolean) =>
     post<{ status: string; message: string; enabled: boolean }>(
