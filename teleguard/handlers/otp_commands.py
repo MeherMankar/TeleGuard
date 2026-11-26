@@ -2,7 +2,7 @@
 OTP Command Handlers
 Professional OTP management system for handling OTP forwarding and destroying.
 Provides secure command processing with comprehensive validation and error handling.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

@@ -1,6 +1,6 @@
 """Session Operations Handler - Advanced session management operations
 Developed by:
-- @Meher_Mankar
+- @MeherPatil
 - @Gutkesh
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot

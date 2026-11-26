@@ -2,7 +2,7 @@
 Professional Bot Manager for TeleGuard
 Centralized bot lifecycle management with dependency injection,
 error handling, and modular component initialization.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

@@ -2,7 +2,7 @@
 Unified Input Validation and Sanitization Utilities
 Professional validation functions for user inputs, configurations,
 and data integrity checks throughout the application.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

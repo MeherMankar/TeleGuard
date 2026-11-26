@@ -2,7 +2,7 @@
 Secure 2FA Input Handlers
 Professional 2FA management system with secure keypad input processing.
 Handles password setting, changing, and removal with comprehensive error handling.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
 """

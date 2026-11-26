@@ -2,7 +2,7 @@
 Application Constants
 Centralized constants for TeleGuard application.
 Provides consistent values across all modules and components.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

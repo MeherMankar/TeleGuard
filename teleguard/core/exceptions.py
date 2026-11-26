@@ -2,7 +2,7 @@
 Custom Exception Classes for TeleGuard
 Professional exception hierarchy for better error handling and debugging.
 Provides specific exceptions for different components and operations.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

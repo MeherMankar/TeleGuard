@@ -1,6 +1,6 @@
 """Session Login Handler - Complete SessionMaster Integration
 Developed by:
-- @Meher_Mankar
+- @MeherPatil
 - @Gutkesh
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot

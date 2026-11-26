@@ -2,7 +2,7 @@
 Response Formatting Utilities
 Professional response formatting for consistent API responses,
 user messages, and error handling across the application.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

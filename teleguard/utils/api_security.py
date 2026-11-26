@@ -2,7 +2,7 @@
 API Security Utilities
 Professional API security implementation with secure key validation,
 rate limiting, and comprehensive audit logging.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

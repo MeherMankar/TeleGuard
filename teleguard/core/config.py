@@ -2,7 +2,7 @@
 Professional Configuration Management for TeleGuard
 Centralized configuration system with validation, type safety,
 and comprehensive error handling for all application settings.
-Authors: @Meher_Mankar, @Gutkesh
+Authors: @MeherPatil, @Gutkesh
 Repository: https://github.com/mehermankar/teleguard
 """
 

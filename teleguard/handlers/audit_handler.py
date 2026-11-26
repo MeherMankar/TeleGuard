@@ -2,7 +2,7 @@
 Audit Handler for TeleGuard
 Provides audit logging and activity reporting for the Human-like Activity Simulator.
 Developed by:
-- @Meher_Mankar
+- @MeherPatil
 - @Gutkesh
 """
 

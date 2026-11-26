@@ -45,7 +45,7 @@ class StartHandler:
                     "• 2FA management & session control\n"
                     "• Activity simulation & automation\n"
                     "• Secure profile & channel management\n\n"
-                    "**💬 Need Help?** Use '❓ Help' or contact @Meher_Mankar"
+                    "**💬 Need Help?** Use '❓ Help' or contact @MeherPatil"
                 )
                 keyboard = self.menu_system.get_main_menu_keyboard(user_id)
                 await event.reply(welcome_text, buttons=keyboard)

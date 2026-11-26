@@ -76,7 +76,7 @@ class CommandHandlers:
                 "• 2FA management & session control\n"
                 "• Activity simulation & automation\n"
                 "• Secure profile & channel management\n\n"
-                "**💬 Need Help?** Use '❓ Help' or contact @Meher_Mankar"
+                "**💬 Need Help?** Use '❓ Help' or contact @MeherPatil"
             )
         else:
             welcome_text = "🤖 **TeleGuard Account Manager**\n\nWelcome back! Use the menu below to manage your accounts."

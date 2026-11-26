@@ -295,7 +295,7 @@ If issues occur:
 - **TeleGuard Community:** Bug reports and feature requests
 
 ### Contributors
-- @Meher_Mankar - Lead Developer
+- @MeherPatil - Lead Developer
 - @Gutkesh - Core Developer
 
 ---

@@ -2,7 +2,7 @@
 Handles /simulate commands for Human-like Activity Simulator
 Integrated with comprehensive audit logging for transparency.
 Developed by:
-- @Meher_Mankar
+- @MeherPatil
 - @Gutkesh
 """
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Inline menu system for account management
 Developed by:
-- @Meher_Mankar
+- @MeherPatil
 - @Gutkesh
 GitHub: https://github.com/mehermankar/teleguard
 Support: https://t.me/ContactXYZrobot
@@ -1340,7 +1340,7 @@ class MenuSystem:
             "\ud83d\udd19 **Support & Contact**\n\n"
             "Need help? Contact our support team:\n\n"
             "👨💻 **Developers:**\n"
-            "• @Meher_Mankar\n"
+            "• @MeherPatil\n"
             "• @Gutkesh\n\n"
             "\ud83d\udd19 **Support:** https://t.me/ContactXYZrobot\n"
             "🐛 **Bug Reports:** Create an issue on GitHub\n\n"

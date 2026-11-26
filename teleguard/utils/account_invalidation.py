@@ -169,7 +169,7 @@ class AccountInvalidationHandler:
             f"because Telegram said:\n\n"
             f"**Telegram says:** {safe_reason}\n\n"
             f"**Phone number:** {safe_phone}\n\n"
-            f"❓ **Have you got any questions?** Contact support -> @meher_mankar"
+            f"❓ **Have you got any questions?** Contact support -> @MeherPatil"
         )
 
     async def _send_with_rate_limit(self, user_id: int, message: str) -> None:

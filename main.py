@@ -5,7 +5,7 @@ A secure, professional-grade Telegram bot for managing multiple user accounts
 with advanced OTP destroyer protection against unauthorized access attempts.
 
 Developed by:
-- @Meher_Mankar (https://t.me/Meher_Mankar)
+- @MeherPatil (https://t.me/MeherPatil)
 - @Gutkesh (https://t.me/Gutkesh)
 
 Repository: https://github.com/MeherMankar/TeleGuard
@@ -335,14 +335,14 @@ def print_startup_banner() -> None:
         # Dynamically center version in the banner slot (12 characters wide)
         banner = f"""
 ╔══════════════════════════════════════════════════════════════╗
-║                      TeleGuard v{__version__:<12}                ║
+║                      TeleGuard v{__version__:<12}            ║
 ║              Professional Telegram Account Manager           ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  OTP Destroyer Protection      Multi-Account Support         ║
 ║  Military-Grade Encryption     Advanced Automation           ║
 ║  Health Monitoring             Activity Simulation           ║
 ╠══════════════════════════════════════════════════════════════╣
-║  Developers: @Meher_Mankar & @Gutkesh                        ║
+║  Developers: @MeherPatil & @Gutkesh                          ║
 ║  GitHub: github.com/MeherMankar/TeleGuard                    ║
 ║  Support: t.me/ContactXYZrobot                               ║
 ║  Docs: github.com/MeherMankar/TeleGuard/wiki                 ║
@@ -361,7 +361,7 @@ def print_startup_banner() -> None:
         print("- Military-Grade Encryption")
         print("- Advanced Automation")
         print("=" * 60)
-        print("Developers: @Meher_Mankar & @Gutkesh")
+        print("Developers: @MeherPatil & @Gutkesh")
         print("GitHub: github.com/MeherMankar/TeleGuard")
         print("Support: t.me/ContactXYZrobot")
         print("=" * 60)
