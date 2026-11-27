@@ -1080,7 +1080,7 @@ class BotManager:
     async def _initialize_components(self) -> None:
         try:
             await asyncio.wait_for(self._initialize_core_components(), timeout=15.0)
-            await asyncio.wait_for(self._initialize_handlers(), timeout=15.0)
+            await asyncio.wait_for(self._initialize_handlers(), timeout=60.0)
             await asyncio.wait_for(self._initialize_services(), timeout=8.0)
             await asyncio.wait_for(self._initialize_workers(), timeout=3.0)
 
@@ -1181,6 +1181,12 @@ class BotManager:
         from ..handlers.session_login_handler import SessionLoginHandler
         from ..handlers.start_handler import StartHandler
 
+        # Register /start FIRST — before any other handler — so a timeout or
+        # error in a later component never leaves the bot unable to respond.
+        await self.component_manager.initialize_component(
+            "start_handler", StartHandler, self.bot, self.menu_system, self
+        )
+
         self.command_handlers = await self.component_manager.initialize_component(
             "command_handlers", CommandHandlers, self
         )
@@ -1195,9 +1201,6 @@ class BotManager:
         from ..handlers.protection_callbacks import ProtectionCallbacks
         self.protection_callbacks = ProtectionCallbacks(self)
         self.protection_callbacks.register_handlers()
-        await self.component_manager.initialize_component(
-            "start_handler", StartHandler, self.bot, self.menu_system, self
-        )
         await self.component_manager.initialize_component(
             "message_handlers", MessageHandlers, self
         )
