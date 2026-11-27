@@ -3,15 +3,12 @@
 import asyncio
 import json
 import logging
-import os
-import tempfile
 from datetime import datetime
 from typing import Optional
 
 from ..core.config import TELEGRAM_BACKUP_CHANNEL
 
 logger = logging.getLogger(__name__)
-SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", tempfile.gettempdir())
 
 
 class TelegramBackup:
@@ -288,81 +285,3 @@ def backup_user_change(action: str, user_id: int, user_data: dict):
     """Trigger user change backup"""
     if _auto_backup:
         _auto_backup.trigger_user_backup(action, user_id, user_data)
-
-
-# Database snapshot functionality
-async def create_database_snapshot():
-    """Create JSON snapshot of database collections"""
-    try:
-        from ..sync.db import fetch_snapshot_collections, init_connections
-
-        await init_connections()
-
-        # Fetch all data
-        data = await fetch_snapshot_collections()
-        meta = {
-            "created_at": datetime.utcnow().isoformat(),
-            "version": "1.0",
-            "collections": list(data.keys()),
-            "total_records": sum(
-                len(v) if isinstance(v, list) else 1 for v in data.values()
-            ),
-        }
-        payload = {"meta": meta, "data": data}
-
-        os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"teleguard_snapshot_{timestamp}.json"
-        filepath = os.path.join(SNAPSHOT_DIR, filename)
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(payload, f, default=str, indent=2)
-
-        logger.info(f"Created snapshot: {filename} ({meta['total_records']} records)")
-        return filepath
-
-    except Exception as e:
-        logger.error(f"Failed to create database snapshot: {e}")
-        raise
-
-
-def encrypt_snapshot(snapshot_bytes: bytes) -> bytes:
-    """Encrypt snapshot bytes using AES-GCM"""
-    try:
-        from ..sync.crypto import encrypt_bytes
-
-        return encrypt_bytes(snapshot_bytes)
-    except Exception as e:
-        logger.error(f"Failed to encrypt snapshot: {e}")
-        return snapshot_bytes
-
-
-def push_to_github(snapshot_path: str, _branch: str = "backups"):
-    """Push snapshot to GitHub repository (feature removed)"""
-    logger.warning("GitHub sync feature has been removed")
-
-
-def force_orphan_push(snapshot_path: str, _branch: str = "backups"):
-    """Create orphan branch with only latest snapshot (feature removed)"""
-    logger.warning("GitHub sync feature has been removed")
-
-
-async def upload_to_telegram(bot_client, snapshot_bytes: bytes, filename: str):
-    """Upload snapshot to Telegram channel"""
-    try:
-        from ..sync.telegram_backup import upload_snapshot
-
-        return await upload_snapshot(bot_client, snapshot_bytes, filename)
-    except Exception as e:
-        logger.error(f"Failed to upload to Telegram: {e}")
-        return False
-
-
-async def cleanup_telegram_messages(bot_client, older_than_seconds: int):
-    """Clean up old Telegram backup messages"""
-    try:
-        from ..sync.telegram_backup import cleanup_old_telegram_messages
-
-        await cleanup_old_telegram_messages(bot_client, older_than_seconds)
-    except Exception as e:
-        logger.error(f"Failed to cleanup Telegram messages: {e}")

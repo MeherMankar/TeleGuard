@@ -824,10 +824,6 @@ class MenuSystem:
         """Handle developer-related callbacks"""
         await self.help_callbacks.handle_developer_callback(event, user_id, data)
 
-    async def _handle_dm_reply(self, event):
-        """Handle DM Reply menu"""
-        await event.answer("DM Reply - use main menu")
-
     async def _handle_otp_callback(self, event, user_id: int, data: str):
         """Handle OTP-related callbacks with proper error handling"""
         try:
@@ -835,221 +831,6 @@ class MenuSystem:
         except Exception as e:
             logger.error(f"OTP callback error: {e}")
             await event.answer("❌ Error processing OTP request")
-
-    async def _handle_otp_callback_legacy(self, event, user_id: int, data: str):
-        """Handle OTP-related callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        account_id = parts[2] if len(parts) > 2 else "0"
-        if action == "manage":
-            await self.send_otp_account_management(
-                user_id, account_id, event.message_id
-            )
-        elif action == "enable":
-            try:
-                from bson import ObjectId
-
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id},
-                    {
-                        "$set": {
-                            "otp_destroyer_enabled": True,
-                            "otp_forward_enabled": False,  # Disable forward when destroyer is enabled
-                        }
-                    },
-                )
-                await event.answer("✅ OTP Destroyer enabled! Forward disabled.")
-                # Go back to OTP Destroyer account selection instead of individual
-                # account menu
-                await self._handle_otp_setting_callback(
-                    event, user_id, "otp_setting:destroyer"
-                )
-            except Exception:
-                await event.answer("⚠️ Error enabling OTP Destroyer")
-        elif action == "disable":
-            try:
-                from bson import ObjectId
-
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id},
-                    {"$set": {"otp_destroyer_enabled": False}},
-                )
-                await event.answer("🔴 OTP Destroyer disabled!")
-                # Go back to OTP Destroyer account selection instead of individual
-                # account menu
-                await self._handle_otp_setting_callback(
-                    event, user_id, "otp_setting:destroyer"
-                )
-            except Exception:
-                await event.answer("⚠️ Error disabling OTP Destroyer")
-        elif action == "forward_enable":
-            try:
-                from bson import ObjectId
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-                if account and account.get("otp_destroyer_enabled", False):
-                    await event.answer(
-                        "\u274c Cannot enable forward while OTP Destroyer is active"
-                    )
-                    return
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id},
-                    {"$set": {"otp_forward_enabled": True}},
-                )
-                await event.answer("✅ OTP Forward enabled!")
-                # Go back to OTP Forward account selection instead of individual account
-                # menu
-                await self._handle_otp_setting_callback(
-                    event, user_id, "otp_setting:forward"
-                )
-            except Exception:
-                await event.answer("⚠️ Error enabling OTP Forward")
-        elif action == "forward_disable":
-            try:
-                from bson import ObjectId
-
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id},
-                    {"$set": {"otp_forward_enabled": False}},
-                )
-                await event.answer("🔴 OTP Forward disabled!")
-                # Go back to OTP Forward account selection instead of individual account
-                # menu
-                await self._handle_otp_setting_callback(
-                    event, user_id, "otp_setting:forward"
-                )
-            except Exception:
-                await event.answer("⚠️ Error disabling OTP Forward")
-        elif action == "temp":
-            try:
-                from bson import ObjectId
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-                if not account:
-                    await event.answer("\u274c Account not found")
-                    return
-
-                # Check if temp OTP is already active
-                import time
-
-                if account.get("otp_temp_passthrough", False):
-                    expiry = account.get("temp_passthrough_expiry", 0)
-                    if time.time() < expiry:
-                        # Stop temp OTP - restore original states
-                        original_destroyer_state = account.get(
-                            "original_destroyer_state", True
-                        )
-                        original_forward_state = account.get(
-                            "original_forward_state", False
-                        )
-                        await mongodb.db.accounts.update_one(
-                            {"_id": ObjectId(account_id)},
-                            {
-                                "$set": {
-                                    "otp_destroyer_enabled": original_destroyer_state,
-                                    "otp_forward_enabled": original_forward_state,
-                                },
-                                "$unset": {
-                                    "otp_temp_passthrough": "",
-                                    "temp_passthrough_expiry": "",
-                                    "original_destroyer_state": "",
-                                    "original_forward_state": "",
-                                },
-                            },
-                        )
-                        await mongodb.add_audit_entry(
-                            account_id,
-                            {
-                                "action": "temp_passthrough_stopped",
-                                "timestamp": int(time.time()),
-                            },
-                        )
-                        await event.answer(
-                            "✅ Temp OTP stopped! Original settings restored."
-                        )
-                        await self._handle_otp_setting_callback(
-                            event, user_id, "otp_setting:temp"
-                        )
-                        return
-
-                # Start temp OTP - enable forward, disable destroyer for 5 minutes
-                expiry_time = time.time() + 300  # 5 minutes
-                original_destroyer_state = account.get("otp_destroyer_enabled", False)
-                original_forward_state = account.get("otp_forward_enabled", False)
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {
-                        "$set": {
-                            "otp_temp_passthrough": True,
-                            "temp_passthrough_expiry": expiry_time,
-                            "otp_destroyer_enabled": False,  # Disable destroyer
-                            "otp_forward_enabled": True,  # Enable forward
-                            "original_destroyer_state": original_destroyer_state,
-                            "original_forward_state": original_forward_state,
-                        }
-                    },
-                )
-                await mongodb.add_audit_entry(
-                    account_id,
-                    {
-                        "action": "temp_passthrough_enabled",
-                        "duration": "5_minutes",
-                        "timestamp": int(time.time()),
-                    },
-                )
-                await event.answer(
-                    "⏰ Temp OTP enabled! Forward ON, Destroyer OFF for 5 minutes."
-                )
-                await self._handle_otp_setting_callback(
-                    event, user_id, "otp_setting:temp"
-                )
-                # Schedule cleanup after 5 minutes
-                import asyncio
-
-                async def simple_cleanup():
-                    await asyncio.sleep(300)  # 5 minutes
-                    try:
-                        from bson import ObjectId
-
-                        await mongodb.db.accounts.update_one(
-                            {"_id": ObjectId(account_id)},
-                            {
-                                "$unset": {
-                                    "otp_temp_passthrough": "",
-                                    "temp_passthrough_expiry": "",
-                                    "original_destroyer_state": "",
-                                    "original_forward_state": "",
-                                }
-                            },
-                        )
-                    except Exception as e:
-                        logger.error(f"Temp OTP cleanup error: {e}")
-
-                asyncio.create_task(simple_cleanup())
-            except Exception as e:
-                logger.error(f"Error handling temp OTP: {e}")
-                await event.answer("⚠️ Error handling temp OTP")
-
-        elif action == "setpass":
-            if self.account_manager:
-                self.account_manager.pending_actions[user_id] = {
-                    "action": "set_otp_disable_password",
-                    "account_id": account_id,
-                }
-                text = (
-                    "🔒 **Set Disable Password**\n\n"
-                    "Reply with a password that will be required to disable OTP Destroyer.\n\n"
-                    "🔒 This adds an extra security layer - choose a strong password!\n"
-                    "⚠️ Minimum 6 characters required."
-                )
-                await event.answer("🔒 Reply with password")
-                await self.bot.send_message(user_id, text)
-            else:
-                await event.answer("\u274c Service unavailable")
 
     async def _handle_otp_setting_callback(self, event, user_id: int, data: str):
         """Handle OTP setting callbacks from main OTP menu"""
@@ -1465,45 +1246,6 @@ class MenuSystem:
     async def _handle_online_callback(self, event, user_id: int, data: str):
         await self.callback_handlers.handle_online_callback(event, user_id, data)
 
-    async def _handle_online_callback_legacy(self, event, user_id: int, data: str):
-        """Handle online maker callbacks"""
-        parts = data.split(":")
-        action = parts[1]
-        account_id = parts[2] if len(parts) > 2 else "0"
-        if action == "toggle":
-            try:
-                from bson import ObjectId
-
-                account = await mongodb.db.accounts.find_one(
-                    {"_id": ObjectId(account_id), "user_id": user_id}
-                )
-                if account:
-                    new_status = not account.get("online_maker_enabled", False)
-                    await mongodb.db.accounts.update_one(
-                        {"_id": ObjectId(account_id)},
-                        {"$set": {"online_maker_enabled": new_status}},
-                    )
-                    if hasattr(self.account_manager, "online_maker"):
-                        account_identifier = account.get("phone") or account.get(
-                            "name", "unknown"
-                        )
-                        if new_status:
-                            await self.account_manager.online_maker.start_online_maker(
-                                user_id, account_identifier
-                            )
-                        else:
-                            await self.account_manager.online_maker.stop_online_maker(
-                                user_id, account_identifier
-                            )
-                    status = "started" if new_status else "stopped"
-                    status_emoji = "✅" if new_status else "❌"
-                    await event.answer(f"{status_emoji} Online maker {status}!")
-                    await self.send_account_management(
-                        user_id, account_id, event.message_id
-                    )
-            except Exception:
-                await event.answer("❌ Error toggling online maker")
-
     async def _handle_automation_callback(self, event, user_id: int, data: str):
         """Handle automation callbacks"""
         parts = data.split(":")
@@ -1530,45 +1272,6 @@ class MenuSystem:
         ops = ProfileOperations(self)
         return await ops._get_current_profile_info(user_id, account_name)
 
-    async def _send_sessions_list(self, user_id: int, account_id: str, message_id: int):
-        """Send active sessions list"""
-        text = (
-            "🔐 **Active Sessions**\n\n"
-            "Loading session information...\n\n"
-            "This will show all active login sessions for the account."
-        )
-        buttons = [[Button.inline("\ud83d\udd19 Back", f"account:manage:{account_id}")]]
-        await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-
-    async def _toggle_online_maker(
-        self, user_id: int, account_id: str, message_id: int
-    ):
-        """Toggle online maker for account"""
-        try:
-            from bson import ObjectId
-
-            account = await mongodb.db.accounts.find_one(
-                {"_id": ObjectId(account_id), "user_id": user_id}
-            )
-            if account:
-                current_status = account.get("online_maker_enabled", False)
-                new_status = not current_status
-                await mongodb.db.accounts.update_one(
-                    {"_id": ObjectId(account_id)},
-                    {"$set": {"online_maker_enabled": new_status}},
-                )
-                status = "enabled" if new_status else "disabled"
-                interval = account.get("online_maker_interval", 300)
-                text = f"\ud83d\udd19 **Online Maker {
-                    status.title()}**\n\nAccount: {
-                    account['name']}\nStatus: {status}\nInterval: {interval}s"
-                buttons = [
-                    [Button.inline("\ud83d\udd19 Back", f"account:manage:{account_id}")]
-                ]
-                await self.bot.edit_message(user_id, message_id, text, buttons=buttons)
-        except (ValueError, KeyError, ConnectionError) as e:
-            logger.error(f"Failed to toggle online maker: {e}")
-
     async def _send_automation_management(
         self, user_id: int, account_id: str, message_id: int
     ):
@@ -1594,53 +1297,6 @@ class MenuSystem:
         ops = ProfileOperations(self)
         await ops.handle_profile_name_change(user_id, account_id, event)
 
-    async def _handle_profile_name_change_legacy(
-        self, user_id: int, account_id: str, event
-    ):
-        """Legacy profile name change handler"""
-        from bson import ObjectId
-
-        account = await mongodb.db.accounts.find_one(
-            {"_id": ObjectId(account_id), "user_id": user_id}
-        )
-        if not account:
-            await event.answer("Account not found")
-            return
-        await event.answer("Enter new name")
-        await self.bot.send_message(
-            user_id, "Reply with your new name (Example: John Doe):"
-        )
-
-        @self.bot.on(events.NewMessage(from_users=user_id))
-        async def handle_name_input(name_event):
-            if name_event.raw_text.startswith("/"):
-                return
-            names = name_event.raw_text.split(" ", 1)
-            first_name = names[0]
-            last_name = names[1] if len(names) > 1 else ""
-            client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
-            if client:
-                try:
-                    from telethon import functions
-
-                    await client(
-                        functions.account.UpdateProfileRequest(
-                            first_name=first_name, last_name=last_name
-                        )
-                    )
-                    await name_event.reply(
-                        f"Profile name updated to: {first_name} {last_name}"
-                    )
-                except (ValueError, ConnectionError) as e:
-                    await name_event.reply(f"Failed to update name: {e}")
-            else:
-                await name_event.reply("Account client not found")
-            self.bot.remove_event_handler(handle_name_input)
-
     async def _handle_profile_username_change(
         self, user_id: int, account_id: str, event
     ):
@@ -1650,50 +1306,6 @@ class MenuSystem:
         ops = ProfileOperations(self)
         await ops.handle_profile_username_change(user_id, account_id, event)
 
-    async def _handle_profile_username_change_legacy(
-        self, user_id: int, account_id: str, event
-    ):
-        """Legacy username change handler"""
-        from bson import ObjectId
-
-        account = await mongodb.db.accounts.find_one(
-            {"_id": ObjectId(account_id), "user_id": user_id}
-        )
-        if not account:
-            await event.answer("Account not found")
-            return
-        await event.answer("Enter username")
-        await self.bot.send_message(
-            user_id, "Reply with your new username (without @):"
-        )
-
-        @self.bot.on(events.NewMessage(from_users=user_id))
-        async def handle_username_input(username_event):
-            if username_event.raw_text.startswith("/"):
-                return
-            username = username_event.raw_text.replace("@", "").strip()
-            client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
-            if client:
-                try:
-                    from telethon import functions
-
-                    await client(
-                        functions.account.UpdateUsernameRequest(username=username)
-                    )
-                    await username_event.reply(f"Username updated to: @{username}")
-                except (ValueError, ConnectionError) as e:
-                    await username_event.reply(f"Failed to update username: {e}")
-            else:
-                await username_event.reply(
-                    f"Account client not found. Account: {
-                        account['name']}, User: {user_id}"
-                )
-            self.bot.remove_event_handler(handle_username_input)
-
     async def _handle_profile_bio_change(self, user_id: int, account_id: str, event):
         """Handle bio change - delegated to ProfileOperations"""
         from .menu_modules import ProfileOperations
@@ -1701,105 +1313,12 @@ class MenuSystem:
         ops = ProfileOperations(self)
         await ops.handle_profile_bio_change(user_id, account_id, event)
 
-    async def _handle_profile_bio_change_legacy(
-        self, user_id: int, account_id: str, event
-    ):
-        """Legacy bio change handler"""
-        from bson import ObjectId
-
-        account = await mongodb.db.accounts.find_one(
-            {"_id": ObjectId(account_id), "user_id": user_id}
-        )
-        if not account:
-            await event.answer("Account not found")
-            return
-        await event.answer("Enter bio")
-        await self.bot.send_message(
-            user_id, "Reply with your new bio (max 70 characters):"
-        )
-
-        @self.bot.on(events.NewMessage(from_users=user_id))
-        async def handle_bio_input(bio_event):
-            if bio_event.raw_text.startswith("/"):
-                return
-            bio_text = bio_event.raw_text.strip()
-            client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
-            if client:
-                try:
-                    from telethon import functions
-
-                    await client(functions.account.UpdateProfileRequest(about=bio_text))
-                    await bio_event.reply("Bio updated successfully")
-                except (ValueError, ConnectionError) as e:
-                    await bio_event.reply(f"Failed to update bio: {e}")
-            else:
-                await bio_event.reply(
-                    f"Account client not found. Account: {
-                        account['name']}, User: {user_id}"
-                )
-            self.bot.remove_event_handler(handle_bio_input)
-
     async def _handle_profile_photo_change(self, user_id: int, account_id: str, event):
         """Handle photo change - delegated to ProfileOperations"""
         from .menu_modules import ProfileOperations
 
         ops = ProfileOperations(self)
         await ops.handle_profile_photo_change(user_id, account_id, event)
-
-    async def _handle_profile_photo_change_legacy(
-        self, user_id: int, account_id: str, event
-    ):
-        """Legacy photo change handler"""
-        from bson import ObjectId
-
-        account = await mongodb.db.accounts.find_one(
-            {"_id": ObjectId(account_id), "user_id": user_id}
-        )
-        if not account:
-            await event.answer("Account not found")
-            return
-        await event.answer("Send photo")
-        await self.bot.send_message(
-            user_id, "Send a photo to set as your profile picture:"
-        )
-
-        @self.bot.on(events.NewMessage(from_users=user_id, func=lambda e: e.photo))
-        async def handle_photo_input(photo_event):
-            client = None
-            if hasattr(self.account_manager, "user_clients"):
-                client = self.account_manager.user_clients.get(user_id, {}).get(
-                    account["name"]
-                )
-            if client:
-                try:
-                    photo_path = await photo_event.download_media()
-                    from telethon import functions
-
-                    uploaded_file = await client.upload_file(photo_path)
-                    await client(
-                        functions.photos.UploadProfilePhotoRequest(file=uploaded_file)
-                    )
-                    import os
-
-                    if (
-                        photo_path
-                        and os.path.exists(photo_path)
-                        and os.path.isfile(photo_path)
-                    ):
-                        os.remove(photo_path)
-                    await photo_event.reply("Profile photo updated successfully")
-                except (ValueError, ConnectionError, OSError) as e:
-                    await photo_event.reply(f"Failed to update photo: {e}")
-            else:
-                await photo_event.reply(
-                    f"Account client not found. Account: {
-                        account['name']}, User: {user_id}"
-                )
-            self.bot.remove_event_handler(handle_photo_input)
 
     async def _handle_add_account(self, event, user_id: int):
         """Handle add account request"""
