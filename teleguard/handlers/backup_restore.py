@@ -111,7 +111,7 @@ class BackupRestore:
                 await self.bot.send_message(
                     user_id, f"🔐 Re-authenticating **{name}** ({phone})..."
                 )
-                session_string = await self._fresh_session_for_account(
+                session_string, reason = await self._fresh_session_for_account(
                     user_id, phone, name, session_login
                 )
                 if session_string:
@@ -130,6 +130,7 @@ class BackupRestore:
                 else:
                     # Fall back to existing session string
                     existing = acc.get("session_string")
+                    reason_text = f"\nReason: _{reason}_" if reason else ""
                     if existing:
                         backup_accounts.append(
                             {
@@ -143,13 +144,13 @@ class BackupRestore:
                         await self.bot.send_message(
                             user_id,
                             f"⚠️ **{name}** — could not create fresh session, "
-                            f"using existing session string.",
+                            f"using existing session string.{reason_text}",
                         )
                     else:
                         results["failed"] += 1
                         await self.bot.send_message(
                             user_id,
-                            f"❌ **{name}** — skipped (no session available).",
+                            f"❌ **{name}** — skipped (no session available).{reason_text}",
                         )
             except Exception:
                 logger.exception(
@@ -225,11 +226,15 @@ class BackupRestore:
         Uses the same mechanism as session_login_handler:
           1. Temporarily disable OTP destroyer and set OTP bypass allowlist
           2. Request OTP via send_code_request on a fresh client
-          3. Auto-fetch OTP from connected accounts (777000)
+          3. Auto-fetch OTP from connected accounts (777000), only accepting
+             messages that arrived AFTER the OTP was requested (avoids picking
+             up a stale code from the previous account's login flow)
           4. Sign in; if 2FA needed, try stored password from DB
           5. Restore OTP destroyer state and clean up
 
-        Returns the new session string, or None on failure.
+        Returns (session_string, failure_reason):
+          - (str, None)  on success
+          - (None, str)  on failure, where failure_reason is a human-readable string
         """
         client = None
         account = None
@@ -241,46 +246,65 @@ class BackupRestore:
             if account:
                 destroyer_was_enabled = account.get("otp_destroyer_enabled", False)
 
+            # Record the time just before requesting the OTP so we can filter
+            # out any stale codes that were already sitting in the inbox.
+            import time as _time
+            otp_request_time = _time.time()
+
             # Step 2: request OTP
             client, phone_code_hash = await session_login._request_otp_code(phone)
             if not client or not phone_code_hash:
                 logger.warning("Could not request OTP for %s", phone)
-                return None
+                return None, "OTP request failed — Telegram did not return a code hash"
 
-            # Step 3: fetch OTP from connected accounts (poll up to 30s)
+            # Step 3: fetch OTP from connected accounts, only messages newer than
+            # the moment we fired send_code_request.
             otp_code = None
             for attempt in range(15):
-                otp_code = await session_login._fetch_otp_from_telegram(user_id, phone)
+                otp_code = await self._fetch_otp_after(
+                    session_login, user_id, phone, otp_request_time
+                )
                 if otp_code:
                     break
                 await asyncio.sleep(2)
 
             if not otp_code:
-                otp_code = await session_login._fetch_otp_fallback(user_id, phone)
+                # Fallback: widen the window to 5 minutes but still require the
+                # code to be newer than otp_request_time.
+                otp_code = await self._fetch_otp_after(
+                    session_login, user_id, phone, otp_request_time, window=300
+                )
 
             if not otp_code:
                 logger.warning("Could not auto-fetch OTP for %s", phone)
-                return None
+                return None, "OTP not received — no Telegram code appeared within 30s"
 
             # Step 4: sign in with OTP
             try:
                 await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
                 session_string = StringSession.save(client.session)
-                return session_string
+                return session_string, None
 
             except SessionPasswordNeededError:
-                # Try stored 2FA password
+                # Try stored 2FA password from DB
                 from ..utils.twofa_helper import twofa_helper
 
                 success, session_str, error = await twofa_helper.try_sign_in_with_2fa(
                     client, user_id, phone
                 )
                 if success:
-                    return session_str
-                logger.warning(
-                    "2FA failed for %s during backup: %s", phone, error
-                )
-                return None
+                    return session_str, None
+                if error == "no_stored_password":
+                    return None, (
+                        "2FA password not stored — open Account Settings → "
+                        "2FA Settings and save the password first"
+                    )
+                if error == "stored_password_invalid":
+                    return None, (
+                        "Stored 2FA password is wrong (changed externally) — "
+                        "update it in Account Settings → 2FA Settings"
+                    )
+                return None, f"2FA sign-in failed: {error}"
 
         finally:
             # Step 5: always clean up regardless of success/failure
@@ -296,6 +320,57 @@ class BackupRestore:
                     )
                 except Exception:
                     logger.debug("Cleanup error for %s", phone)
+
+    @staticmethod
+    async def _fetch_otp_after(
+        session_login, user_id: int, phone: str, after_ts: float, window: float = 30
+    ):
+        """
+        Fetch the OTP for `phone` from 777000 messages that arrived after
+        `after_ts` (Unix timestamp).  Wraps session_login's OTP fetchers but
+        adds a time-based filter so we never use a code from a previous login.
+        """
+        import re
+        import time as _time
+
+        if user_id not in session_login.user_clients:
+            return None
+
+        phone_clean = phone.replace("+", "")
+        current_time = _time.time()
+
+        for client in session_login.user_clients[user_id].values():
+            if not client or not client.is_connected():
+                continue
+            try:
+                messages = await asyncio.wait_for(
+                    client.get_messages(777000, limit=10), timeout=10.0
+                )
+                for msg in messages:
+                    if not msg.message or not hasattr(msg, "date"):
+                        continue
+                    msg_ts = msg.date.timestamp()
+                    # Only consider messages that arrived after we requested the OTP
+                    # and within the allowed look-back window.
+                    if msg_ts < after_ts or (current_time - msg_ts) > window:
+                        continue
+                    text = msg.message
+                    text_lower = text.lower()
+                    if "login code" not in text_lower and "код" not in text_lower:
+                        continue
+                    match = re.search(r"Login code:\s*(\d{4,6})", text)
+                    if not match:
+                        match = re.search(r"\b(\d{5})\b", text)
+                    if match:
+                        code = match.group(1)
+                        logger.info(
+                            "Fresh OTP %s for %s (msg age %.1fs)",
+                            code, phone, current_time - msg_ts
+                        )
+                        return code
+            except Exception as e:
+                logger.debug("OTP fetch error for %s: %s", phone, e)
+        return None
 
     # ------------------------------------------------------------------ #
     #  Restore                                                             #

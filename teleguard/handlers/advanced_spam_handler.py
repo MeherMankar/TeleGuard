@@ -1111,7 +1111,7 @@ class AdvancedSpamHandler:
             clients = [
                 self._get_client(acc["phone"], user_id)
                 for acc in accounts
-                if self._get_client(acc["phone"])
+                if self._get_client(acc["phone"], user_id)
             ]
 
             if not clients:
@@ -1164,7 +1164,7 @@ class AdvancedSpamHandler:
             clients = [
                 self._get_client(acc["phone"], user_id)
                 for acc in accounts
-                if self._get_client(acc["phone"])
+                if self._get_client(acc["phone"], user_id)
             ]
 
             if not clients:
@@ -1270,7 +1270,7 @@ class AdvancedSpamHandler:
             clients = [
                 self._get_client(acc["phone"], user_id)
                 for acc in accounts
-                if self._get_client(acc["phone"])
+                if self._get_client(acc["phone"], user_id)
             ]
 
             if not clients:
