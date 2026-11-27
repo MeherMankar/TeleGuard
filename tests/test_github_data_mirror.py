@@ -139,6 +139,42 @@ def test_missing_public_repository_is_created_and_branch_initialized(
     ]
 
 
+def test_initializes_branch_when_existing_repository_is_empty(mirror, monkeypatch):
+    instance, _ = mirror
+    instance.api_url = "https://api.github.com/repos/owner/database"
+    instance.repository = "owner/database"
+    instance.branch = "mirror"
+    instance.headers = {}
+    calls = []
+
+    def request(method, endpoint, **kwargs):
+        calls.append((method, endpoint, kwargs))
+        if endpoint == "":
+            return 200, {"private": False, "default_branch": "main"}
+        if endpoint in ("git/ref/heads/mirror", "git/ref/heads/main"):
+            return 409, {"message": "Git Repository is empty."}
+        if endpoint == "git/trees":
+            return 201, {"sha": "tree-sha"}
+        if endpoint == "git/commits":
+            return 201, {"sha": "commit-sha"}
+        if endpoint == "git/refs":
+            return 201, {}
+        raise AssertionError(f"Unexpected request: {method} {endpoint}")
+
+    monkeypatch.setattr(instance, "_request", request)
+
+    instance._ensure_public_branch()
+
+    assert [call[:2] for call in calls] == [
+        ("GET", ""),
+        ("GET", "git/ref/heads/mirror"),
+        ("GET", "git/ref/heads/main"),
+        ("POST", "git/trees"),
+        ("POST", "git/commits"),
+        ("POST", "git/refs"),
+    ]
+
+
 def test_creates_repository_readme_with_mirror_status_when_missing(
     mirror, monkeypatch
 ):

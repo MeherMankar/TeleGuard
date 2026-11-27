@@ -129,9 +129,12 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
     def request(method, endpoint, **_kwargs):
         calls.append((method, endpoint))
         if endpoint == "":
-            return 200, {"private": True}
-        if endpoint == "git/ref/heads/backups":
-            return 404, {}
+            return 200, {"private": True, "default_branch": "main"}
+        if endpoint in (
+            "git/ref/heads/backups",
+            "git/ref/heads/main",
+        ):
+            return 409, {"message": "Git Repository is empty."}
         if endpoint == "git/trees":
             return 201, {"sha": "tree-sha"}
         if endpoint == "git/commits":
@@ -145,6 +148,7 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
     assert calls == [
         ("GET", ""),
         ("GET", "git/ref/heads/backups"),
+        ("GET", "git/ref/heads/main"),
         ("POST", "git/trees"),
         ("POST", "git/commits"),
         ("POST", "git/refs"),

@@ -240,7 +240,10 @@ class SessionBackupManager:
 
         encoded_branch = quote(self.github_branch, safe="")
         ref_endpoint = f"git/ref/heads/{encoded_branch}"
-        status, _ = self._request("GET", ref_endpoint, allow_status=(404,))
+        missing_ref_statuses = (404, 409)
+        status, _ = self._request(
+            "GET", ref_endpoint, allow_status=missing_ref_statuses
+        )
         if status == 200:
             return
 
@@ -249,12 +252,12 @@ class SessionBackupManager:
             status, source_ref = self._request(
                 "GET",
                 f"git/ref/heads/{quote(default_branch, safe='')}",
-                allow_status=(404,),
+                allow_status=missing_ref_statuses,
             )
         else:
             status = 404
 
-        if status == 404:
+        if status in missing_ref_statuses:
             _, tree = self._request("POST", "git/trees", json_body={"tree": []})
             _, commit = self._request(
                 "POST",
