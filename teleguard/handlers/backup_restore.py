@@ -73,6 +73,45 @@ class BackupRestore:
     #  Fresh-session backup                                                #
     # ------------------------------------------------------------------ #
 
+    async def _pause_all_destroyers(self, user_id: int) -> dict:
+        """
+        Disable OTP destroyer on all accounts for user_id.
+        Returns a dict {account_id: original_otp_destroyer_enabled} so it
+        can be restored afterwards.
+        """
+        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
+        original_states = {}
+        for acc in accounts:
+            original_states[str(acc["_id"])] = acc.get("otp_destroyer_enabled", False)
+        # Bulk-disable
+        await mongodb.db.accounts.update_many(
+            {"user_id": user_id},
+            {"$set": {"otp_destroyer_enabled": False}},
+        )
+        logger.info(
+            "OTP destroyer paused on all accounts for user %s during backup", user_id
+        )
+        return original_states
+
+    async def _restore_all_destroyers(self, user_id: int, original_states: dict):
+        """Restore each account's otp_destroyer_enabled to its pre-backup value."""
+        from bson import ObjectId
+
+        for acc_id_str, was_enabled in original_states.items():
+            try:
+                await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(acc_id_str), "user_id": user_id},
+                    {"$set": {"otp_destroyer_enabled": was_enabled}},
+                )
+            except Exception as e:
+                logger.warning(
+                    "Could not restore destroyer state for account %s: %s",
+                    acc_id_str, e
+                )
+        logger.info(
+            "OTP destroyer states restored for user %s after backup", user_id
+        )
+
     async def _create_fresh_backup(self, event):
         """Create backup by re-authenticating each account to get a fresh session."""
         user_id = event.sender_id
@@ -101,36 +140,67 @@ class BackupRestore:
             f"⏳ Starting..."
         )
 
+        # Pause OTP destroyer on ALL accounts for the whole backup window so
+        # no connected account destroys an incoming OTP for another account.
+        original_destroyer_states = await self._pause_all_destroyers(user_id)
+
         backup_accounts = []
         results = {"ok": 0, "failed": 0, "skipped": 0}
 
-        for acc in decrypted:
-            phone = acc.get("phone", "")
-            name = acc.get("name", phone)
-            try:
-                await self.bot.send_message(
-                    user_id, f"🔐 Re-authenticating **{name}** ({phone})..."
-                )
-                session_string, reason = await self._fresh_session_for_account(
-                    user_id, phone, name, session_login
-                )
-                if session_string:
-                    backup_accounts.append(
-                        {
-                            "name": name,
-                            "phone": phone,
-                            "session_string": session_string,
-                            "is_active": True,
-                        }
-                    )
-                    results["ok"] += 1
+        try:
+            for acc in decrypted:
+                phone = acc.get("phone", "")
+                name = acc.get("name", phone)
+                try:
                     await self.bot.send_message(
-                        user_id, f"✅ **{name}** — fresh session created."
+                        user_id, f"🔐 Re-authenticating **{name}** ({phone})..."
                     )
-                else:
-                    # Fall back to existing session string
+                    session_string, reason = await self._fresh_session_for_account(
+                        user_id, phone, name, session_login
+                    )
+                    if session_string:
+                        backup_accounts.append(
+                            {
+                                "name": name,
+                                "phone": phone,
+                                "session_string": session_string,
+                                "is_active": True,
+                            }
+                        )
+                        results["ok"] += 1
+                        await self.bot.send_message(
+                            user_id, f"✅ **{name}** — fresh session created."
+                        )
+                    else:
+                        # Fall back to existing session string
+                        existing = acc.get("session_string")
+                        reason_text = f"\nReason: _{reason}_" if reason else ""
+                        if existing:
+                            backup_accounts.append(
+                                {
+                                    "name": name,
+                                    "phone": phone,
+                                    "session_string": existing,
+                                    "is_active": True,
+                                }
+                            )
+                            results["skipped"] += 1
+                            await self.bot.send_message(
+                                user_id,
+                                f"⚠️ **{name}** — could not create fresh session, "
+                                f"using existing session string.{reason_text}",
+                            )
+                        else:
+                            results["failed"] += 1
+                            await self.bot.send_message(
+                                user_id,
+                                f"❌ **{name}** — skipped (no session available).{reason_text}",
+                            )
+                except Exception:
+                    logger.exception(
+                        "Fresh session backup failed for %s (user %s)", phone, user_id
+                    )
                     existing = acc.get("session_string")
-                    reason_text = f"\nReason: _{reason}_" if reason else ""
                     if existing:
                         backup_accounts.append(
                             {
@@ -143,40 +213,18 @@ class BackupRestore:
                         results["skipped"] += 1
                         await self.bot.send_message(
                             user_id,
-                            f"⚠️ **{name}** — could not create fresh session, "
-                            f"using existing session string.{reason_text}",
+                            f"⚠️ **{name}** — error during re-auth, "
+                            f"falling back to existing session.",
                         )
                     else:
                         results["failed"] += 1
                         await self.bot.send_message(
-                            user_id,
-                            f"❌ **{name}** — skipped (no session available).{reason_text}",
+                            user_id, f"❌ **{name}** — failed, no fallback available."
                         )
-            except Exception:
-                logger.exception(
-                    "Fresh session backup failed for %s (user %s)", phone, user_id
-                )
-                existing = acc.get("session_string")
-                if existing:
-                    backup_accounts.append(
-                        {
-                            "name": name,
-                            "phone": phone,
-                            "session_string": existing,
-                            "is_active": True,
-                        }
-                    )
-                    results["skipped"] += 1
-                    await self.bot.send_message(
-                        user_id,
-                        f"⚠️ **{name}** — error during re-auth, "
-                        f"falling back to existing session.",
-                    )
-                else:
-                    results["failed"] += 1
-                    await self.bot.send_message(
-                        user_id, f"❌ **{name}** — failed, no fallback available."
-                    )
+
+        finally:
+            # Always restore OTP destroyer states, even if backup fails midway
+            await self._restore_all_destroyers(user_id, original_destroyer_states)
 
         if not backup_accounts:
             await self.bot.send_message(
