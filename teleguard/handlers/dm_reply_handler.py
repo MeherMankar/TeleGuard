@@ -339,9 +339,10 @@ class DMReplyHandler:
             from telethon import functions
             import random
 
+            peer = await self.bot.get_input_entity(group_id)
             result = await self.bot(
                 functions.messages.CreateForumTopicRequest(
-                    channel=group_id,
+                    peer=peer,
                     title=topic_title,
                     icon_color=0x6FB9F0,
                     random_id=random.randint(1, 2**63 - 1),

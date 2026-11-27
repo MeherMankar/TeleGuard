@@ -517,7 +517,7 @@ class DumpHandler:
             from telethon.tl.functions.messages import CreateForumTopicRequest
             result = await self.bot(
                 CreateForumTopicRequest(
-                    channel=dest_entity,
+                    peer=dest_entity,
                     title=f"📂 {category}",
                 )
             )

@@ -1197,8 +1197,9 @@ class UnifiedMessagingSystem:
             from telethon.tl import functions
             
             logger.info(f"🔨 Creating topic '{topic_title}' in group {admin_group_id}")
+            peer = await self.bot.get_input_entity(admin_group_id)
             result = await self.bot(functions.messages.CreateForumTopicRequest(
-                channel=admin_group_id,
+                peer=peer,
                 title=topic_title,
                 icon_color=0x6FB9F0,
                 random_id=random.randint(1, 2**63 - 1),

@@ -13,6 +13,7 @@ import time
 from typing import Any, Dict, Optional, Set
 
 from telethon import TelegramClient, connection, events
+from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 
 from ..utils.account_invalidation import (
@@ -282,7 +283,7 @@ class BotManager:
 
             device_params = DeviceSnooper.get_spoofed_device_params()
 
-            session_name = f"teleguard_bot_{int(time.time())}"
+            session_name = "teleguard_bot"
             self.bot = TelegramClient(
                 session_name,
                 config.telegram.api_id,
@@ -310,18 +311,18 @@ class BotManager:
             try:
                 await self.bot.start(bot_token=config.telegram.bot_token)
                 return
-            except Exception as e:
-                if "FloodWaitError" in str(e) or "wait of" in str(e):
-                    import re
-
-                    wait_match = re.search(r"wait of (\d+) seconds", str(e))
-                    if wait_match:
-                        wait_time = min(int(wait_match.group(1)), 300)
-                        logger.warning(f"Rate limited, waiting {wait_time} seconds...")
-                        await asyncio.sleep(wait_time)
-                        retry_count += 1
-                        continue
-                raise e
+            except FloodWaitError as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    raise
+                logger.warning(
+                    "Telegram rate limited bot startup; waiting %s seconds "
+                    "before retry %s/%s",
+                    e.seconds,
+                    retry_count + 1,
+                    max_retries,
+                )
+                await asyncio.sleep(e.seconds)
         raise TeleGuardError("Bot startup failed after retries")
 
     async def _on_session_load_interaction(self, event) -> None:

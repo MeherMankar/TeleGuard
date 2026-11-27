@@ -299,6 +299,28 @@ def test_deleted_topic_mapping_is_not_reused_for_next_incoming_dm(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_new_topic_uses_telethon_peer_parameter():
+    peer = object()
+    manager = object.__new__(UnifiedMessagingSystem)
+    manager.bot = AsyncMock(
+        return_value=SimpleNamespace(
+            updates=[SimpleNamespace(message=SimpleNamespace(id=654))]
+        )
+    )
+    manager.bot.get_input_entity = AsyncMock(return_value=peer)
+
+    topic_id = await manager._create_new_topic(
+        -1000000000123, "Sender", 456, 789, 123
+    )
+
+    assert topic_id == 654
+    manager.bot.get_input_entity.assert_awaited_once_with(-1000000000123)
+    request = manager.bot.await_args.args[0]
+    assert request.peer is peer
+    assert not hasattr(request, "channel")
+
+
 def test_offline_topic_close_is_retried_when_account_returns(monkeypatch):
     from telethon.tl.functions.contacts import BlockRequest
 
