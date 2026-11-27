@@ -200,8 +200,10 @@ class SessionBackupManager:
             raise RuntimeError("GitHub backup client is not configured")
         if endpoint.startswith("/"):
             url = f"https://api.github.com{endpoint}"
-        else:
+        elif endpoint:
             url = f"{self.api_url}/{endpoint}"
+        else:
+            url = self.api_url
         if params:
             url = f"{url}?{urlencode(params)}"
         data = json.dumps(json_body).encode("utf-8") if json_body is not None else None

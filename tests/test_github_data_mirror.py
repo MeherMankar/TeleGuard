@@ -62,6 +62,35 @@ def test_public_mirror_rejects_private_repositories(mirror, monkeypatch):
         instance._ensure_public_branch()
 
 
+def test_repository_root_request_omits_trailing_slash(mirror, monkeypatch):
+    instance, _ = mirror
+    instance.api_url = "https://api.github.com/repos/owner/database"
+    instance.headers = {}
+    requested_urls = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(request, timeout):
+        assert timeout == 30
+        requested_urls.append(request.full_url)
+        return Response()
+
+    monkeypatch.setattr(github_data_mirror, "urlopen", fake_urlopen)
+
+    assert instance._request("GET", "") == (200, {})
+    assert requested_urls == ["https://api.github.com/repos/owner/database"]
+
+
 def test_missing_public_repository_is_created_and_branch_initialized(
     mirror, monkeypatch
 ):

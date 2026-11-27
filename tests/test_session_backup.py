@@ -64,6 +64,37 @@ def test_session_manager_uses_dedicated_private_repo_credentials(monkeypatch):
     assert manager.headers["Authorization"] == "Bearer private-token"
 
 
+def test_repository_root_request_omits_trailing_slash(monkeypatch):
+    manager = object.__new__(SessionBackupManager)
+    manager.api_url = "https://api.github.com/repos/owner/session-backups"
+    manager.headers = {}
+    requested_urls = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(request, timeout):
+        assert timeout == 30
+        requested_urls.append(request.full_url)
+        return Response()
+
+    monkeypatch.setattr(session_backup, "urlopen", fake_urlopen)
+
+    assert manager._request("GET", "") == (200, {})
+    assert requested_urls == [
+        "https://api.github.com/repos/owner/session-backups"
+    ]
+
+
 def test_creates_configured_branch_from_repository_default(monkeypatch):
     manager = object.__new__(SessionBackupManager)
     manager.github_branch = "backups"
