@@ -1,5 +1,6 @@
 """Backup and restore handler"""
 
+import asyncio
 import binascii
 import io
 import json
@@ -8,11 +9,13 @@ import struct
 import time
 from datetime import datetime, timezone
 
-from telethon import Button, events
+from telethon import Button, TelegramClient, events
+from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 
-from ..core.config import MAX_ACCOUNTS
+from ..core.config import MAX_ACCOUNTS, config
 from ..core.mongo_database import mongodb
+from ..core.otp_protection import otp_expiry_fields
 from ..utils.crypto_utils import DataEncryption
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,9 @@ class BackupRestore:
             self._create_backup, events.CallbackQuery(pattern=r"^backup_create$")
         )
         self.bot.add_event_handler(
+            self._create_fresh_backup, events.CallbackQuery(pattern=r"^backup_create_fresh$")
+        )
+        self.bot.add_event_handler(
             self._begin_restore, events.CallbackQuery(pattern=r"^backup_restore$")
         )
         self.bot.add_event_handler(
@@ -48,17 +54,252 @@ class BackupRestore:
         if hasattr(event, "answer"):
             await event.answer()
         buttons = [
-            [Button.inline("💾 Create Backup", "backup_create")],
+            [Button.inline("💾 Backup (current sessions)", "backup_create")],
+            [Button.inline("🔄 Backup (fresh sessions)", "backup_create_fresh")],
             [Button.inline("📥 Restore Backup", "backup_restore")],
             [Button.inline("🔙 Back", "menu:main")],
         ]
 
         await event.edit(
             "💾 **Backup & Restore**\n\n"
-            "Create and restore account-session backups.\n\n"
+            "**Current sessions** — exports existing session strings as-is.\n"
+            "**Fresh sessions** — re-authenticates each account via auto-OTP "
+            "and stored 2FA to create brand-new session strings.\n\n"
             "Select an option:",
             buttons=buttons,
         )
+
+    # ------------------------------------------------------------------ #
+    #  Fresh-session backup                                                #
+    # ------------------------------------------------------------------ #
+
+    async def _create_fresh_backup(self, event):
+        """Create backup by re-authenticating each account to get a fresh session."""
+        user_id = event.sender_id
+        await event.answer()
+
+        session_login = getattr(self.bot_manager, "session_login_handler", None)
+        if session_login is None:
+            await event.edit("❌ Session login handler not available.")
+            return
+
+        accounts = await mongodb.db.accounts.find(
+            {"user_id": user_id, "is_active": True}
+        ).to_list(length=None)
+
+        if not accounts:
+            await event.edit("❌ No active accounts found to back up.")
+            return
+
+        decrypted = [DataEncryption.decrypt_account_data(acc) for acc in accounts]
+
+        await event.edit(
+            f"🔄 **Fresh-Session Backup**\n\n"
+            f"Re-authenticating {len(decrypted)} account(s).\n"
+            f"This will request a new OTP for each account and use your "
+            f"stored 2FA passwords automatically.\n\n"
+            f"⏳ Starting..."
+        )
+
+        backup_accounts = []
+        results = {"ok": 0, "failed": 0, "skipped": 0}
+
+        for acc in decrypted:
+            phone = acc.get("phone", "")
+            name = acc.get("name", phone)
+            try:
+                await self.bot.send_message(
+                    user_id, f"🔐 Re-authenticating **{name}** ({phone})..."
+                )
+                session_string = await self._fresh_session_for_account(
+                    user_id, phone, name, session_login
+                )
+                if session_string:
+                    backup_accounts.append(
+                        {
+                            "name": name,
+                            "phone": phone,
+                            "session_string": session_string,
+                            "is_active": True,
+                        }
+                    )
+                    results["ok"] += 1
+                    await self.bot.send_message(
+                        user_id, f"✅ **{name}** — fresh session created."
+                    )
+                else:
+                    # Fall back to existing session string
+                    existing = acc.get("session_string")
+                    if existing:
+                        backup_accounts.append(
+                            {
+                                "name": name,
+                                "phone": phone,
+                                "session_string": existing,
+                                "is_active": True,
+                            }
+                        )
+                        results["skipped"] += 1
+                        await self.bot.send_message(
+                            user_id,
+                            f"⚠️ **{name}** — could not create fresh session, "
+                            f"using existing session string.",
+                        )
+                    else:
+                        results["failed"] += 1
+                        await self.bot.send_message(
+                            user_id,
+                            f"❌ **{name}** — skipped (no session available).",
+                        )
+            except Exception:
+                logger.exception(
+                    "Fresh session backup failed for %s (user %s)", phone, user_id
+                )
+                existing = acc.get("session_string")
+                if existing:
+                    backup_accounts.append(
+                        {
+                            "name": name,
+                            "phone": phone,
+                            "session_string": existing,
+                            "is_active": True,
+                        }
+                    )
+                    results["skipped"] += 1
+                    await self.bot.send_message(
+                        user_id,
+                        f"⚠️ **{name}** — error during re-auth, "
+                        f"falling back to existing session.",
+                    )
+                else:
+                    results["failed"] += 1
+                    await self.bot.send_message(
+                        user_id, f"❌ **{name}** — failed, no fallback available."
+                    )
+
+        if not backup_accounts:
+            await self.bot.send_message(
+                user_id, "❌ No accounts could be backed up."
+            )
+            return
+
+        created_at = datetime.now(timezone.utc)
+        backup_data = {
+            "version": "2.0",
+            "created_at": created_at.isoformat(),
+            "user_id": user_id,
+            "backup_type": "fresh_sessions",
+            "accounts": backup_accounts,
+        }
+
+        from telethon.tl.types import DocumentAttributeFilename
+
+        backup_file = io.BytesIO(
+            json.dumps(backup_data, indent=2).encode("utf-8")
+        )
+        backup_file.name = f"teleguard_fresh_backup_{int(time.time())}.json"
+        await self.bot.send_file(
+            user_id,
+            backup_file,
+            caption=(
+                f"💾 **Fresh-Session Backup Created**\n\n"
+                f"✅ Fresh sessions: {results['ok']}\n"
+                f"⚠️ Fallback (existing): {results['skipped']}\n"
+                f"❌ Failed: {results['failed']}\n"
+                f"📅 Date: {created_at.strftime('%Y-%m-%d %H:%M UTC')}\n\n"
+                f"⚠️ Keep this file secure!"
+            ),
+            attributes=[DocumentAttributeFilename(backup_file.name)],
+        )
+
+    async def _fresh_session_for_account(
+        self,
+        user_id: int,
+        phone: str,
+        account_name: str,
+        session_login,
+    ):
+        """
+        Re-authenticate one account to produce a fresh session string.
+
+        Uses the same mechanism as session_login_handler:
+          1. Temporarily disable OTP destroyer and set OTP bypass allowlist
+          2. Request OTP via send_code_request on a fresh client
+          3. Auto-fetch OTP from connected accounts (777000)
+          4. Sign in; if 2FA needed, try stored password from DB
+          5. Restore OTP destroyer state and clean up
+
+        Returns the new session string, or None on failure.
+        """
+        client = None
+        account = None
+        destroyer_was_enabled = False
+
+        try:
+            # Step 1: prepare (disable OTP destroyer, add bypass allowlist entry)
+            account = await session_login._prepare_session_creation(user_id, phone)
+            if account:
+                destroyer_was_enabled = account.get("otp_destroyer_enabled", False)
+
+            # Step 2: request OTP
+            client, phone_code_hash = await session_login._request_otp_code(phone)
+            if not client or not phone_code_hash:
+                logger.warning("Could not request OTP for %s", phone)
+                return None
+
+            # Step 3: fetch OTP from connected accounts (poll up to 30s)
+            otp_code = None
+            for attempt in range(15):
+                otp_code = await session_login._fetch_otp_from_telegram(user_id, phone)
+                if otp_code:
+                    break
+                await asyncio.sleep(2)
+
+            if not otp_code:
+                otp_code = await session_login._fetch_otp_fallback(user_id, phone)
+
+            if not otp_code:
+                logger.warning("Could not auto-fetch OTP for %s", phone)
+                return None
+
+            # Step 4: sign in with OTP
+            try:
+                await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
+                session_string = StringSession.save(client.session)
+                return session_string
+
+            except SessionPasswordNeededError:
+                # Try stored 2FA password
+                from ..utils.twofa_helper import twofa_helper
+
+                success, session_str, error = await twofa_helper.try_sign_in_with_2fa(
+                    client, user_id, phone
+                )
+                if success:
+                    return session_str
+                logger.warning(
+                    "2FA failed for %s during backup: %s", phone, error
+                )
+                return None
+
+        finally:
+            # Step 5: always clean up regardless of success/failure
+            if client:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+            if account:
+                try:
+                    await session_login._cleanup_session_creation(
+                        account, destroyer_was_enabled, user_id
+                    )
+                except Exception:
+                    logger.debug("Cleanup error for %s", phone)
+
+    # ------------------------------------------------------------------ #
+    #  Restore                                                             #
+    # ------------------------------------------------------------------ #
 
     async def _begin_restore(self, event):
         user_id = event.sender_id
@@ -264,8 +505,12 @@ class BackupRestore:
                 )
         return result
 
+    # ------------------------------------------------------------------ #
+    #  Current-session backup (original behaviour)                        #
+    # ------------------------------------------------------------------ #
+
     async def _create_backup(self, event):
-        """Create backup"""
+        """Create backup using existing session strings (no re-auth)."""
         user_id = event.sender_id
 
         try:
@@ -280,6 +525,7 @@ class BackupRestore:
                 "version": "2.0",
                 "created_at": created_at.isoformat(),
                 "user_id": user_id,
+                "backup_type": "current_sessions",
                 "accounts": [],
             }
 
@@ -319,3 +565,4 @@ class BackupRestore:
         except Exception as e:
             logger.error(f"Backup error: {e}")
             await event.edit(f"❌ Backup failed: {str(e)}")
+

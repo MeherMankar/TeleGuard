@@ -124,6 +124,7 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "export_contacts",
         "backup_menu",
         "backup_create",
+        "backup_create_fresh",
         "backup_restore",
         "backup_cancel",
         "bulk_subscribe",
