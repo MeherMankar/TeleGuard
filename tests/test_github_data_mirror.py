@@ -86,13 +86,20 @@ def test_repository_404_reports_configuration_and_access_guidance(mirror, monkey
     assert "GITHUB_DATA_TOKEN" in str(error.value)
 
 
-def test_legacy_db_github_variables_configure_encrypted_mirror(monkeypatch):
+def test_github_backup_configuration_ignores_legacy_fallback_variables(monkeypatch):
     variables = (
         "GITHUB_DATA_MIRROR_ENABLED",
         "GITHUB_DATA_REPO",
         "GITHUB_DATA_TOKEN",
         "GITHUB_DATA_BRANCH",
+        "SESSION_BACKUP_GITHUB_REPO",
+        "SESSION_BACKUP_GITHUB_TOKEN",
         "DB_GITHUB_TOKEN",
+        "DB_GITHUB_OWNER",
+        "DB_GITHUB_REPO",
+        "DB_GITHUB_BRANCH",
+        "USE_GITHUB_DB",
+        "DB_WRITE_ALLOWED",
         "GITHUB_REPO",
         "GITHUB_TOKEN",
     )
@@ -105,33 +112,45 @@ def test_legacy_db_github_variables_configure_encrypted_mirror(monkeypatch):
     monkeypatch.setenv("DB_GITHUB_REPO", "database")
     monkeypatch.setenv("DB_GITHUB_BRANCH", "db-live")
     monkeypatch.setenv("DB_GITHUB_TOKEN", "mirror-token")
+    monkeypatch.setenv("GITHUB_REPO", "owner/legacy")
+    monkeypatch.setenv("GITHUB_TOKEN", "legacy-token")
+
+    backup = ConfigManager.__new__(ConfigManager)._load_backup_config()
+
+    assert backup.github_data_mirror_enabled is False
+    assert backup.github_data_repo is None
+    assert backup.github_data_token is None
+    assert backup.github_data_branch == "main"
+    assert backup.session_backup_github_repo is None
+    assert backup.session_backup_github_token is None
+
+
+def test_github_backup_configuration_reads_dedicated_variables(monkeypatch):
+    variables = (
+        "GITHUB_DATA_MIRROR_ENABLED",
+        "GITHUB_DATA_REPO",
+        "GITHUB_DATA_TOKEN",
+        "GITHUB_DATA_BRANCH",
+        "SESSION_BACKUP_GITHUB_REPO",
+        "SESSION_BACKUP_GITHUB_TOKEN",
+    )
+    for variable in variables:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("GITHUB_DATA_MIRROR_ENABLED", "true")
+    monkeypatch.setenv("GITHUB_DATA_REPO", "owner/database")
+    monkeypatch.setenv("GITHUB_DATA_TOKEN", "mirror-token")
+    monkeypatch.setenv("GITHUB_DATA_BRANCH", "data")
+    monkeypatch.setenv("SESSION_BACKUP_GITHUB_REPO", "owner/private-sessions")
+    monkeypatch.setenv("SESSION_BACKUP_GITHUB_TOKEN", "session-token")
 
     backup = ConfigManager.__new__(ConfigManager)._load_backup_config()
 
     assert backup.github_data_mirror_enabled is True
     assert backup.github_data_repo == "owner/database"
-    assert backup.github_data_branch == "db-live"
     assert backup.github_data_token == "mirror-token"
-
-
-def test_legacy_mirror_requires_both_opt_in_flags(monkeypatch):
-    monkeypatch.delenv("GITHUB_DATA_MIRROR_ENABLED", raising=False)
-    monkeypatch.setenv("USE_GITHUB_DB", "true")
-    monkeypatch.setenv("DB_WRITE_ALLOWED", "false")
-
-    backup = ConfigManager.__new__(ConfigManager)._load_backup_config()
-
-    assert backup.github_data_mirror_enabled is False
-
-
-def test_explicit_mirror_setting_overrides_legacy_enablement(monkeypatch):
-    monkeypatch.setenv("USE_GITHUB_DB", "true")
-    monkeypatch.setenv("DB_WRITE_ALLOWED", "true")
-    monkeypatch.setenv("GITHUB_DATA_MIRROR_ENABLED", "false")
-
-    backup = ConfigManager.__new__(ConfigManager)._load_backup_config()
-
-    assert backup.github_data_mirror_enabled is False
+    assert backup.github_data_branch == "data"
+    assert backup.session_backup_github_repo == "owner/private-sessions"
+    assert backup.session_backup_github_token == "session-token"
 
 
 def test_mirror_uses_configured_token_for_github_api(monkeypatch):

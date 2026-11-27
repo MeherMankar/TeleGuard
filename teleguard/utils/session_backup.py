@@ -166,20 +166,24 @@ class SessionBackupManager:
         elif value.startswith("https://"):
             parsed = urlparse(value)
             if parsed.hostname != "github.com" or parsed.username or parsed.password:
-                raise ValueError("GITHUB_REPO must refer to a repository on github.com")
+                raise ValueError(
+                    "SESSION_BACKUP_GITHUB_REPO must refer to a repository on github.com"
+                )
             value = parsed.path.strip("/")
         value = value.removesuffix(".git")
         parts = value.split("/")
         if len(parts) != 2 or not all(parts):
             raise ValueError(
-                "GITHUB_REPO must be owner/repository or a GitHub repository URL"
+                "SESSION_BACKUP_GITHUB_REPO must be owner/repository "
+                "or a GitHub repository URL"
             )
         if not all(
             part.replace("-", "").replace("_", "").replace(".", "").isalnum()
             for part in parts
         ):
             raise ValueError(
-                "GITHUB_REPO contains invalid owner or repository characters"
+                "SESSION_BACKUP_GITHUB_REPO contains invalid owner or "
+                "repository characters"
             )
         return parts[0], parts[1]
 

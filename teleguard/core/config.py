@@ -120,8 +120,6 @@ class BackupConfig:
     """Backup system configuration"""
 
     telegram_backup_channel: Optional[str] = None
-    github_repo: Optional[str] = None
-    github_token: Optional[str] = None
     session_backup_github_repo: Optional[str] = None
     session_backup_github_token: Optional[str] = None
     github_backup_branch: str = "backups"
@@ -292,38 +290,17 @@ class ConfigManager:
 
     def _load_backup_config(self) -> BackupConfig:
         """Load backup system configuration"""
-        db_github_owner = os.getenv("DB_GITHUB_OWNER")
-        db_github_repo = os.getenv("DB_GITHUB_REPO")
-        configured_data_repo = os.getenv("GITHUB_DATA_REPO")
-        if not configured_data_repo and db_github_owner and db_github_repo:
-            configured_data_repo = f"{db_github_owner}/{db_github_repo}"
-
-        legacy_mirror_enabled = self._get_bool_env(
-            "USE_GITHUB_DB", False
-        ) and self._get_bool_env("DB_WRITE_ALLOWED", False)
-        mirror_enabled_setting = os.getenv("GITHUB_DATA_MIRROR_ENABLED")
-        if mirror_enabled_setting is not None and mirror_enabled_setting.strip():
-            mirror_enabled = self._get_bool_env(
-                "GITHUB_DATA_MIRROR_ENABLED", False
-            )
-        else:
-            mirror_enabled = legacy_mirror_enabled
         return BackupConfig(
             telegram_backup_channel=os.getenv("TELEGRAM_BACKUP_CHANNEL"),
-            github_repo=os.getenv("GITHUB_REPO"),
-            github_token=os.getenv("GITHUB_TOKEN"),
-            session_backup_github_repo=os.getenv("SESSION_BACKUP_GITHUB_REPO")
-            or os.getenv("GITHUB_REPO"),
-            session_backup_github_token=os.getenv("SESSION_BACKUP_GITHUB_TOKEN")
-            or os.getenv("GITHUB_TOKEN"),
+            session_backup_github_repo=os.getenv("SESSION_BACKUP_GITHUB_REPO"),
+            session_backup_github_token=os.getenv("SESSION_BACKUP_GITHUB_TOKEN"),
             github_backup_branch=os.getenv("GITHUB_BACKUP_BRANCH", "backups"),
-            github_data_mirror_enabled=mirror_enabled,
-            github_data_repo=configured_data_repo or os.getenv("GITHUB_REPO"),
-            github_data_token=os.getenv("GITHUB_DATA_TOKEN")
-            or os.getenv("DB_GITHUB_TOKEN")
-            or os.getenv("GITHUB_TOKEN"),
-            github_data_branch=os.getenv("GITHUB_DATA_BRANCH")
-            or os.getenv("DB_GITHUB_BRANCH", "main"),
+            github_data_mirror_enabled=self._get_bool_env(
+                "GITHUB_DATA_MIRROR_ENABLED", False
+            ),
+            github_data_repo=os.getenv("GITHUB_DATA_REPO"),
+            github_data_token=os.getenv("GITHUB_DATA_TOKEN"),
+            github_data_branch=os.getenv("GITHUB_DATA_BRANCH", "main"),
             snapshot_dir=os.getenv("SNAPSHOT_DIR"),
         )
 
@@ -457,7 +434,7 @@ class ConfigManager:
             "backup_enabled": self.security.session_backup_enabled,
             "encryption_enabled": bool(self.security.encryption_key),
             "redis_configured": bool(self.database.redis_url),
-            "github_backup": bool(self.backup.github_repo),
+            "github_backup": bool(self.backup.session_backup_github_repo),
             "telegram_backup": bool(self.backup.telegram_backup_channel),
         }
 

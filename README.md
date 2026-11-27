@@ -291,11 +291,6 @@ docker run -d \
 | `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`) |
 | `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write access to the data repository |
 | `GITHUB_DATA_BRANCH` | ❌ | Data mirror branch (default: `main`) |
-| `USE_GITHUB_DB` | ❌ | Legacy alias; with `DB_WRITE_ALLOWED=true`, enables the encrypted mirror if the explicit mirror flag is unset |
-| `DB_WRITE_ALLOWED` | ❌ | Legacy opt-in gate required together with `USE_GITHUB_DB=true` |
-| `DB_GITHUB_OWNER` / `DB_GITHUB_REPO` | ❌ | Legacy mirror repository owner and name |
-| `DB_GITHUB_BRANCH` | ❌ | Legacy mirror branch |
-| `DB_GITHUB_TOKEN` | ❌ | Legacy mirror write token |
 | `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
 | `SESSION_BACKUP_GITHUB_REPO` | ❌ | Private repository for session backups (`owner/repository`) |
 | `SESSION_BACKUP_GITHUB_TOKEN` | ❌ | Token with Contents read/write access to that private repository |
@@ -313,11 +308,9 @@ If mirror startup reports HTTP 404 while looking up the repository, verify
 `GITHUB_DATA_REPO` names the intended public repository and `GITHUB_DATA_TOKEN`
 has access to it; GitHub also returns 404 for repositories the token cannot
 access.
-For compatibility, `USE_GITHUB_DB=true` and `DB_WRITE_ALLOWED=true` enable the
-encrypted mirror when `GITHUB_DATA_MIRROR_ENABLED` is unset. `DB_GITHUB_OWNER`,
-`DB_GITHUB_REPO`, `DB_GITHUB_BRANCH`, and `DB_GITHUB_TOKEN` configure its target.
-These legacy names do not make GitHub the live database. `DATABASE_URL` is not
-used for live storage by this app; configure `MONGO_URI`.
+GitHub configuration uses only the dedicated variables listed above; legacy
+aliases and general `GITHUB_REPO` / `GITHUB_TOKEN` variables are not read.
+`DATABASE_URL` is not used for live storage by this app; configure `MONGO_URI`.
 The `/health` endpoint is a readiness check: it returns HTTP 503 until MongoDB
 is reachable and the bot has completed startup.
 
