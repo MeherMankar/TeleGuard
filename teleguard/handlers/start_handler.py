@@ -9,6 +9,9 @@ from ..core.mongo_database import mongodb
 
 logger = logging.getLogger(__name__)
 
+START_COMMAND_PATTERN = r"(?i)^/start(?:@[A-Za-z0-9_]+)?(?:\s|$)"
+MENU_COMMAND_PATTERN = r"(?i)^/menu(?:@[A-Za-z0-9_]+)?(?:\s|$)"
+
 
 class StartHandler:
     """Handles /start command and sends persistent menu"""
@@ -21,8 +24,12 @@ class StartHandler:
 
     def register_handlers(self):
         """Register start command handler"""
-        self.bot.on(events.NewMessage(pattern=r"^/start(?:\s|$)"))(self._start_command)
-        self.bot.on(events.NewMessage(pattern=r"^/menu(?:\s|$)"))(self._menu_command)
+        self.bot.on(events.NewMessage(pattern=START_COMMAND_PATTERN))(
+            self._start_command
+        )
+        self.bot.on(events.NewMessage(pattern=MENU_COMMAND_PATTERN))(
+            self._menu_command
+        )
 
     async def _start_command(self, event):
         """Handle /start command"""
