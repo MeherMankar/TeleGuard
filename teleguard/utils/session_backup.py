@@ -198,7 +198,10 @@ class SessionBackupManager:
     ) -> Tuple[int, Dict[str, Any]]:
         if not self.api_url or self.headers is None:
             raise RuntimeError("GitHub backup client is not configured")
-        url = f"{self.api_url}/{endpoint}"
+        if endpoint.startswith("/"):
+            url = f"https://api.github.com{endpoint}"
+        else:
+            url = f"{self.api_url}/{endpoint}"
         if params:
             url = f"{url}?{urlencode(params)}"
         data = json.dumps(json_body).encode("utf-8") if json_body is not None else None
@@ -213,6 +216,7 @@ class SessionBackupManager:
         except HTTPError as error:
             status = error.code
             body = error.read()
+
         if not 200 <= status < 300 and status not in allow_status:
             details = body.decode("utf-8", errors="replace")[:500]
             raise RuntimeError(
@@ -221,7 +225,14 @@ class SessionBackupManager:
         return status, json.loads(body) if body else {}
 
     def _ensure_private_branch(self) -> None:
-        _, repository = self._request("GET", "")
+        status, repository = self._request("GET", "", allow_status=(404,))
+        if status == 404:
+            from .github_repository import create_repository
+
+            owner, name = self.repository.split("/", 1)
+            repository = create_repository(
+                self._request, owner, name, private=True
+            )
         if not repository.get("private"):
             raise ValueError("The GitHub session-backup repository must be private")
 
@@ -260,6 +271,41 @@ class SessionBackupManager:
             json_body={
                 "ref": f"refs/heads/{self.github_branch}",
                 "sha": source_sha,
+            },
+        )
+
+    def _ensure_readme(self) -> None:
+        endpoint = "contents/README.md"
+        status, _ = self._request(
+            "GET",
+            endpoint,
+            params={"ref": self.github_branch},
+            allow_status=(404,),
+        )
+        if status == 200:
+            return
+
+        content = b"""# TeleGuard Encrypted Session Backups
+
+This private repository stores encrypted Telegram session backups created by
+TeleGuard. Session files are encrypted before upload; the repository does not
+contain the encryption key.
+
+The `sessions/` directory contains encrypted session files, and
+`manifests/sessions.json` lists the backed-up accounts and encrypted-file
+hashes. Keep this repository private because the manifest contains account
+identifiers. MongoDB remains the live source of truth.
+
+Do not add secrets, credentials, or the deployment's `FERNET_KEY` to this
+repository. The bot creates this README only when one is not already present.
+"""
+        self._request(
+            "PUT",
+            endpoint,
+            json_body={
+                "message": "Add TeleGuard session backup README",
+                "content": base64.b64encode(content).decode("ascii"),
+                "branch": self.github_branch,
             },
         )
 
@@ -359,6 +405,9 @@ class SessionBackupManager:
                     }
                 )
 
+            await asyncio.to_thread(self._ensure_private_branch)
+            await asyncio.to_thread(self._ensure_readme)
+
             if not files:
                 logger.info("No account sessions found for GitHub backup")
                 return True
@@ -375,7 +424,6 @@ class SessionBackupManager:
             ).encode("utf-8")
             files["manifests/sessions.json"] = manifest
 
-            await asyncio.to_thread(self._ensure_private_branch)
             updated_files = 0
             for path, content in files.items():
                 updated = await asyncio.to_thread(

@@ -26,6 +26,8 @@ class GitHubDataMirror:
     """Publish encrypted MongoDB snapshots without exposing record identifiers."""
 
     root_path = "teleguard-data/v1"
+    readme_status_start = "<!-- teleguard-data-mirror-status:start -->"
+    readme_status_end = "<!-- teleguard-data-mirror-status:end -->"
 
     def __init__(self):
         backup = config.backup
@@ -89,7 +91,10 @@ class GitHubDataMirror:
     ) -> Tuple[int, Any]:
         if not self.api_url or self.headers is None:
             raise RuntimeError("GitHub data mirror is not configured")
-        url = f"{self.api_url}/{endpoint}"
+        if endpoint.startswith("/"):
+            url = f"https://api.github.com{endpoint}"
+        else:
+            url = f"{self.api_url}/{endpoint}"
         if params:
             url = f"{url}?{urlencode(params)}"
         body = json.dumps(json_body).encode("utf-8") if json_body is not None else None
@@ -105,20 +110,34 @@ class GitHubDataMirror:
             status = error.code
             response_body = error.read()
 
-        if status == 404 and method == "GET" and not endpoint:
+        if (
+            status == 404
+            and status not in allow_status
+            and method == "GET"
+            and not endpoint
+        ):
             raise RuntimeError(
                 f"GitHub data mirror repository '{self.repository}' was not "
                 "found or is inaccessible to GITHUB_DATA_TOKEN. Verify "
-                "GITHUB_DATA_REPO and the token's access to the public repository."
+                "GITHUB_DATA_REPO and the token's access."
             )
         if not 200 <= status < 300 and status not in allow_status:
+            details = response_body.decode("utf-8", errors="replace")[:500]
             raise RuntimeError(
-                f"GitHub data mirror request failed with HTTP {status}"
+                f"GitHub data mirror request {method} {endpoint} failed with "
+                f"HTTP {status}: {details}"
             )
         return status, json.loads(response_body) if response_body else {}
 
     def _ensure_public_branch(self) -> None:
-        _, repository = self._request("GET", "")
+        status, repository = self._request("GET", "", allow_status=(404,))
+        if status == 404:
+            from .github_repository import create_repository
+
+            owner, name = self.repository.split("/", 1)
+            repository = create_repository(
+                self._request, owner, name, private=False
+            )
         if repository.get("private") is not False:
             raise ValueError("GITHUB_DATA_REPO must be a public repository")
 
@@ -155,6 +174,78 @@ class GitHubDataMirror:
             "POST",
             "git/refs",
             json_body={"ref": f"refs/heads/{self.branch}", "sha": source_sha},
+        )
+
+    def _update_readme(self, result: Dict[str, int]) -> None:
+        status, remote = self._get_file("README.md")
+        current_sha = remote.get("sha") if status == 200 else None
+        if status == 404:
+            readme = """# TeleGuard Encrypted Data Mirror
+
+This public repository stores encrypted snapshots of TeleGuard MongoDB user and
+account records. Record contents are encrypted before upload; the repository
+does not contain the encryption key.
+
+The `teleguard-data/v1/` directory contains encrypted records and an index.
+The index includes counts and opaque identifiers/fingerprints needed to manage
+the mirror. MongoDB remains the live source of truth.
+
+Do not add secrets, credentials, or the deployment's `FERNET_KEY` to this
+repository.
+"""
+        else:
+            encoded = remote.get("content")
+            if not encoded:
+                raise ValueError("GitHub data mirror README.md content is unavailable")
+            try:
+                readme = base64.b64decode(encoded).decode("utf-8")
+            except (ValueError, UnicodeDecodeError) as error:
+                raise ValueError(
+                    "GitHub data mirror README.md is not valid UTF-8"
+                ) from error
+
+        start = readme.find(self.readme_status_start)
+        end = readme.find(self.readme_status_end)
+        has_status = start >= 0 and end >= 0 and end > start
+        if (
+            readme.count(self.readme_status_start) > 1
+            or readme.count(self.readme_status_end) > 1
+            or (start >= 0 or end >= 0) and not has_status
+        ):
+            raise ValueError("GitHub data mirror README.md status section is malformed")
+
+        data_changed = bool(result["updated"] or result["deleted"])
+        if has_status and not data_changed:
+            return
+
+        status_section = (
+            f"{self.readme_status_start}\n"
+            "## Mirror status\n\n"
+            f"- Last mirror update: `{self._now()}`\n"
+            f"- User records: {result['users']}\n"
+            f"- Account records: {result['accounts']}\n"
+            f"{self.readme_status_end}"
+        )
+        if has_status:
+            end += len(self.readme_status_end)
+            readme = f"{readme[:start]}{status_section}{readme[end:]}"
+        else:
+            readme = f"{readme.rstrip()}\n\n{status_section}\n"
+
+        content = readme.encode("utf-8")
+        if current_sha and self._git_blob_sha(content) == current_sha:
+            return
+        payload = {
+            "message": "Update TeleGuard data mirror README",
+            "content": base64.b64encode(content).decode("ascii"),
+            "branch": self.branch,
+        }
+        if current_sha:
+            payload["sha"] = current_sha
+        self._request(
+            "PUT",
+            "contents/README.md",
+            json_body=payload,
         )
 
     def _get_file(self, path: str) -> Tuple[int, Dict[str, Any]]:
@@ -410,4 +501,6 @@ class GitHubDataMirror:
         self, users: Iterable[Dict[str, Any]], accounts: Iterable[Dict[str, Any]]
     ) -> Dict[str, int]:
         self._ensure_public_branch()
-        return self._sync_snapshot(users, accounts)
+        result = self._sync_snapshot(users, accounts)
+        self._update_readme(result)
+        return result

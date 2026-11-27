@@ -120,6 +120,126 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
     ]
 
 
+def test_missing_private_repository_is_created_and_branch_initialized(monkeypatch):
+    manager = object.__new__(SessionBackupManager)
+    manager.repository = "owner/session-backups"
+    manager.github_branch = "backups"
+    calls = []
+
+    def request(method, endpoint, **kwargs):
+        calls.append((method, endpoint, kwargs))
+        if endpoint == "" and method == "GET":
+            return 404, {}
+        if endpoint == "/user":
+            return 200, {"login": "owner"}
+        if endpoint == "/user/repos":
+            assert kwargs["json_body"] == {
+                "name": "session-backups",
+                "private": True,
+                "auto_init": False,
+            }
+            return 201, {"full_name": "owner/session-backups", "private": True}
+        if endpoint == "git/ref/heads/backups":
+            return 404, {}
+        if endpoint == "git/trees":
+            return 201, {"sha": "tree-sha"}
+        if endpoint == "git/commits":
+            return 201, {"sha": "commit-sha"}
+        if endpoint == "git/refs":
+            return 201, {}
+        raise AssertionError(f"Unexpected request: {method} {endpoint}")
+
+    monkeypatch.setattr(manager, "_request", request)
+
+    manager._ensure_private_branch()
+
+    assert [call[:2] for call in calls] == [
+        ("GET", ""),
+        ("GET", "/user"),
+        ("POST", "/user/repos"),
+        ("GET", "git/ref/heads/backups"),
+        ("POST", "git/trees"),
+        ("POST", "git/commits"),
+        ("POST", "git/refs"),
+    ]
+
+
+def test_creates_session_repository_readme_only_when_missing(monkeypatch):
+    manager = object.__new__(SessionBackupManager)
+    manager.github_branch = "backups"
+    calls = []
+
+    def request(method, endpoint, **kwargs):
+        calls.append((method, endpoint, kwargs))
+        if method == "GET":
+            return 404, {}
+        return 201, {}
+
+    monkeypatch.setattr(manager, "_request", request)
+
+    manager._ensure_readme()
+
+    assert [call[:2] for call in calls] == [
+        ("GET", "contents/README.md"),
+        ("PUT", "contents/README.md"),
+    ]
+    assert calls[0][2]["params"] == {"ref": "backups"}
+    assert calls[1][2]["json_body"]["branch"] == "backups"
+    assert b"Encrypted Session Backups" in base64.b64decode(
+        calls[1][2]["json_body"]["content"]
+    )
+
+
+def test_preserves_existing_session_repository_readme(monkeypatch):
+    manager = object.__new__(SessionBackupManager)
+    manager.github_branch = "backups"
+    calls = []
+
+    def request(method, endpoint, **kwargs):
+        calls.append((method, endpoint, kwargs))
+        return 200, {"sha": "existing-readme"}
+
+    monkeypatch.setattr(manager, "_request", request)
+
+    manager._ensure_readme()
+
+    assert [call[:2] for call in calls] == [("GET", "contents/README.md")]
+
+
+@pytest.mark.asyncio
+async def test_empty_session_backup_still_initializes_repository_and_readme(
+    monkeypatch,
+):
+    class EmptyCursor:
+        async def to_list(self, length=None):
+            assert length is None
+            return []
+
+    class EmptyAccounts:
+        def find(self, query):
+            assert "$or" in query
+            return EmptyCursor()
+
+    monkeypatch.setattr(
+        session_backup.mongodb,
+        "db",
+        SimpleNamespace(accounts=EmptyAccounts()),
+    )
+    monkeypatch.setattr(session_backup, "FERNET", Fernet(Fernet.generate_key()))
+    manager = object.__new__(SessionBackupManager)
+    manager.enabled = True
+    calls = []
+    monkeypatch.setattr(
+        manager, "_ensure_private_branch", lambda: calls.append("branch")
+    )
+    monkeypatch.setattr(
+        manager, "_ensure_readme", lambda: calls.append("readme")
+    )
+
+    assert await manager.push_sessions_batch() is True
+    assert calls == ["branch", "readme"]
+
+
 def test_github_upload_skips_unchanged_files(monkeypatch):
     content = b"encrypted session contents"
     git_blob = b"blob " + str(len(content)).encode() + b"\0" + content

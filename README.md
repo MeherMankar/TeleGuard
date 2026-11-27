@@ -101,9 +101,11 @@ FERNET_KEY=
 SESSION_BACKUP_ENABLED=false
 # Optional private GitHub session backup: set SESSION_BACKUP_GITHUB_REPO
 # and SESSION_BACKUP_GITHUB_TOKEN to a private repo and write-enabled token.
+# The repo is created automatically if missing and the token can create it.
 # Optional encrypted MongoDB mirror to a public repository:
 # set GITHUB_DATA_MIRROR_ENABLED=true, GITHUB_DATA_REPO, GITHUB_DATA_TOKEN,
-# and a stable FERNET_KEY. MongoDB remains the live database.
+# and a stable FERNET_KEY. The public repo is created automatically if missing.
+# MongoDB remains the live database.
 ```
 
 Generate `JWT_SECRET` with:
@@ -288,12 +290,12 @@ docker run -d \
 | `MAX_ACCOUNTS` | Optional | Maximum accounts per user |
 | `FERNET_KEY` | ✅ in production | Stable Fernet key required at startup in production and for encrypted data mirrors/backups |
 | `GITHUB_DATA_MIRROR_ENABLED` | ❌ | Set to `true` to mirror MongoDB user/account records to GitHub (default: `false`) |
-| `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`) |
-| `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write access to the data repository |
+| `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`); created if missing |
+| `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write and repository-creation access |
 | `GITHUB_DATA_BRANCH` | ❌ | Data mirror branch (default: `main`) |
 | `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
-| `SESSION_BACKUP_GITHUB_REPO` | ❌ | Private repository for session backups (`owner/repository`) |
-| `SESSION_BACKUP_GITHUB_TOKEN` | ❌ | Token with Contents read/write access to that private repository |
+| `SESSION_BACKUP_GITHUB_REPO` | ❌ | Private session-backup repository (`owner/repository`); created if missing |
+| `SESSION_BACKUP_GITHUB_TOKEN` | ❌ | Token with Contents read/write and repository-creation access |
 | `GITHUB_BACKUP_BRANCH` | ❌ | Session backup branch (default: `backups`) |
 
 MongoDB remains the live source of truth. The encrypted data mirror performs an
@@ -304,6 +306,18 @@ backup repositories must remain private. Configure these as **service
 environment variables** on Koyeb—GitHub Actions repository secrets are not
 automatically passed to the running service. GitHub commit history retains
 previous encrypted payloads after updates/deletions.
+You do not need to create the repositories or branches manually. On its initial
+sync, the bot creates each configured repository if it is missing (public for
+the data mirror, private for session backups), then creates the configured
+branch if it is missing. The defaults are `main` for data and `backups` for
+sessions; set `GITHUB_DATA_BRANCH` or `GITHUB_BACKUP_BRANCH` to use different
+names. It also adds a purpose-specific `README.md` to either repository when
+one is absent. In the data repository, it maintains a marked status section
+with the last mirror update and current user/account counts, updating that
+section when records are added, changed, or deleted while preserving other
+README content. The corresponding token must have repository-creation
+permission when the repository is absent and Contents read/write permission to
+initialize or update the branch and README.
 If mirror startup reports HTTP 404 while looking up the repository, verify
 `GITHUB_DATA_REPO` names the intended public repository and `GITHUB_DATA_TOKEN`
 has access to it; GitHub also returns 404 for repositories the token cannot
