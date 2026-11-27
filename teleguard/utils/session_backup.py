@@ -258,7 +258,33 @@ class SessionBackupManager:
             status = 404
 
         if status in missing_ref_statuses:
-            _, tree = self._request("POST", "git/trees", json_body={"tree": []})
+            initial_readme = (
+                "# TeleGuard Encrypted Session Backups\n\n"
+                "This private repository stores encrypted TeleGuard session "
+                "backups. Keep it private and do not store encryption keys here.\n"
+            ).encode("utf-8")
+            _, blob = self._request(
+                "POST",
+                "git/blobs",
+                json_body={
+                    "content": base64.b64encode(initial_readme).decode("ascii"),
+                    "encoding": "base64",
+                },
+            )
+            _, tree = self._request(
+                "POST",
+                "git/trees",
+                json_body={
+                    "tree": [
+                        {
+                            "path": "README.md",
+                            "mode": "100644",
+                            "type": "blob",
+                            "sha": blob["sha"],
+                        }
+                    ]
+                },
+            )
             _, commit = self._request(
                 "POST",
                 "git/commits",

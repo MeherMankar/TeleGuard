@@ -135,7 +135,18 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
             "git/ref/heads/main",
         ):
             return 409, {"message": "Git Repository is empty."}
+        if endpoint == "git/blobs":
+            assert _kwargs["json_body"]["encoding"] == "base64"
+            return 201, {"sha": "readme-blob-sha"}
         if endpoint == "git/trees":
+            assert _kwargs["json_body"]["tree"] == [
+                {
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": "readme-blob-sha",
+                }
+            ]
             return 201, {"sha": "tree-sha"}
         if endpoint == "git/commits":
             return 201, {"sha": "commit-sha"}
@@ -149,6 +160,7 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
         ("GET", ""),
         ("GET", "git/ref/heads/backups"),
         ("GET", "git/ref/heads/main"),
+        ("POST", "git/blobs"),
         ("POST", "git/trees"),
         ("POST", "git/commits"),
         ("POST", "git/refs"),
@@ -176,7 +188,18 @@ def test_missing_private_repository_is_created_and_branch_initialized(monkeypatc
             return 201, {"full_name": "owner/session-backups", "private": True}
         if endpoint == "git/ref/heads/backups":
             return 404, {}
+        if endpoint == "git/blobs":
+            assert kwargs["json_body"]["encoding"] == "base64"
+            return 201, {"sha": "readme-blob-sha"}
         if endpoint == "git/trees":
+            assert kwargs["json_body"]["tree"] == [
+                {
+                    "path": "README.md",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": "readme-blob-sha",
+                }
+            ]
             return 201, {"sha": "tree-sha"}
         if endpoint == "git/commits":
             return 201, {"sha": "commit-sha"}
@@ -193,6 +216,7 @@ def test_missing_private_repository_is_created_and_branch_initialized(monkeypatc
         ("GET", "/user"),
         ("POST", "/user/repos"),
         ("GET", "git/ref/heads/backups"),
+        ("POST", "git/blobs"),
         ("POST", "git/trees"),
         ("POST", "git/commits"),
         ("POST", "git/refs"),
