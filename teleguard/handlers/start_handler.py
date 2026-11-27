@@ -30,10 +30,12 @@ class StartHandler:
         self.bot.on(events.NewMessage(pattern=MENU_COMMAND_PATTERN))(
             self._menu_command
         )
+        logger.info("Registered /start and /menu command handlers")
 
     async def _start_command(self, event):
         """Handle /start command"""
         user_id = event.sender_id
+        logger.info("Received /start command from user %s", user_id)
         try:
             is_new = await self._ensure_user_exists(user_id)
             account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
@@ -63,8 +65,8 @@ class StartHandler:
                 )
             else:
                 await self.menu_system.send_main_menu(user_id)
-        except Exception as e:
-            logger.error(f"Start command error: {e}")
+        except Exception:
+            logger.exception("Start command failed for user %s", user_id)
             await event.reply("❌ Error starting bot. Please try again.")
 
     async def _menu_command(self, event):
