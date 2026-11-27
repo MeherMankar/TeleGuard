@@ -27,6 +27,7 @@ class SpamAppealHandler:
         self.spam_info_bot_username = "SpamBot"  # Alternative spam bot
         self.active_appeals: Dict[int, Dict] = {}  # user_id -> appeal_state
         self.appeal_messages = self._load_appeal_messages()
+        self._registered_clients: set = set()  # Fix 2: duplicate handler guard
 
     def _load_appeal_messages(self) -> list:
         """Load appeal message templates from file"""
@@ -75,6 +76,7 @@ class SpamAppealHandler:
         self.bot.on(events.CallbackQuery(pattern=b"appeal_account_id:(.+)"))(self._appeal_account_callback_handler)
         self.bot.on(events.CallbackQuery(pattern=b"appeal_cancel"))(self._appeal_cancel_handler)
         self.bot.on(events.CallbackQuery(pattern=b"captcha_(done|refresh|cancel)"))(self._captcha_callback_handler)
+        self.bot.on(events.CallbackQuery(pattern=b"spam_appeal_start"))(self._spam_appeal_start_callback_handler)
 
     async def _start_appeal_process(self, user_id: int):
         """Start the automated appeal process"""
@@ -84,13 +86,16 @@ class SpamAppealHandler:
                 logger.error(f"No active appeal found for user {user_id}")
                 return
 
-            # Prevent duplicate appeals (but allow 'new' state to proceed)
+            # Fix 4: check duplicate state BEFORE the sleep
             current_state = self.active_appeals[user_id].get("state")
             if current_state and current_state not in ["new", "starting"]:
                 logger.info(
                     f"Appeal already in progress for user {user_id}, state: {current_state}"
                 )
                 return
+
+            # Fix 1: set default bot_type before any network calls
+            self.active_appeals[user_id]["bot_type"] = "unknown"
 
             account_name = self.active_appeals[user_id].get(
                 "account_name", "Unknown Account"
@@ -103,7 +108,7 @@ class SpamAppealHandler:
                     user_id, f"❌ Account '{account_name}' not connected."
                 )
                 await self._restore_session_protection(user_id)
-                self.active_appeals.pop(user_id, None)
+                self._cancel_appeal(user_id)
                 return
 
             if not client.is_connected():
@@ -111,7 +116,7 @@ class SpamAppealHandler:
                     user_id, f"❌ Account '{account_name}' not connected."
                 )
                 await self._restore_session_protection(user_id)
-                self.active_appeals.pop(user_id, None)
+                self._cancel_appeal(user_id)
                 return
 
             # Verify we got the correct client
@@ -152,13 +157,16 @@ class SpamAppealHandler:
                 await asyncio.sleep(random.uniform(5.0, 8.0))
 
             self.active_appeals[user_id]["state"] = "waiting_initial_response"
+            # Fix 5: start timeout task after entering waiting state
+            timeout_task = asyncio.create_task(self._appeal_timeout(user_id, 60))
+            self.active_appeals[user_id]["_timeout_task"] = timeout_task
             logger.info(f"Waiting for spambot response for {account_name}...")
 
         except Exception as e:
             logger.error(f"Appeal process error: {e}")
             await self._notify_user(user_id, f"❌ Appeal process failed: {str(e)}")
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
 
     async def _process_spambot_response(self, user_id: int, event):
         """Process response from spambot or spam info bot"""
@@ -196,7 +204,7 @@ class SpamAppealHandler:
                 f"🎉 **{account_name}: No Restrictions**\n\nYour account is clean! No action needed.",
             )
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
             return
 
         # 2. Time-based restriction - cannot appeal, must wait
@@ -211,7 +219,7 @@ class SpamAppealHandler:
                 f"• Premium users get shorter times",
             )
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
             return
 
         # 3. Illegal content - must email abuse@telegram.org
@@ -224,7 +232,7 @@ class SpamAppealHandler:
                 f"Include phone number and details",
             )
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
             return
 
         # Flow 1: Spam Info Bot (no captcha, phone number issue)
@@ -333,6 +341,14 @@ class SpamAppealHandler:
                     user_id, f"ℹ️ **{account_name}**: Appeal already exists."
                 )
                 await self._complete_appeal(user_id, True)
+                return
+
+        # Fix 1: else branch — bot_type still unknown after all checks
+        else:
+            if state.get("bot_type") == "unknown":
+                logger.warning(
+                    f"Bot type still unknown for user {user_id} after message: {message_text[:80]}"
+                )
                 return
 
     async def _select_smart_appeal_message(
@@ -642,6 +658,7 @@ Generate 4 diverse examples:"""
         try:
             state = self.active_appeals[user_id]
             state["state"] = "waiting_manual_captcha"
+            state["captcha_url"] = captcha_url  # Fix 7: store URL for refresh
 
             buttons = [
                 [Button.inline("✅ I completed the captcha", b"captcha_done")],
@@ -845,6 +862,11 @@ Generate 4 diverse examples:"""
         state = self.active_appeals.get(user_id, {})
         mode = state.get("mode", "auto")
 
+        # Fix 5: cancel timeout task if running
+        task = state.get("_timeout_task")
+        if task:
+            task.cancel()
+
         # Re-enable session protection after appeal completion
         await self._restore_session_protection(user_id)
 
@@ -875,7 +897,7 @@ Generate 4 diverse examples:"""
                 "3. Contact support if problems persist",
             )
 
-        self.active_appeals.pop(user_id, None)
+        self._cancel_appeal(user_id)
 
     async def _appeal_timeout(self, user_id: int, timeout_seconds: int):
         """Handle appeal timeout"""
@@ -891,7 +913,7 @@ Generate 4 diverse examples:"""
                 "• Use /appeal_help for guidance",
             )
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
 
     async def _get_account_age_days(
         self, user_id: int = None, account_name: str = None
@@ -967,6 +989,17 @@ Generate 4 diverse examples:"""
         """Get specific user client by account name or first available"""
         try:
             user_clients = self.bot_manager.user_clients.get(user_id, {})
+
+            # Fix 3: fast phone-keyed path when account_name looks like a phone number
+            if account_name and (account_name.startswith("+") or account_name.isdigit()):
+                phone_clean = account_name.lstrip("+")
+                phone_plus = f"+{phone_clean}"
+                phone_no_leading_zeros = phone_clean.lstrip("0")
+                for variant in (account_name, phone_clean, phone_plus, phone_no_leading_zeros):
+                    client = user_clients.get(variant)
+                    if client and client.is_connected():
+                        return client
+
             # Safe logging - encode Unicode characters for display only
             try:
                 safe_account_name = (
@@ -1074,6 +1107,14 @@ Generate 4 diverse examples:"""
         except Exception as e:
             logger.error(f"Failed to notify user {user_id}: {e}")
 
+    def _cancel_appeal(self, user_id: int):
+        """Cancel and remove an active appeal, cancelling any timeout task."""
+        state = self.active_appeals.pop(user_id, None)
+        if state:
+            task = state.get("_timeout_task")
+            if task:
+                task.cancel()
+
     async def _start_appeal_for_account(
         self, user_id: int, account_name: str, context: str, event
     ):
@@ -1099,13 +1140,13 @@ Generate 4 diverse examples:"""
                 if not account:
                     await event.respond("❌ Account not found or no session available.")
                     await self._restore_session_protection(user_id)
-                    self.active_appeals.pop(user_id, None)
+                    self._cancel_appeal(user_id)
                     return
                 account = DataEncryption.decrypt_account_data(account)
                 if not account.get("session_string"):
                     await event.respond("❌ Account not found or no session available.")
                     await self._restore_session_protection(user_id)
-                    self.active_appeals.pop(user_id, None)
+                    self._cancel_appeal(user_id)
                     return
 
                 # Load the client
@@ -1119,7 +1160,7 @@ Generate 4 diverse examples:"""
                     if not client:
                         await event.respond("❌ Failed to get loaded client.")
                         await self._restore_session_protection(user_id)
-                        self.active_appeals.pop(user_id, None)
+                        self._cancel_appeal(user_id)
                         return
                 except Exception as e:
                     error_str = str(e)
@@ -1135,7 +1176,7 @@ Generate 4 diverse examples:"""
                                 "❌ Account exists but client not found."
                             )
                             await self._restore_session_protection(user_id)
-                            self.active_appeals.pop(user_id, None)
+                            self._cancel_appeal(user_id)
                             return
                     else:
                         logger.error(f"Failed to load account {account_name}: {e}")
@@ -1145,7 +1186,7 @@ Generate 4 diverse examples:"""
                             "Please remove and re-add it in Account Settings."
                         )
                         await self._restore_session_protection(user_id)
-                        self.active_appeals.pop(user_id, None)
+                        self._cancel_appeal(user_id)
                         return
 
             # Start the appeal process directly
@@ -1155,7 +1196,7 @@ Generate 4 diverse examples:"""
             logger.error(f"Start appeal for account error: {e}")
             await event.respond("❌ Error starting appeal process.")
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
 
     async def _simulate_human_message_composition(self, client, target, message: str):
         """Simulate realistic human message composition with word complexity analysis"""
@@ -1297,6 +1338,11 @@ Generate 4 diverse examples:"""
         """Setup spambot handler for a specific client"""
         logger.info(f"Setting up spambot handler for user {user_id}")
 
+        # Fix 2: guard against registering the same client twice
+        if id(client) in self._registered_clients:
+            logger.info(f"Handler already registered for client id={id(client)}, skipping")
+            return
+
         @client.on(events.NewMessage(chats=["spambot", "SpamBot"], incoming=True))
         async def handle_spambot_message(event):
             logger.info(
@@ -1310,6 +1356,7 @@ Generate 4 diverse examples:"""
             else:
                 logger.warning(f"No active appeal for user {user_id}")
 
+        self._registered_clients.add(id(client))
         logger.info(f"Handler registered successfully for user {user_id}")
 
     async def _spam_stats_handler(self, event):
@@ -1370,8 +1417,8 @@ Generate 4 diverse examples:"""
                 await self._show_account_selection(event, accounts)
             else:
                 account = accounts[0]
-                display_name = account.get("display_name") or account.get("name") or account.get("phone", "Unknown")
-                await self._start_appeal_for_account(user_id, display_name, context, event)
+                account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
+                await self._start_appeal_for_account(user_id, account_name, context, event)
         except Exception as e:
             logger.error(f"Appeal command error: {e}")
             await self._restore_session_protection(user_id)
@@ -1454,14 +1501,14 @@ Generate 4 diverse examples:"""
         except Exception as e:
             logger.error(f"Appeal account callback error: {e}")
             await self._restore_session_protection(user_id)
-            self.active_appeals.pop(user_id, None)
+            self._cancel_appeal(user_id)
             await event.respond("❌ Error starting appeal process.")
 
     async def _appeal_cancel_handler(self, event):
         """Handle appeal cancellation"""
         try:
             await self._restore_session_protection(event.sender_id)
-            self.active_appeals.pop(event.sender_id, None)
+            self._cancel_appeal(event.sender_id)
             await event.answer()
             try:
                 try:
@@ -1499,7 +1546,7 @@ Generate 4 diverse examples:"""
             state = self.active_appeals[user_id]
             if action == "cancel":
                 await self._restore_session_protection(user_id)
-                self.active_appeals.pop(user_id, None)
+                self._cancel_appeal(user_id)
                 await event.respond("❌ Appeal process cancelled.")
             elif action == "done":
                 state["state"] = "captcha_solved"
@@ -1510,6 +1557,57 @@ Generate 4 diverse examples:"""
                 )
                 await asyncio.sleep(3)
                 await self._auto_click_done(user_id)
+            elif action == "refresh":
+                captcha_url = state.get("captcha_url", "")
+                if captcha_url:
+                    buttons = [
+                        [Button.inline("✅ I completed the captcha", b"captcha_done")],
+                        [Button.inline("🔄 Get new captcha link", b"captcha_refresh")],
+                        [Button.inline("❌ Cancel appeal", b"captcha_cancel")],
+                    ]
+                    await event.respond(
+                        f"👤 **Manual Human Verification Required**\n\n"
+                        f"🔗 **Captcha URL:**\n`{captcha_url}`\n\n"
+                        f"📋 **Step-by-Step Instructions:**\n"
+                        f"1️⃣ Click the captcha link above\n"
+                        f"2️⃣ Complete the human verification in browser\n"
+                        f"3️⃣ Wait for automatic redirect to Telegram\n"
+                        f"4️⃣ Return here and click '✅ I completed the captcha'\n\n"
+                        f"💡 **Tips:**\n"
+                        f"• Keep this chat open during verification\n"
+                        f"• The captcha may take 30-60 seconds to load\n"
+                        f"• If stuck, use '🔄 Get new captcha link'\n\n"
+                        f"⚠️ **Manual verification required for all captchas**",
+                        buttons=buttons,
+                    )
+                else:
+                    await event.respond(
+                        "⚠️ No captcha URL stored. Please check @spambot directly and complete verification manually."
+                    )
         except Exception as e:
             logger.error(f"Captcha callback error: {e}")
             await event.respond("❌ Error processing captcha verification.")
+
+    async def _spam_appeal_start_callback_handler(self, event):
+        """Handle spam_appeal_start callback — show account selection or start directly (Fix 13)"""
+        user_id = event.sender_id
+        try:
+            await event.answer()
+            from ..core.mongo_database import mongodb
+            accounts = await mongodb.db.accounts.find(
+                {"user_id": user_id, "is_active": True}
+            ).to_list(length=None)
+            if not accounts:
+                await event.respond("❌ No accounts found. Add an account first using /start")
+                return
+            await self._disable_session_protection(user_id)
+            if len(accounts) > 1:
+                await self._show_account_selection(event, accounts)
+            else:
+                account = accounts[0]
+                account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
+                await self._start_appeal_for_account(user_id, account_name, "", event)
+        except Exception as e:
+            logger.error(f"spam_appeal_start callback error: {e}")
+            await self._restore_session_protection(user_id)
+            await event.respond("❌ Error starting appeal process.")

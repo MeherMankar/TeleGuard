@@ -52,8 +52,8 @@ class CallbackRouter:
             "create_sess_fmt": self.handle_session_login_callback,
             "contacts": self.handle_contacts_callback,
             "spam_master": self.handle_spam_master_callback,
-            "manual_otp": self.handle_manual_otp_callback,
-            "resend_otp": self.handle_resend_otp_callback,
+            "spam_appeal_start": self.handle_spam_master_callback,
+            "manual_otp": self.handle_manual_otp_callback,            "resend_otp": self.handle_resend_otp_callback,
             "cancel_session": self.handle_cancel_session_callback,
             "msg": self.handle_messaging_callback,
             "dm_reply": self.handle_dm_reply_callback,
@@ -470,15 +470,38 @@ class CallbackRouter:
             await event.answer("❌ Error processing request")
 
     async def handle_spam_master_callback(self, event, user_id: int, data: str):
-        """Handle spam master callbacks"""
+        """Handle spam master callbacks — combined top-level menu (Fix 13)"""
         try:
-            # Redirect to advanced spam handler menu
-            if hasattr(self.menu.account_manager, "advanced_spam_handler"):
-                await self.menu.account_manager.advanced_spam_handler._handle_spam_master_menu(
-                    event
+            parts = data.split(":")
+            callback_type = parts[0]
+
+            # advanced_spam goes directly to advanced spam handler menu
+            if callback_type == "advanced_spam":
+                if hasattr(self.menu.account_manager, "advanced_spam_handler"):
+                    await self.menu.account_manager.advanced_spam_handler._handle_spam_master_menu(
+                        event
+                    )
+                else:
+                    await event.answer("❌ SpamMaster not available", alert=True)
+                return
+
+            # spam_master shows combined top-level menu
+            combined_text = (
+                "🎯 SpamMaster\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "Choose a section:"
+            )
+            combined_buttons = [
+                [Button.inline("🛡️ Spam Appeal", b"spam_appeal_start")],
+                [Button.inline("⚔️ Advanced Operations", b"advanced_spam")],
+                [Button.inline("🔙 Back", b"menu:main")],
+            ]
+            try:
+                await event.edit(combined_text, buttons=combined_buttons)
+            except Exception:
+                await self.menu.bot.send_message(
+                    user_id, combined_text, buttons=combined_buttons
                 )
-            else:
-                await event.answer("❌ SpamMaster not available", alert=True)
         except Exception as e:
             logger.error(f"Spam master callback error: {e}")
             await event.answer("❌ Error processing request")

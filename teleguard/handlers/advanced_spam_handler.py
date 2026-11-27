@@ -2,6 +2,7 @@
 
 import asyncio
 import csv
+import io
 import random
 
 from telethon import Button, events
@@ -12,6 +13,7 @@ from telethon.errors import (
     UserPrivacyRestrictedError,
 )
 from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.types import DocumentAttributeFilename
 
 from ..core.mongo_database import mongodb
 from ..utils.logger import logger
@@ -121,6 +123,8 @@ class AdvancedSpamHandler:
             accounts = []
 
         buttons = self._build_menu_buttons()
+        # Fix 12: inject Reset Warning button before Back
+        buttons.insert(-1, [Button.inline("🔄 Reset Warning / Revoke Access", b"reset_spam_warning")])
 
         text = (
             "🔥 **ADVANCED SPAM OPERATIONS** 🔥\n"
@@ -241,6 +245,24 @@ class AdvancedSpamHandler:
                     "🔙 Returning to main menu...",
                     buttons=[[Button.inline("🏠 Main Menu", b"menu:main")]],
                 )
+
+        # Fix 12: Reset Warning / Revoke Access handler
+        @self.bot.on(events.CallbackQuery(pattern=b"reset_spam_warning"))
+        async def reset_spam_warning(event):
+            user_id = event.sender_id
+            try:
+                await mongodb.db.spam_config.delete_one({"user_id": user_id})
+                await event.answer(
+                    "✅ Warning acceptance cleared. You will see the disclaimer again next time.",
+                    alert=True,
+                )
+                await event.edit(
+                    "🔄 Access revoked. Use SpamMaster again to re-accept the terms.",
+                    buttons=[[Button.inline("🔙 Back to Main Menu", b"menu:main")]],
+                )
+            except Exception as e:
+                logger.error(f"reset_spam_warning error: {e}")
+                await event.answer("❌ Error resetting warning", alert=True)
 
     def _register_menu_handlers(self):
         """Register menu navigation handlers"""
@@ -718,6 +740,10 @@ class AdvancedSpamHandler:
             if not temp_data:
                 return
 
+            # Fix 11: skip bot commands so dedicated handlers process them
+            if event.text and event.text.startswith('/'):
+                return
+
             op_type = temp_data.get("type")
 
             if op_type == "mass_invite" and temp_data.get("step") == "target":
@@ -757,12 +783,26 @@ class AdvancedSpamHandler:
             for acc in accounts
         ]
 
-    def _get_client(self, phone):
+    def _get_client(self, phone, user_id=None):
+        """Get Telethon client for a phone. If user_id given, search only that user's clients."""
         phone = str(phone)
         phone_clean = phone.lstrip("+")
         phone_plus = f"+{phone_clean}"
-        
-        for user_id, user_dict in self.user_clients.items():
+
+        # Fix 9: fast path when user_id is known
+        if user_id is not None:
+            user_dict = self.user_clients.get(user_id, {})
+            for variant in (phone, phone_clean, phone_plus):
+                if variant in user_dict:
+                    return user_dict[variant]
+            for key in user_dict:
+                key_str = str(key).lstrip("+")
+                if phone_clean in key_str or key_str in phone_clean:
+                    return user_dict[key]
+            return None
+
+        # Fallback O(n) scan across all users
+        for _uid, user_dict in self.user_clients.items():
             if phone in user_dict:
                 return user_dict[phone]
             if phone_clean in user_dict:
@@ -783,7 +823,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"📤 Starting mass invite to {target}...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -827,7 +867,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"📇 Scraping contacts from {group}...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -850,26 +890,22 @@ class AdvancedSpamHandler:
                     if len(contacts) % 100 == 0:
                         await asyncio.sleep(1)
 
-            # Export to CSV
-            import re
-            safe_group = re.sub(r'[^a-zA-Z0-9_]', '', group)
-            filename = f"contacts_{safe_group}_{user_id}.csv"
-            with open(filename, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        "user_id",
-                        "username",
-                        "first_name",
-                        "last_name",
-                        "phone",
-                    ],
-                )
-                writer.writeheader()
-                writer.writerows(contacts)
+            # Export to CSV in-memory (Fix 8)
+            csv_buffer = io.StringIO()
+            writer = csv.DictWriter(
+                csv_buffer,
+                fieldnames=["user_id", "username", "first_name", "last_name", "phone"],
+            )
+            writer.writeheader()
+            writer.writerows(contacts)
+            file_bytes = io.BytesIO(csv_buffer.getvalue().encode("utf-8"))
+            fname = f"contacts_{user_id}.csv"
 
             await self.bot.send_file(
-                user_id, filename, caption=f"📇 Scraped {len(contacts)} contacts"
+                user_id,
+                file_bytes,
+                attributes=[DocumentAttributeFilename(fname)],
+                caption=f"📇 Scraped {len(contacts)} contacts",
             )
             await msg.edit(f"✅ Scraped {len(contacts)} contacts!\n\nFile sent above.")
         except Exception as e:
@@ -885,7 +921,7 @@ class AdvancedSpamHandler:
         )
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -915,30 +951,25 @@ class AdvancedSpamHandler:
                     logger.error(f"Error scraping {group.name}: {e}")
 
             contacts = list(all_contacts.values())
-            filename = f"contacts_all_groups_{user_id}.csv"
-            with open(filename, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=[
-                        "user_id",
-                        "username",
-                        "first_name",
-                        "last_name",
-                        "phone",
-                    ],
-                )
-                writer.writeheader()
-                writer.writerows(contacts)
+            # Export to CSV in-memory (Fix 8)
+            csv_buffer = io.StringIO()
+            writer = csv.DictWriter(
+                csv_buffer,
+                fieldnames=["user_id", "username", "first_name", "last_name", "phone"],
+            )
+            writer.writeheader()
+            writer.writerows(contacts)
+            file_bytes = io.BytesIO(csv_buffer.getvalue().encode("utf-8"))
+            fname = f"contacts_all_groups_{user_id}.csv"
 
             await self.bot.send_file(
                 user_id,
-                filename,
-                caption=f"🌐 Scraped {
-                    len(contacts)} unique contacts from {groups_scraped} groups",
+                file_bytes,
+                attributes=[DocumentAttributeFilename(fname)],
+                caption=f"🌐 Scraped {len(contacts)} unique contacts from {groups_scraped} groups",
             )
             await msg.edit(
-                f"✅ All groups scraped!\n\nGroups: {groups_scraped}\nContacts: {
-                    len(contacts)}\n\nFile sent above."
+                f"✅ All groups scraped!\n\nGroups: {groups_scraped}\nContacts: {len(contacts)}\n\nFile sent above."
             )
         except Exception as e:
             await msg.edit(f"❌ Error: {e}")
@@ -951,7 +982,7 @@ class AdvancedSpamHandler:
         msg = await event.reply(f"🔍 Checking usernames for base: {base}...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1002,7 +1033,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("💣 Starting forward bombing...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1045,7 +1076,7 @@ class AdvancedSpamHandler:
         ]
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1078,7 +1109,7 @@ class AdvancedSpamHandler:
         try:
             accounts = await self._get_accounts(user_id)
             clients = [
-                self._get_client(acc["phone"])
+                self._get_client(acc["phone"], user_id)
                 for acc in accounts
                 if self._get_client(acc["phone"])
             ]
@@ -1131,7 +1162,7 @@ class AdvancedSpamHandler:
         try:
             accounts = await self._get_accounts(user_id)
             clients = [
-                self._get_client(acc["phone"])
+                self._get_client(acc["phone"], user_id)
                 for acc in accounts
                 if self._get_client(acc["phone"])
             ]
@@ -1237,7 +1268,7 @@ class AdvancedSpamHandler:
         try:
             accounts = await self._get_accounts(user_id)
             clients = [
-                self._get_client(acc["phone"])
+                self._get_client(acc["phone"], user_id)
                 for acc in accounts
                 if self._get_client(acc["phone"])
             ]
@@ -1273,7 +1304,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("📢 Sending message to all groups...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1315,7 +1346,7 @@ class AdvancedSpamHandler:
         )
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1373,7 +1404,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("💣 Starting forward bomb to all groups...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
@@ -1410,7 +1441,7 @@ class AdvancedSpamHandler:
         msg = await event.reply("🌊 Starting flood to all groups...")
 
         try:
-            client = self._get_client(phone)
+            client = self._get_client(phone, user_id)
             if not client:
                 await msg.edit("❌ Client not found")
                 return
