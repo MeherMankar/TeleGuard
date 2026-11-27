@@ -38,7 +38,6 @@ class StartHandler:
         logger.info("Received /start command from user %s", user_id)
         try:
             is_new = await self._ensure_user_exists(user_id)
-            account_count = await mongodb.db.accounts.count_documents({"user_id": user_id})
 
             if is_new:
                 welcome_text = (
@@ -56,13 +55,24 @@ class StartHandler:
                     "• Secure profile & channel management\n\n"
                     "**💬 Need Help?** Use '❓ Help' or contact @MeherPatil"
                 )
-                keyboard = self.menu_system.get_main_menu_keyboard(user_id)
-                await event.reply(welcome_text, buttons=keyboard)
+                try:
+                    keyboard = self.menu_system.get_main_menu_keyboard(user_id)
+                    await event.reply(welcome_text, buttons=keyboard)
+                except Exception:
+                    logger.exception("Failed to send welcome message with keyboard to user %s, trying plain", user_id)
+                    await event.reply(welcome_text)
             else:
                 await self.menu_system.send_main_menu(user_id)
         except Exception:
             logger.exception("Start command failed for user %s", user_id)
-            await event.reply("❌ Error starting bot. Please try again.")
+            try:
+                await event.reply("❌ Error starting bot. Please try again.")
+            except Exception:
+                logger.exception("Could not send error reply to user %s", user_id)
+                try:
+                    await self.bot.send_message(user_id, "❌ Error starting bot. Please try again.")
+                except Exception:
+                    logger.exception("All reply attempts failed for user %s", user_id)
 
     async def _menu_command(self, event):
         """Re-send menu if user needs it"""

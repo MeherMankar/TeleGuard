@@ -279,12 +279,15 @@ class MenuSystem:
                     )
                 except MessageNotModifiedError:
                     pass
-                except MessageIdInvalidError as error:
+                except Exception as error:
+                    # Any edit failure (MessageIdInvalidError, MessageDeletedError,
+                    # BotMethodInvalidError, RPCError, etc.) → send fresh message
                     logger.warning(
-                        "Could not edit main menu message %s for user %s; "
-                        "sending a replacement: %s",
+                        "Could not edit main menu message %s for user %s (%s: %s); "
+                        "sending a replacement",
                         edit_message_id,
                         user_id,
+                        type(error).__name__,
                         error,
                     )
                     edit_message_id = None
@@ -299,16 +302,16 @@ class MenuSystem:
                 upsert=True,
             )
             return edit_message_id
-        except (ConnectionError, TimeoutError, ValueError) as e:
-            logger.error(f"Failed to send main menu: {e}", exc_info=True)
-            # Send basic message as fallback
+        except Exception as e:
+            logger.error(f"Failed to send main menu to user {user_id}: {e}", exc_info=True)
+            # Last-resort fallback — plain message, no buttons
             try:
                 await self.bot.send_message(
                     user_id,
                     "🛡️ **TeleGuard Account Manager**\n\nWelcome back! Use /start to reload the menu.",
                 )
-            except (ValueError, KeyError):
-                pass
+            except Exception:
+                logger.exception("Fallback send_message also failed for user %s", user_id)
             return 0
 
     def get_account_menu_buttons(
