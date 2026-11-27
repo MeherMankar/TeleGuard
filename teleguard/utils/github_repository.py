@@ -40,9 +40,25 @@ def create_repository(
     if status == 422:
         status, existing_repository = request("GET", "", allow_status=(404,))
         if status == 404:
+            raw_errors = repository.get("errors")
+            errors = raw_errors if isinstance(raw_errors, list) else []
+            error_details = "; ".join(
+                ", ".join(
+                    f"{key}={error[key]}"
+                    for key in ("resource", "field", "code", "message")
+                    if error.get(key) is not None
+                )
+                for error in errors
+                if isinstance(error, dict)
+            )
+            details = f" Details: {error_details}." if error_details else ""
             raise RuntimeError(
-                f"GitHub could not create {owner}/{name}: "
-                f"{repository.get('message', 'repository creation was rejected')}"
+                f"GitHub rejected repository creation for {owner}/{name} "
+                f"(HTTP 422): {repository.get('message', 'creation was rejected')}."
+                f"{details} "
+                "If this repository already exists, GitHub may return 404 when "
+                "the token cannot access it. Verify the configured owner/name, "
+                "repository visibility, and token access/creation permissions."
             )
         repository = existing_repository
 

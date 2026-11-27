@@ -70,3 +70,30 @@ def test_create_repository_can_target_an_accessible_organization():
         ("GET", "/orgs/team"),
         ("POST", "/orgs/team/repos"),
     ]
+
+
+def test_repository_creation_error_explains_404_then_422():
+    def request(method, endpoint, **_kwargs):
+        if endpoint == "/user":
+            return 200, {"login": "owner"}
+        if endpoint == "/user/repos":
+            return 422, {
+                "message": "Repository creation failed.",
+                "errors": [
+                    {
+                        "resource": "Repository",
+                        "field": "name",
+                        "code": "already_exists",
+                    }
+                ],
+            }
+        if endpoint == "":
+            return 404, {}
+        raise AssertionError(f"Unexpected request: {method} {endpoint}")
+
+    with pytest.raises(RuntimeError, match="token cannot access it") as error:
+        create_repository(request, "owner", "archive", private=False)
+
+    assert "HTTP 422" in str(error.value)
+    assert "already_exists" in str(error.value)
+    assert "Verify the configured owner/name" in str(error.value)
