@@ -58,11 +58,6 @@ class StartHandler:
                 )
                 keyboard = self.menu_system.get_main_menu_keyboard(user_id)
                 await event.reply(welcome_text, buttons=keyboard)
-            elif account_count == 0:
-                # Redirect to account settings for existing users with no accounts
-                await self.menu_system.handlers.handle_account_settings(
-                    type("Event", (), {"sender_id": user_id})()
-                )
             else:
                 await self.menu_system.send_main_menu(user_id)
         except Exception:
