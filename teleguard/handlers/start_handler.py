@@ -37,46 +37,41 @@ class StartHandler:
         user_id = event.sender_id
         logger.info("Received /start command from user %s", user_id)
         try:
-            is_new = await self._ensure_user_exists(user_id)
-
-            if is_new:
-                welcome_text = (
-                    "🤖 **Welcome to TeleGuard!**\n\n"
-                    "Your professional Telegram account manager with advanced OTP destroyer protection.\n\n"
-                    "**🚀 Quick Start:**\n"
-                    "1️⃣ Add your first account via '📱 Account Settings'\n"
-                    "2️⃣ Enable OTP protection in '🛡️ OTP Manager'\n"
-                    "3️⃣ Explore features using the menu below\n\n"
-                    "**🛡️ Key Features:**\n"
-                    "• Real-time OTP destroyer protection\n"
-                    "• Multi-account management (up to 10)\n"
-                    "• 2FA management & session control\n"
-                    "• Activity simulation & automation\n"
-                    "• Secure profile & channel management\n\n"
-                    "**💬 Need Help?** Use '❓ Help' or contact @MeherPatil"
-                )
-                try:
-                    keyboard = self.menu_system.get_main_menu_keyboard(user_id)
-                    await event.reply(welcome_text, buttons=keyboard)
-                except Exception:
-                    logger.exception("Failed to send welcome message with keyboard to user %s, trying plain", user_id)
-                    await event.reply(welcome_text)
-            else:
-                await self.menu_system.send_main_menu(user_id)
+            await self._ensure_user_exists(user_id)
+            keyboard = self.menu_system.get_main_menu_keyboard(user_id)
+            text = (
+                "🛡️ **TeleGuard Account Manager**\n\n"
+                "⚡ Professional Telegram security & automation\n\n"
+                "Use the menu buttons below to get started:"
+            )
+            await event.reply(text, buttons=keyboard)
+            logger.info("Sent main menu to user %s via /start", user_id)
         except Exception:
             logger.exception("Start command failed for user %s", user_id)
             try:
                 await event.reply("❌ Error starting bot. Please try again.")
             except Exception:
-                logger.exception("Could not send error reply to user %s", user_id)
-                try:
-                    await self.bot.send_message(user_id, "❌ Error starting bot. Please try again.")
-                except Exception:
-                    logger.exception("All reply attempts failed for user %s", user_id)
+                logger.exception("Even error reply failed for user %s", user_id)
 
     async def _menu_command(self, event):
-        """Re-send menu if user needs it"""
-        await self.menu_system.send_main_menu(event.sender_id)
+        """Re-send menu via /menu command"""
+        user_id = event.sender_id
+        logger.info("Received /menu command from user %s", user_id)
+        try:
+            keyboard = self.menu_system.get_main_menu_keyboard(user_id)
+            text = (
+                "🛡️ **TeleGuard Account Manager**\n\n"
+                "⚡ Professional Telegram security & automation\n\n"
+                "Use the menu buttons below to get started:"
+            )
+            await event.reply(text, buttons=keyboard)
+            logger.info("Sent main menu to user %s via /menu", user_id)
+        except Exception:
+            logger.exception("Menu command failed for user %s", user_id)
+            try:
+                await event.reply("❌ Error sending menu. Please try again.")
+            except Exception:
+                logger.exception("Even error reply failed for user %s", user_id)
 
     async def _ensure_user_exists(self, user_id: int) -> bool:
         """Ensure user exists in database and return if they are new"""
