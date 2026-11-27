@@ -263,37 +263,31 @@ class SessionBackupManager:
                 "This private repository stores encrypted TeleGuard session "
                 "backups. Keep it private and do not store encryption keys here.\n"
             ).encode("utf-8")
-            _, blob = self._request(
-                "POST",
-                "git/blobs",
+            _, file_result = self._request(
+                "PUT",
+                "contents/README.md",
                 json_body={
+                    "message": "Initialize encrypted TeleGuard session backups",
                     "content": base64.b64encode(initial_readme).decode("ascii"),
-                    "encoding": "base64",
                 },
             )
-            _, tree = self._request(
-                "POST",
-                "git/trees",
-                json_body={
-                    "tree": [
-                        {
-                            "path": "README.md",
-                            "mode": "100644",
-                            "type": "blob",
-                            "sha": blob["sha"],
-                        }
-                    ]
-                },
-            )
-            _, commit = self._request(
-                "POST",
-                "git/commits",
-                json_body={
-                    "message": "Initialize encrypted session backups",
-                    "tree": tree["sha"],
-                },
-            )
-            source_sha = commit["sha"]
+            source_sha = file_result.get("commit", {}).get("sha")
+            if not source_sha:
+                raise RuntimeError(
+                    "GitHub initialized the session backup README without "
+                    "returning the initial commit SHA"
+                )
+            default_branch = repository.get("default_branch")
+            if not default_branch:
+                _, repository = self._request("GET", "")
+                default_branch = repository.get("default_branch")
+            if not default_branch:
+                raise RuntimeError(
+                    "GitHub initialized the session repository but did not "
+                    "report its default branch"
+                )
+            if default_branch == self.github_branch:
+                return
         else:
             source_sha = source_ref["object"]["sha"]
         self._request(

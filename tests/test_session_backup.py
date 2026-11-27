@@ -99,15 +99,20 @@ def test_creates_configured_branch_from_repository_default(monkeypatch):
     manager = object.__new__(SessionBackupManager)
     manager.github_branch = "backups"
     calls = []
+    default_ref_checks = 0
 
     def request(method, endpoint, **kwargs):
+        nonlocal default_ref_checks
         calls.append((method, endpoint, kwargs))
         if endpoint == "":
             return 200, {"private": True, "default_branch": "main"}
         if endpoint == "git/ref/heads/backups":
             return 404, {}
         if endpoint == "git/ref/heads/main":
-            return 200, {"object": {"sha": "commit-sha"}}
+            default_ref_checks += 1
+            if default_ref_checks == 1:
+                return 200, {"object": {"sha": "commit-sha"}}
+            return 404, {}
         return 201, {}
 
     monkeypatch.setattr(manager, "_request", request)
@@ -135,21 +140,9 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
             "git/ref/heads/main",
         ):
             return 409, {"message": "Git Repository is empty."}
-        if endpoint == "git/blobs":
-            assert _kwargs["json_body"]["encoding"] == "base64"
-            return 201, {"sha": "readme-blob-sha"}
-        if endpoint == "git/trees":
-            assert _kwargs["json_body"]["tree"] == [
-                {
-                    "path": "README.md",
-                    "mode": "100644",
-                    "type": "blob",
-                    "sha": "readme-blob-sha",
-                }
-            ]
-            return 201, {"sha": "tree-sha"}
-        if endpoint == "git/commits":
-            return 201, {"sha": "commit-sha"}
+        if endpoint == "contents/README.md":
+            assert _kwargs["json_body"]["content"]
+            return 201, {"commit": {"sha": "commit-sha"}}
         return 201, {}
 
     monkeypatch.setattr(manager, "_request", request)
@@ -160,9 +153,7 @@ def test_initializes_branch_for_empty_private_repository(monkeypatch):
         ("GET", ""),
         ("GET", "git/ref/heads/backups"),
         ("GET", "git/ref/heads/main"),
-        ("POST", "git/blobs"),
-        ("POST", "git/trees"),
-        ("POST", "git/commits"),
+        ("PUT", "contents/README.md"),
         ("POST", "git/refs"),
     ]
 
@@ -185,24 +176,18 @@ def test_missing_private_repository_is_created_and_branch_initialized(monkeypatc
                 "private": True,
                 "auto_init": False,
             }
-            return 201, {"full_name": "owner/session-backups", "private": True}
+            return 201, {
+                "full_name": "owner/session-backups",
+                "private": True,
+                "default_branch": "main",
+            }
         if endpoint == "git/ref/heads/backups":
             return 404, {}
-        if endpoint == "git/blobs":
-            assert kwargs["json_body"]["encoding"] == "base64"
-            return 201, {"sha": "readme-blob-sha"}
-        if endpoint == "git/trees":
-            assert kwargs["json_body"]["tree"] == [
-                {
-                    "path": "README.md",
-                    "mode": "100644",
-                    "type": "blob",
-                    "sha": "readme-blob-sha",
-                }
-            ]
-            return 201, {"sha": "tree-sha"}
-        if endpoint == "git/commits":
-            return 201, {"sha": "commit-sha"}
+        if endpoint == "git/ref/heads/main":
+            return 404, {}
+        if endpoint == "contents/README.md":
+            assert method == "PUT"
+            return 201, {"commit": {"sha": "commit-sha"}}
         if endpoint == "git/refs":
             return 201, {}
         raise AssertionError(f"Unexpected request: {method} {endpoint}")
@@ -216,9 +201,8 @@ def test_missing_private_repository_is_created_and_branch_initialized(monkeypatc
         ("GET", "/user"),
         ("POST", "/user/repos"),
         ("GET", "git/ref/heads/backups"),
-        ("POST", "git/blobs"),
-        ("POST", "git/trees"),
-        ("POST", "git/commits"),
+        ("GET", "git/ref/heads/main"),
+        ("PUT", "contents/README.md"),
         ("POST", "git/refs"),
     ]
 

@@ -167,37 +167,31 @@ class GitHubDataMirror:
                 "This public repository stores encrypted TeleGuard data snapshots. "
                 "The encryption key is not stored here.\n"
             ).encode("utf-8")
-            _, blob = self._request(
-                "POST",
-                "git/blobs",
-                json_body={
-                    "content": base64.b64encode(initial_readme).decode("ascii"),
-                    "encoding": "base64",
-                },
-            )
-            _, tree = self._request(
-                "POST",
-                "git/trees",
-                json_body={
-                    "tree": [
-                        {
-                            "path": "README.md",
-                            "mode": "100644",
-                            "type": "blob",
-                            "sha": blob["sha"],
-                        }
-                    ]
-                },
-            )
-            _, commit = self._request(
-                "POST",
-                "git/commits",
+            _, file_result = self._request(
+                "PUT",
+                "contents/README.md",
                 json_body={
                     "message": "Initialize encrypted TeleGuard data mirror",
-                    "tree": tree["sha"],
+                    "content": base64.b64encode(initial_readme).decode("ascii"),
                 },
             )
-            source_sha = commit["sha"]
+            source_sha = file_result.get("commit", {}).get("sha")
+            if not source_sha:
+                raise RuntimeError(
+                    "GitHub initialized the data mirror README without returning "
+                    "the initial commit SHA"
+                )
+            default_branch = repository.get("default_branch")
+            if not default_branch:
+                _, repository = self._request("GET", "")
+                default_branch = repository.get("default_branch")
+            if not default_branch:
+                raise RuntimeError(
+                    "GitHub initialized the data repository but did not report "
+                    "its default branch"
+                )
+            if default_branch == self.branch:
+                return
         else:
             source_sha = source_ref["object"]["sha"]
 
