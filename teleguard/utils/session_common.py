@@ -31,7 +31,8 @@ class SessionUtils:
         user_id: int,
         account_name: str,
         phone: str,
-        error_reason: str = ""
+        error_reason: str = "",
+        silent: bool = False,
     ):
         """Notify user about session conflicts (DRY)"""
         try:
@@ -44,7 +45,11 @@ class SessionUtils:
                     else "Session Conflict"
                 )
             )
-            
+            if silent:
+                logger.warning(
+                    f"Silent session conflict for {account_name} ({phone}): {error_type}"
+                )
+                return
             message = (
                 f"⚠️ **Session Conflict Detected**\n\n"
                 f"📱 **Account:** {account_name} ({phone})\n"

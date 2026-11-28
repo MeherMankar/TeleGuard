@@ -418,10 +418,14 @@ class BotManager:
                 return False
 
             loaded_count = 0
+            account_index = 0
             # Load all accounts — no artificial cap
             for account in accounts:
                 account = DataEncryption.decrypt_account_data(account)
                 if account.get("session_string"):
+                    if account_index > 0:
+                        await asyncio.sleep(3)
+                    account_index += 1
                     try:
                         await asyncio.wait_for(
                             self._start_user_client(
@@ -975,11 +979,14 @@ class BotManager:
         self, user_id: int, account_name: str
     ) -> None:
         key = (user_id, account_name)
-        retry_delay = 15
+        max_attempts = 5
+        retry_delay = 30  # Start at 30s to give old instance time to stop
         current_task = asyncio.current_task()
+        attempt = 0
         try:
-            while not self._shutting_down:
+            while not self._shutting_down and attempt < max_attempts:
                 await asyncio.sleep(retry_delay)
+                attempt += 1
 
                 existing_client = self.user_clients.get(user_id, {}).get(account_name)
                 if existing_client and existing_client.is_connected():
@@ -1004,7 +1011,8 @@ class BotManager:
                     return
 
                 logger.info(
-                    f"Retrying Telegram session for {account_name} after deployment overlap"
+                    f"Retrying Telegram session for {account_name} "
+                    f"after deployment overlap (attempt {attempt}/{max_attempts})"
                 )
                 await self._start_user_client(
                     user_id,
@@ -1015,9 +1023,38 @@ class BotManager:
 
                 existing_client = self.user_clients.get(user_id, {}).get(account_name)
                 if existing_client and existing_client.is_connected():
+                    # Notify user of successful reconnection
+                    try:
+                        await self.bot.send_message(
+                            user_id,
+                            f"✅ Account {account_name} reconnected successfully."
+                        )
+                    except Exception as notify_err:
+                        logger.warning(f"Could not send reconnect notification for {account_name}: {notify_err}")
                     return
 
                 retry_delay = min(retry_delay * 2, 300)
+
+            # All attempts exhausted — mark inactive and send ONE clear message
+            if not self._shutting_down and attempt >= max_attempts:
+                logger.warning(
+                    f"All {max_attempts} retry attempts exhausted for {account_name}; marking inactive"
+                )
+                try:
+                    await mongodb.db.accounts.update_one(
+                        {"user_id": user_id, "name": account_name},
+                        {"$set": {"is_active": False, "last_error": "AUTH_KEY_DUPLICATED_EXHAUSTED"}},
+                    )
+                except Exception as db_err:
+                    logger.warning(f"Could not mark {account_name} inactive: {db_err}")
+                try:
+                    await self.bot.send_message(
+                        user_id,
+                        f"⚠️ Account {account_name} could not reconnect after deployment. "
+                        f"Please go to Account Settings and re-add it."
+                    )
+                except Exception as notify_err:
+                    logger.warning(f"Could not send exhaustion notification for {account_name}: {notify_err}")
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -2271,13 +2308,12 @@ class BotManager:
         self, user_id: int, account_name: str, phone: str, error_reason: str
     ) -> None:
         logger.warning(
-            "Retaining %s after duplicate authorization-key error and scheduling a retry",
+            "AUTH_KEY_DUPLICATED for %s — transient deployment overlap, scheduling silent retry",
             account_name,
         )
         self._schedule_session_retry(user_id, account_name)
-        await self._notify_user_session_conflict(
-            user_id, account_name, phone, error_reason
-        )
+        # Do NOT notify the user: AUTH_KEY_DUPLICATED during startup is a deployment
+        # artifact, not a user error. The retry will reconnect silently.
 
     async def _mark_account_for_reauth(
         self, user_id: int, account_name: str, error_reason: str
@@ -2316,8 +2352,9 @@ class BotManager:
         """Notify user about session conflicts caused by other bots/clients"""
         from ..utils.session_common import SessionUtils
 
+        silent = self._is_duplicate_session_error(error_reason)
         await SessionUtils.notify_session_conflict(
-            self.bot, user_id, account_name, phone, error_reason
+            self.bot, user_id, account_name, phone, error_reason, silent=silent
         )
 
     async def _notify_user_reauth_needed(
