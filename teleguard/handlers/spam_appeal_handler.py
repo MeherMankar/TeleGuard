@@ -72,7 +72,6 @@ class SpamAppealHandler:
         """Register appeal handlers with smart detection"""
         self.bot.on(events.NewMessage(pattern=r"^/spam_stats$"))(self._spam_stats_handler)
         self.bot.on(events.NewMessage(pattern=r"^/test_appeal_messages$"))(self._test_appeal_messages_handler)
-        self.bot.on(events.NewMessage(pattern=r"^/appeal(?:\s+(.+))?$"))(self._appeal_command_handler)
         self.bot.on(events.CallbackQuery(pattern=b"appeal_account_id:(.+)"))(self._appeal_account_callback_handler)
         self.bot.on(events.CallbackQuery(pattern=b"appeal_cancel"))(self._appeal_cancel_handler)
         self.bot.on(events.CallbackQuery(pattern=b"captcha_(done|refresh|cancel)"))(self._captcha_callback_handler)
@@ -1400,30 +1399,6 @@ Generate 4 diverse examples:"""
             logger.error(f"Test appeal messages error: {e}")
             await event.reply(f"❌ Test failed: {str(e)}")
 
-    async def _appeal_command_handler(self, event):
-        """Handle /appeal command"""
-        user_id = event.sender_id
-        try:
-            from ..core.mongo_database import mongodb
-            accounts = await mongodb.db.accounts.find(
-                {"user_id": user_id, "is_active": True}
-            ).to_list(length=None)
-            if not accounts:
-                await event.reply("❌ No accounts found. Add an account first using /start")
-                return
-            await self._disable_session_protection(user_id)
-            context = event.pattern_match.group(1) if event.pattern_match.group(1) else ""
-            if len(accounts) > 1:
-                await self._show_account_selection(event, accounts)
-            else:
-                account = accounts[0]
-                account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
-                await self._start_appeal_for_account(user_id, account_name, context, event)
-        except Exception as e:
-            logger.error(f"Appeal command error: {e}")
-            await self._restore_session_protection(user_id)
-            await event.reply("❌ Error sending smart appeal. Please try again.")
-
     async def _disable_session_protection(self, user_id: int):
         """Disable session protection for appeal process"""
         from ..core.mongo_database import mongodb
@@ -1491,11 +1466,18 @@ Generate 4 diverse examples:"""
                 pass
             from bson import ObjectId
             from ..core.mongo_database import mongodb
-            account = await mongodb.db.accounts.find_one({"_id": ObjectId(account_id), "user_id": user_id})
+            account = await mongodb.db.accounts.find_one(
+                {
+                    "_id": ObjectId(account_id),
+                    "user_id": user_id,
+                    "is_active": True,
+                }
+            )
             if not account:
-                await event.respond("❌ Account not found.")
+                await event.respond("❌ Active account not found.")
                 return
             account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
+            await self._disable_session_protection(user_id)
             await asyncio.sleep(random.uniform(0.2, 0.8))
             await self._start_appeal_for_account(user_id, account_name, "", event)
         except Exception as e:

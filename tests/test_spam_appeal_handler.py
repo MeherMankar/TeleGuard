@@ -2,7 +2,22 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from bson import ObjectId
+
+from teleguard.handlers.command_handlers import CommandHandlers
 from teleguard.handlers.spam_appeal_handler import SpamAppealHandler
+
+
+class HandlerCaptureBot:
+    def __init__(self):
+        self.handlers = []
+
+    def on(self, builder):
+        def register(handler):
+            self.handlers.append((builder, handler))
+            return handler
+
+        return register
 
 
 def test_session_protection_bypass_uses_wall_clock_timestamp(monkeypatch):
@@ -34,22 +49,56 @@ def test_restore_session_protection_removes_temporary_bypass(monkeypatch):
     assert "protection_bypass_until" in accounts.update_many.await_args.args[1]["$unset"]
 
 
-def test_appeal_without_active_accounts_does_not_disable_protection(monkeypatch):
-    cursor = SimpleNamespace(to_list=AsyncMock(return_value=[]))
-    accounts = SimpleNamespace(find=lambda _query: cursor)
+def test_appeal_command_is_registered_only_once():
+    bot = HandlerCaptureBot()
+    command_handler = object.__new__(CommandHandlers)
+    command_handler.bot = bot
+    command_handler._register_command_handlers()
+
+    spam_handler = object.__new__(SpamAppealHandler)
+    spam_handler.bot = bot
+    spam_handler.register_handlers()
+
+    appeal_handlers = [
+        handler.__name__
+        for _, handler in bot.handlers
+        if handler.__name__ in {"_handle_appeal", "_appeal_command_handler"}
+    ]
+
+    assert appeal_handlers == ["_handle_appeal"]
+
+
+def test_appeal_selection_starts_only_the_selected_active_account(monkeypatch):
+    account_id = ObjectId()
+    account = {"_id": account_id, "name": "Primary", "is_active": True}
+    accounts = SimpleNamespace(find_one=AsyncMock(return_value=account))
     monkeypatch.setattr(
         "teleguard.core.mongo_database.mongodb",
         SimpleNamespace(db=SimpleNamespace(accounts=accounts)),
     )
     handler = object.__new__(SpamAppealHandler)
     handler._disable_session_protection = AsyncMock()
+    handler._restore_session_protection = AsyncMock()
+    handler._cancel_appeal = lambda _user_id: None
+    handler._start_appeal_for_account = AsyncMock()
     event = SimpleNamespace(
         sender_id=123,
-        reply=AsyncMock(),
-        pattern_match=SimpleNamespace(group=lambda _index: None),
+        data=f"appeal_account_id:{account_id}".encode(),
+        answer=AsyncMock(),
+        edit=AsyncMock(),
+        delete=AsyncMock(),
+        respond=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "teleguard.handlers.spam_appeal_handler.asyncio.sleep", AsyncMock()
     )
 
-    asyncio.run(handler._appeal_command_handler(event))
+    asyncio.run(handler._appeal_account_callback_handler(event))
 
-    handler._disable_session_protection.assert_not_awaited()
-    event.reply.assert_awaited_once()
+    accounts.find_one.assert_awaited_once_with(
+        {"_id": account_id, "user_id": 123, "is_active": True}
+    )
+    handler._disable_session_protection.assert_awaited_once_with(123)
+    handler._start_appeal_for_account.assert_awaited_once_with(
+        123, "Primary", "", event
+    )

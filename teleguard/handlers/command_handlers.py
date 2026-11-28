@@ -40,7 +40,9 @@ class CommandHandlers:
         self.bot.on(events.NewMessage(pattern=r"/remove"))(self._handle_remove)
         self.bot.on(events.NewMessage(pattern=r"/reconnect"))(self._handle_reconnect)
         self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
-        self.bot.on(events.NewMessage(pattern=r"/appeal"))(self._handle_appeal)
+        self.bot.on(
+            events.NewMessage(pattern=r"^/appeal(?:@\w+)?(?:\s|$)")
+        )(self._handle_appeal)
         self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
         self.bot.on(events.NewMessage(pattern=r"/sessions"))(self._handle_sessions)
         self.bot.on(events.NewMessage(pattern=r"/export_session"))(self._handle_export_session)
