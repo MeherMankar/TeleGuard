@@ -1,78 +1,71 @@
 # 🛡️ TeleGuard
 
-> **Telegram Account Manager with Security and Automation Tools**
+> Professional Telegram account manager with security automation, OTP protection, and a web dashboard.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/ContactXYZrobot)
-
-Manage Telegram accounts with security features, automated workflows, and a web dashboard.
+[![Telegram](https://img.shields.io/badge/Support-@MeherPatil-blue.svg)](https://t.me/MeherPatil)
 
 ---
 
-## ✨ Key Features
+## ✨ Features
 
-### 🔐 Security Suite
-- **OTP Protection** - Monitor and handle incoming login-code messages using the configured protection settings
-- **2FA Management** - Manage two-factor authentication during account sign-in
-- **Session Guardian** - Review and manage Telegram sessions
-- **Proxy Support** - MTProto/SOCKS5/HTTP with automatic bridge for Telethon compatibility
+### 🔐 Security
+- **OTP Destroyer** — intercepts and invalidates unauthorized login codes in real time
+- **Session Vault** — automatically creates a second independent backup session for every account; if Telegram invalidates the main session the bot silently restores from the vault without losing the account
+- **2FA Management** — stores and auto-applies 2FA passwords for all bot-initiated re-auth flows
+- **Session Guardian** — monitors IP changes and handles AUTH_KEY_DUPLICATED during rolling deployments silently
+- **Proxy Support** — MTProto / SOCKS5 / HTTP proxies per account
 
 ### 📱 Account Management
-- **Multi-Account Support** - Manage multiple Telegram accounts from one interface
-- **Profile Manager** - Update names, usernames, bios, and profile photos
-- **Universal Session Import** - Import sessions from Telethon, Pyrogram, and TData formats
-- **Session Export** - Export session strings with DC information
-- **Bulk Import** - Import session files from ZIP archives
+- Multi-account support
+- Phone-number login with auto-OTP fetch (reads OTP from connected accounts automatically)
+- Session import — Telethon string, .session file, Pyrogram, TData, ZIP bulk import
+- Session export — string or .session file with DC information
+- Profile manager — name, username, bio, photo
+- Backup & restore — current-session export or fresh re-authenticated backup
 
-### 💬 Messaging Tools
-- **Unified DM Management** - Centralized inbox with forum topics for all accounts
-- **Auto-Reply System** - Keyword-based automatic responses
-- **Bulk Messaging** - Send a message to multiple targets
-- **Message Templates** - Create and reuse message templates
+### 💬 Messaging
+- Unified DM inbox via forum topics (all accounts in one group)
+- Auto-reply with keyword triggers
+- Bulk messaging and message templates
+- Scheduled messages
+- DM topic management — block, unblock, clear history
 
-### 📢 Channel Operations
-- **Channel Manager** - Join, leave, create, and delete channels
-- **Bulk Operations** - Mass join/leave channels across accounts
-- **Channel Statistics** - Track engagement and activity metrics
+### 📢 Channels & Groups
+- Join, leave, create, delete channels and groups
+- Bulk join/leave across accounts
+- Topic and forum management
 
-### 🧹 Cleanup Tools
-- **Smart Chat Cleanup** - Remove personal, bot, and spam chats
-- **Mass Exit** - Leave multiple channels and groups at once
-- **Spam Appeal** - Automated spam restriction appeal system
+### 🧹 Cleanup
+- Smart chat cleanup — personal, bot, and spam chats
+- Mass exit from channels/groups
+- Account audit log
 
 ### 🎭 Automation
-- **Activity Simulator** - Configure account activity behavior
-- **Online Maker** - Keep accounts online automatically
-- **Contact Export** - Export contacts to CSV with full details
+- Activity simulator
+- Online maker (keep accounts online)
+- Contact export to CSV
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Requirements
 
-```bash
-Python 3.11+
-MongoDB 4.4+
-Telegram API Credentials (api_id, api_hash)
-```
+- Python 3.11+
+- MongoDB 4.4+
+- Telegram API credentials from [my.telegram.org](https://my.telegram.org)
 
 ### Installation
 
 ```bash
-# Clone repository
-git clone https://github.com/mehermankar/teleguard.git
-cd teleguard
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
+git clone https://github.com/MeherMankar/TeleGuard.git
+cd TeleGuard
+python -m venv .venv
+.venv\Scripts\activate      # Windows
+# source .venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
-
-# Setup configuration
 cp config/.env.example config/.env
 ```
 
@@ -81,202 +74,120 @@ cp config/.env.example config/.env
 Edit `config/.env`:
 
 ```env
-# Telegram API (get from https://my.telegram.org)
-API_ID=12345678
-API_HASH=your_api_hash_here
-BOT_TOKEN=your_bot_token_here
-
-# Database
+# Required
+API_ID=your_api_id
+API_HASH=your_api_hash
+BOT_TOKEN=your_bot_token
 MONGO_URI=mongodb://localhost:27017
-MONGO_DB_NAME=teleguard
+JWT_SECRET=at_least_32_random_characters
+FERNET_KEY=generate_with_command_below
+ALLOWED_ORIGINS=http://localhost:5173
 
-# Security
-JWT_SECRET=
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4173
-ADMIN_IDS=123456789,987654321
-# Required in production:
-FERNET_KEY=
+# Optional — admin user IDs (comma-separated Telegram user IDs)
+ADMIN_IDS=123456789
 
-# Optional
+# Optional — session backup to a private GitHub repo
 SESSION_BACKUP_ENABLED=false
-# Optional private GitHub session backup: set SESSION_BACKUP_GITHUB_REPO
-# and SESSION_BACKUP_GITHUB_TOKEN to a private repo and write-enabled token.
-# The repo is created automatically if missing and the token can create it.
-# Optional encrypted MongoDB mirror to a public repository:
-# set GITHUB_DATA_MIRROR_ENABLED=true, GITHUB_DATA_REPO, GITHUB_DATA_TOKEN,
-# and a stable FERNET_KEY. The public repo is created automatically if missing.
-# MongoDB remains the live database.
+SESSION_BACKUP_GITHUB_REPO=owner/private-repo
+SESSION_BACKUP_GITHUB_TOKEN=ghp_...
+
+# Optional — encrypted MongoDB mirror to a public GitHub repo
+GITHUB_DATA_MIRROR_ENABLED=false
+GITHUB_DATA_REPO=owner/public-repo
+GITHUB_DATA_TOKEN=ghp_...
 ```
 
-Generate `JWT_SECRET` with:
+Generate the required secrets:
 
 ```bash
+# JWT_SECRET
 python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
 
-In production, use a unique secret and set `ALLOWED_ORIGINS` to the exact
-origin(s) serving the frontend, plus a stable `FERNET_KEY`. The backend denies
-all browser and WebSocket origins when a production allowlist is missing. The
-frontend build also needs `VITE_API_URL` and `VITE_WS_URL` set to the backend's
-HTTPS and WSS URLs, respectively.
+# FERNET_KEY
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
 
 ### Run
 
 ```bash
-# Start bot
 python main.py
-
-# Or use start script
-python start_bot.py
 ```
 
 ---
 
-## 📖 Usage Guide
-
-### Basic Commands
+## 📖 Bot Commands
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Initialize bot and show main menu |
-| `/add` | Add new Telegram account |
+| `/start` | Open the main menu |
+| `/menu` | Re-open the main menu |
+| `/add` | Add a Telegram account via phone login |
 | `/accs` | List all managed accounts |
-| `/otp` | Toggle OTP Destroyer protection |
-| `/help` | Show comprehensive help |
-
-### Menu Navigation
-
-Access features through inline keyboard:
-
-```
-📱 Account Settings → Manage accounts, profiles, sessions
-🛡️ OTP Manager → Security features and protection
-💬 Messaging → DM management, auto-reply, bulk send
-📢 Channels → Channel operations and management
-👥 Contacts → Contact export and synchronization
-🧹 Cleanup → Account cleanup and spam appeals
-```
-
-### Adding Your First Account
-
-**Method 1: Phone Login**
-1. Click **📱 Account Settings** or use `/add`
-2. Send phone number with country code: `+1234567890`
-3. Enter OTP code with hyphens: `1-2-3-4-5`
-4. If 2FA enabled, enter password
-5. Account added successfully! ✅
-
-**Method 2: Session Import**
-1. Click **📱 Account Settings** → **Session Login**
-2. Choose import method:
-   - **📁 Session File** - Upload .session file (Telethon/Pyrogram)
-   - **📝 Session String** - Paste session string
-   - **📦 Bulk Import** - Upload ZIP with multiple sessions
-   - **📂 TData Import** - Upload Telegram Desktop TData folder
-3. Upload/paste your session data
-4. Automatic format detection and conversion
-5. Account imported successfully! ✅
-
-### Enabling OTP Protection
-
-1. Go to **🛡️ OTP Manager**
-2. Select **OTP Destroyer**
-3. Choose account to protect
-4. Click **Enable Destroyer**
-5. Your account is now protected from unauthorized logins! 🛡️
+| `/cancel` | Cancel any pending operation |
+| `/appeal` | Start the automated spam-restriction appeal flow |
 
 ---
 
-## 🏗️ Architecture
+## 🔑 Adding Your First Account
 
-```
-teleguard/
-├── backend/       # FastAPI routes, authentication, and WebSocket API
-├── config/        # Environment examples and application configuration
-├── frontend/      # Vite/React dashboard
-├── teleguard/
-│   ├── core/      # Bot lifecycle, database, and feature managers
-│   ├── handlers/  # Telegram bot and event handlers
-├── tests/         # Python tests
-├── main.py        # Combined bot and API entry point
-├── requirements.txt
-└── pyproject.toml
-```
+**Phone login (recommended)**
+1. Send `/add` and enter your phone number with country code: `+1234567890`
+2. The bot auto-fetches the OTP from your existing connected accounts — no manual entry needed in most cases
+3. If 2FA is enabled the bot uses your stored password, or asks you once and stores it for all future operations
+
+**Session import**
+1. Open **📱 Account Settings → Session Login**
+2. Choose: session string, .session file, Pyrogram string, TData folder, or ZIP bulk import
+3. The bot detects the format and converts automatically
 
 ---
 
-## 🔒 Security Features
+## 🛡️ OTP Destroyer
 
-### Encryption
-- Production startup requires a stable `FERNET_KEY`; session backups also use
-  Fernet encryption when enabled.
-- The optional public GitHub data mirror encrypts complete MongoDB user/account
-  documents before upload; its public index contains counts, opaque record IDs,
-  and keyed fingerprints rather than plaintext data.
-- Keep encryption keys out of source control and configure them as deployment secrets.
-- GitHub retains prior ciphertext in commit history even after a record is updated
-  or deleted; deleting a record from the current mirror does not erase its history.
+Monitors incoming login-code messages on your accounts and invalidates unauthorized codes before an attacker can use them.
 
-### WebApp Authentication
-- Telegram login data must have a valid signature and an `auth_date` no older than 24 hours.
-- Each verified login payload can be used once; replay identifiers are stored in MongoDB and expire automatically.
+- Enable per-account from **📱 Account Settings → OTP Destroyer**
+- The destroyer is automatically paused during any bot-internal operation (login, backup, vault creation) so it never blocks legitimate bot flows
+- Temp bypass available for 5-minute windows when you need to log in yourself
 
-### OTP Destroyer
-- Provides OTP-related monitoring and protection workflows through the bot.
-- Review the account and notification settings before enabling protection.
+---
 
-### Session Management
-- View session information and use the available session-management controls.
+## 💾 Session Vault (Auto-Recovery)
+
+When you add an account the bot creates a second independent session in the background:
+
+- **Primary vault** → MongoDB (always written first)
+- **Secondary vault** → GitHub private repo (written after, best-effort)
+
+If Telegram invalidates your main session:
+1. Bot detects the invalidation
+2. Loads the vault session and promotes it to main
+3. Reconnects the account silently
+4. Notifies you: *"Account auto-recovered from vault"*
+5. Creates a new vault session in the background so the vault is never empty
+
+User-initiated account removal deletes both vaults. Telegram-initiated invalidation never touches the vault.
 
 ---
 
 ## 🚢 Deployment
 
-### Local Development
-
-```bash
-python main.py
-```
-
-### Production (Koyeb)
-
-```bash
-# Deploy using the Koyeb service configuration
-koyeb deploy
-
-# Or manual deployment
-koyeb app create teleguard \
-  --git github.com/MeherMankar/TeleGuard \
-  --git-branch test \
-  --env API_ID=xxx \
-  --env API_HASH=xxx \
-  --env BOT_TOKEN=xxx \
-  --env MONGO_URI=xxx \
-  --env JWT_SECRET=xxx \
-  --env ALLOWED_ORIGINS=https://your-frontend-domain
-```
-
-Configure all required values as Koyeb **service environment variables**. The
-manifest expects project-scoped values for `API_ID`, `API_HASH`, `BOT_TOKEN`,
-`MONGO_URI`, `JWT_SECRET`, `ALLOWED_ORIGINS`, and `FERNET_KEY`. Never use a placeholder
-secret in a deployed service.
-
 ### Docker
 
-```dockerfile
-# Build image
+```bash
 docker build -t teleguard .
-
-# Run container
-docker run -d \
-  --name teleguard \
-  --env-file config/.env \
-  -v $(pwd)/sessions:/app/sessions \
-  -v $(pwd)/logs:/app/logs \
-  teleguard
+docker run -d --name teleguard --env-file config/.env teleguard
 ```
 
-### Environment Variables
+### Koyeb
+
+The `.koyeb/app.yaml` manifest is included. Set all required variables as project-scoped environment variables in the Koyeb dashboard:
+
+`API_ID` · `API_HASH` · `BOT_TOKEN` · `MONGO_URI` · `JWT_SECRET` · `FERNET_KEY` · `ALLOWED_ORIGINS`
+
+The `/health` endpoint returns HTTP 503 until MongoDB is reachable and the bot has finished startup — Koyeb uses this for the health check grace period.
+
+### Environment Variables Reference
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -284,217 +195,61 @@ docker run -d \
 | `API_HASH` | ✅ | Telegram API Hash |
 | `BOT_TOKEN` | ✅ | Bot token from @BotFather |
 | `MONGO_URI` | ✅ | MongoDB connection string |
-| `JWT_SECRET` | ✅ | Unique random signing key, at least 32 characters |
-| `ALLOWED_ORIGINS` | ✅ in production | Comma-separated frontend origins allowed by backend CORS |
-| `ADMIN_IDS` | Optional | Comma-separated admin user IDs |
-| `MAX_ACCOUNTS` | Optional | Maximum accounts per user |
-| `FERNET_KEY` | ✅ in production | Stable Fernet key required at startup in production and for encrypted data mirrors/backups |
-| `GITHUB_DATA_MIRROR_ENABLED` | ❌ | Set to `true` to mirror MongoDB user/account records to GitHub (default: `false`) |
-| `GITHUB_DATA_REPO` | ❌ | Public GitHub repository for encrypted records (`owner/repository`); created if missing |
-| `GITHUB_DATA_TOKEN` | ❌ | Token with Contents read/write and repository-creation access |
-| `GITHUB_DATA_BRANCH` | ❌ | Data mirror branch (default: `main`) |
-| `SESSION_BACKUP_ENABLED` | ❌ | Set to `true` to back up account sessions to GitHub |
-| `SESSION_BACKUP_GITHUB_REPO` | ❌ | Private session-backup repository (`owner/repository`); created if missing |
-| `SESSION_BACKUP_GITHUB_TOKEN` | ❌ | Token with Contents read/write and repository-creation access |
-| `GITHUB_BACKUP_BRANCH` | ❌ | Session backup branch (default: `backups`) |
+| `JWT_SECRET` | ✅ | Random signing key, min 32 chars |
+| `FERNET_KEY` | ✅ | Stable Fernet key for encryption |
+| `ALLOWED_ORIGINS` | ✅ | Comma-separated frontend origins |
+| `ADMIN_IDS` | Optional | Comma-separated Telegram user IDs |
+| `SESSION_BACKUP_ENABLED` | Optional | `true` to enable GitHub session backup |
+| `SESSION_BACKUP_GITHUB_REPO` | Optional | Private repo for session backup |
+| `SESSION_BACKUP_GITHUB_TOKEN` | Optional | Token with Contents read/write |
+| `GITHUB_DATA_MIRROR_ENABLED` | Optional | `true` to mirror MongoDB to GitHub |
+| `GITHUB_DATA_REPO` | Optional | Public repo for encrypted data mirror |
+| `GITHUB_DATA_TOKEN` | Optional | Token with Contents read/write |
 
-MongoDB remains the live source of truth. The encrypted data mirror performs an
-initial sync at startup and then syncs every five minutes. Keep `FERNET_KEY`
-private and unchanged between deployments; changing it makes existing mirror
-records undecryptable. The data-mirror repository must be public, while session
-backup repositories must remain private. Configure these as **service
-environment variables** on Koyeb—GitHub Actions repository secrets are not
-automatically passed to the running service. GitHub commit history retains
-previous encrypted payloads after updates/deletions.
-You do not need to create the repositories or branches manually. On its initial
-sync, the bot creates each configured repository if it is missing (public for
-the data mirror, private for session backups), then creates the configured
-branch if it is missing. The defaults are `main` for data and `backups` for
-sessions; set `GITHUB_DATA_BRANCH` or `GITHUB_BACKUP_BRANCH` to use different
-names. It also adds a purpose-specific `README.md` to either repository when
-one is absent. In the data repository, it maintains a marked status section
-with the last mirror update and current user/account counts, updating that
-section when records are added, changed, or deleted while preserving other
-README content. The corresponding token must have repository-creation
-permission when the repository is absent and Contents read/write permission to
-initialize or update the branch and README.
-If mirror startup reports HTTP 404 while looking up the repository, verify
-`GITHUB_DATA_REPO` names the intended public repository and `GITHUB_DATA_TOKEN`
-has access to it; GitHub also returns 404 for repositories the token cannot
-access.
-GitHub configuration uses only the dedicated variables listed above; legacy
-aliases and general `GITHUB_REPO` / `GITHUB_TOKEN` variables are not read.
-`DATABASE_URL` is not used for live storage by this app; configure `MONGO_URI`.
-The `/health` endpoint is a readiness check: it returns HTTP 503 until MongoDB
-is reachable and the bot has completed startup.
-
-For a separately hosted frontend, set `VITE_API_URL` to the backend HTTPS URL
-and `VITE_WS_URL` to the backend WSS URL in the frontend host's build
-environment. Add the frontend's exact origin to backend `ALLOWED_ORIGINS`.
+Keep `FERNET_KEY` unchanged between deployments — changing it makes existing encrypted backups unreadable.
 
 ---
 
 ## 🛠️ Development
 
-### Setup Development Environment
-
 ```bash
-# Clone and setup
-git clone https://github.com/mehermankar/teleguard.git
-cd teleguard
-python -m venv venv
-source venv/bin/activate
-
-# Install dev dependencies
 pip install -r requirements.txt
-pip install black flake8 pytest
-
-# Setup pre-commit hooks
 pre-commit install
-```
 
-### Code Style
-
-```bash
-# Format code
+# Format
 black teleguard/
 
-# Lint code
+# Lint
 flake8 teleguard/
 
-# Type checking
-mypy teleguard/
-```
-
-### Testing
-
-```bash
-# Run all tests
+# Tests
 pytest
-
-# Run with coverage
-pytest --cov=teleguard
-
-# Run specific test
-pytest tests/test_otp_manager.py
 ```
 
-### Contributing
-
-1. **Fork** the repository
-2. **Create** feature branch: `git checkout -b feature/amazing-feature`
-3. **Commit** changes: `git commit -m 'Add amazing feature'`
-4. **Push** to branch: `git push origin feature/amazing-feature`
-5. **Open** Pull Request
-
----
 ---
 
-## 🤝 Support & Community
+## 🤝 Support
 
-### Get Help
-
-- 📧 **Email Support**: Contact via @ContactXYZrobot
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/MeherMankar/TeleGuard/issues)
-- 📚 **Documentation**: [Wiki](https://github.com/MeherMankar/TeleGuard/wiki)
+- Telegram: [@MeherPatil](https://t.me/MeherPatil)
+- Support bot: [@ContactXYZrobot](https://t.me/ContactXYZrobot)
+- Issues: [GitHub Issues](https://github.com/MeherMankar/TeleGuard/issues)
 
 ---
 
 ## 👨‍💻 Credits
 
 **Developed by:**
-- [@MeherPatil](https://t.me/MeherPatil) - Lead Developer & Architecture
-- [@Gutkesh](https://t.me/Gutkesh) - Core Developer & Security
-
-**Special Thanks:**
-- Telethon library developers
-- MongoDB team
-- Python community
+- [@MeherPatil](https://t.me/MeherPatil) — Lead Developer
+- [@Gutkesh](https://t.me/Gutkesh) — Core Developer
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2024 TeleGuard
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction...
-```
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
 ## ⚠️ Disclaimer
 
-**Important Legal Notice:**
-
-This tool is provided for **educational and research purposes only**. Users are responsible for:
-
-- ✅ Complying with [Telegram's Terms of Service](https://telegram.org/tos)
-- ✅ Respecting privacy laws and regulations
-- ✅ Using the tool ethically and responsibly
-- ✅ Not engaging in spam or abuse
-
-**The developers are not responsible for misuse of this software.**
-
----
-
-## 🗺️ Roadmap
-
-### Version 2.1 (Q1 2024)
-- [ ] Web dashboard interface
-- [ ] Advanced analytics and reporting
-- [ ] Multi-language support
-- [ ] Scheduled messaging
-
-### Version 2.2 (Q2 2024)
-- [ ] AI-powered auto-reply
-- [ ] Advanced spam detection
-- [ ] Group management tools
-- [ ] API for third-party integrations
-
----
-
-## 📈 Changelog
-
-### v2.0.1 (Current)
-- 🔄 Universal session import (Telethon, Pyrogram, TData)
-- 📦 Bulk session import from ZIP files
-- 🐛 Fixed session conflict tracking bug
-- ⚡ Performance optimization with account caching (60-80% faster)
-- 🪟 Improved Windows console emoji handling
-- ⏱️ Optimized timeout values for better reliability
-- 🔧 Refactored session utilities (DRY principles)
-
-### v2.0.0
-- ✨ Complete codebase refactor (42% reduction)
-- 🛡️ Enhanced OTP Destroyer with temp bypass
-- 💬 Unified DM management system
-- 🧹 Advanced cleanup tools
-
-### v1.5.0
-- 🎭 Activity simulator
-- 📤 Session export/import
-- 👥 Contact management
-- 🔐 Enhanced 2FA management
-
-### v1.0.0
-- 🚀 Initial release
-- 📱 Multi-account support
-- 🛡️ Basic OTP protection
-- 💬 Simple messaging tools
-
----
-
-<div align="center">
-
-**Made with ❤️ by the Meher**
-
-[⭐ Star us on GitHub](https://github.com/mehermankar/teleguard) • [🐛 Report Bug](https://github.com/mehermankar/teleguard/issues) • [💡 Request Feature](https://github.com/mehermankar/teleguard/issues)
-
-</div>
+This software is provided for educational and personal use. Users are responsible for complying with [Telegram's Terms of Service](https://telegram.org/tos) and all applicable laws. The developers are not responsible for misuse.
