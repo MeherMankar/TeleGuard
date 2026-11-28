@@ -2659,31 +2659,29 @@ class SessionLoginHandler:
     async def _prepare_session_creation(self, user_id, phone):
         account = await mongodb.db.accounts.find_one({"user_id": user_id, "phone": phone})
         if account:
+            # Use OtpBypassContext to disable OTP destroyer on ALL accounts
+            # (not just this one) for the duration of the session creation.
+            # We store the context on the account dict so _cleanup_session_creation
+            # can exit it and restore every account's destroyer state.
+            from ..core.otp_protection import OtpBypassContext
+            ctx = OtpBypassContext(
+                self.bot_manager, user_id, phone, duration_seconds=300, reason="session_creation"
+            )
+            await ctx.__aenter__()
+            account["_otp_bypass_ctx"] = ctx
+            # Also set the per-account flag so _has_active_otp_auth_flow works
             await mongodb.db.accounts.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"session_creation_in_progress": True, "otp_destroyer_enabled": False}},
+                {"$set": {"session_creation_in_progress": True}},
             )
-            import time
-            await mongodb.db.otp_protections.update_one(
-                {
-                    "phone": phone,
-                    "user_id": user_id,
-                    "wildcard": True,
-                    "reason": "session_creation",
-                },
-                {
-                    "$set": {
-                        "phone": phone,
-                        "user_id": user_id,
-                        "wildcard": True,
-                        **otp_expiry_fields(int(time.time()) + 300),
-                        "reason": "session_creation",
-                    }
-                },
-                upsert=True,
+            self.bot_manager.pending_actions[user_id] = {
+                "action": "session_creation",
+                "phone": phone,
+                "account_name": account.get("name", phone),
+            }
+            logger.info(
+                "OTP Destroyer bypassed for all accounts during session creation of %s", phone
             )
-            self.bot_manager.pending_actions[user_id] = {"action": "session_creation", "phone": phone, "account_name": account.get("name", phone)}
-            logger.info(f"OTP Destroyer temporarily disabled for {phone} during session creation")
         return account
 
     async def _request_otp_code(self, phone):
@@ -2789,17 +2787,43 @@ class SessionLoginHandler:
             except BaseException:
                 pass
         if account:
-            await mongodb.db.accounts.update_one({"_id": account["_id"]}, {"$unset": {"session_creation_in_progress": ""}, "$set": {"otp_destroyer_enabled": destroyer_was_enabled}})
-            await mongodb.db.otp_protections.delete_many(
-                {
-                    "phone": account.get("phone"),
-                    "user_id": user_id,
-                    "wildcard": True,
-                    "reason": "session_creation",
-                }
-            )
-            self.bot_manager.pending_actions.pop(user_id, None)
-            logger.info("OTP Destroyer re-enabled after session creation")
+            # Exit the OtpBypassContext that was stored by _prepare_session_creation.
+            # This restores every account's otp_destroyer_enabled, removes the
+            # wildcard allowlist entry, and clears the pending_actions marker.
+            ctx = account.get("_otp_bypass_ctx")
+            if ctx is not None:
+                try:
+                    await ctx.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.warning("OtpBypassContext exit error during cleanup: %s", e)
+            else:
+                # Legacy path: direct restore for callers that didn't go through
+                # _prepare_session_creation (should not happen, but kept as fallback)
+                await mongodb.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {
+                        "$unset": {"session_creation_in_progress": ""},
+                        "$set": {"otp_destroyer_enabled": destroyer_was_enabled},
+                    },
+                )
+                await mongodb.db.otp_protections.delete_many(
+                    {
+                        "phone": account.get("phone"),
+                        "user_id": user_id,
+                        "wildcard": True,
+                        "reason": "session_creation",
+                    }
+                )
+                self.bot_manager.pending_actions.pop(user_id, None)
+            # Always clear session_creation_in_progress
+            try:
+                await mongodb.db.accounts.update_one(
+                    {"_id": account["_id"]},
+                    {"$unset": {"session_creation_in_progress": ""}},
+                )
+            except Exception:
+                pass
+            logger.info("OTP Destroyer restored after session creation for %s", account.get("phone", "?"))
 
     async def _send_session_result(self, event, user_id, phone, format_type, session_string, session_file_data):
         logger.info(f"Session creation completed. Format: {format_type}, File data exists: {session_file_data is not None}")

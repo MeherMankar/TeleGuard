@@ -285,89 +285,81 @@ class BackupRestore:
           - (None, str)  on failure, where failure_reason is a human-readable string
         """
         client = None
-        account = None
-        destroyer_was_enabled = False
 
         try:
-            # Step 1: prepare (disable OTP destroyer, add bypass allowlist entry)
-            account = await session_login._prepare_session_creation(user_id, phone)
-            if account:
-                destroyer_was_enabled = account.get("otp_destroyer_enabled", False)
-
-            # Record the time just before requesting the OTP so we can filter
-            # out any stale codes that were already sitting in the inbox.
+            from ..core.otp_protection import OtpBypassContext
             import time as _time
-            otp_request_time = _time.time()
 
-            # Step 2: request OTP
-            client, phone_code_hash = await session_login._request_otp_code(phone)
-            if not client or not phone_code_hash:
-                logger.warning("Could not request OTP for %s", phone)
-                return None, "OTP request failed — Telegram did not return a code hash"
+            # OtpBypassContext disables the destroyer on ALL user accounts for
+            # the full re-auth window and restores everything on exit.
+            async with OtpBypassContext(
+                session_login.bot_manager, user_id, phone,
+                duration_seconds=300, reason="fresh_backup"
+            ):
+                otp_request_time = _time.time()
 
-            # Step 3: fetch OTP from connected accounts, only messages newer than
-            # the moment we fired send_code_request.
-            otp_code = None
-            for attempt in range(15):
-                otp_code = await self._fetch_otp_after(
-                    session_login, user_id, phone, otp_request_time
-                )
-                if otp_code:
-                    break
-                await asyncio.sleep(2)
+                # Request OTP
+                client, phone_code_hash = await session_login._request_otp_code(phone)
+                if not client or not phone_code_hash:
+                    logger.warning("Could not request OTP for %s", phone)
+                    return None, "OTP request failed — Telegram did not return a code hash"
 
-            if not otp_code:
-                # Fallback: widen the window to 5 minutes but still require the
-                # code to be newer than otp_request_time.
-                otp_code = await self._fetch_otp_after(
-                    session_login, user_id, phone, otp_request_time, window=300
-                )
-
-            if not otp_code:
-                logger.warning("Could not auto-fetch OTP for %s", phone)
-                return None, "OTP not received — no Telegram code appeared within 30s"
-
-            # Step 4: sign in with OTP
-            try:
-                await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
-                session_string = StringSession.save(client.session)
-                return session_string, None
-
-            except SessionPasswordNeededError:
-                # Try stored 2FA password from DB
-                from ..utils.twofa_helper import twofa_helper
-
-                success, session_str, error = await twofa_helper.try_sign_in_with_2fa(
-                    client, user_id, phone
-                )
-                if success:
-                    return session_str, None
-                if error == "no_stored_password":
-                    return None, (
-                        "2FA password not stored — open Account Settings → "
-                        "2FA Settings and save the password first"
+                # Fetch OTP — only messages newer than the request timestamp
+                otp_code = None
+                for attempt in range(15):
+                    otp_code = await self._fetch_otp_after(
+                        session_login, user_id, phone, otp_request_time
                     )
-                if error == "stored_password_invalid":
-                    return None, (
-                        "Stored 2FA password is wrong (changed externally) — "
-                        "update it in Account Settings → 2FA Settings"
-                    )
-                return None, f"2FA sign-in failed: {error}"
+                    if otp_code:
+                        break
+                    await asyncio.sleep(2)
 
+                if not otp_code:
+                    otp_code = await self._fetch_otp_after(
+                        session_login, user_id, phone, otp_request_time, window=300
+                    )
+
+                if not otp_code:
+                    logger.warning("Could not auto-fetch OTP for %s", phone)
+                    return None, "OTP not received — no Telegram code appeared within 30s"
+
+                # Sign in
+                try:
+                    await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
+                    session_string = StringSession.save(client.session)
+                    return session_string, None
+
+                except SessionPasswordNeededError:
+                    from ..utils.twofa_helper import twofa_helper
+                    success, session_str, error = await twofa_helper.try_sign_in_with_2fa(
+                        client, user_id, phone
+                    )
+                    if success:
+                        return session_str, None
+                    if error == "no_stored_password":
+                        return None, (
+                            "2FA password not stored — open Account Settings → "
+                            "2FA Settings and save the password first"
+                        )
+                    if error == "stored_password_invalid":
+                        return None, (
+                            "Stored 2FA password is wrong (changed externally) — "
+                            "update it in Account Settings → 2FA Settings"
+                        )
+                    return None, f"2FA sign-in failed: {error}"
+
+            # OtpBypassContext.__aexit__ has already restored all destroyer states
+            return None, "Unexpected exit without returning session"
+
+        except Exception as e:
+            logger.warning("Fresh session creation failed for %s: %s", phone, e)
+            return None, f"Error during re-auth: {e}"
         finally:
-            # Step 5: always clean up regardless of success/failure
             if client:
                 try:
                     await client.disconnect()
                 except Exception:
                     pass
-            if account:
-                try:
-                    await session_login._cleanup_session_creation(
-                        account, destroyer_was_enabled, user_id
-                    )
-                except Exception:
-                    logger.debug("Cleanup error for %s", phone)
 
     @staticmethod
     async def _fetch_otp_after(

@@ -244,37 +244,26 @@ class MessageHandlers:
             return
 
         try:
-            await self.auth_manager.start_auth(user_id, phone, use_otp_destroyer=False)
-
-            # Add OTP protection for this phone number to prevent destroyer from
-            # invalidating legitimate codes
-            try:
-                await mongodb.db.otp_protections.update_one(
-                    {
-                        "phone": phone,
-                        "user_id": user_id,
-                        "reason": "account_addition",
-                    },
-                    {
-                        "$set": {
-                            "phone": phone,
-                            "wildcard": True,  # Protect all codes for this phone
-                            **otp_expiry_fields(int(time.time()) + 600),
-                            "reason": "account_addition",
-                            "user_id": user_id,
-                        }
-                    },
-                    upsert=True,
-                )
-                logger.info(f"Added OTP protection for {phone} during account addition")
-            except Exception as e:
-                logger.warning(f"Failed to add OTP protection: {e}")
-
+            # OtpBypassContext disables the OTP destroyer on ALL user accounts
+            # and writes a wildcard allowlist entry for this phone, then restores
+            # everything when the account-addition flow completes (or fails).
+            # We enter it here and store it so _process_verify_otp can exit it.
+            from ..core.otp_protection import OtpBypassContext
+            bypass_ctx = OtpBypassContext(
+                self.bot_manager, user_id, phone,
+                duration_seconds=600, reason="account_addition"
+            )
+            await bypass_ctx.__aenter__()
+            # Store on pending_actions so _process_verify_otp can exit it
             self.pending_actions[user_id] = {
                 "action": "verify_otp",
                 "phone": phone,
                 "otp_destroyer": False,
+                "_bypass_ctx": bypass_ctx,
             }
+
+            await self.auth_manager.start_auth(user_id, phone, use_otp_destroyer=False)
+
             await event.reply(
                 f"📨 OTP sent to {phone}...\n\n⏳ Attempting to fetch code automatically..."
             )
@@ -406,6 +395,14 @@ class MessageHandlers:
                     logger.error(f"Failed to backup session for {phone}: {e}")
             await self.bot_manager.start_user_client(user_id, phone, session_string)
 
+            # Exit OTP bypass context (restores all destroyer states)
+            try:
+                bypass_ctx = self.pending_actions.get(user_id, {}).get("_bypass_ctx")
+                if bypass_ctx:
+                    await bypass_ctx.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning("Could not exit OTP bypass context: %s", e)
+
             # Remove OTP protection after successful account addition
             try:
                 await mongodb.db.otp_protections.delete_one(
@@ -414,9 +411,6 @@ class MessageHandlers:
                         "user_id": user_id,
                         "reason": "account_addition",
                     }
-                )
-                logger.info(
-                    f"Removed OTP protection for {phone} after successful addition"
                 )
             except Exception as e:
                 logger.warning(f"Failed to remove OTP protection: {e}")
@@ -477,18 +471,11 @@ class MessageHandlers:
                 # Don't clear pending actions for invalid code - allow retry
             else:
                 await event.reply(f"❌ Authentication failed: {error_msg}")
-                # Cleanup pending actions and OTP protection on other errors
+                # Exit bypass context and clean up on terminal failure
                 try:
-                    await mongodb.db.otp_protections.delete_one(
-                        {
-                            "phone": phone,
-                            "user_id": user_id,
-                            "reason": "account_addition",
-                        }
-                    )
-                    logger.info(
-                        f"Removed OTP protection for {phone} after auth failure"
-                    )
+                    bypass_ctx = self.pending_actions.get(user_id, {}).get("_bypass_ctx")
+                    if bypass_ctx:
+                        await bypass_ctx.__aexit__(None, None, None)
                 except Exception:
                     pass
                 self.pending_actions.pop(user_id, None)

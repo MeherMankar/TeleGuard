@@ -282,9 +282,9 @@ class SessionVault:
         Create a brand-new independent session for `phone` via auto-OTP + stored 2FA
         and store it as the vault session.
 
-        Uses the same mechanism as session_login_handler:
-          _prepare_session_creation → _request_otp_code →
-          _fetch_otp_from_telegram/_fetch_otp_fallback → sign_in → twofa_helper
+        Uses OtpBypassContext to disable the OTP destroyer on ALL user accounts
+        for the duration, then:
+          _request_otp_code → poll 777000 → sign_in → twofa_helper if needed
         """
         if not self.enabled:
             return False
@@ -295,58 +295,59 @@ class SessionVault:
             return False
 
         client = None
-        account = None
-        destroyer_was_enabled = False
 
         try:
-            account = await session_login._prepare_session_creation(user_id, phone)
-            if account:
-                destroyer_was_enabled = account.get("otp_destroyer_enabled", False)
-
+            from ..core.otp_protection import OtpBypassContext
             import time as _time
-            otp_request_time = _time.time()
 
-            client, phone_code_hash = await session_login._request_otp_code(phone)
-            if not client or not phone_code_hash:
-                logger.warning("Could not request OTP for vault creation of %s", phone)
-                return False
+            async with OtpBypassContext(
+                bot_manager, user_id, phone,
+                duration_seconds=300, reason="vault_creation"
+            ):
+                otp_request_time = _time.time()
 
-            # Poll for OTP — only messages that arrived after the request
-            otp_code = None
-            for _ in range(15):
-                otp_code = await self._fetch_otp_after(
-                    session_login, user_id, phone, otp_request_time
-                )
-                if otp_code:
-                    break
-                await asyncio.sleep(2)
-
-            if not otp_code:
-                otp_code = await self._fetch_otp_after(
-                    session_login, user_id, phone, otp_request_time, window=300
-                )
-
-            if not otp_code:
-                logger.warning("Could not auto-fetch OTP for vault session of %s", phone)
-                return False
-
-            from telethon.errors import SessionPasswordNeededError
-            from telethon.sessions import StringSession
-
-            try:
-                await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
-                vault_session = StringSession.save(client.session)
-            except SessionPasswordNeededError:
-                from .twofa_helper import twofa_helper
-                success, vault_session, error = await twofa_helper.try_sign_in_with_2fa(
-                    client, user_id, phone
-                )
-                if not success:
-                    logger.warning(
-                        "2FA failed during vault creation for %s: %s", phone, error
-                    )
+                client, phone_code_hash = await session_login._request_otp_code(phone)
+                if not client or not phone_code_hash:
+                    logger.warning("Could not request OTP for vault creation of %s", phone)
                     return False
 
+                # Poll for OTP — only accept messages newer than the request
+                otp_code = None
+                for _ in range(15):
+                    otp_code = await self._fetch_otp_after(
+                        session_login, user_id, phone, otp_request_time
+                    )
+                    if otp_code:
+                        break
+                    await asyncio.sleep(2)
+
+                if not otp_code:
+                    otp_code = await self._fetch_otp_after(
+                        session_login, user_id, phone, otp_request_time, window=300
+                    )
+
+                if not otp_code:
+                    logger.warning("Could not auto-fetch OTP for vault session of %s", phone)
+                    return False
+
+                from telethon.errors import SessionPasswordNeededError
+                from telethon.sessions import StringSession
+
+                try:
+                    await client.sign_in(phone, otp_code, phone_code_hash=phone_code_hash)
+                    vault_session = StringSession.save(client.session)
+                except SessionPasswordNeededError:
+                    from .twofa_helper import twofa_helper
+                    success, vault_session, error = await twofa_helper.try_sign_in_with_2fa(
+                        client, user_id, phone
+                    )
+                    if not success:
+                        logger.warning(
+                            "2FA failed during vault creation for %s: %s", phone, error
+                        )
+                        return False
+
+            # OtpBypassContext has exited — destroyer states restored
             await self.store(user_id, account_id, phone, name, vault_session)
             logger.info("Vault session created and stored for %s (%s)", name, phone)
             return True
@@ -358,13 +359,6 @@ class SessionVault:
             if client:
                 try:
                     await client.disconnect()
-                except Exception:
-                    pass
-            if account:
-                try:
-                    await session_login._cleanup_session_creation(
-                        account, destroyer_was_enabled, user_id
-                    )
                 except Exception:
                     pass
 
