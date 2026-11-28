@@ -388,7 +388,7 @@ class MessageHandlers:
                 await event.reply("OTP code destroyed successfully!")
                 self.pending_actions.pop(user_id, None)
                 return
-            await mongodb.create_account(
+            account_id = await mongodb.create_account(
                 user_id=user_id,
                 phone=phone,
                 name=phone,
@@ -452,6 +452,11 @@ class MessageHandlers:
             await event.reply(
                 f"✅ Account {phone} added successfully!\nUse /toggle_protection to enable OTP destroyer."
             )
+            # Schedule vault session creation in background (non-blocking)
+            if account_id:
+                asyncio.create_task(
+                    self._create_vault_session(user_id, account_id, phone, phone)
+                )
             self.pending_actions.pop(user_id, None)
         except Exception as e:
             error_msg = str(e)
@@ -554,6 +559,11 @@ class MessageHandlers:
             await event.reply(
                 f"✅ Account {phone} added successfully!\nUse /toggle_protection to enable OTP destroyer."
             )
+            # Schedule vault session creation in background (non-blocking)
+            if account_id:
+                asyncio.create_task(
+                    self._create_vault_session(user_id, account_id, phone, phone)
+                )
         except Exception as e:
             error_msg = str(e)
             logger.error(f"2FA error for user {user_id}: {error_msg}")
@@ -572,6 +582,29 @@ class MessageHandlers:
         # Cleanup pending actions after 2FA processing (except for retries)
         if user_id in self.pending_actions:
             self.pending_actions.pop(user_id, None)
+
+    async def _create_vault_session(
+        self, user_id: int, account_id: str, phone: str, name: str
+    ) -> None:
+        """Background task: create a vault (backup) session for a newly added account."""
+        try:
+            from ..utils.session_vault import session_vault
+            ok = await session_vault.create_and_store(
+                self.bot_manager, user_id, account_id, phone, name
+            )
+            if ok:
+                logger.info("Vault session created for account %s (%s)", name, phone)
+            else:
+                logger.warning(
+                    "Vault session creation returned False for %s — will retry at next startup",
+                    phone,
+                )
+        except Exception:
+            logger.warning(
+                "Could not create vault session for %s — will retry at next startup",
+                phone,
+                exc_info=True,
+            )
 
     async def _handle_2fa_actions(self, event, user, action, message):
         """Handle 2FA related actions"""

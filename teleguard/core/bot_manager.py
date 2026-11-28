@@ -27,6 +27,7 @@ from .config import config
 from .exceptions import ConfigurationError, TeleGuardError
 from .mongo_database import init_db, mongodb
 from ..utils.crypto_utils import DataEncryption
+from ..utils.session_vault import session_vault
 
 logger = logging.getLogger(__name__)
 
@@ -573,6 +574,30 @@ class BotManager:
                     "Activity simulator setup failed for %s: %s",
                     account_name,
                     error,
+                )
+
+        # Ensure a vault session exists for this account (creates one in background
+        # if missing — catches accounts that predate the vault feature)
+        if session_vault.enabled:
+            try:
+                account_doc = await mongodb.db.accounts.find_one(
+                    {"user_id": user_id, "name": account_name}, {"_id": 1, "phone": 1}
+                )
+                if account_doc:
+                    account_id_str = str(account_doc["_id"])
+                    if not await session_vault.exists_mongo(user_id, account_id_str):
+                        asyncio.create_task(
+                            session_vault.create_and_store(
+                                self,
+                                user_id,
+                                account_id_str,
+                                account_doc.get("phone", ""),
+                                account_name,
+                            )
+                        )
+            except Exception as vault_err:
+                logger.debug(
+                    "Could not schedule vault check for %s: %s", account_name, vault_err
                 )
 
     async def _start_user_client(
@@ -1765,6 +1790,13 @@ class BotManager:
             logger.info(
                 f"Removed account {account_name} for user {user_id} with session termination"
             )
+            # Delete vault session (user-initiated removal only)
+            try:
+                await session_vault.delete(user_id, account_id_string)
+            except Exception as vault_err:
+                logger.warning(
+                    "Could not delete vault session for %s: %s", account_name, vault_err
+                )
             # Log to logs bot
             try:
                 phone = account.get("phone", "Unknown")
@@ -1861,6 +1893,14 @@ class BotManager:
             await mongodb.db.accounts.delete_one(
                 {"user_id": user_id, "name": account_name}
             )
+            # Delete vault session (user-initiated removal only)
+            if account:
+                try:
+                    await session_vault.delete(user_id, str(account.get("_id", "")))
+                except Exception as vault_err:
+                    logger.warning(
+                        "Could not delete vault session for %s: %s", account_name, vault_err
+                    )
             logger.info(
                 LogFormatter.format_user_action(
                     user_id,
@@ -2370,14 +2410,87 @@ class BotManager:
     async def _handle_session_invalidation(
         self, user_id: int, account_name: str, phone: str, error_message: str
     ):
-        """Handle session invalidation by removing account and notifying user"""
+        """Handle session invalidation — try vault recovery first, then remove."""
         try:
+            # --- Vault recovery ---
+            account = await mongodb.db.accounts.find_one(
+                {"user_id": user_id, "name": account_name}
+            )
+            if account:
+                account_id = str(account["_id"])
+                vault_session = await session_vault.retrieve(user_id, account_id)
+                if vault_session:
+                    try:
+                        await self._restore_from_vault(
+                            user_id, account_name, account_id, phone, vault_session
+                        )
+                        return  # recovered — do NOT remove the account
+                    except Exception as restore_err:
+                        logger.error(
+                            "Vault restore failed for %s, falling through to invalidation: %s",
+                            account_name,
+                            restore_err,
+                        )
+
+            # --- No vault or restore failed — existing invalidation flow ---
             if self.account_invalidation_handler:
                 await self.account_invalidation_handler.handle_account_invalidation(
                     user_id, account_name, phone, error_message
                 )
         except Exception as e:
             logger.error(f"Failed to handle session invalidation: {e}")
+
+    async def _restore_from_vault(
+        self,
+        user_id: int,
+        account_name: str,
+        account_id: str,
+        phone: str,
+        vault_session: str,
+    ) -> None:
+        """Promote a vault session to main, reconnect, and schedule a new vault session."""
+        # 1. Update main session in DB
+        await mongodb.db.accounts.update_one(
+            {"user_id": user_id, "name": account_name},
+            {
+                "$set": {
+                    "session_string": vault_session,
+                    "is_active": True,
+                },
+                "$unset": {
+                    "needs_reauth": "",
+                    "session_conflict": "",
+                    "reauth_required": "",
+                },
+            },
+        )
+        # 2. Delete from MongoDB vault — it is now the main session
+        await session_vault.delete_mongo(user_id, account_id)
+
+        # 3. Reconnect with the restored session
+        await self._start_user_client(user_id, account_name, vault_session)
+
+        # 4. Notify user
+        try:
+            await self.bot.send_message(
+                user_id,
+                f"🔄 **Account Auto-Recovered**\n\n"
+                f"📱 **{account_name}** — the main session was invalidated by Telegram "
+                f"but has been automatically restored from your vault backup.\n\n"
+                f"⏳ Creating a new vault backup in the background...",
+            )
+        except Exception:
+            pass
+
+        # 5. Schedule new vault session creation so the vault is never empty
+        asyncio.create_task(
+            session_vault.create_and_store(self, user_id, account_id, phone, account_name)
+        )
+        logger.info(
+            "Account %s restored from vault for user %s; new vault scheduled",
+            account_name,
+            user_id,
+        )
 
     async def _keep_account_active(self, user_id: int, account_name: str, client):
         """Keep account active for 10 minutes after adding"""
