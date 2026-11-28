@@ -116,7 +116,6 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "appeal_account_id",
         "appeal_cancel",
         "captcha_",
-        "spam_appeal_start",
         "reset_spam_warning",
         "schedule_msg",
         "schedule_list",
