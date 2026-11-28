@@ -184,6 +184,7 @@ class AdvancedSpamHandler:
             buttons = self._build_menu_buttons(
                 "🔙 Back to Main Menu", b"menu:main"
             )
+            buttons.insert(-1, [Button.inline("🔄 Reset Warning / Revoke Access", b"reset_spam_warning")])
 
             text = (
                 "🔥 **SPAMMASTER - ADVANCED OPERATIONS** 🔥\n"
@@ -226,25 +227,10 @@ class AdvancedSpamHandler:
         @self.bot.on(events.CallbackQuery(pattern=b"decline_spam_warning"))
         async def decline_warning(event):
             await event.answer("❌ Access denied", alert=True)
-            # Redirect to main menu by calling menu handler
-            if hasattr(self.bot_manager, "menu_system"):
-                await self.bot_manager.menu_system._handle_help(
-                    type(
-                        "Event",
-                        (),
-                        {
-                            "sender_id": event.sender_id,
-                            "reply": lambda x, buttons=None: self.bot.send_message(
-                                event.sender_id, x, buttons=buttons
-                            ),
-                        },
-                    )()
-                )
-            else:
-                await event.edit(
-                    "🔙 Returning to main menu...",
-                    buttons=[[Button.inline("🏠 Main Menu", b"menu:main")]],
-                )
+            await event.edit(
+                "🔙 Returning to main menu...",
+                buttons=[[Button.inline("🏠 Main Menu", b"menu:main")]],
+            )
 
         # Fix 12: Reset Warning / Revoke Access handler
         @self.bot.on(events.CallbackQuery(pattern=b"reset_spam_warning"))
@@ -774,14 +760,16 @@ class AdvancedSpamHandler:
                 await self._execute_forward_bomb_all(event, temp_data)
 
     async def _get_accounts(self, user_id):
-        accounts = await mongodb.db.accounts.find({"user_id": user_id}).to_list(None)
-        return [
-            {
-                "phone": acc["phone"],
-                "name": acc.get("name", acc.get("first_name", acc["phone"])),
-            }
-            for acc in accounts
-        ]
+        from ..utils.crypto_utils import DataEncryption
+        accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
+        result = []
+        for acc in accounts:
+            acc = DataEncryption.decrypt_account_data(acc)
+            result.append({
+                "phone": acc.get("phone", ""),
+                "name": acc.get("name", acc.get("phone", "Unknown")),
+            })
+        return result
 
     def _get_client(self, phone, user_id=None):
         """Get Telethon client for a phone. If user_id given, search only that user's clients."""
@@ -834,6 +822,13 @@ class AdvancedSpamHandler:
                 .limit(50)
                 .to_list(None)
             )
+
+            if not users:
+                await msg.edit(
+                    "⚠️ **No users in database**\n\n"
+                    "Use 📇 Contact Scraper first to build a user database, then retry Mass Inviter."
+                )
+                return
 
             invited = 0
             failed = 0
@@ -901,13 +896,22 @@ class AdvancedSpamHandler:
             file_bytes = io.BytesIO(csv_buffer.getvalue().encode("utf-8"))
             fname = f"contacts_{user_id}.csv"
 
+            if contacts:
+                await mongodb.db.spam_users.delete_many({"owner_id": user_id})
+                await mongodb.db.spam_users.insert_many([
+                    {"owner_id": user_id, "user_id": c["user_id"], "username": c["username"]}
+                    for c in contacts
+                ])
             await self.bot.send_file(
                 user_id,
                 file_bytes,
                 attributes=[DocumentAttributeFilename(fname)],
-                caption=f"📇 Scraped {len(contacts)} contacts",
+                caption=f"📇 Scraped {len(contacts)} contacts — saved for Mass Inviter",
             )
-            await msg.edit(f"✅ Scraped {len(contacts)} contacts!\n\nFile sent above.")
+            await msg.edit(
+                f"✅ Scraped {len(contacts)} contacts!\n\n"
+                f"File sent above.\n💾 Contacts saved to Mass Inviter database."
+            )
         except Exception as e:
             await msg.edit(f"❌ Error: {e}")
         finally:
@@ -951,6 +955,13 @@ class AdvancedSpamHandler:
                     logger.error(f"Error scraping {group.name}: {e}")
 
             contacts = list(all_contacts.values())
+            # Save to spam_users so Mass Inviter can use them
+            if contacts:
+                await mongodb.db.spam_users.delete_many({"owner_id": user_id})
+                await mongodb.db.spam_users.insert_many([
+                    {"owner_id": user_id, "user_id": c["user_id"], "username": c["username"]}
+                    for c in contacts
+                ])
             # Export to CSV in-memory (Fix 8)
             csv_buffer = io.StringIO()
             writer = csv.DictWriter(
@@ -966,10 +977,10 @@ class AdvancedSpamHandler:
                 user_id,
                 file_bytes,
                 attributes=[DocumentAttributeFilename(fname)],
-                caption=f"🌐 Scraped {len(contacts)} unique contacts from {groups_scraped} groups",
+                caption=f"🌐 Scraped {len(contacts)} unique contacts from {groups_scraped} groups — saved for Mass Inviter",
             )
             await msg.edit(
-                f"✅ All groups scraped!\n\nGroups: {groups_scraped}\nContacts: {len(contacts)}\n\nFile sent above."
+                f"✅ All groups scraped!\n\nGroups: {groups_scraped}\nContacts: {len(contacts)}\n\nFile sent above.\n💾 Contacts saved to Mass Inviter database."
             )
         except Exception as e:
             await msg.edit(f"❌ Error: {e}")
@@ -990,22 +1001,32 @@ class AdvancedSpamHandler:
             available = []
             checked = 0
 
-            for i in range(100):
+            from telethon.tl.functions.account import CheckUsernameRequest
+            taken = []
+            for i in range(50):
                 username = f"{base}{random.randint(1, 9999)}"
                 try:
-                    await client.get_entity(username)
-                except BaseException:
-                    available.append(username)
-
+                    ok = await client(CheckUsernameRequest(username))
+                    if ok:
+                        available.append(username)
+                    else:
+                        taken.append(username)
+                except Exception:
+                    pass
                 checked += 1
                 if checked % 10 == 0:
                     await asyncio.sleep(1)
 
-            result = f"✅ Username Check Complete!\n\nChecked: {checked}\nAvailable: {
-                len(available)}\n\n"
-            result += "\n".join([f"@{u}" for u in available[:20]])
-
-            await msg.edit(result)
+            result_text = (
+                f"✅ **Username Check Complete!**\n\n"
+                f"Checked: {checked}\nAvailable: {len(available)}\nTaken: {len(taken)}\n\n"
+            )
+            if available:
+                result_text += "**Available usernames:**\n"
+                result_text += "\n".join([f"@{u}" for u in available[:20]])
+            else:
+                result_text += "No available usernames found."
+            await msg.edit(result_text)
         except Exception as e:
             await msg.edit(f"❌ Error: {e}")
         finally:
