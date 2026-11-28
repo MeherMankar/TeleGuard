@@ -20,23 +20,17 @@ class CommandRegistry:
         # Account Management
         "add": "Add a new Telegram account",
         "accs": "List all your accounts",
-        "remove": "Remove an account (use menu)",
         "reconnect": "Reconnect all accounts",
         # OTP & Security
         "otp": "OTP Manager (use menu)",
         "toggle_protection": "Toggle OTP protection",
         # Proxy Management
         "proxy": "Manage proxies for accounts",
-        # Session Management
-        "sessions": "Session Management (use menu)",
-        "export_session": "Export session (use menu)",
-        "import_session": "Import session (use menu)",
         # DM Topics
         "enable_topics": "Enable DM topics for account",
         "disable_topics": "Disable DM topics for account",
         # Spam & Appeals
         "appeal": "Appeal spam restriction",
-        "spam": "Spam tools (use menu)",
     }
 
     @classmethod
@@ -58,12 +52,11 @@ class CommandRegistry:
 
         categories = {
             "🏠 Basic": ["start", "cancel"],
-            "📱 Accounts": ["add", "accs", "remove", "reconnect"],
-            "🛡️ Security": ["otp", "toggle_protection", "sessions"],
+            "📱 Accounts": ["add", "accs", "reconnect"],
+            "🛡️ Security": ["otp", "toggle_protection"],
             "🌐 Proxy": ["proxy"],
-            "📤 Sessions": ["export_session", "import_session"],
             "💬 DM Topics": ["enable_topics", "disable_topics"],
-            "🧹 Spam": ["appeal", "spam"],
+            "🧹 Spam": ["appeal"],
         }
 
         for category_name, commands in categories.items():

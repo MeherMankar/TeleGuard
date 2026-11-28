@@ -100,28 +100,17 @@ class HelpHandler:
                 "commands": {
                     "add": "Add a new Telegram account",
                     "accs": "List all your accounts",
-                    "remove": "Remove an account",
-                    "switch": "Switch between accounts",
-                    "export_session": "Export session string",
-                    "import_session": "Import session string",
                 },
             },
             "security": {
                 "title": "🛡️ Security & Protection",
                 "commands": {
                     "otp": "Toggle OTP Destroyer protection",
-                    "twofa": "Manage 2FA passwords",
-                    "set_2fa": "Set 2FA password for account",
-                    "get_2fa": "Get stored 2FA password",
-                    "sessions": "View active sessions",
-                    "session_health": "Check session health",
                 },
             },
             "messaging": {
                 "title": "💬 Messaging Tools",
                 "commands": {
-                    "dm": "Manage direct messages",
-                    "reply": "Set up auto-reply",
                     "bulk_send": "Send bulk messages",
                     "bulk_send_list": "Send to list of users",
                     "bulk_send_contacts": "Send to all contacts",

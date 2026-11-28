@@ -7,7 +7,6 @@ from telethon import Button, events
 from ..core.config import MAX_ACCOUNTS
 from ..core.mongo_database import mongodb
 from ..utils.crypto_utils import DataEncryption
-from ..utils.network_helpers import format_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +36,12 @@ class CommandHandlers:
         self.bot.on(events.NewMessage(pattern=r"/cancel"))(self._handle_cancel)
         self.bot.on(events.NewMessage(pattern=r"/accs"))(self._handle_accs)
         self.bot.on(events.NewMessage(pattern=r"/add(?:\s|$)"))(self._handle_add)
-        self.bot.on(events.NewMessage(pattern=r"/remove"))(self._handle_remove)
         self.bot.on(events.NewMessage(pattern=r"/reconnect"))(self._handle_reconnect)
         self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
         self.bot.on(
             events.NewMessage(pattern=r"^/appeal(?:@\w+)?$")
         )(self._handle_appeal)
         self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
-        self.bot.on(events.NewMessage(pattern=r"/sessions"))(self._handle_sessions)
-        self.bot.on(events.NewMessage(pattern=r"/export_session"))(self._handle_export_session)
-        self.bot.on(events.NewMessage(pattern=r"/import_session"))(self._handle_import_session)
-        self.bot.on(events.NewMessage(pattern=r"/dm"))(self._handle_dm)
-        self.bot.on(events.NewMessage(pattern=r"/reply"))(self._handle_reply)
-        self.bot.on(events.NewMessage(pattern=r"/spam"))(self._handle_spam)
 
     def _register_callback_handlers(self):
         """Register callback handlers"""
@@ -60,33 +52,6 @@ class CommandHandlers:
         self.bot.on(events.CallbackQuery(pattern=b"^appeal_page:(\\d+)$"))(
             self._handle_appeal_page
         )
-
-    async def _handle_start(self, event):
-        user_id = event.sender_id
-        user = await mongodb.get_user(user_id)
-        is_new_user = user is None
-        if not user:
-            await mongodb.create_user(user_id)
-        if is_new_user:
-            welcome_text = (
-                "🤖 **Welcome to TeleGuard!**\n\n"
-                "Your professional Telegram account manager with advanced OTP destroyer protection.\n\n"
-                "**🚀 Quick Start:**\n"
-                "1️⃣ Add your first account via '📱 Account Settings'\n"
-                "2️⃣ Enable OTP protection in '🛡️ OTP Manager'\n"
-                "3️⃣ Explore features using the menu below\n\n"
-                "**🛡️ Key Features:**\n"
-                "• Real-time OTP destroyer protection\n"
-                "• Multi-account management (up to 10)\n"
-                "• 2FA management & session control\n"
-                "• Activity simulation & automation\n"
-                "• Secure profile & channel management\n\n"
-                "**💬 Need Help?** Use '❓ Help' or contact @MeherPatil"
-            )
-        else:
-            welcome_text = "🤖 **TeleGuard Account Manager**\n\nWelcome back! Use the menu below to manage your accounts."
-        keyboard = self.menu_system.get_main_menu_keyboard(user_id)
-        await event.reply(welcome_text, buttons=keyboard)
 
     async def _handle_cancel(self, event):
         user_id = event.sender_id
@@ -459,62 +424,3 @@ class CommandHandlers:
         writer.writeheader()
         writer.writerows(contacts)
         return output.getvalue().encode("utf-8")
-
-    async def _send_account_selection(self, user_id: int):
-
-
-        """Send account selection menu for channel management"""
-        try:
-            accounts = await mongodb.db.accounts.find(
-                {"user_id": user_id, "is_active": True}
-            ).to_list(length=None)
-            if not accounts:
-                text = "📱 **Channel Management**\n\nNo active accounts found. Add accounts first to manage channels."
-                buttons = [[Button.inline("➕ Add Account", "account:add")]]
-                await self.bot.send_message(user_id, text, buttons=buttons)
-                return
-            text = "📱 **Channel Management**\n\nSelect an account to manage channels:"
-            buttons = []
-            for account in accounts[:8]:  # Limit to 8 accounts
-                status = "🔗" if account.get("is_active", False) else "🔴"
-                button_text = f"{status} {account['name']}"
-                buttons.append(
-                    [
-                        Button.inline(
-                            button_text,
-                            f"manage:{format_phone_number(account['phone'])}",
-                        )
-                    ]
-                )
-            buttons.append([Button.inline("🔙 Back to Main Menu", "menu:main")])
-            await self.bot.send_message(user_id, text, buttons=buttons)
-        except Exception as e:
-            logger.error(f"Failed to send account selection: {e}")
-            await self.bot.send_message(user_id, "❌ Error loading accounts")
-
-    async def _handle_remove(self, event):
-        await event.reply("Use menu: Account Settings → Manage Account → Remove")
-
-    async def _handle_sessions(self, event):
-        await event.reply("Use menu: Account Settings → Session Management")
-
-    async def _handle_export_session(self, event):
-        await event.reply("Use menu: Account Settings → Session Management → Export")
-
-    async def _handle_import_session(self, event):
-        await event.reply("Use menu: Account Settings → Import Session")
-
-    async def _handle_dm(self, event):
-        await event.reply(
-            "💬 **Direct Message**\n\n"
-            "Use the menu to manage DM forwarding:\n"
-            "• **Messaging → DM Reply** — configure auto-reply for DMs\n"
-            "• **Messaging → DM Topics** — view DM topic mappings\n\n"
-            "Or use /reply to configure auto-reply settings."
-        )
-
-    async def _handle_reply(self, event):
-        await event.reply("Use menu: Messaging → Auto-Reply")
-
-    async def _handle_spam(self, event):
-        await event.reply("Use menu: Cleanup → Spam Appeal")

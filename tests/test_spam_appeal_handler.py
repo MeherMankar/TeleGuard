@@ -78,6 +78,28 @@ def test_appeal_command_is_registered_only_once():
     assert not appeal_builder.pattern("/appeal extra")
 
 
+def test_legacy_placeholder_commands_are_not_registered():
+    bot = HandlerCaptureBot()
+    handler = object.__new__(CommandHandlers)
+    handler.bot = bot
+    handler._register_command_handlers()
+
+    registered_handlers = {
+        registered.__name__
+        for _, registered in bot.handlers
+    }
+    for legacy_name in (
+        "_handle_remove",
+        "_handle_sessions",
+        "_handle_export_session",
+        "_handle_import_session",
+        "_handle_dm",
+        "_handle_reply",
+        "_handle_spam",
+    ):
+        assert legacy_name not in registered_handlers
+
+
 def test_appeal_selection_starts_only_the_selected_active_account(monkeypatch):
     account_id = ObjectId()
     account = {"_id": account_id, "name": "Primary", "is_active": True}

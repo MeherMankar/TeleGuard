@@ -924,7 +924,7 @@ class MenuSystem:
                 status = "enabled" if new_mode else "disabled"
                 text = f"🔧 **Developer Mode**\n\nDeveloper mode {status}.\n\n"
                 if new_mode:
-                    text += "You now have access to text commands:\n/add, /remove, /accs, /toggle_protection, etc."
+                    text += "You now have access to text commands:\n/add, /accs, /toggle_protection, /appeal."
                 else:
                     text += "Text commands are now hidden. Use the menu system."
                 buttons = [[Button.inline("\ud83d\udd19 Back to Main", "menu:main")]]
