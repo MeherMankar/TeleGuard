@@ -342,6 +342,12 @@ class SessionVault:
                         client, user_id, phone
                     )
                     if not success:
+                        if error in ("no_stored_password", "stored_password_invalid"):
+                            logger.warning(
+                                "Vault creation for %s needs 2FA password (%s)",
+                                phone, error,
+                            )
+                            return "NEEDS_2FA"
                         logger.warning(
                             "2FA failed during vault creation for %s: %s", phone, error
                         )

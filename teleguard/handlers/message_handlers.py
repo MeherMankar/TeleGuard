@@ -164,6 +164,19 @@ class MessageHandlers:
         if message.startswith("/"):
             return
 
+        # Deliver to backup 2FA queue if one is waiting for this user
+        vault_queues = getattr(self.bot_manager, "_vault_2fa_queues", {})
+        if user_id in vault_queues:
+            q = vault_queues[user_id]
+            if not q.full():
+                # Delete the password message for security
+                try:
+                    await event.delete()
+                except Exception:
+                    pass
+                await q.put(message)
+                return
+
         # Check if the message is a menu button (to avoid treating it as pending action input)
         menu_buttons = [
             "📱 Account Settings", "Account Settings",
@@ -576,10 +589,30 @@ class MessageHandlers:
         """Background task: create a vault (backup) session for a newly added account."""
         try:
             from ..utils.session_vault import session_vault
-            ok = await session_vault.create_and_store(
+            result = await session_vault.create_and_store(
                 self.bot_manager, user_id, account_id, phone, name
             )
-            if ok:
+            if result == "NEEDS_2FA":
+                # Ask the user for their 2FA password, store it, then retry
+                self.pending_actions[user_id] = {
+                    "action": "vault_2fa_password",
+                    "account_id": account_id,
+                    "phone": phone,
+                    "name": name,
+                }
+                try:
+                    await self.bot.send_message(
+                        user_id,
+                        f"🔐 **2FA Password Required for Vault Backup**\n\n"
+                        f"📱 Account: **{name}** ({phone})\n\n"
+                        f"This account has 2FA enabled but no password is stored.\n"
+                        f"Please send your 2FA password so the vault backup can be created "
+                        f"and the password stored for future automatic backups.\n\n"
+                        f"⚠️ Your message will be deleted immediately after processing.",
+                    )
+                except Exception:
+                    self.pending_actions.pop(user_id, None)
+            elif result:
                 logger.info("Vault session created for account %s (%s)", name, phone)
             else:
                 logger.warning(
@@ -1932,6 +1965,8 @@ class MessageHandlers:
             await self._handle_dm_group_actions(event, user, action, message)
         elif action == "add_proxy":
             await self._handle_add_proxy(event, user, action, message)
+        elif action == "vault_2fa_password":
+            await self._handle_vault_2fa_password(event, user_id, message)
         elif action == "import_webshare_proxies":
             if message.strip().lower() in {"/cancel", "cancel"}:
                 self.pending_actions.pop(user_id, None)
@@ -1963,6 +1998,58 @@ class MessageHandlers:
                 await event.reply("❌ Proxy management not available.")
         else:
             await self._handle_fallback_actions(event, user, action, message, user_id)
+
+    async def _handle_vault_2fa_password(self, event, user_id: int, password: str) -> None:
+        """User supplied their 2FA password for vault session creation."""
+        pending = self.pending_actions.get(user_id, {})
+        account_id = pending.get("account_id", "")
+        phone = pending.get("phone", "")
+        name = pending.get("name", phone)
+
+        # Delete the password message immediately for security
+        try:
+            await event.delete()
+        except Exception:
+            pass
+
+        self.pending_actions.pop(user_id, None)
+
+        # Store the password via twofa_helper
+        from ..utils.twofa_helper import twofa_helper
+        stored = await twofa_helper.store_password(user_id, phone, password)
+        if not stored:
+            # twofa_helper.store_password looks up by phone; fall back to direct update
+            from bson import ObjectId
+            from ..core.mongo_database import mongodb
+            try:
+                encrypted = twofa_helper._encrypt_password(password) if hasattr(twofa_helper, "_encrypt_password") else None
+                if not encrypted:
+                    from ..utils.crypto_utils import DataEncryption
+                    encrypted = DataEncryption.encrypt_field(password)
+                await mongodb.db.accounts.update_one(
+                    {"_id": ObjectId(account_id), "user_id": user_id},
+                    {"$set": {"twofa_password": encrypted}},
+                )
+                stored = True
+            except Exception as e:
+                logger.warning("Could not store 2FA password directly: %s", e)
+
+        if stored:
+            await self.bot.send_message(
+                user_id,
+                f"✅ **2FA password stored for {name}**\n\n"
+                f"⏳ Creating vault backup session now..."
+            )
+            # Retry vault creation — password is now stored
+            asyncio.create_task(
+                self._create_vault_session(user_id, account_id, phone, name)
+            )
+        else:
+            await self.bot.send_message(
+                user_id,
+                f"❌ Could not store 2FA password for {name}.\n"
+                f"Please save it manually via Account Settings → 2FA Settings."
+            )
 
     async def _route_2fa_management(self, event, user, action, message, user_id):
         """Route 2FA management actions"""

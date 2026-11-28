@@ -336,16 +336,19 @@ class BackupRestore:
                     )
                     if success:
                         return session_str, None
-                    if error == "no_stored_password":
-                        return None, (
-                            "2FA password not stored — open Account Settings → "
-                            "2FA Settings and save the password first"
-                        )
-                    if error == "stored_password_invalid":
-                        return None, (
-                            "Stored 2FA password is wrong (changed externally) — "
-                            "update it in Account Settings → 2FA Settings"
-                        )
+                    if error in ("no_stored_password", "stored_password_invalid"):
+                        # Ask the user interactively for the password
+                        password = await self._ask_2fa_password(user_id, phone, account_name, error)
+                        if password:
+                            # Store it and try again
+                            await twofa_helper.store_password(user_id, phone, password)
+                            success2, session_str2, error2 = await twofa_helper.try_sign_in_with_2fa(
+                                client, user_id, phone
+                            )
+                            if success2:
+                                return session_str2, None
+                            return None, f"2FA sign-in failed after password entry: {error2}"
+                        return None, "2FA password not provided — skipped"
                     return None, f"2FA sign-in failed: {error}"
 
             # OtpBypassContext.__aexit__ has already restored all destroyer states
@@ -411,6 +414,61 @@ class BackupRestore:
             except Exception as e:
                 logger.debug("OTP fetch error for %s: %s", phone, e)
         return None
+
+    # ------------------------------------------------------------------ #
+    #  2FA password collection during fresh backup                        #
+    # ------------------------------------------------------------------ #
+
+    async def _ask_2fa_password(
+        self, user_id: int, phone: str, account_name: str, error_type: str
+    ) -> str | None:
+        """
+        Prompt the user for their 2FA password during fresh backup,
+        wait up to 120 seconds for a reply, then return it (or None on timeout).
+        Uses a temporary asyncio.Queue registered on the bot_manager so the
+        message handler can deliver the reply.
+        """
+        import asyncio as _asyncio
+
+        # Register a queue so the message handler can deliver the reply
+        queue: _asyncio.Queue = _asyncio.Queue(maxsize=1)
+        vault_queues = getattr(self.bot_manager, "_vault_2fa_queues", None)
+        if vault_queues is None:
+            self.bot_manager._vault_2fa_queues = {}
+            vault_queues = self.bot_manager._vault_2fa_queues
+        vault_queues[user_id] = queue
+
+        reason = (
+            "No 2FA password is stored for this account."
+            if error_type == "no_stored_password"
+            else "The stored 2FA password appears to have changed externally."
+        )
+        try:
+            await self.bot.send_message(
+                user_id,
+                f"🔐 **2FA Password Required**\n\n"
+                f"📱 Account: **{account_name}** ({phone})\n\n"
+                f"{reason}\n\n"
+                f"Please send your 2FA password now to continue the backup.\n"
+                f"⏳ You have **120 seconds** to reply.\n\n"
+                f"⚠️ Your message will be deleted immediately after processing.",
+            )
+        except Exception:
+            vault_queues.pop(user_id, None)
+            return None
+
+        try:
+            password = await _asyncio.wait_for(queue.get(), timeout=120.0)
+            return password if isinstance(password, str) and password.strip() else None
+        except _asyncio.TimeoutError:
+            await self.bot.send_message(
+                user_id,
+                f"⏰ **Timed out waiting for 2FA password for {account_name}.**\n"
+                f"The account was backed up using the existing session string instead.",
+            )
+            return None
+        finally:
+            vault_queues.pop(user_id, None)
 
     # ------------------------------------------------------------------ #
     #  Restore                                                             #
