@@ -41,7 +41,7 @@ class CommandHandlers:
         self.bot.on(events.NewMessage(pattern=r"/reconnect"))(self._handle_reconnect)
         self.bot.on(events.NewMessage(pattern=r"/proxy"))(self._handle_proxy)
         self.bot.on(
-            events.NewMessage(pattern=r"^/appeal(?:@\w+)?(?:\s|$)")
+            events.NewMessage(pattern=r"^/appeal(?:@\w+)?$")
         )(self._handle_appeal)
         self.bot.on(events.NewMessage(pattern=r"/toggle_protection"))(self._handle_toggle_protection)
         self.bot.on(events.NewMessage(pattern=r"/sessions"))(self._handle_sessions)
@@ -57,6 +57,9 @@ class CommandHandlers:
         self.bot.on(events.CallbackQuery(pattern=r"^messaging_stats$"))(self._handle_messaging_stats)
         self.bot.on(events.CallbackQuery(pattern=r"^sim_stats:(.+)$"))(self._handle_sim_stats)
         self.bot.on(events.CallbackQuery(pattern=r"^export_contacts$"))(self._handle_export_contacts)
+        self.bot.on(events.CallbackQuery(pattern=b"^appeal_page:(\\d+)$"))(
+            self._handle_appeal_page
+        )
 
     async def _handle_start(self, event):
         user_id = event.sender_id
@@ -176,15 +179,68 @@ class CommandHandlers:
 
     async def _handle_appeal(self, event):
         user_id = event.sender_id
+        if not event.is_private:
+            await event.reply(
+                "Use /appeal in a private chat to protect your account details."
+            )
+            return
+
         try:
-            accounts = await mongodb.db.accounts.find({"user_id": user_id, "is_active": True}).to_list(None)
-            if not accounts:
-                await event.reply("❌ No active accounts found. Add an account first.")
-                return
-            text = "🚨 **Spam Appeal**\n\nSelect an account to appeal spam restriction:"
+            await self._send_appeal_account_page(event, page=0)
+        except Exception:
+            logger.exception("Failed to load appeal accounts for user %s", user_id)
+            await event.reply("❌ Could not load your accounts. Please try again.")
+
+    async def _handle_appeal_page(self, event):
+        user_id = event.sender_id
+        try:
+            callback_data = event.data.decode("utf-8")
+            prefix, separator, page_text = callback_data.partition(":")
+            if prefix != "appeal_page" or not separator or not page_text.isdigit():
+                raise ValueError("Invalid appeal page")
+            page = int(page_text)
+            await event.answer()
+            await self._send_appeal_account_page(event, page=page, edit=True)
+        except Exception:
+            logger.exception(
+                "Failed to change appeal account page for user %s", user_id
+            )
+            try:
+                await event.respond("❌ Could not load that page. Please try again.")
+            except Exception:
+                logger.exception(
+                    "Could not report appeal page failure to user %s", user_id
+                )
+
+    async def _send_appeal_account_page(self, event, page, edit=False):
+        user_id = event.sender_id
+        query = {"user_id": user_id, "is_active": True}
+        page_size = 8
+        total_accounts = await mongodb.db.accounts.count_documents(query)
+        if total_accounts == 0:
+            text = "❌ No active accounts found. Add an account first."
+            buttons = [[Button.inline("🔙 Back", "menu:main")]]
+        else:
+            last_page = (total_accounts - 1) // page_size
+            page = min(max(page, 0), last_page)
+            accounts = await (
+                mongodb.db.accounts.find(query)
+                .sort("_id", 1)
+                .skip(page * page_size)
+                .limit(page_size)
+                .to_list(length=page_size)
+            )
+            text = (
+                "🚨 **Spam Appeal**\n\n"
+                "Select an account to appeal spam restrictions:\n"
+                f"Page {page + 1} of {last_page + 1}"
+            )
             buttons = []
-            for account in accounts[:8]:
-                button_text = f"📱 {account.get('name', 'Unknown')}"
+            for account in accounts:
+                account = DataEncryption.decrypt_account_data(account)
+                account_name = account.get("name") or account.get("phone") or "Unknown"
+                account_name = " ".join(str(account_name).split())
+                button_text = f"📱 {account_name[:56]}"
                 buttons.append(
                     [
                         Button.inline(
@@ -192,10 +248,24 @@ class CommandHandlers:
                         )
                     ]
                 )
+
+            page_buttons = []
+            if page > 0:
+                page_buttons.append(
+                    Button.inline("⬅️ Previous", f"appeal_page:{page - 1}")
+                )
+            if page < last_page:
+                page_buttons.append(
+                    Button.inline("Next ➡️", f"appeal_page:{page + 1}")
+                )
+            if page_buttons:
+                buttons.append(page_buttons)
             buttons.append([Button.inline("🔙 Back", "menu:main")])
+
+        if edit:
+            await event.edit(text, buttons=buttons)
+        else:
             await event.reply(text, buttons=buttons)
-        except Exception as e:
-            await event.reply(f"❌ Error: {str(e)}")
 
     async def _handle_toggle_protection(self, event):
         user_id = event.sender_id

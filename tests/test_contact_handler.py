@@ -36,6 +36,7 @@ def test_standalone_ui_callbacks_do_not_also_hit_the_generic_router():
     assert _is_owned_callback("help_main")
     assert _is_owned_callback("create_sess_fmt:string:file")
     assert _is_owned_callback("appeal_account_id:123")
+    assert _is_owned_callback("appeal_page:1")
     assert _is_owned_callback("security_alerts")
     assert _is_owned_callback("backup_restore")
     assert _is_owned_callback("backup_cancel")

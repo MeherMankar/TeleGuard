@@ -114,6 +114,7 @@ _OWNED_CALLBACK_PREFIXES = frozenset(
         "device",
         "help_main",
         "appeal_account_id",
+        "appeal_page",
         "appeal_cancel",
         "captcha_",
         "reset_spam_warning",

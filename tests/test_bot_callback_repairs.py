@@ -33,19 +33,100 @@ def _handler_by_name(bot, name):
 def test_appeal_command_emits_registered_account_callback(monkeypatch):
     account_id = "account-id"
     cursor = SimpleNamespace(
+        sort=Mock(),
+        skip=Mock(),
+        limit=Mock(),
         to_list=AsyncMock(return_value=[{"_id": account_id, "name": "Primary"}])
+    )
+    cursor.sort.return_value = cursor
+    cursor.skip.return_value = cursor
+    cursor.limit.return_value = cursor
+    accounts = SimpleNamespace(
+        find=Mock(return_value=cursor),
+        count_documents=AsyncMock(return_value=1),
     )
     monkeypatch.setattr(
         "teleguard.handlers.command_handlers.mongodb",
-        SimpleNamespace(db=SimpleNamespace(accounts=SimpleNamespace(find=Mock(return_value=cursor)))),
+        SimpleNamespace(db=SimpleNamespace(accounts=accounts)),
     )
     handler = object.__new__(CommandHandlers)
-    event = SimpleNamespace(sender_id=7, reply=AsyncMock())
+    event = SimpleNamespace(sender_id=7, is_private=True, reply=AsyncMock())
 
     asyncio.run(handler._handle_appeal(event))
 
     buttons = event.reply.await_args.kwargs["buttons"]
     assert buttons[0][0].data == f"appeal_account_id:{account_id}".encode()
+    cursor.sort.assert_called_once_with("_id", 1)
+    cursor.skip.assert_called_once_with(0)
+    cursor.limit.assert_called_once_with(8)
+
+
+def test_appeal_command_refuses_to_expose_accounts_in_group_chats(monkeypatch):
+    accounts = SimpleNamespace(find=Mock())
+    monkeypatch.setattr(
+        "teleguard.handlers.command_handlers.mongodb",
+        SimpleNamespace(db=SimpleNamespace(accounts=accounts)),
+    )
+    handler = object.__new__(CommandHandlers)
+    event = SimpleNamespace(
+        sender_id=7,
+        is_private=False,
+        reply=AsyncMock(),
+    )
+
+    asyncio.run(handler._handle_appeal(event))
+
+    accounts.find.assert_not_called()
+    event.reply.assert_awaited_once()
+    assert "private chat" in event.reply.await_args.args[0]
+
+
+def test_appeal_account_picker_paginates_all_active_accounts(monkeypatch):
+    accounts_on_page = [
+        {"_id": f"account-{index}", "name": f"Account {index}"}
+        for index in range(9, 11)
+    ]
+    cursor = SimpleNamespace(
+        sort=Mock(),
+        skip=Mock(),
+        limit=Mock(),
+        to_list=AsyncMock(return_value=accounts_on_page),
+    )
+    cursor.sort.return_value = cursor
+    cursor.skip.return_value = cursor
+    cursor.limit.return_value = cursor
+    accounts = SimpleNamespace(
+        find=Mock(return_value=cursor),
+        count_documents=AsyncMock(return_value=10),
+    )
+    monkeypatch.setattr(
+        "teleguard.handlers.command_handlers.mongodb",
+        SimpleNamespace(db=SimpleNamespace(accounts=accounts)),
+    )
+    handler = object.__new__(CommandHandlers)
+    event = SimpleNamespace(
+        sender_id=7,
+        data=b"appeal_page:1",
+        answer=AsyncMock(),
+        edit=AsyncMock(),
+        respond=AsyncMock(),
+    )
+
+    asyncio.run(handler._handle_appeal_page(event))
+
+    event.answer.assert_awaited_once()
+    text = event.edit.await_args.args[0]
+    buttons = event.edit.await_args.kwargs["buttons"]
+    assert "Page 2 of 2" in text
+    assert [button.data for row in buttons for button in row] == [
+        b"appeal_account_id:account-9",
+        b"appeal_account_id:account-10",
+        b"appeal_page:0",
+        b"menu:main",
+    ]
+    cursor.sort.assert_called_once_with("_id", 1)
+    cursor.skip.assert_called_once_with(8)
+    cursor.limit.assert_called_once_with(8)
 
 
 def test_max_users_input_persists_a_value_within_existing_cap(monkeypatch):

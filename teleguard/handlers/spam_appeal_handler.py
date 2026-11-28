@@ -26,6 +26,7 @@ class SpamAppealHandler:
         self.spam_bot_username = "spambot"
         self.spam_info_bot_username = "SpamBot"  # Alternative spam bot
         self.active_appeals: Dict[int, Dict] = {}  # user_id -> appeal_state
+        self.pending_appeals: set[int] = set()
         self.appeal_messages = self._load_appeal_messages()
         self._registered_clients: set = set()  # Fix 2: duplicate handler guard
 
@@ -1409,11 +1410,6 @@ Generate 4 diverse examples:"""
                     "session_protection_disabled": True,
                     "protection_bypass_until": time.time() + 1800,
                 },
-                "$unset": {
-                    "session_protection_active": "",
-                    "protection_cooldown": "",
-                    "last_protection_trigger": "",
-                },
             },
         )
 
@@ -1438,8 +1434,19 @@ Generate 4 diverse examples:"""
         """Show account selection buttons"""
         buttons = []
         for account in accounts[:10]:
-            display_name = account.get("display_name") or account.get("name") or account.get("phone", "Unknown")
-            buttons.append([Button.inline(f"📱 {display_name}", f"appeal_account_id:{account['_id']}")])
+            display_name = (
+                account.get("display_name")
+                or account.get("name")
+                or account.get("phone", "Unknown")
+            )
+            buttons.append(
+                [
+                    Button.inline(
+                        f"📱 {display_name}",
+                        f"appeal_account_id:{account['_id']}",
+                    )
+                ]
+            )
         buttons.append([Button.inline("❌ Cancel", "appeal_cancel")])
         await event.reply(
             f"🧠 **Smart Spam Appeal**\n\n"
@@ -1451,7 +1458,12 @@ Generate 4 diverse examples:"""
     async def _appeal_account_callback_handler(self, event):
         """Handle account selection callback"""
         user_id = event.sender_id
-        account_id = event.data.decode().split(":", 1)[1]
+        if user_id in self.active_appeals or user_id in self.pending_appeals:
+            await event.answer("An appeal is already in progress.", alert=True)
+            return
+
+        self.pending_appeals.add(user_id)
+        protection_disabled = False
         try:
             await event.answer()
             try:
@@ -1464,8 +1476,16 @@ Generate 4 diverse examples:"""
                         pass
             except Exception:
                 pass
+
+            callback_data = event.data.decode("utf-8")
+            prefix, separator, account_id = callback_data.partition(":")
+            if prefix != "appeal_account_id" or not separator or not account_id:
+                await event.respond("❌ Invalid account selection.")
+                return
+
             from bson import ObjectId
             from ..core.mongo_database import mongodb
+
             account = await mongodb.db.accounts.find_one(
                 {
                     "_id": ObjectId(account_id),
@@ -1476,15 +1496,33 @@ Generate 4 diverse examples:"""
             if not account:
                 await event.respond("❌ Active account not found.")
                 return
-            account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
+            account = DataEncryption.decrypt_account_data(account)
+            account_name = (
+                account.get("name")
+                or account.get("phone")
+                or account.get("display_name")
+            )
+            if not isinstance(account_name, str) or not account_name.strip():
+                await event.respond("❌ The selected account has no usable name.")
+                return
+            account_name = account_name.strip()
+            protection_disabled = True
             await self._disable_session_protection(user_id)
             await asyncio.sleep(random.uniform(0.2, 0.8))
             await self._start_appeal_for_account(user_id, account_name, "", event)
         except Exception as e:
             logger.error(f"Appeal account callback error: {e}")
-            await self._restore_session_protection(user_id)
+            if protection_disabled:
+                await self._restore_session_protection(user_id)
             self._cancel_appeal(user_id)
-            await event.respond("❌ Error starting appeal process.")
+            try:
+                await event.respond("❌ Error starting appeal process.")
+            except Exception:
+                logger.exception(
+                    "Could not report appeal callback failure to user %s", user_id
+                )
+        finally:
+            self.pending_appeals.discard(user_id)
 
     async def _appeal_cancel_handler(self, event):
         """Handle appeal cancellation"""
@@ -1571,7 +1609,7 @@ Generate 4 diverse examples:"""
             await event.respond("❌ Error processing captcha verification.")
 
     async def _spam_appeal_start_callback_handler(self, event):
-        """Handle spam_appeal_start callback — show account selection or start directly (Fix 13)"""
+        """Show account selection before starting an appeal."""
         user_id = event.sender_id
         try:
             await event.answer()
@@ -1580,15 +1618,11 @@ Generate 4 diverse examples:"""
                 {"user_id": user_id, "is_active": True}
             ).to_list(length=None)
             if not accounts:
-                await event.respond("❌ No accounts found. Add an account first using /start")
+                await event.respond(
+                    "❌ No accounts found. Add an account first using /start"
+                )
                 return
-            await self._disable_session_protection(user_id)
-            if len(accounts) > 1:
-                await self._show_account_selection(event, accounts)
-            else:
-                account = accounts[0]
-                account_name = account.get("name") or account.get("phone") or account.get("display_name", "Unknown")
-                await self._start_appeal_for_account(user_id, account_name, "", event)
+            await self._show_account_selection(event, accounts)
         except Exception as e:
             logger.error(f"spam_appeal_start callback error: {e}")
             await self._restore_session_protection(user_id)
